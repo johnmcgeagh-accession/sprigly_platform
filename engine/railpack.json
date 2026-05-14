@@ -7,13 +7,19 @@
   },
   "steps": {
     "install": {
+      "inputs": [
+        { "include": ["."] }
+      ],
       "commands": [
         "ls -la",
         "pnpm install --frozen-lockfile"
       ]
     },
     "build": {
-      "inputs": [{ "step": "install" }],
+      "inputs": [
+        { "step": "install" },
+        { "include": ["."] }
+      ],
       "commands": [
         "pnpm --filter @sprigly/worker... build"
       ]
@@ -22,7 +28,8 @@
   "deploy": {
     "startCommand": "pnpm --filter @sprigly/worker start",
     "inputs": [
-      { "step": "build", "include": ["."] }
+      { "step": "build" },
+      { "include": ["."] }
     ]
   }
 }
