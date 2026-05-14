@@ -26,6 +26,8 @@ Running list of work to do, in rough priority order within each section. Items m
 
 ## 🟡 Medium priority — operational improvements
 
+- **Google OAuth app verification.** Our OAuth consent screen is in "Testing" mode — tokens expire after 7 days and only pre-approved test users can authorise. Before onboarding paying clients, submit the app for Google's OAuth verification process (requires privacy policy URL, app description, and a security assessment for sensitive scopes including `gmail.modify`). Estimated 4-6 week review time; start early.
+
 - **Restore Watch Paths in Railway.** Cleared during Docker debug. Worker should only rebuild when `/apps/worker/**`, `/packages/**`, `/pnpm-lock.yaml`, `/package.json`, `/Dockerfile` change. Without this, every push to docs or marketing site rebuilds the worker unnecessarily.
 
 - **Drift detection UI for client-specific prompts.** When a client customises a shared default prompt, we record `copiedFromTemplateId` and `copiedFromVersion`. If the shared default later updates to a newer version, the client-specific copy has "drifted." Build a UI indicator showing "this client prompt was copied from shared v3, current shared is v5 — review?" Don't auto-update; just flag.

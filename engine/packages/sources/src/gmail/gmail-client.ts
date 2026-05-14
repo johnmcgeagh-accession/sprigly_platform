@@ -65,10 +65,57 @@ export class GmailApiClient {
   }
 
   async markAsRead(messageId: string): Promise<void> {
-    await this.gmail.users.messages.modify({
+    try {
+      await this.gmail.users.messages.modify({
+        userId: 'me',
+        id: messageId,
+        requestBody: { removeLabelIds: ['UNREAD'] },
+      });
+    } catch (err) {
+      console.error(`[GmailApiClient] markAsRead failed for messageId=${messageId}:`, (err as Error).message);
+      throw err;
+    }
+  }
+
+  async createDraft(params: {
+    threadId?: string;
+    to: string;
+    subject: string;
+    bodyMarkdown: string;
+    inReplyToMessageId?: string;
+  }): Promise<{ draftId: string; messageId: string }> {
+    const { threadId, to, subject, bodyMarkdown, inReplyToMessageId } = params;
+
+    const lines: string[] = [
+      `To: ${to}`,
+      `Subject: ${subject}`,
+      'MIME-Version: 1.0',
+      'Content-Type: text/plain; charset=UTF-8',
+    ];
+
+    if (inReplyToMessageId !== undefined) {
+      lines.push(`In-Reply-To: <${inReplyToMessageId}>`);
+      lines.push(`References: <${inReplyToMessageId}>`);
+    }
+
+    lines.push('');
+    lines.push(bodyMarkdown);
+
+    const raw = Buffer.from(lines.join('\r\n')).toString('base64url');
+
+    const res = await this.gmail.users.drafts.create({
       userId: 'me',
-      id: messageId,
-      requestBody: { removeLabelIds: ['UNREAD'] },
+      requestBody: {
+        message: {
+          raw,
+          ...(threadId !== undefined && { threadId }),
+        },
+      },
     });
+
+    return {
+      draftId: res.data.id ?? '',
+      messageId: res.data.message?.id ?? '',
+    };
   }
 }

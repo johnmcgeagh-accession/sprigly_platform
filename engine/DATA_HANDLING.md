@@ -21,6 +21,22 @@ Model calls are made by the `sprigly-bedrock-worker` IAM user, which has no acce
 
 ---
 
+## OAuth scopes
+
+The Gmail OAuth connection requests the following scopes:
+
+| Scope | Purpose |
+|---|---|
+| `gmail.readonly` | Read inbox messages for workflow triggers |
+| `gmail.modify` | Mark messages as read; create draft replies |
+| `gmail.send` | Send notifications from client mailbox |
+
+**NOT granted:** `gmail.compose`, `mail.google.com` (full account access), or any Google Drive, Calendar, or Contacts scope.
+
+Tokens are per-client, stored encrypted using KMS envelope encryption (see Encryption section), and scoped to a single Gmail account.
+
+---
+
 ## Model availability
 
 Models in use as of 2026-05-14:
