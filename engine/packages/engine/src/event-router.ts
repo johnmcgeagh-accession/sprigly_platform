@@ -2,7 +2,7 @@ import { db as _db, routingRules } from '@sprigly/db';
 import type { RoutingRule as DbRoutingRule } from '@sprigly/db';
 import { eq, and, desc } from 'drizzle-orm';
 import type {
-  IncomingEvent,
+  IncomingEventDraft,
   MatchCondition,
   RoutingRule,
   SourceType,
@@ -11,13 +11,13 @@ import type {
 
 type Db = typeof _db;
 
-export function extractField(event: IncomingEvent, field: string): string {
-  if (field === 'body') return event.content.text;
-  return String(event.sourceMetadata[field] ?? '');
+export function extractField(draft: IncomingEventDraft, field: string): string {
+  if (field === 'body') return draft.content.text;
+  return String(draft.sourceMetadata[field] ?? '');
 }
 
-export function evaluateCondition(condition: MatchCondition, event: IncomingEvent): boolean {
-  const raw = extractField(event, condition.field);
+export function evaluateCondition(condition: MatchCondition, draft: IncomingEventDraft): boolean {
+  const raw = extractField(draft, condition.field);
 
   if (condition.op === 'regex') {
     return new RegExp(condition.value, condition.caseSensitive ? '' : 'i').test(raw);
@@ -34,8 +34,13 @@ export function evaluateCondition(condition: MatchCondition, event: IncomingEven
   }
 }
 
-export function evaluateConditions(conditions: MatchCondition[], event: IncomingEvent): boolean {
-  return conditions.every((c) => evaluateCondition(c, event));
+export function evaluateConditions(conditions: MatchCondition[], draft: IncomingEventDraft): boolean {
+  return conditions.every((c) => evaluateCondition(c, draft));
+}
+
+// Pure function — no DB, no side effects. Apply loaded rules against a draft.
+export function matchRules(draft: IncomingEventDraft, rules: RoutingRule[]): RoutingRule[] {
+  return rules.filter((rule) => evaluateConditions(rule.match.conditions, draft));
 }
 
 function toEngineRule(row: DbRoutingRule): RoutingRule {
@@ -57,19 +62,26 @@ function toEngineRule(row: DbRoutingRule): RoutingRule {
 export class EventRouter {
   constructor(private db: Db) {}
 
-  async route(event: IncomingEvent): Promise<RoutingRule[]> {
+  // DB-only: fetch active rules for a client+source without evaluating them.
+  async loadRules(clientId: string, source: SourceType): Promise<RoutingRule[]> {
     const rows = await this.db
       .select()
       .from(routingRules)
       .where(
         and(
-          eq(routingRules.clientId, event.clientId),
-          eq(routingRules.source, event.source),
+          eq(routingRules.clientId, clientId),
+          eq(routingRules.source, source),
           eq(routingRules.enabled, true),
         ),
       )
       .orderBy(desc(routingRules.priority));
 
-    return rows.map(toEngineRule).filter((rule) => evaluateConditions(rule.match.conditions, event));
+    return rows.map(toEngineRule);
+  }
+
+  // Convenience wrapper: load rules then match. Works with any IncomingEventDraft (or IncomingEvent).
+  async route(draft: IncomingEventDraft): Promise<RoutingRule[]> {
+    const rules = await this.loadRules(draft.clientId, draft.source);
+    return matchRules(draft, rules);
   }
 }

@@ -1,3 +1,6 @@
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import { db, clients, incomingEvents, workflowRuns, approvals } from '@sprigly/db';
 import { eq, gt, desc, sql } from 'drizzle-orm';
 

@@ -1,3 +1,6 @@
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { db, incomingEvents, workflowRuns, clients } from '@sprigly/db';

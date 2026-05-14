@@ -1,4 +1,5 @@
 export type {
+  IncomingEventDraft,
   IncomingEvent,
   Attachment,
   ReplyContext,
@@ -18,6 +19,6 @@ export type {
   MatchCondition,
 } from './types.js';
 export { WorkflowRegistry } from './workflow-registry.js';
-export { EventRouter, evaluateCondition, evaluateConditions, extractField } from './event-router.js';
+export { EventRouter, extractField, evaluateCondition, evaluateConditions, matchRules } from './event-router.js';
 export { WorkflowRunner } from './workflow-runner.js';
 export { DestinationDispatcher } from './destination-dispatcher.js';

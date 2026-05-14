@@ -69,7 +69,8 @@ export function createConsumer(
             .update(incomingEvents)
             .set({ status: 'ignored' })
             .where(eq(incomingEvents.id, eventId));
-          logger.info({ eventId }, 'no matching rules');
+          // Safety net: should be rare post-refactor (rule disabled between poll and process)
+          logger.warn({ eventId }, 'no matching rules');
           return;
         }
 

@@ -1,3 +1,6 @@
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import Link from 'next/link';
 import { db, incomingEvents, clients } from '@sprigly/db';
 import { eq, desc } from 'drizzle-orm';
@@ -82,6 +85,9 @@ export default async function EventsPage() {
           </tbody>
         </table>
       </div>
+      <p className="text-sm text-gray-400 mt-3">
+        Only events that matched a routing rule are shown. Emails received without a matching rule are not persisted.
+      </p>
     </div>
   );
 }

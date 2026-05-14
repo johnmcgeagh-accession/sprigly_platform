@@ -7,11 +7,21 @@ export type SourceType =
   | "webhook"
   | "schedule";
 
-export interface IncomingEvent {
-  id: string;
+// Minimum shape needed for routing rule evaluation — no DB id, no reply context.
+// Use this before deciding whether to persist an incoming message.
+export interface IncomingEventDraft {
   clientId: string;
   source: SourceType;
   sourceMetadata: Record<string, unknown>;
+  content: {
+    text: string;
+    structured?: Record<string, unknown>;
+  };
+}
+
+// Persisted event — extends the draft with DB-assigned fields and reply context.
+export interface IncomingEvent extends IncomingEventDraft {
+  id: string;
   receivedAt: Date;
   content: {
     text: string;

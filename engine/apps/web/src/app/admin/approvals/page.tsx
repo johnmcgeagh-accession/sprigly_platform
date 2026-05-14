@@ -1,3 +1,6 @@
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import { db, approvals, workflowRuns, clients } from '@sprigly/db';
 import { eq, desc } from 'drizzle-orm';
 import { approveRun, rejectRun } from './actions';

@@ -31,6 +31,26 @@ The generic `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` env vars are not used.
 
 ---
 
+## Admin caching
+
+Admin pages use:
+
+```typescript
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+```
+
+These are Next.js route segment config options that opt the page out of production caching. Required for any page that displays live database state.
+
+**Why this matters:** Vercel caches server-rendered pages by default. Without these exports, the rendered HTML is cached and served stale even after the database has changed. Localhost dev mode never caches, so the issue is invisible locally and only manifests in production.
+
+**Scope:** Applied to all admin `page.tsx` files that import from `@sprigly/db`. Does not apply to:
+- Server actions (`actions.ts`) — different caching model
+- Static layout components that don't fetch data
+- Marketing site pages
+
+---
+
 ## Model resolution
 
 Workflows declare logical model names (`haiku`, `sonnet`, `opus`). These are resolved to physical provider IDs at worker startup by `ResolvedModelClient` in `packages/model-client/src/model-resolver.ts`.

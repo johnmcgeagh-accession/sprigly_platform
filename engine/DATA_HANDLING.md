@@ -55,6 +55,17 @@ All connections use TLS: worker → Railway (PostgreSQL over TLS), worker → AW
 
 ---
 
+## Email content filtering
+
+Email content from incoming emails is only persisted when at least one active routing rule matches. Emails outside the scope of configured workflows are read, tracked by Gmail message ID for idempotency (`processed_external_ids`), and discarded without storing content.
+
+This means:
+- Personal data in emails that don't match any workflow is never written to the database.
+- The idempotency record (`processed_external_ids`) contains only the Gmail message ID, client ID, source, and processed timestamp — no subject, body, sender, or recipient.
+- If a routing rule is later added that would have matched a previously discarded email, that email will not be retroactively processed.
+
+---
+
 ## Audit logging
 
 Every model call is written to the `audit_log` table with:
