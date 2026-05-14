@@ -59,6 +59,7 @@ export const workflowMeta: WorkflowMeta[] = [
       requireApproval: false,
       settings: {},
     },
+    
     steps: [
       {
         stepName: 'research',
