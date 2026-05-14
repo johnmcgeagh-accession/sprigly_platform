@@ -8,6 +8,7 @@
   "steps": {
     "install": {
       "commands": [
+        "ls -la",
         "pnpm install --frozen-lockfile"
       ]
     },
