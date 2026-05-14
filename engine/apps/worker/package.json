@@ -1,0 +1,38 @@
+{
+  "name": "@sprigly/worker",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "sh -c 'set -a && . ../../.env.local && set +a && tsx watch src/index.ts'",
+    "start": "node dist/index.js",
+    "type-check": "tsc --noEmit",
+    "setup-gmail": "tsx --env-file ../../.env.local src/setup-gmail-oauth.ts",
+    "eval:bedrock":  "sh -c 'set -a && . ../../.env.local && set +a && tsx scripts/eval-bedrock.ts'",
+    "eval:harness":           "sh -c 'set -a && . ../../.env.local && set +a && tsx scripts/eval-harness.ts'",
+    "eval:harness:anthropic": "sh -c 'set -a && . ../../.env.local && set +a && tsx scripts/eval-harness.ts anthropic'",
+    "eval:harness:bedrock":   "sh -c 'set -a && . ../../.env.local && set +a && tsx scripts/eval-harness.ts bedrock'"
+  },
+  "dependencies": {
+    "pino": "^9.0.0",
+    "bullmq": "^5.0.0",
+    "drizzle-orm": "^0.30.0",
+    "zod": "^3.22.0",
+    "googleapis": "^144.0.0",
+    "@sprigly/db": "workspace:*",
+    "@sprigly/engine": "workspace:*",
+    "@sprigly/sources": "workspace:*",
+    "@sprigly/workflows": "workspace:*",
+    "@sprigly/destinations": "workspace:*",
+    "@sprigly/audit": "workspace:*",
+    "@sprigly/model-client": "workspace:*",
+    "@sprigly/oauth-tokens": "workspace:*",
+    "@sprigly/prompts": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "*",
+    "@types/node": "*",
+    "tsx": "^4.0.0"
+  }
+}

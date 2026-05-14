@@ -1,0 +1,38 @@
+import Nav from '@/components/Nav'
+import Hero from '@/components/Hero'
+import { IntroOverlay } from '@/components/IntroOverlay'
+import HowItWorks from '@/components/HowItWorks'
+import TrustStrip from '@/components/TrustStrip'
+import WhatChanges from '@/components/WhatChanges'
+import Outputs from '@/components/Outputs'
+import Comparison from '@/components/Comparison'
+import Verticals from '@/components/Verticals'
+import Process from '@/components/Process'
+import BlogSection from '@/components/BlogSection'
+import AboutSection from '@/components/AboutSection'
+import CtaBand from '@/components/CtaBand'
+import Footer from '@/components/Footer'
+
+export default function HomePage() {
+  return (
+    <>
+      <IntroOverlay />
+      <Nav />
+      <main>
+        <Hero />
+        <HowItWorks />
+        {/* Transition: paper → paper (HowItWorks already fades to #FCFAF6) */}
+        <TrustStrip />
+        <WhatChanges />
+        <Outputs />
+        <Comparison />
+        <Verticals />
+        <Process />
+        <BlogSection />
+        <AboutSection />
+        <CtaBand />
+      </main>
+      <Footer />
+    </>
+  )
+}

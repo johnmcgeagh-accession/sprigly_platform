@@ -1,0 +1,66 @@
+# Sprigly Engine — Data Handling
+
+## Production inference
+
+All model inference in production runs on **AWS Bedrock** in `eu-west-2` via cross-region inference profiles. Traffic is routed within the EU and does not leave AWS EU infrastructure.
+
+**Cross-region inference profiles** allow Bedrock to route requests across EU availability zones for resilience while keeping data within the EU. The profile IDs used follow the `eu.anthropic.*` naming convention.
+
+Model calls are made by the `sprigly-bedrock-worker` IAM user, which has no access to data outside Bedrock inference.
+
+---
+
+## Sub-processors
+
+| Sub-processor | Role | Region | Data sent |
+|---|---|---|---|
+| **Anthropic** | Model creator — trains and maintains the Claude models | N/A (model weights hosted by AWS) | None directly — Anthropic provides models to AWS; prompts are not sent to Anthropic infrastructure in production |
+| **AWS (Bedrock)** | Inference infrastructure — hosts and serves the models | EU (eu-west-2, cross-region within EU) | System prompts, user prompts, model output |
+| **AWS (KMS)** | Key management — envelope encryption for OAuth tokens | eu-west-2 | Encrypted data keys only; plaintext content never sent to KMS |
+| **Railway** | Database hosting (PostgreSQL) | EU | Structured application data, audit logs, encrypted OAuth tokens |
+
+---
+
+## Model availability
+
+Models in use as of 2026-05-14:
+
+| Model | Logical name | Bedrock status |
+|---|---|---|
+| Claude Haiku 4.5 | `haiku` | Available |
+| Claude Sonnet 4.6 | `sonnet` | Available |
+| Claude Opus 4.7 | `opus` | Pending AWS provisioning — support case raised |
+
+All current production workflows use `haiku`. The engine supports `sonnet` for use cases requiring higher quality output; `opus` is declared in the model map but cannot be invoked until AWS completes provisioning.
+
+---
+
+## Encryption
+
+### OAuth tokens
+
+OAuth tokens (Gmail, Google Calendar, etc.) are encrypted at rest using **KMS envelope encryption**:
+
+1. On write: AWS KMS generates a per-client data key. The plaintext key encrypts the token; only the encrypted key and encrypted token are stored in the database.
+2. On read: KMS decrypts the data key; the plaintext key decrypts the token in memory. The plaintext key is never persisted.
+3. KMS operations use the `sprigly-kms-tokens` IAM user, which is scoped to a single KMS key ARN and has no access to Bedrock or application data.
+
+### Data at rest
+
+All application data is stored in PostgreSQL on Railway. Railway encrypts volumes at rest (AES-256). The database is not publicly accessible — the worker connects via private networking.
+
+### Data in transit
+
+All connections use TLS: worker → Railway (PostgreSQL over TLS), worker → AWS Bedrock (HTTPS/TLS), worker → KMS (HTTPS/TLS).
+
+---
+
+## Audit logging
+
+Every model call is written to the `audit_log` table with:
+- `client_id`, `event_id`, `workflow_run_id`
+- `model_id` — full physical model ID (e.g. `eu.anthropic.claude-haiku-4-5-20251001-v1:0`)
+- `input_tokens`, `output_tokens`
+- `cost_pence` — computed from `packages/audit/src/price-map.ts` at write time
+
+Prompts and model output are **not** stored in audit logs. The audit log records metadata only.

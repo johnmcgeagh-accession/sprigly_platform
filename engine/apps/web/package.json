@@ -1,0 +1,31 @@
+{
+  "name": "@sprigly/web",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "build": "next build",
+    "dev": "sh -c 'set -a && . ../../.env.local && set +a && next dev --port 3100'",
+    "start": "next start --port 3100",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "^14.2.25",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "@clerk/nextjs": "^6.0.0",
+    "drizzle-orm": "^0.30.0",
+    "@sprigly/db": "workspace:*",
+    "@sprigly/ui": "workspace:*",
+    "@sprigly/workflows": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "*",
+    "@types/node": "*",
+    "@types/react": "*",
+    "@types/react-dom": "*",
+    "tailwindcss": "^3.4.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0"
+  }
+}

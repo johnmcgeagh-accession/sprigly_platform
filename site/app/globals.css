@@ -1,0 +1,536 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ----------------------------------------------------------------
+   Base
+   ---------------------------------------------------------------- */
+@layer base {
+  html {
+    color-scheme: light;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Force light mode — dark mode is not supported in v1 */
+  @media (prefers-color-scheme: dark) {
+    html,
+    body {
+      background: #fcfaf6 !important;
+      color: #1f1a18 !important;
+    }
+  }
+}
+
+/* ----------------------------------------------------------------
+   Film grain — fixed overlay, very subtle, pointer-events none
+   ---------------------------------------------------------------- */
+@layer utilities {
+  .film-grain::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.025;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+}
+
+/* ----------------------------------------------------------------
+   Fraunces display italic — "SOFT" 100 opsz 144
+   Used on hero title <em>, section title <em>, CTA band <em>
+   ---------------------------------------------------------------- */
+.fraunces-soft {
+  font-style: italic;
+  font-variation-settings: "SOFT" 100, "opsz" 144;
+}
+
+/* ----------------------------------------------------------------
+   Scroll-reveal animations
+   ---------------------------------------------------------------- */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(32px);
+  transition: opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-reveal].visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Stagger: the wrapper is always visible; children animate in */
+[data-reveal][data-stagger="true"] {
+  opacity: 1;
+  transform: none;
+}
+
+[data-reveal][data-stagger="true"] > * {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-reveal][data-stagger="true"].visible > *:nth-child(1) {
+  opacity: 1; transform: translateY(0); transition-delay: 0s;
+}
+[data-reveal][data-stagger="true"].visible > *:nth-child(2) {
+  opacity: 1; transform: translateY(0); transition-delay: 0.12s;
+}
+[data-reveal][data-stagger="true"].visible > *:nth-child(3) {
+  opacity: 1; transform: translateY(0); transition-delay: 0.24s;
+}
+[data-reveal][data-stagger="true"].visible > *:nth-child(4) {
+  opacity: 1; transform: translateY(0); transition-delay: 0.36s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal],
+  [data-reveal][data-stagger="true"] > * {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+}
+
+/* ----------------------------------------------------------------
+   Generic fadeUp — used in hero and other entry animations
+   ---------------------------------------------------------------- */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ----------------------------------------------------------------
+   Intro overlay — page entry animation, plays every visit.
+   Total: 10 s. z-index: 49 (below nav z-50).
+
+   All fold animations use the same direction: enter from ABOVE,
+   exit fold DOWN. Large leaf is in the hero (permanent) — not here.
+
+   t=0–1.5s:    Leaf alone (hero leaf showing through — overlay covers it
+                but leaf is in hero, revealed as overlay lifts later).
+   t=1.5–2.2s:  "Sprigly" folds in from above (expo.out).
+   t=2.2–3.7s:  Sprigly held (1.5 s).
+   t=3.7–4.4s:  Sprigly folds out DOWNWARD (expo.in).
+   t=4.4–4.7s:  PAUSE — gap between Sprigly exit and h1 entry.
+   t=4.7–5.5s:  Hero h1 folds in from above (expo.out); overlay does
+                fast expo.out drop to 35% so fold is visible.
+   t=5.5–8.0s:  "More capacity" held alone (2.5 s).
+   t=8.0s:      Subheadline fades up.
+   t=8.3s:      Support line fades up.
+   t=8.6s:      CTA fades up.
+   t=9.6s:      Overlay fully transparent.
+   t=10.2s:     Component unmounts.
+   ---------------------------------------------------------------- */
+
+.intro-full {
+  position: fixed;
+  inset: 0;
+  z-index: 49;
+  background: linear-gradient(160deg, #FF9080 0%, #FF6F62 40%, #E85040 100%);
+  pointer-events: none;
+  animation: introFade 10s linear forwards;
+}
+
+/* Fully opaque until just before h1 enters, then expo.out fast-drop to 35%
+   so the h1 fold is visible through the lifting coral, then linear to 0. */
+@keyframes introFade {
+  0%   { opacity: 1; }
+  45%  { opacity: 1; animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
+  54%  { opacity: 0.35; animation-timing-function: linear; }
+  96%  { opacity: 0; }
+  100% { opacity: 0; }
+}
+
+/* ── Large leaf mark: centred in the overlay, visible from frame 0 ── */
+.intro-leaf-bg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: clamp(180px, 26vw, 320px);
+  height: auto;
+  transform: translate(-50%, -62%);
+  pointer-events: none;
+}
+
+/* ── Sprigly: Plus Jakarta Sans 800, enters from above, exits downward ── */
+.intro-sprigly {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  margin: 0;
+  width: max-content;
+  font-family: var(--font-jakarta), sans-serif;
+  font-weight: 800;
+  font-size: clamp(68px, 9.5vw, 120px);
+  letter-spacing: -0.025em;
+  color: white;
+  line-height: 1;
+  user-select: none;
+  opacity: 0;
+  transform: translate(-50%, calc(-50% - 30%)) rotateX(60deg);
+  animation: introSprigly 10s both;
+}
+
+@keyframes introSprigly {
+  /* Hold invisible — leaf alone phase */
+  0%, 14% {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% - 30%)) rotateX(60deg);
+    animation-timing-function: linear;
+  }
+  /* Start fold-in from above at 1.5 s (15%) */
+  15% {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% - 30%)) rotateX(60deg);
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  /* Fully in at 2.2 s (22%) */
+  22% {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotateX(0deg);
+    animation-timing-function: linear;
+  }
+  /* Hold until 3.7 s (37%) then expo.in exit */
+  37% {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotateX(0deg);
+    animation-timing-function: cubic-bezier(0.7, 0, 0.84, 0);
+  }
+  /* Fold OUT DOWNWARD — exits below, rotates forward */
+  44% {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 30%)) rotateX(-60deg);
+  }
+  100% { opacity: 0; }
+}
+
+/* ── Headline: folds in from above (same direction as Sprigly entry) ── */
+.intro-headline {
+  opacity: 0;
+  transform: translateY(-30%) rotateX(60deg);
+  animation: introHeadline 10s both;
+}
+
+@keyframes introHeadline {
+  /* Hold hidden while Sprigly is on screen, then 0.2 s gap (44–46%) */
+  0%, 45% {
+    opacity: 0;
+    transform: translateY(-30%) rotateX(60deg);
+    animation-timing-function: linear;
+  }
+  /* Start fold-in from above at 4.6 s (46%) — expo.out, 0.2 s after Sprigly gone */
+  46% {
+    opacity: 0;
+    transform: translateY(-30%) rotateX(60deg);
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  /* Fully in at 5.4 s (54%) — overlay at 35%, fold is clearly visible */
+  54% {
+    opacity: 1;
+    transform: translateY(0%) rotateX(0deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0%) rotateX(0deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .intro-full,
+  .intro-sprigly { animation: none !important; opacity: 0 !important; }
+  .intro-headline { animation: none !important; opacity: 1 !important; transform: none !important; }
+}
+
+/* ----------------------------------------------------------------
+   Hero — immediate content, calm ripple background
+   ---------------------------------------------------------------- */
+
+/* Ripple rings: organic leaf shape expanding slowly from leaf mark.
+   Double-wrapper pattern: outer <g> translates to leaf position (SVG attr),
+   inner <g> gets CSS scale animation so there's no transform conflict. */
+@keyframes rippleExpand {
+  0%   { transform: scale(0.22); opacity: 0; }
+  8%   { opacity: 0.28; }
+  72%  { opacity: 0.10; }
+  100% { transform: scale(3.10); opacity: 0; }
+}
+.hero-ripple {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.hero-ripple-1 { animation: rippleExpand 8s cubic-bezier(0.4, 0, 0.6, 1) 0.0s  infinite; }
+.hero-ripple-2 { animation: rippleExpand 8s cubic-bezier(0.4, 0, 0.6, 1) -1.6s infinite; }
+.hero-ripple-3 { animation: rippleExpand 8s cubic-bezier(0.4, 0, 0.6, 1) -3.2s infinite; }
+.hero-ripple-4 { animation: rippleExpand 8s cubic-bezier(0.4, 0, 0.6, 1) -4.8s infinite; }
+.hero-ripple-5 { animation: rippleExpand 8s cubic-bezier(0.4, 0, 0.6, 1) -6.4s infinite; }
+
+/* Large decorative leaf mark — permanent hero background, same position as intro overlay */
+.hero-leaf-large {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: clamp(180px, 26vw, 320px);
+  height: auto;
+  transform: translate(-50%, -62%);
+  pointer-events: none;
+}
+
+/* Small beacon leaf mark */
+@keyframes leafFadeIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: none; }
+}
+.hero-leaf { animation: leafFadeIn 1s ease-out 0s both; }
+
+/* Subheadline and CTA: cascade in after the h1 2.5 s hold (h1 settles at 5.5 s + 2.5 s = 8.0 s) */
+@keyframes heroFadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: none; }
+}
+.hero-sub     { animation: heroFadeUp 0.7s ease-out 8.00s both; }
+.hero-support { animation: heroFadeUp 0.6s ease-out 8.30s both; }
+.hero-cta     { animation: heroFadeUp 0.7s ease-out 8.60s both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-leaf, .hero-ripple,
+  .hero-sub, .hero-support, .hero-cta {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* ----------------------------------------------------------------
+   How It Works — 3-step animated workflow (9 s loop)
+   All steps are in the DOM; CSS animations show/hide on a 9 s cycle.
+   Step 1: 0–29%  (0–2.6 s)
+   Step 2: 33–61% (3.0–5.5 s)
+   Step 3: 65–96% (5.9–8.6 s)
+   ---------------------------------------------------------------- */
+@keyframes hwShowStep1 {
+  0%,  29%  { opacity: 1; transform: none; }
+  33%, 100% { opacity: 0; transform: translateY(-10px); }
+}
+@keyframes hwShowStep2 {
+  0%,  29%  { opacity: 0; transform: translateY(10px); }
+  33%, 61%  { opacity: 1; transform: none; }
+  65%, 100% { opacity: 0; transform: translateY(-10px); }
+}
+@keyframes hwShowStep3 {
+  0%,  61%  { opacity: 0; transform: translateY(10px); }
+  65%, 96%  { opacity: 1; transform: none; }
+  100%      { opacity: 0; transform: translateY(-10px); }
+}
+.hw-step-1 { animation: hwShowStep1 9s ease-in-out infinite; }
+.hw-step-2 { animation: hwShowStep2 9s ease-in-out infinite; }
+.hw-step-3 { animation: hwShowStep3 9s ease-in-out infinite; }
+
+/* Progress bars under each step indicator */
+@keyframes hwBar1 {
+  0%        { width: 0%; }
+  29%       { width: 100%; }
+  30%, 100% { width: 0%; }
+}
+@keyframes hwBar2 {
+  0%,  32%  { width: 0%; }
+  61%       { width: 100%; }
+  62%, 100% { width: 0%; }
+}
+@keyframes hwBar3 {
+  0%,  64%  { width: 0%; }
+  96%       { width: 100%; }
+  97%, 100% { width: 0%; }
+}
+.hw-bar-1 { animation: hwBar1 9s linear infinite; }
+.hw-bar-2 { animation: hwBar2 9s linear infinite; }
+.hw-bar-3 { animation: hwBar3 9s linear infinite; }
+
+/* Step indicator label — dims when inactive */
+@keyframes hwLabel1 {
+  0%,  30%  { opacity: 1; }
+  34%, 100% { opacity: 0.35; }
+}
+@keyframes hwLabel2 {
+  0%,  30%  { opacity: 0.35; }
+  34%, 62%  { opacity: 1; }
+  66%, 100% { opacity: 0.35; }
+}
+@keyframes hwLabel3 {
+  0%,  62%  { opacity: 0.35; }
+  66%, 97%  { opacity: 1; }
+  100%      { opacity: 0.35; }
+}
+.hw-dot-1 { animation: hwLabel1 9s linear infinite; }
+.hw-dot-2 { animation: hwLabel2 9s linear infinite; }
+.hw-dot-3 { animation: hwLabel3 9s linear infinite; }
+
+/* Agent activity dots in Step 2 */
+@keyframes agentPulse {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.3); }
+}
+.agent-dot { animation: agentPulse 1.2s ease-in-out infinite; }
+
+/* Agent progress bars in Step 2 */
+@keyframes agentProgress {
+  0%   { width: 0%; }
+  55%  { width: 82%; }
+  80%  { width: 94%; }
+  100% { width: 94%; }
+}
+.agent-progress { animation: agentProgress 2.8s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .hw-step-1, .hw-step-2, .hw-step-3,
+  .hw-dot-1, .hw-dot-2, .hw-dot-3,
+  .hw-bar-1, .hw-bar-2, .hw-bar-3,
+  .agent-dot, .agent-progress { animation: none !important; }
+  .hw-step-1 { opacity: 1 !important; transform: none !important; }
+  .hw-step-2, .hw-step-3 { opacity: 0 !important; }
+  .hw-dot-1  { opacity: 1 !important; }
+  .hw-dot-2, .hw-dot-3 { opacity: 0.35 !important; }
+  .hw-bar-1  { width: 100% !important; }
+  .agent-dot { opacity: 1 !important; }
+  .agent-progress { width: 82% !important; }
+}
+
+/* ----------------------------------------------------------------
+   Process step connector line
+   ---------------------------------------------------------------- */
+.process-steps {
+  position: relative;
+}
+
+.process-steps::before {
+  content: '';
+  position: absolute;
+  top: 32px;
+  left: 16%;
+  right: 16%;
+  height: 1px;
+  background: rgba(31, 26, 24, 0.10);
+  z-index: 0;
+}
+
+@media (max-width: 900px) {
+  .process-steps::before {
+    display: none;
+  }
+}
+
+/* ----------------------------------------------------------------
+   Rotating word — hero subheading typewriter cursor
+   ---------------------------------------------------------------- */
+@keyframes spriglyCursorBlink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+.rotating-word-cursor {
+  display: inline-block;
+  width: 1.5px;
+  height: 0.85em;
+  background: currentColor;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  animation: spriglyCursorBlink 1s step-end infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rotating-word-cursor { animation: none !important; opacity: 0 !important; }
+}
+
+/* ----------------------------------------------------------------
+   Focus styles — keyboard accessibility
+   ---------------------------------------------------------------- */
+:focus-visible {
+  outline: 2px solid #FF6F62;
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* ----------------------------------------------------------------
+   Blog post prose — applied to <article class="prose-article">
+   No Tailwind Typography dependency — keeps bundle lean
+   ---------------------------------------------------------------- */
+.prose-article {
+  font-size: 17px;
+  line-height: 1.7;
+  color: #5C4F4A;
+}
+
+.prose-article p {
+  margin-bottom: 1.4em;
+}
+
+.prose-article h2 {
+  font-family: var(--font-fraunces), Georgia, serif;
+  font-weight: 400;
+  font-size: 26px;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  color: #1F1A18;
+  margin-top: 2.5em;
+  margin-bottom: 0.75em;
+}
+
+.prose-article h3 {
+  font-family: var(--font-fraunces), Georgia, serif;
+  font-weight: 500;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+  color: #1F1A18;
+  margin-top: 2em;
+  margin-bottom: 0.5em;
+}
+
+.prose-article ul,
+.prose-article ol {
+  padding-left: 1.4em;
+  margin-bottom: 1.4em;
+}
+
+.prose-article li {
+  margin-bottom: 0.4em;
+}
+
+.prose-article strong {
+  font-weight: 600;
+  color: #1F1A18;
+}
+
+.prose-article em {
+  font-style: italic;
+}
+
+.prose-article a {
+  color: #FF6F62;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.prose-article a:hover {
+  opacity: 0.8;
+}
+
+.prose-article blockquote {
+  border-left: 3px solid #FF6F62;
+  padding-left: 1.2em;
+  margin: 1.6em 0;
+  font-style: italic;
+  color: #5C4F4A;
+}
+
+.prose-article hr {
+  border: none;
+  border-top: 1px solid rgba(31,26,24,0.10);
+  margin: 2.5em 0;
+}
