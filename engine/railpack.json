@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "provider": "node",
+  "packages": {
+    "node": "22",
+    "pnpm": "10.32.1"
+  },
+  "steps": {
+    "install": {
+      "commands": [
+        "pnpm install --frozen-lockfile"
+      ]
+    },
+    "build": {
+      "inputs": [{ "step": "install" }],
+      "commands": [
+        "pnpm --filter @sprigly/worker... build"
+      ]
+    }
+  },
+  "deploy": {
+    "startCommand": "pnpm --filter @sprigly/worker start",
+    "inputs": [
+      { "step": "build", "include": ["."] }
+    ]
+  }
+}
