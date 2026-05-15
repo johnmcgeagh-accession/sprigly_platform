@@ -35,6 +35,7 @@ function makeRule(conditions = [{ field: 'subject', op: 'startsWith', value: 'Bl
     destinations: [],
     clientConfigId: 'config-1',
     priority:     10,
+    isFallback:   false,
   };
 }
 

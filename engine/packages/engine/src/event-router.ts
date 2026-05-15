@@ -39,8 +39,12 @@ export function evaluateConditions(conditions: MatchCondition[], draft: Incoming
 }
 
 // Pure function — no DB, no side effects. Apply loaded rules against a draft.
+// Fallback rules only fire when no non-fallback (primary) rule matched.
 export function matchRules(draft: IncomingEventDraft, rules: RoutingRule[]): RoutingRule[] {
-  return rules.filter((rule) => evaluateConditions(rule.match.conditions, draft));
+  const matched = rules.filter((rule) => evaluateConditions(rule.match.conditions, draft));
+  const primary = matched.filter((r) => !r.isFallback);
+  if (primary.length > 0) return primary;
+  return matched.filter((r) => r.isFallback);
 }
 
 function toEngineRule(row: DbRoutingRule): RoutingRule {
@@ -56,6 +60,7 @@ function toEngineRule(row: DbRoutingRule): RoutingRule {
     destinations: (row.destinations as unknown as DestinationConfig[]),
     clientConfigId: row.clientConfigId ?? '',
     priority: row.priority,
+    isFallback: row.isFallback,
   };
 }
 

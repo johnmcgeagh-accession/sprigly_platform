@@ -98,6 +98,7 @@ export const routingRules = pgTable('routing_rules', {
     .default([]),
   clientConfigId: uuid('client_config_id').references(() => clientConfigs.id),
   priority: integer('priority').notNull().default(0),
+  isFallback: boolean('is_fallback').notNull().default(false),
 });
 
 export type RoutingRule = typeof routingRules.$inferSelect;

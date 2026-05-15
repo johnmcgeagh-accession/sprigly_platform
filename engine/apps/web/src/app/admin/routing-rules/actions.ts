@@ -9,18 +9,24 @@ export async function createRoutingRule(formData: FormData): Promise<void> {
   const clientId = formData.get('clientId') as string;
   const source = formData.get('source') as string;
   const workflowId = formData.get('workflowId') as string;
+  const matchAll = formData.get('matchAll');
   const matchConditionsJson = formData.get('matchConditionsJson') as string;
   const destinationsJson = formData.get('destinationsJson') as string;
   const priority = formData.get('priority') as string;
   const enabled = formData.get('enabled');
+  const isFallback = formData.get('isFallback');
 
   let matchConditions: Array<Record<string, unknown>>;
   let destinations: Array<Record<string, unknown>>;
 
-  try {
-    matchConditions = JSON.parse(matchConditionsJson) as Array<Record<string, unknown>>;
-  } catch {
-    throw new Error('Invalid JSON in match conditions');
+  if (matchAll === 'on') {
+    matchConditions = [];
+  } else {
+    try {
+      matchConditions = JSON.parse(matchConditionsJson) as Array<Record<string, unknown>>;
+    } catch {
+      throw new Error('Invalid JSON in match conditions');
+    }
   }
 
   try {
@@ -37,6 +43,7 @@ export async function createRoutingRule(formData: FormData): Promise<void> {
     destinations,
     priority: Number(priority) || 0,
     enabled: enabled === 'on',
+    isFallback: isFallback === 'on',
     clientConfigId: null,
   });
 

@@ -15,6 +15,7 @@ async function getRoutingRules() {
       priority: routingRules.priority,
       matchConditions: routingRules.matchConditions,
       destinations: routingRules.destinations,
+      isFallback: routingRules.isFallback,
       clientName: clients.name,
     })
     .from(routingRules)
@@ -63,9 +64,29 @@ export default async function RoutingRulesPage() {
                   </span>
                 </td>
                 <td className="px-6 py-3 text-gray-600 font-mono text-xs">{rule.workflowId}</td>
-                <td className="px-6 py-3 text-gray-500">
-                  {(rule.matchConditions as unknown[]).length} condition
-                  {(rule.matchConditions as unknown[]).length !== 1 ? 's' : ''}
+                <td className="px-6 py-3">
+                  {(rule.matchConditions as unknown[]).length === 0 ? (
+                    <span className="inline-flex items-center gap-1">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
+                        Match all
+                      </span>
+                      {rule.isFallback && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
+                          Fallback
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="text-gray-500">
+                      {(rule.matchConditions as unknown[]).length} condition
+                      {(rule.matchConditions as unknown[]).length !== 1 ? 's' : ''}
+                      {rule.isFallback && (
+                        <span className="ml-1.5 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
+                          Fallback
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </td>
                 <td className="px-6 py-3">
                   <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${

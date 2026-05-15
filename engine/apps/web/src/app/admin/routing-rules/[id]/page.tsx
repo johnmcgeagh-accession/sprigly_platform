@@ -31,6 +31,7 @@ async function getRule(id: string) {
       matchConditions: routingRules.matchConditions,
       destinations: routingRules.destinations,
       clientConfigId: routingRules.clientConfigId,
+      isFallback: routingRules.isFallback,
       createdAt: routingRules.createdAt,
       clientName: clients.name,
       clientId: clients.id,
@@ -79,7 +80,19 @@ export default async function RoutingRuleDetailPage({ params }: { params: { id: 
 
       {/* Match Conditions */}
       <section className="bg-white rounded-lg border border-gray-200 px-6 py-5">
-        <h2 className="text-base font-semibold text-gray-900 mb-4">Match Conditions</h2>
+        <div className="flex items-center gap-2 mb-4">
+          <h2 className="text-base font-semibold text-gray-900">Match Conditions</h2>
+          {conditions.length === 0 && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
+              Match all
+            </span>
+          )}
+          {rule.isFallback && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
+              Fallback
+            </span>
+          )}
+        </div>
         {conditions.length > 0 ? (
           <table className="w-full text-sm">
             <thead>

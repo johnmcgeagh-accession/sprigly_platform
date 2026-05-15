@@ -1,6 +1,29 @@
 import { describe, it, expect } from 'vitest';
-import { extractField, evaluateCondition, evaluateConditions } from './event-router.js';
-import type { IncomingEvent, MatchCondition } from './types.js';
+import { extractField, evaluateCondition, evaluateConditions, matchRules } from './event-router.js';
+import type { IncomingEvent, IncomingEventDraft, MatchCondition, RoutingRule } from './types.js';
+
+const makeDraft = (overrides?: Partial<IncomingEventDraft>): IncomingEventDraft => ({
+  clientId: 'client-1',
+  source: 'email',
+  sourceMetadata: { subject: 'Blog: AI Tools', from: 'john@example.com' },
+  content: { text: 'Blog: AI Tools in Healthcare' },
+  ...overrides,
+});
+
+function makeRule(overrides?: Partial<RoutingRule>): RoutingRule {
+  return {
+    id:             'rule-1',
+    clientId:       'client-1',
+    enabled:        true,
+    match:          { source: 'email', conditions: [{ field: 'subject', op: 'startsWith', value: 'Blog:' }] },
+    workflowId:     'blog-post',
+    destinations:   [],
+    clientConfigId: '',
+    priority:       10,
+    isFallback:     false,
+    ...overrides,
+  };
+}
 
 const makeEvent = (overrides?: Partial<IncomingEvent>): IncomingEvent => ({
   id: 'evt-1',
@@ -98,6 +121,7 @@ describe('evaluateCondition — case sensitivity', () => {
 
 describe('evaluateConditions', () => {
   it('returns true for empty conditions array (match all)', () => {
+    // Array.every on [] is vacuously true — this is intentional for match-all rules
     expect(evaluateConditions([], makeEvent())).toBe(true);
   });
 
@@ -115,5 +139,53 @@ describe('evaluateConditions', () => {
       { field: 'body', op: 'contains', value: 'Prospect' },
     ];
     expect(evaluateConditions(conditions, makeEvent())).toBe(false);
+  });
+});
+
+describe('matchRules — match-all (empty conditions)', () => {
+  it('rule with empty conditions matches any draft', () => {
+    const rule = makeRule({ match: { source: 'email', conditions: [] } });
+    const draft = makeDraft({ sourceMetadata: { subject: 'Random subject' } });
+    expect(matchRules(draft, [rule])).toHaveLength(1);
+  });
+});
+
+describe('matchRules — primary vs fallback', () => {
+  const blogDraft = makeDraft();
+  const invoiceDraft = makeDraft({ sourceMetadata: { subject: 'Invoice: Q2' } });
+
+  it('returns only primary rules when primary rules match', () => {
+    const primary  = makeRule({ id: 'p1', isFallback: false });
+    const fallback = makeRule({ id: 'f1', isFallback: true, match: { source: 'email', conditions: [] } });
+    const result = matchRules(blogDraft, [primary, fallback]);
+    expect(result.map((r) => r.id)).toEqual(['p1']);
+  });
+
+  it('returns fallback rules when no primary rules match', () => {
+    const primary  = makeRule({ id: 'p1', isFallback: false, match: { source: 'email', conditions: [{ field: 'subject', op: 'startsWith', value: 'Prospect:' }] } });
+    const fallback = makeRule({ id: 'f1', isFallback: true, match: { source: 'email', conditions: [] } });
+    const result = matchRules(invoiceDraft, [primary, fallback]);
+    expect(result.map((r) => r.id)).toEqual(['f1']);
+  });
+
+  it('returns empty when no primary and no fallback match', () => {
+    const primary = makeRule({ id: 'p1', match: { source: 'email', conditions: [{ field: 'subject', op: 'startsWith', value: 'Prospect:' }] } });
+    expect(matchRules(invoiceDraft, [primary])).toHaveLength(0);
+  });
+
+  it('returns both matching primaries, ignoring the fallback', () => {
+    const p1 = makeRule({ id: 'p1', isFallback: false, priority: 20 });
+    const p2 = makeRule({ id: 'p2', isFallback: false, priority: 10, match: { source: 'email', conditions: [{ field: 'subject', op: 'contains', value: 'AI' }] } });
+    const f1 = makeRule({ id: 'f1', isFallback: true, match: { source: 'email', conditions: [] } });
+    const result = matchRules(blogDraft, [p1, p2, f1]);
+    expect(result.map((r) => r.id)).toEqual(['p1', 'p2']);
+  });
+
+  it('preserves priority order within the fallback group', () => {
+    const f1 = makeRule({ id: 'f1', isFallback: true, priority: 5,  match: { source: 'email', conditions: [] } });
+    const f2 = makeRule({ id: 'f2', isFallback: true, priority: 20, match: { source: 'email', conditions: [] } });
+    // rules already sorted desc by priority (as loadRules does)
+    const result = matchRules(invoiceDraft, [f2, f1]);
+    expect(result.map((r) => r.id)).toEqual(['f2', 'f1']);
   });
 });

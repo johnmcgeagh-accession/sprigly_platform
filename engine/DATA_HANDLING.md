@@ -21,6 +21,16 @@ Model calls are made by the `sprigly-bedrock-worker` IAM user, which has no acce
 
 ---
 
+## Match-all routing rules
+
+A routing rule can be configured to match every incoming email by leaving its conditions array empty. This is useful for clients who want every email processed by a workflow. When such a rule is active, all incoming emails are persisted to `incoming_events` (since they all match a rule). This is by design — the client has explicitly chosen to route every email. Without a match-all rule, only emails matching specific conditions are persisted.
+
+## Fallback routing rules
+
+A routing rule can be marked as fallback (`is_fallback = true`), meaning it only fires when no non-fallback routing rule matched the email. Useful for "catch-all" workflows that handle anything not picked up by more specific rules. Fallback rules are evaluated with the same condition logic as regular rules — the fallback flag only changes whether they are returned when a primary rule has already matched.
+
+---
+
 ## OAuth scopes
 
 The Gmail OAuth connection requests the following scopes:

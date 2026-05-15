@@ -157,6 +157,7 @@ export interface RoutingRule {
   destinations: DestinationConfig[];
   clientConfigId: string;
   priority: number;
+  isFallback: boolean;
 }
 
 export interface MatchCondition {
