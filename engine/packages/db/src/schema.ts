@@ -303,3 +303,20 @@ export const prospectSheets = pgTable('prospect_sheets', {
 
 export type ProspectSheet = typeof prospectSheets.$inferSelect;
 export type NewProspectSheet = typeof prospectSheets.$inferInsert;
+
+// ─── gmail_operation_errors ───────────────────────────────────────────────────
+
+export const gmailOperationErrors = pgTable('gmail_operation_errors', {
+  id:           uuid('id').primaryKey().defaultRandom(),
+  clientId:     uuid('client_id').notNull().references(() => clients.id),
+  operation:    text('operation').notNull(),
+  externalId:   text('external_id'),
+  errorCode:    text('error_code'),
+  errorMessage: text('error_message').notNull(),
+  resolved:     boolean('resolved').notNull().default(false),
+  createdAt:    timestamp('created_at').notNull().defaultNow(),
+  resolvedAt:   timestamp('resolved_at'),
+});
+
+export type GmailOperationError = typeof gmailOperationErrors.$inferSelect;
+export type NewGmailOperationError = typeof gmailOperationErrors.$inferInsert;

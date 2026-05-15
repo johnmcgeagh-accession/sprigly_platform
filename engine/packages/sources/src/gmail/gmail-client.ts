@@ -2,6 +2,13 @@ import { google } from 'googleapis';
 import type { gmail_v1 } from 'googleapis';
 import type { OAuthTokenBundle } from '@sprigly/oauth-tokens';
 
+export interface GmailOperationErrorParams {
+  operation: string;
+  externalId?: string;
+  errorCode?: string;
+  errorMessage: string;
+}
+
 export class GmailApiClient {
   private gmail: gmail_v1.Gmail;
   private currentTokens: OAuthTokenBundle;
@@ -11,6 +18,7 @@ export class GmailApiClient {
     googleClientSecret: string,
     tokens: OAuthTokenBundle,
     onTokensRefreshed: (tokens: OAuthTokenBundle) => Promise<void>,
+    private onOperationError?: (err: GmailOperationErrorParams) => Promise<void>,
   ) {
     this.currentTokens = tokens;
 
@@ -72,19 +80,29 @@ export class GmailApiClient {
         requestBody: { removeLabelIds: ['UNREAD'] },
       });
     } catch (err) {
-      console.error(`[GmailApiClient] markAsRead failed for messageId=${messageId}:`, (err as Error).message);
-      throw err;
+      const e = err as Error & { code?: unknown };
+      await this.reportError({
+        operation: 'markAsRead',
+        externalId: messageId,
+        errorCode: e.code !== undefined ? String(e.code) : undefined,
+        errorMessage: e.message,
+      });
     }
   }
 
+  /**
+   * Creates a Gmail draft. bodyText is sent as-is in a text/plain MIME part —
+   * no markdown conversion is applied. Rename or post-process before calling
+   * if you need HTML output.
+   */
   async createDraft(params: {
     threadId?: string;
     to: string;
     subject: string;
-    bodyMarkdown: string;
+    bodyText: string;
     inReplyToMessageId?: string;
   }): Promise<{ draftId: string; messageId: string }> {
-    const { threadId, to, subject, bodyMarkdown, inReplyToMessageId } = params;
+    const { threadId, to, subject, bodyText: bodyMarkdown, inReplyToMessageId } = params;
 
     const lines: string[] = [
       `To: ${to}`,
@@ -103,19 +121,38 @@ export class GmailApiClient {
 
     const raw = Buffer.from(lines.join('\r\n')).toString('base64url');
 
-    const res = await this.gmail.users.drafts.create({
-      userId: 'me',
-      requestBody: {
-        message: {
-          raw,
-          ...(threadId !== undefined && { threadId }),
+    try {
+      const res = await this.gmail.users.drafts.create({
+        userId: 'me',
+        requestBody: {
+          message: {
+            raw,
+            ...(threadId !== undefined && { threadId }),
+          },
         },
-      },
-    });
+      });
 
-    return {
-      draftId: res.data.id ?? '',
-      messageId: res.data.message?.id ?? '',
-    };
+      return {
+        draftId: res.data.id ?? '',
+        messageId: res.data.message?.id ?? '',
+      };
+    } catch (err) {
+      const e = err as Error & { code?: unknown };
+      await this.reportError({
+        operation: 'createDraft',
+        errorCode: e.code !== undefined ? String(e.code) : undefined,
+        errorMessage: e.message,
+      });
+      return { draftId: '', messageId: '' };
+    }
+  }
+
+  private async reportError(params: GmailOperationErrorParams): Promise<void> {
+    if (this.onOperationError === undefined) return;
+    try {
+      await this.onOperationError(params);
+    } catch {
+      // callback failure must not cascade to the caller
+    }
   }
 }

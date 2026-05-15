@@ -51,7 +51,7 @@ describe('GmailApiClient.createDraft', () => {
     mockDraftsCreate.mockResolvedValue({ data: { id: 'draft-1', message: { id: 'msg-1' } } });
 
     const client = makeClient();
-    await client.createDraft({ to: 'recv@example.com', subject: 'Hello', bodyMarkdown: 'Body text' });
+    await client.createDraft({ to: 'recv@example.com', subject: 'Hello', bodyText: 'Body text' });
 
     expect(mockDraftsCreate).toHaveBeenCalledOnce();
     const call = (mockDraftsCreate as Mock).mock.calls[0][0];
@@ -69,7 +69,7 @@ describe('GmailApiClient.createDraft', () => {
     mockDraftsCreate.mockResolvedValue({ data: { id: 'draft-42', message: { id: 'msg-42' } } });
 
     const client = makeClient();
-    const result = await client.createDraft({ to: 'a@b.com', subject: 'S', bodyMarkdown: 'B' });
+    const result = await client.createDraft({ to: 'a@b.com', subject: 'S', bodyText: 'B' });
 
     expect(result).toEqual({ draftId: 'draft-42', messageId: 'msg-42' });
   });
@@ -78,7 +78,7 @@ describe('GmailApiClient.createDraft', () => {
     mockDraftsCreate.mockResolvedValue({ data: { id: 'd', message: { id: 'm' } } });
 
     const client = makeClient();
-    await client.createDraft({ to: 'a@b.com', subject: 'S', bodyMarkdown: 'B', threadId: 'thread-99' });
+    await client.createDraft({ to: 'a@b.com', subject: 'S', bodyText: 'B', threadId: 'thread-99' });
 
     const call = (mockDraftsCreate as Mock).mock.calls[0][0];
     expect(call.requestBody.message.threadId).toBe('thread-99');
@@ -88,7 +88,7 @@ describe('GmailApiClient.createDraft', () => {
     mockDraftsCreate.mockResolvedValue({ data: { id: 'd', message: { id: 'm' } } });
 
     const client = makeClient();
-    await client.createDraft({ to: 'a@b.com', subject: 'S', bodyMarkdown: 'B' });
+    await client.createDraft({ to: 'a@b.com', subject: 'S', bodyText: 'B' });
 
     const call = (mockDraftsCreate as Mock).mock.calls[0][0];
     expect(call.requestBody.message.threadId).toBeUndefined();
@@ -101,7 +101,7 @@ describe('GmailApiClient.createDraft', () => {
     await client.createDraft({
       to: 'a@b.com',
       subject: 'Re: original',
-      bodyMarkdown: 'Reply body',
+      bodyText: 'Reply body',
       inReplyToMessageId: 'original-msg-id',
     });
 
@@ -114,7 +114,7 @@ describe('GmailApiClient.createDraft', () => {
     mockDraftsCreate.mockResolvedValue({ data: { id: 'd', message: { id: 'm' } } });
 
     const client = makeClient();
-    await client.createDraft({ to: 'a@b.com', subject: 'S', bodyMarkdown: 'B' });
+    await client.createDraft({ to: 'a@b.com', subject: 'S', bodyText: 'B' });
 
     const mime = decodeMime((mockDraftsCreate as Mock).mock.calls[0][0].requestBody.message.raw);
     expect(mime).not.toContain('In-Reply-To');
@@ -125,7 +125,7 @@ describe('GmailApiClient.createDraft', () => {
     mockDraftsCreate.mockResolvedValue({ data: { id: 'd', message: { id: 'm' } } });
 
     const client = makeClient();
-    await client.createDraft({ to: 'a@b.com', subject: 'S', bodyMarkdown: 'B' });
+    await client.createDraft({ to: 'a@b.com', subject: 'S', bodyText: 'B' });
 
     const raw = (mockDraftsCreate as Mock).mock.calls[0][0].requestBody.message.raw as string;
     const decoded = Buffer.from(raw, 'base64url').toString('binary');

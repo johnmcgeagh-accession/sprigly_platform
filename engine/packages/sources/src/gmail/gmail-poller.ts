@@ -1,4 +1,4 @@
-import { db as _db, incomingEvents, processedExternalIds } from '@sprigly/db';
+import { db as _db, incomingEvents, processedExternalIds, gmailOperationErrors } from '@sprigly/db';
 import { eq, and } from 'drizzle-orm';
 import { getTokens, storeTokens } from '@sprigly/oauth-tokens';
 import type { EncryptionProvider } from '@sprigly/oauth-tokens';
@@ -8,6 +8,7 @@ import { GmailApiClient } from './gmail-client.js';
 import { extractMessageText, getHeader, parseReceivedAt } from './gmail-parser.js';
 
 type Db = typeof _db;
+type Logger = { error(obj: object, msg: string): void };
 
 export class GmailPoller {
   constructor(
@@ -16,6 +17,7 @@ export class GmailPoller {
     private googleClientId: string,
     private googleClientSecret: string,
     private router: EventRouter,
+    private logger: Logger = { error: () => {} },
   ) {}
 
   async poll(clientId: string): Promise<number> {
@@ -27,6 +29,21 @@ export class GmailPoller {
       this.googleClientSecret,
       tokens,
       (refreshed) => storeTokens(this.db, this.encProvider, clientId, 'gmail', refreshed),
+      async (err) => {
+        try {
+          await this.db.insert(gmailOperationErrors).values({
+            clientId,
+            operation:    err.operation,
+            externalId:   err.externalId ?? null,
+            errorCode:    err.errorCode ?? null,
+            errorMessage: err.errorMessage,
+          });
+        } catch { /* db write failure must not cascade */ }
+        this.logger.error(
+          { clientId, operation: err.operation, externalId: err.externalId, errorCode: err.errorCode, errorMessage: err.errorMessage },
+          'gmail operation failed',
+        );
+      },
     );
 
     const messageIds = await client.listMessageIds();
@@ -50,7 +67,7 @@ export class GmailPoller {
         .limit(1);
 
       if (existing[0] !== undefined) {
-        await client.markAsRead(messageId).catch(() => undefined);
+        await client.markAsRead(messageId);
         continue;
       }
 
@@ -92,7 +109,7 @@ export class GmailPoller {
           externalId: messageId,
           processedAt: new Date(),
         });
-        await client.markAsRead(messageId).catch(() => undefined);
+        await client.markAsRead(messageId);
         continue;
       }
 
@@ -114,7 +131,7 @@ export class GmailPoller {
         processedAt: new Date(),
       });
 
-      await client.markAsRead(messageId).catch(() => undefined);
+      await client.markAsRead(messageId);
       count++;
     }
 

@@ -26,6 +26,8 @@ Running list of work to do, in rough priority order within each section. Items m
 
 ## 🟡 Medium priority — operational improvements
 
+- **Gmail error monitoring alerts.** `gmail_operation_errors` table captures mark-as-read and create-draft failures with resolution state. Admin UI surfaces unresolved count on dashboard and full table at `/admin/gmail-errors`. Consider adding email or Slack alerts if unresolved count crosses a threshold (e.g. 5 errors in an hour) — for now manual admin review is sufficient.
+
 - **Google OAuth app verification.** Our OAuth consent screen is in "Testing" mode — tokens expire after 7 days and only pre-approved test users can authorise. Before onboarding paying clients, submit the app for Google's OAuth verification process (requires privacy policy URL, app description, and a security assessment for sensitive scopes including `gmail.modify`). Estimated 4-6 week review time; start early.
 
 - **Restore Watch Paths in Railway.** Cleared during Docker debug. Worker should only rebuild when `/apps/worker/**`, `/packages/**`, `/pnpm-lock.yaml`, `/package.json`, `/Dockerfile` change. Without this, every push to docs or marketing site rebuilds the worker unnecessarily.

@@ -57,7 +57,7 @@ logger.info(
   'Registered destinations',
 );
 
-const gmailPoller = new GmailPoller(db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, router);
+const gmailPoller = new GmailPoller(db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, router, logger);
 
 const queue = new Queue('incoming-events', { connection: { url: env.REDIS_URL } });
 
