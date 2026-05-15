@@ -72,7 +72,7 @@ export class GmailApiClient {
     return res.data;
   }
 
-  async markAsRead(messageId: string): Promise<void> {
+async markAsRead(messageId: string): Promise<void> {
     try {
       await this.gmail.users.messages.modify({
         userId: 'me',
@@ -84,7 +84,7 @@ export class GmailApiClient {
       await this.reportError({
         operation: 'markAsRead',
         externalId: messageId,
-        errorCode: e.code !== undefined ? String(e.code) : undefined,
+        ...(e.code !== undefined && { errorCode: String(e.code) }),
         errorMessage: e.message,
       });
     }
@@ -140,7 +140,7 @@ export class GmailApiClient {
       const e = err as Error & { code?: unknown };
       await this.reportError({
         operation: 'createDraft',
-        errorCode: e.code !== undefined ? String(e.code) : undefined,
+        ...(e.code !== undefined && { errorCode: String(e.code) }),
         errorMessage: e.message,
       });
       return { draftId: '', messageId: '' };
