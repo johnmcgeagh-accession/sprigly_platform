@@ -92,6 +92,7 @@ export interface ModelCompleteResult {
   outputTokens: number;
   modelId: string;
   stopReason: string;
+  toolTurns?: number;
 }
 
 export interface AuditLogger {

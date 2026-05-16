@@ -44,8 +44,21 @@ export const workflowMeta: WorkflowMeta[] = [
     steps: [
       {
         stepName: 'research',
-        stepDescription: 'Analyses the firm, identifies pain points, and generates AI use cases with estimated time savings.',
-        model: 'haiku',
+        stepDescription: 'Searches the web for the firm and synthesises grounded intelligence: founder, ops tells, pain points.',
+        model: 'sonnet',
+        usesTools: ['web_search'],
+        requiresPrompt: true,
+      },
+      {
+        stepName: 'write',
+        stepDescription: 'Shapes the raw research into a structured ProspectBriefData JSON document in Sprigly voice.',
+        model: 'sonnet',
+        requiresPrompt: true,
+      },
+      {
+        stepName: 'render-pdf',
+        stepDescription: 'Renders the structured data into a 7-page prospect brief PDF.',
+        model: 'none' as LogicalModelName,
         requiresPrompt: false,
       },
     ],

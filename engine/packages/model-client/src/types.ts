@@ -13,7 +13,7 @@ export interface ModelCompleteParams {
   system?: string;
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   maxTokens?: number;
-  tools?: AnthropicTool[];
+  tools?: unknown[];
 }
 
 export interface ModelCompleteResult {
@@ -22,6 +22,7 @@ export interface ModelCompleteResult {
   outputTokens: number;
   modelId: string;
   stopReason: string;
+  toolTurns?: number;
 }
 
 export interface ModelClient {

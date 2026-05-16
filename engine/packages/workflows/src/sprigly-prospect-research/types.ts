@@ -1,21 +1,15 @@
+export type { ProspectBriefData } from '@sprigly/pdf-render';
+
 export interface ProspectInput {
   brandName: string;
-  sector: string;
   url?: string;
+  sector?: string;
+  meetingDate?: string;
+  whyInterested?: string;
   notes?: string;
 }
 
-export interface AiUseCase {
-  useCase: string;
-  estimatedHoursSaved: string;
-  difficulty: 'quick-win' | 'medium' | 'complex';
-}
-
 export interface ProspectOutput {
-  brandName: string;
-  sector: string;
-  painPoints: string[];
-  aiUseCases: AiUseCase[];
-  recommendedFirstStep: string;
-  callTalkingPoints: string[];
+  data: import('@sprigly/pdf-render').ProspectBriefData;
+  pdf: Buffer;
 }

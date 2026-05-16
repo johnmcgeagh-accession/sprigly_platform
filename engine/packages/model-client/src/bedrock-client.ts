@@ -6,7 +6,7 @@ import {
   type ToolConfiguration,
   type ToolInputSchema,
 } from '@aws-sdk/client-bedrock-runtime';
-import type { ModelClient, ModelCompleteParams, ModelCompleteResult } from './types.js';
+import type { ModelClient, ModelCompleteParams, ModelCompleteResult, AnthropicTool } from './types.js';
 
 const THROTTLE_RETRIES     = 3;
 const THROTTLE_BASE_DELAY  = 1_000; // 1s, doubles each attempt
@@ -49,13 +49,16 @@ export class BedrockClient implements ModelClient {
       params.tools !== undefined
         ? {
             tools: params.tools.map(
-              (t): Tool => ({
-                toolSpec: {
-                  name: t.name,
-                  description: t.description,
-                  inputSchema: { json: t.input_schema } as ToolInputSchema,
-                },
-              }),
+              (t): Tool => {
+                const tool = t as AnthropicTool;
+                return {
+                  toolSpec: {
+                    name: tool.name,
+                    description: tool.description,
+                    inputSchema: { json: tool.input_schema } as ToolInputSchema,
+                  },
+                };
+              },
             ),
           }
         : undefined;

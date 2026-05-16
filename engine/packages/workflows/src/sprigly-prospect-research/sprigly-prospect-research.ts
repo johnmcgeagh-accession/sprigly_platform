@@ -1,46 +1,31 @@
 import type { Workflow, WorkflowContext, IncomingEvent } from '@sprigly/engine';
+import { render, registerFonts } from '@sprigly/pdf-render';
+import type { ProspectBriefData } from '@sprigly/pdf-render';
 import type { ProspectInput, ProspectOutput } from './types.js';
+import { parseProspectInput } from './parse-input.js';
 
-const SYSTEM =
-  'You are an AI implementation consultant assessing where AI can save time for owner-managed professional services firms. ' +
-  'Be specific and practical. Always respond with valid JSON when asked. ' +
+registerFonts();
+
+// Anthropic built-in web search tool (server-side — Anthropic executes searches).
+const WEB_SEARCH_TOOL = {
+  type:  'web_search_20250305',
+  name:  'web_search',
+} as const;
+
+// Enforced on the write step so the JSON output never contains em-dashes.
+export const WRITE_SYSTEM =
+  'You are a prospect researcher for Sprigly, an AI implementation consultancy. ' +
+  'Respond ONLY with valid JSON matching the ProspectBriefData schema. ' +
   'CRITICAL: NEVER USE EM DASHES (—) in any output. No exceptions. ' +
-  'BAD: "Your work isn\'t good—it is." GOOD: "Your work is good. That is not the problem." ' +
   'Use commas, full stops, or parentheses instead.';
 
-function buildPrompt(input: ProspectInput): string {
-  const lines = [
-    'Research this prospect firm and identify where AI could save them the most time.',
-    '',
-    `Firm: ${input.brandName}`,
-    `Sector: ${input.sector}`,
-  ];
-  if (input.url)   lines.push(`Website: ${input.url}`);
-  if (input.notes) lines.push(`Notes: ${input.notes}`);
-  lines.push(
-    '',
-    'Respond ONLY with valid JSON matching this exact structure:',
-    '{',
-    `  "brandName": "${input.brandName}",`,
-    `  "sector": "${input.sector}",`,
-    '  "painPoints": ["pain point 1", "pain point 2", "pain point 3"],',
-    '  "aiUseCases": [',
-    '    {"useCase": "description of task", "estimatedHoursSaved": "X hrs/week", "difficulty": "quick-win"}',
-    '  ],',
-    '  "recommendedFirstStep": "single specific first action to take",',
-    '  "callTalkingPoints": ["talking point 1", "talking point 2", "talking point 3"]',
-    '}',
-    '',
-    'difficulty must be one of: "quick-win", "medium", or "complex".',
-    '',
-    'Reminder: no em dashes (—). Use commas, full stops, or parentheses instead.',
-  );
-  return lines.join('\n');
+function fillTemplate(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => vars[key] ?? '');
 }
 
 function extractJson(text: string): unknown {
-  const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const raw = (match?.[1] ?? text).trim();
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const raw = (fenced?.[1] ?? text).trim();
   return JSON.parse(raw);
 }
 
@@ -53,37 +38,79 @@ export const spriglyProspectResearchWorkflow: Workflow<ProspectInput, ProspectOu
   },
 
   parseInput(event: IncomingEvent): ProspectInput | null {
-    const structured = event.content.structured;
-    if (!structured || typeof structured['brandName'] !== 'string') return null;
-    const result: ProspectInput = {
-      brandName: structured['brandName'] as string,
-      sector:    (structured['sector'] as string | undefined) ?? '',
-    };
-    const url   = structured['url']   as string | undefined;
-    const notes = structured['notes'] as string | undefined;
-    if (url   !== undefined) result.url   = url;
-    if (notes !== undefined) result.notes = notes;
-    return result;
+    return parseProspectInput(event);
   },
 
   async run(input: ProspectInput, ctx: WorkflowContext): Promise<ProspectOutput> {
-    const result = await ctx.model.complete({
-      model:     'haiku',
-      system:    SYSTEM,
-      messages:  [{ role: 'user', content: buildPrompt(input) }],
-      maxTokens: 1000,
+    // ── Step 1: Research (Sonnet + web_search) ────────────────────────────────
+    const researchPrompt = await ctx.prompts.resolve(
+      ctx.clientId,
+      'sprigly-prospect-research',
+      'research',
+    );
+    const researchResult = await ctx.model.complete({
+      model: 'sonnet',
+      messages: [{ role: 'user', content: fillTemplate(researchPrompt, buildTemplateVars(input)) }],
+      maxTokens: 8000,
+      tools: [WEB_SEARCH_TOOL],
     });
-
     await ctx.audit.logModelCall({
       clientId:     ctx.clientId,
       eventId:      ctx.eventId,
       runId:        ctx.runId,
-      modelId:      result.modelId,
-      inputTokens:  result.inputTokens,
-      outputTokens: result.outputTokens,
+      modelId:      researchResult.modelId,
+      inputTokens:  researchResult.inputTokens,
+      outputTokens: researchResult.outputTokens,
       action:       'prospect-research',
+      ...(researchResult.toolTurns !== undefined && {
+        metadata: { toolTurns: researchResult.toolTurns },
+      }),
     });
 
-    return extractJson(result.content) as ProspectOutput;
+    // ── Step 2: Write (Sonnet, no tools) ─────────────────────────────────────
+    const writePrompt = await ctx.prompts.resolve(
+      ctx.clientId,
+      'sprigly-prospect-research',
+      'write',
+    );
+    const writeResult = await ctx.model.complete({
+      model:  'sonnet',
+      system: WRITE_SYSTEM,
+      messages: [{
+        role: 'user',
+        content: fillTemplate(writePrompt, {
+          ...buildTemplateVars(input),
+          research: researchResult.content,
+        }),
+      }],
+      maxTokens: 8000,
+    });
+    await ctx.audit.logModelCall({
+      clientId:     ctx.clientId,
+      eventId:      ctx.eventId,
+      runId:        ctx.runId,
+      modelId:      writeResult.modelId,
+      inputTokens:  writeResult.inputTokens,
+      outputTokens: writeResult.outputTokens,
+      action:       'prospect-write',
+    });
+
+    const data = extractJson(writeResult.content) as ProspectBriefData;
+
+    // ── Step 3: Render PDF ────────────────────────────────────────────────────
+    const pdf = await render('prospect-brief', data);
+
+    return { data, pdf };
   },
 };
+
+function buildTemplateVars(input: ProspectInput): Record<string, string> {
+  return {
+    brandName:     input.brandName,
+    url:           input.url           ?? '',
+    sector:        input.sector        ?? '',
+    meetingDate:   input.meetingDate   ?? '',
+    whyInterested: input.whyInterested ?? '',
+    notes:         input.notes         ?? '',
+  };
+}
