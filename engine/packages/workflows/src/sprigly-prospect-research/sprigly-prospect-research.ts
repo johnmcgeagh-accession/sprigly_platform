@@ -31,11 +31,18 @@ function extractJson(text: string): unknown {
 
 export const spriglyProspectResearchWorkflow: Workflow<ProspectInput, ProspectOutput> = {
   id: 'sprigly-prospect-research',
-  defaultDestination: {
-    destinationId: 'db-save-prospect-sheet',
-    requireApproval: false,
-    settings: {},
-  },
+  defaultDestinations: [
+    {
+      destinationId: 'db-save-output',
+      requireApproval: false,
+      settings: {},
+    },
+    {
+      destinationId: 'gmail-reply-prospect-brief',
+      requireApproval: false,
+      settings: { to: 'sender' },
+    },
+  ],
 
   parseInput(event: IncomingEvent): ProspectInput | null {
     return parseProspectInput(event);

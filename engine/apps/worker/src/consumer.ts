@@ -37,7 +37,7 @@ function toEngineEvent(row: DbIncomingEvent): IncomingEvent {
 export function createConsumer(
   db: Db,
   router: EventRouter,
-  _registry: WorkflowRegistry, // used for defaultDestination lookup
+  _registry: WorkflowRegistry, // used for defaultDestinations lookup
   runner: WorkflowRunner,
   dispatcher: DestinationDispatcher,
   logger: Logger,
@@ -92,7 +92,7 @@ export function createConsumer(
 
           const runId = runRows[0]?.id ?? '';
           const workflow = _registry.get(rule.workflowId);
-          await dispatcher.dispatch(output, event, rule, runId, workflow?.defaultDestination);
+          await dispatcher.dispatch(output, event, rule, runId, workflow?.defaultDestinations);
           logger.info({ eventId, workflowId: rule.workflowId }, 'dispatched');
         }
       } catch (err) {

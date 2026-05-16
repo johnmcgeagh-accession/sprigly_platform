@@ -45,10 +45,10 @@ export interface ReplyContext {
 export interface Workflow<TInput = unknown, TOutput = unknown> {
   id: string;
   /**
-   * Fallback used when a routing rule's destinations array is empty ([]).
+   * Fallback destinations used when a routing rule's destinations array is empty ([]).
    * Routing rules may override this with a non-empty destinations array.
    */
-  defaultDestination: DestinationConfig;
+  defaultDestinations: DestinationConfig[];
   parseInput(event: IncomingEvent): TInput | null;
   run(input: TInput, ctx: WorkflowContext): Promise<TOutput>;
 }
@@ -112,13 +112,19 @@ export interface PromptResolver {
   resolve(clientId: string, workflowId: string, stepName: string): Promise<string>;
 }
 
+export interface DeliveryContext {
+  runId: string;
+  workflowId: string;
+  clientId: string;
+}
+
 export interface Destination<TOutput = unknown> {
   id: string;
   deliver(
     output: TOutput,
     event: IncomingEvent,
     config: DestinationConfig,
-    runId: string,
+    ctx: DeliveryContext,
   ): Promise<DeliveryResult>;
   requiresApproval(config: DestinationConfig): boolean;
 }
@@ -132,7 +138,7 @@ export interface Destination<TOutput = unknown> {
  *   Any other string value   →  used as a literal (e.g. a fixed email address or queue name).
  *
  * Routing rules store a destinations array. If the array is empty ([]),
- * DestinationDispatcher falls back to the workflow's defaultDestination.
+ * DestinationDispatcher falls back to the workflow's defaultDestinations.
  */
 export interface DestinationConfig {
   destinationId: string;

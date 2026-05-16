@@ -1,12 +1,5 @@
 import { db as _db, workflowRuns, incomingEvents, clientConfigs } from '@sprigly/db';
-
-function stripBuffers(value: unknown): unknown {
-  if (Buffer.isBuffer(value)) return '[binary]';
-  if (Array.isArray(value)) return value.map(stripBuffers);
-  if (value !== null && typeof value === 'object')
-    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, stripBuffers(v)]));
-  return value;
-}
+import { stripBuffers } from './strip-buffers.js';
 import type { IncomingEvent as DbIncomingEvent } from '@sprigly/db';
 import { eq } from 'drizzle-orm';
 import type {

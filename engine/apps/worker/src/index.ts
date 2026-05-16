@@ -18,7 +18,6 @@ import {
   DbSaveBlogPost,
   DbSaveOutput,
   GmailSendNotification,
-  DbSaveProspectSheet,
   GmailReplyProspectBrief,
 } from '@sprigly/destinations';
 import { Queue } from 'bullmq';
@@ -55,7 +54,6 @@ const runner = new WorkflowRunner(db, registry, model, audit, prompts);
 const dispatcher = new DestinationDispatcher(db);
 dispatcher.register(new DbSaveBlogPost(db));
 dispatcher.register(new DbSaveOutput(db));
-dispatcher.register(new DbSaveProspectSheet(db));
 dispatcher.register(
   new GmailSendNotification(db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET),
 );
@@ -63,7 +61,7 @@ dispatcher.register(
   new GmailReplyProspectBrief(db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET),
 );
 logger.info(
-  { destinations: ['db-save-blog-post', 'db-save-output', 'db-save-prospect-sheet', 'gmail-send-notification', 'gmail-reply-prospect-brief'] },
+  { destinations: ['db-save-blog-post', 'db-save-output', 'gmail-send-notification', 'gmail-reply-prospect-brief'] },
   'Registered destinations',
 );
 

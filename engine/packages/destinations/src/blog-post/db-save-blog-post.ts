@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db as _db, blogPosts } from '@sprigly/db';
 import { eq, and } from 'drizzle-orm';
-import type { Destination, DestinationConfig, DeliveryResult, IncomingEvent } from '@sprigly/engine';
+import type { Destination, DestinationConfig, DeliveryResult, DeliveryContext, IncomingEvent } from '@sprigly/engine';
 import type { BlogPostOutput } from '@sprigly/workflows';
 
 type Db = typeof _db;
@@ -37,7 +37,7 @@ export class DbSaveBlogPost implements Destination<unknown> {
     return config.requireApproval === true;
   }
 
-  async deliver(output: unknown, event: IncomingEvent, _config: DestinationConfig, _runId: string): Promise<DeliveryResult> {
+  async deliver(output: unknown, event: IncomingEvent, _config: DestinationConfig, _ctx: DeliveryContext): Promise<DeliveryResult> {
     try {
       const post = output as BlogPostOutput;
       const slug = await findUniqueSlug(this.db, event.clientId, post.slug);

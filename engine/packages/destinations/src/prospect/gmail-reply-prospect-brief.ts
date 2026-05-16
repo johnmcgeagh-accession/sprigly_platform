@@ -2,7 +2,7 @@ import { google } from 'googleapis';
 import { db as _db } from '@sprigly/db';
 import { getTokens, storeTokens } from '@sprigly/oauth-tokens';
 import type { EncryptionProvider, OAuthTokenBundle } from '@sprigly/oauth-tokens';
-import type { Destination, DestinationConfig, DeliveryResult, IncomingEvent } from '@sprigly/engine';
+import type { Destination, DestinationConfig, DeliveryResult, DeliveryContext, IncomingEvent } from '@sprigly/engine';
 import type { ProspectBriefData } from '@sprigly/pdf-render';
 import { composeProspectEmail } from './compose-prospect-email.js';
 
@@ -33,7 +33,7 @@ export class GmailReplyProspectBrief implements Destination<unknown> {
     return config.requireApproval === true;
   }
 
-  async deliver(output: unknown, event: IncomingEvent, config: DestinationConfig, _runId: string): Promise<DeliveryResult> {
+  async deliver(output: unknown, event: IncomingEvent, config: DestinationConfig, _ctx: DeliveryContext): Promise<DeliveryResult> {
     try {
       const o = output as ProspectOutput;
       if (!o.data || !Buffer.isBuffer(o.pdf)) {

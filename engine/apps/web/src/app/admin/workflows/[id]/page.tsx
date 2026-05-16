@@ -47,19 +47,23 @@ export default async function WorkflowDetailPage({ params }: { params: { id: str
       </div>
 
       <section className="bg-white rounded-lg border border-gray-200 px-6 py-5">
-        <h2 className="text-base font-semibold text-gray-900 mb-4">Default destination</h2>
-        <div className="flex items-center gap-4 text-sm">
-          <span className="font-mono bg-gray-100 px-2 py-0.5 rounded text-gray-700">
-            {workflow.defaultDestination.destinationId}
-          </span>
-          <span className="text-gray-500">
-            Requires approval: {workflow.defaultDestination.requireApproval === true ? 'yes' : 'no'}
-          </span>
-          {Object.keys(workflow.defaultDestination.settings).length > 0 && (
-            <pre className="text-xs text-gray-500 bg-gray-50 rounded px-2 py-1">
-              {JSON.stringify(workflow.defaultDestination.settings)}
-            </pre>
-          )}
+        <h2 className="text-base font-semibold text-gray-900 mb-4">Default destinations</h2>
+        <div className="space-y-2">
+          {workflow.defaultDestinations.map((dest, i) => (
+            <div key={i} className="flex items-center gap-4 text-sm">
+              <span className="font-mono bg-gray-100 px-2 py-0.5 rounded text-gray-700">
+                {dest.destinationId}
+              </span>
+              <span className="text-gray-500">
+                Requires approval: {dest.requireApproval === true ? 'yes' : 'no'}
+              </span>
+              {Object.keys(dest.settings).length > 0 && (
+                <pre className="text-xs text-gray-500 bg-gray-50 rounded px-2 py-1">
+                  {JSON.stringify(dest.settings)}
+                </pre>
+              )}
+            </div>
+          ))}
         </div>
       </section>
 

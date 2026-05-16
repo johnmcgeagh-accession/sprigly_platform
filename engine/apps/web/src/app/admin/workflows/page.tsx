@@ -26,7 +26,7 @@ export default function WorkflowsPage() {
                 <td className="px-6 py-3 font-mono text-xs text-gray-700">{w.id}</td>
                 <td className="px-6 py-3 text-gray-900 font-medium">{w.name}</td>
                 <td className="px-6 py-3 font-mono text-xs text-gray-500">
-                  {w.defaultDestination.destinationId}
+                  {w.defaultDestinations.map(d => d.destinationId).join(', ')}
                 </td>
                 <td className="px-6 py-3 text-gray-500">{w.steps.length}</td>
                 <td className="px-6 py-3 text-right">

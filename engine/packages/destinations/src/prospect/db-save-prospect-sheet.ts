@@ -1,5 +1,10 @@
+/**
+ * @deprecated Use db-save-output instead. Kept for historical reference;
+ * the prospect_sheets specialised table is legacy from initial scaffolding.
+ * Drop this file and migrate the table away when convenient.
+ */
 import { db as _db, prospectSheets } from '@sprigly/db';
-import type { Destination, DestinationConfig, DeliveryResult, IncomingEvent } from '@sprigly/engine';
+import type { Destination, DestinationConfig, DeliveryResult, DeliveryContext, IncomingEvent } from '@sprigly/engine';
 import type { ProspectBriefData } from '@sprigly/pdf-render';
 
 type Db = typeof _db;
@@ -17,7 +22,7 @@ export class DbSaveProspectSheet implements Destination<unknown> {
     return config.requireApproval === true;
   }
 
-  async deliver(output: unknown, event: IncomingEvent, _config: DestinationConfig, _runId: string): Promise<DeliveryResult> {
+  async deliver(output: unknown, event: IncomingEvent, _config: DestinationConfig, _ctx: DeliveryContext): Promise<DeliveryResult> {
     try {
       const o = output as ProspectOutput;
       const data = o.data;

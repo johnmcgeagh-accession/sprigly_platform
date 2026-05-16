@@ -1,13 +1,6 @@
 import { db as _db, approvals } from '@sprigly/db';
-
-function stripBuffers(value: unknown): unknown {
-  if (Buffer.isBuffer(value)) return '[binary]';
-  if (Array.isArray(value)) return value.map(stripBuffers);
-  if (value !== null && typeof value === 'object')
-    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, stripBuffers(v)]));
-  return value;
-}
 import type { Destination, DestinationConfig, IncomingEvent, RoutingRule } from './types.js';
+import { stripBuffers } from './strip-buffers.js';
 
 type Db = typeof _db;
 
@@ -25,21 +18,21 @@ export class DestinationDispatcher {
     event: IncomingEvent,
     rule: RoutingRule,
     runId: string,
-    defaultDestination?: DestinationConfig,
+    defaultDestinations?: DestinationConfig[],
   ): Promise<void> {
     const configs: DestinationConfig[] =
       rule.destinations.length > 0
         ? rule.destinations
-        : defaultDestination !== undefined
-          ? [defaultDestination]
-          : [];
+        : (defaultDestinations ?? []);
 
     if (configs.length === 0) {
       console.warn(
-        `[engine] DestinationDispatcher: no destinations for rule=${rule.id} and no workflow default`,
+        `[engine] DestinationDispatcher: no destinations for rule=${rule.id} and no workflow defaults`,
       );
       return;
     }
+
+    const deliveryCtx = { runId, workflowId: rule.workflowId, clientId: event.clientId };
 
     for (const config of configs) {
       const destination = this.destinations.get(config.destinationId);
@@ -60,7 +53,7 @@ export class DestinationDispatcher {
       }
 
       try {
-        await destination.deliver(output, event, config, runId);
+        await destination.deliver(output, event, config, deliveryCtx);
       } catch (err) {
         console.error(
           `[engine] DestinationDispatcher: delivery failed for destination=${config.destinationId}: ${String(err)}`,

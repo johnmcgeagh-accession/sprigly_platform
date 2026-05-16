@@ -2,7 +2,7 @@ import { google } from 'googleapis';
 import { db as _db } from '@sprigly/db';
 import { getTokens, storeTokens } from '@sprigly/oauth-tokens';
 import type { EncryptionProvider, OAuthTokenBundle } from '@sprigly/oauth-tokens';
-import type { Destination, DestinationConfig, DeliveryResult, IncomingEvent } from '@sprigly/engine';
+import type { Destination, DestinationConfig, DeliveryResult, DeliveryContext, IncomingEvent } from '@sprigly/engine';
 import { composeOutputEmail, formatOutputAsText } from './compose-email.js';
 
 type Db = typeof _db;
@@ -35,7 +35,7 @@ export class GmailSendNotification implements Destination<unknown> {
     return false;
   }
 
-  async deliver(output: unknown, event: IncomingEvent, config: DestinationConfig, _runId: string): Promise<DeliveryResult> {
+  async deliver(output: unknown, event: IncomingEvent, config: DestinationConfig, _ctx: DeliveryContext): Promise<DeliveryResult> {
     try {
       const toEmail = resolveToAddress(config, event);
       if (toEmail === undefined || toEmail === '') {

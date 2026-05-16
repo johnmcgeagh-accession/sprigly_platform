@@ -27,11 +27,11 @@ function fillTemplate(template: string, vars: Record<string, string>): string {
 
 export const spriglyBlogPostWorkflow: Workflow<BlogPostInput, BlogPostOutput> = {
   id: 'sprigly-blog-post',
-  defaultDestination: {
+  defaultDestinations: [{
     destinationId: 'db-save-blog-post',
     requireApproval: false,
     settings: {},
-  },
+  }],
 
   parseInput(event: IncomingEvent): BlogPostInput | null {
     return parseBlogPostInput(event);
