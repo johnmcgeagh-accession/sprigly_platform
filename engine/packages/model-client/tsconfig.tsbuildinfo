@@ -1,0 +1,1 @@
+{"root":["./src/anthropic-client.test.ts","./src/anthropic-client.ts","./src/bedrock-client.test.ts","./src/bedrock-client.ts","./src/factory.test.ts","./src/factory.ts","./src/index.ts","./src/model-resolver.test.ts","./src/model-resolver.ts","./src/types.ts"],"version":"5.9.3"}
