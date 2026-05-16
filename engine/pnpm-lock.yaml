@@ -171,6 +171,9 @@ importers:
       '@sprigly/oauth-tokens':
         specifier: workspace:*
         version: link:../oauth-tokens
+      '@sprigly/pdf-render':
+        specifier: workspace:*
+        version: link:../pdf-render
       '@sprigly/workflows':
         specifier: workspace:*
         version: link:../workflows

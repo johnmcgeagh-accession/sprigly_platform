@@ -32,8 +32,8 @@ function extractJson(text: string): unknown {
 export const spriglyProspectResearchWorkflow: Workflow<ProspectInput, ProspectOutput> = {
   id: 'sprigly-prospect-research',
   defaultDestination: {
-    destinationId: 'db-save-output',
-    requireApproval: true,
+    destinationId: 'db-save-prospect-sheet',
+    requireApproval: false,
     settings: {},
   },
 

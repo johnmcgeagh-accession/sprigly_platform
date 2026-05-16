@@ -1,4 +1,12 @@
 import { db as _db, approvals } from '@sprigly/db';
+
+function stripBuffers(value: unknown): unknown {
+  if (Buffer.isBuffer(value)) return '[binary]';
+  if (Array.isArray(value)) return value.map(stripBuffers);
+  if (value !== null && typeof value === 'object')
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, stripBuffers(v)]));
+  return value;
+}
 import type { Destination, DestinationConfig, IncomingEvent, RoutingRule } from './types.js';
 
 type Db = typeof _db;
@@ -46,7 +54,7 @@ export class DestinationDispatcher {
         await this.db.insert(approvals).values({
           workflowRunId: runId,
           status: 'pending',
-          outputSnapshot: output as Record<string, unknown>,
+          outputSnapshot: stripBuffers(output) as Record<string, unknown>,
         });
         continue;
       }

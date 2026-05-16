@@ -21,6 +21,7 @@
     "@sprigly/db": "workspace:*",
     "@sprigly/engine": "workspace:*",
     "@sprigly/oauth-tokens": "workspace:*",
+    "@sprigly/pdf-render": "workspace:*",
     "@sprigly/workflows": "workspace:*",
     "drizzle-orm": "^0.30.0",
     "googleapis": "^144.0.0"
