@@ -1,16 +1,19 @@
 import {
   BedrockRuntimeClient,
   ConverseCommand,
+  type ConverseCommandOutput,
   type Message,
+  type ContentBlock,
   type Tool,
   type ToolConfiguration,
   type ToolInputSchema,
 } from '@aws-sdk/client-bedrock-runtime';
 import type { ModelClient, ModelCompleteParams, ModelCompleteResult, AnthropicTool } from './types.js';
 
-const THROTTLE_RETRIES     = 3;
-const THROTTLE_BASE_DELAY  = 1_000; // 1s, doubles each attempt
-const DEFAULT_TIMEOUT_MS   = 90_000;
+const MAX_TOOL_TURNS    = 20;
+const THROTTLE_RETRIES  = 3;
+const THROTTLE_BASE_DELAY = 1_000; // 1s, doubles each attempt
+const DEFAULT_TIMEOUT_MS  = 90_000;
 
 function isThrottlingError(err: unknown): boolean {
   if (err == null || typeof err !== 'object') return false;
@@ -21,6 +24,26 @@ function isThrottlingError(err: unknown): boolean {
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function buildToolConfig(tools?: unknown[]): ToolConfiguration | undefined {
+  if (tools === undefined || tools.length === 0) return undefined;
+  return {
+    tools: tools.map((t): Tool => {
+      const tool = t as AnthropicTool;
+      return {
+        toolSpec: {
+          name: tool.name,
+          ...(tool.description !== undefined && { description: tool.description }),
+          // Built-in Anthropic tools (e.g. web_search_20250305) have no input_schema.
+          // Provide a valid empty object schema so Bedrock accepts the tool config.
+          inputSchema: {
+            json: tool.input_schema ?? { type: 'object', properties: {} },
+          } as ToolInputSchema,
+        },
+      };
+    }),
+  };
 }
 
 export class BedrockClient implements ModelClient {
@@ -39,40 +62,7 @@ export class BedrockClient implements ModelClient {
     this.timeoutMs = timeoutMs;
   }
 
-  async complete(params: ModelCompleteParams): Promise<ModelCompleteResult> {
-    const messages: Message[] = params.messages.map((m) => ({
-      role: m.role,
-      content: [{ text: m.content }],
-    }));
-
-    const toolConfig: ToolConfiguration | undefined =
-      params.tools !== undefined
-        ? {
-            tools: params.tools.map(
-              (t): Tool => {
-                const tool = t as AnthropicTool;
-                return {
-                  toolSpec: {
-                    name: tool.name,
-                    description: tool.description,
-                    inputSchema: { json: tool.input_schema } as ToolInputSchema,
-                  },
-                };
-              },
-            ),
-          }
-        : undefined;
-
-    const command = new ConverseCommand({
-      modelId: params.model,
-      messages,
-      ...(params.system !== undefined && {
-        system: [{ text: params.system }],
-      }),
-      ...(toolConfig !== undefined && { toolConfig }),
-      inferenceConfig: { maxTokens: params.maxTokens ?? 4096 },
-    });
-
+  private async sendWithRetry(command: ConverseCommand): Promise<ConverseCommandOutput> {
     let lastErr: unknown;
     for (let attempt = 0; attempt <= THROTTLE_RETRIES; attempt++) {
       if (attempt > 0) {
@@ -85,26 +75,15 @@ export class BedrockClient implements ModelClient {
       const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
       try {
-        const response = await this.client.send(command, { abortSignal: controller.signal });
+        const result = await this.client.send(command, { abortSignal: controller.signal });
         clearTimeout(timer);
-
-        const textContent = response.output?.message?.content?.find(
-          (c) => c.text !== undefined,
-        );
-        const content = textContent?.text ?? '';
-
-        return {
-          content,
-          inputTokens:  response.usage?.inputTokens  ?? 0,
-          outputTokens: response.usage?.outputTokens ?? 0,
-          modelId:      params.model,
-          stopReason:   response.stopReason ?? 'end_turn',
-        };
+        return result;
       } catch (err) {
         clearTimeout(timer);
-        if (controller.signal.aborted) {
+        if ((controller.signal as AbortSignal & { reason?: unknown }).reason !== undefined ||
+            (err as { name?: string }).name === 'AbortError') {
           throw new Error(
-            `Bedrock request timed out after ${this.timeoutMs / 1000}s for model ${params.model}`,
+            `Bedrock request timed out after ${this.timeoutMs / 1000}s for model ${command.input?.modelId}`,
           );
         }
         if (isThrottlingError(err) && attempt < THROTTLE_RETRIES) {
@@ -114,7 +93,86 @@ export class BedrockClient implements ModelClient {
         throw err;
       }
     }
-
     throw lastErr;
+  }
+
+  async complete(params: ModelCompleteParams): Promise<ModelCompleteResult> {
+    const messages: Message[] = params.messages.map((m) => ({
+      role: m.role,
+      content: [{ text: m.content }] as ContentBlock[],
+    }));
+
+    const toolConfig = buildToolConfig(params.tools);
+
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let finalText = '';
+    let finalStopReason = 'end_turn';
+    let turnsUsed = 0;
+
+    for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
+      turnsUsed = turn + 1;
+
+      const command = new ConverseCommand({
+        modelId: params.model,
+        messages,
+        ...(params.system !== undefined && { system: [{ text: params.system }] }),
+        ...(toolConfig !== undefined && { toolConfig }),
+        inferenceConfig: { maxTokens: params.maxTokens ?? 4096 },
+      });
+
+      const response = await this.sendWithRetry(command);
+
+      const turnInput  = response.usage?.inputTokens  ?? 0;
+      const turnOutput = response.usage?.outputTokens ?? 0;
+      totalInputTokens  += turnInput;
+      totalOutputTokens += turnOutput;
+      finalStopReason = response.stopReason ?? 'end_turn';
+
+      const content = response.output?.message?.content ?? [];
+      const textBlock = content.find((c) => c.text !== undefined);
+      if (textBlock?.text) finalText = textBlock.text;
+
+      console.info(
+        `[bedrock] turn=${turnsUsed} model=${params.model} ` +
+        `inputTokens=${turnInput} outputTokens=${turnOutput} stopReason=${finalStopReason}`,
+      );
+
+      if (finalStopReason !== 'tool_use') break;
+
+      if (turn === MAX_TOOL_TURNS - 1) {
+        console.warn(
+          `[bedrock] max tool turns (${MAX_TOOL_TURNS}) reached for model=${params.model}. ` +
+          `Returning accumulated content. inputTokens=${totalInputTokens} outputTokens=${totalOutputTokens}`,
+        );
+        break;
+      }
+
+      // Append assistant turn to conversation history.
+      if (response.output?.message !== undefined) {
+        messages.push(response.output.message);
+      }
+
+      // For Anthropic server-side tools (web_search etc.) Bedrock executes the tool
+      // internally and embeds results in the conversation. The client acknowledges with
+      // empty toolResult blocks so the model can continue to the next turn.
+      const toolUseBlocks = content.filter((c) => c.toolUse !== undefined);
+      const toolResultContent: ContentBlock[] = toolUseBlocks.map((c) => ({
+        toolResult: {
+          toolUseId: c.toolUse!.toolUseId ?? '',
+          content: [{ text: '' }],
+        },
+      }));
+      messages.push({ role: 'user', content: toolResultContent });
+    }
+
+    return {
+      content: finalText,
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
+      modelId: params.model,
+      stopReason: finalStopReason,
+      ...(turnsUsed > 1 && { toolTurns: turnsUsed }),
+    };
   }
 }

@@ -40,7 +40,6 @@ describe('BedrockClient', () => {
   });
 
   it('extracts text when a toolUse block precedes the text block', async () => {
-    // Verifies .find(c => c.text !== undefined) skips toolUse and finds the text block
     mockSend.mockResolvedValue(makeResponse([
       { toolUse: { toolUseId: 'tu_1', name: 'web_search', input: { query: 'test' } } },
       { text: 'Based on my search...' },
@@ -49,17 +48,79 @@ describe('BedrockClient', () => {
     expect(result.content).toBe('Based on my search...');
   });
 
-  it('returns empty string and stopReason=tool_use when only a toolUse block is returned', async () => {
-    mockSend.mockResolvedValue(makeResponse(
-      [{ toolUse: { toolUseId: 'tu_1', name: 'web_search', input: { query: 'test' } } }],
-      'tool_use',
-    ));
+  it('loops on tool_use and returns final text after end_turn', async () => {
+    mockSend
+      .mockResolvedValueOnce(makeResponse(
+        [{ toolUse: { toolUseId: 'tu_1', name: 'web_search', input: {} } }],
+        'tool_use',
+        { inputTokens: 100, outputTokens: 20 },
+      ))
+      .mockResolvedValueOnce(makeResponse(
+        [{ text: 'Research complete.' }],
+        'end_turn',
+        { inputTokens: 200, outputTokens: 80 },
+      ));
+
     const result = await new BedrockClient().complete(BASE_PARAMS);
-    expect(result.content).toBe('');
-    expect(result.stopReason).toBe('tool_use');
+    expect(result.content).toBe('Research complete.');
+    expect(result.stopReason).toBe('end_turn');
+    expect(result.inputTokens).toBe(300);   // 100 + 200
+    expect(result.outputTokens).toBe(100);  // 20 + 80
+    expect(result.toolTurns).toBe(2);
+    expect(mockSend).toHaveBeenCalledTimes(2);
   });
 
-  it('maps AnthropicTool shape to Bedrock toolSpec format', async () => {
+  it('sends empty toolResult blocks after server-side tool use', async () => {
+    mockSend
+      .mockResolvedValueOnce(makeResponse(
+        [{ toolUse: { toolUseId: 'tu_abc', name: 'web_search', input: {} } }],
+        'tool_use',
+      ))
+      .mockResolvedValueOnce(makeResponse([{ text: 'done' }]));
+
+    await new BedrockClient().complete(BASE_PARAMS);
+
+    const secondCall = vi.mocked(ConverseCommand).mock.calls[1]?.[0] as {
+      messages?: Array<{ role: string; content: unknown[] }>;
+    };
+    const userTurn = secondCall?.messages?.at(-1);
+    expect(userTurn?.role).toBe('user');
+    const content = userTurn?.content as Array<{ toolResult?: { toolUseId: string; content: unknown[] } }>;
+    expect(content[0]?.toolResult?.toolUseId).toBe('tu_abc');
+    expect(content[0]?.toolResult?.content).toEqual([{ text: '' }]);
+  });
+
+  it('accumulates tokens across 3 tool turns', async () => {
+    mockSend
+      .mockResolvedValueOnce(makeResponse([{ toolUse: { toolUseId: 'tu_1', name: 'web_search', input: {} } }], 'tool_use', { inputTokens: 10, outputTokens: 5 }))
+      .mockResolvedValueOnce(makeResponse([{ toolUse: { toolUseId: 'tu_2', name: 'web_search', input: {} } }], 'tool_use', { inputTokens: 15, outputTokens: 8 }))
+      .mockResolvedValueOnce(makeResponse([{ text: 'Final answer.' }], 'end_turn', { inputTokens: 20, outputTokens: 30 }));
+
+    const result = await new BedrockClient().complete(BASE_PARAMS);
+    expect(result.inputTokens).toBe(45);
+    expect(result.outputTokens).toBe(43);
+    expect(result.toolTurns).toBe(3);
+  });
+
+  it('does not set toolTurns when no tool use occurs', async () => {
+    mockSend.mockResolvedValue(makeResponse([{ text: 'Direct answer.' }]));
+    const result = await new BedrockClient().complete(BASE_PARAMS);
+    expect(result.toolTurns).toBeUndefined();
+  });
+
+  it('stops at MAX_TOOL_TURNS without throwing', async () => {
+    mockSend.mockResolvedValue(makeResponse(
+      [{ toolUse: { toolUseId: 'tu_x', name: 'web_search', input: {} } }],
+      'tool_use',
+    ));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = await new BedrockClient().complete(BASE_PARAMS);
+    expect(result.stopReason).toBe('tool_use');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('max tool turns'));
+    warn.mockRestore();
+  });
+
+  it('maps tools with input_schema to Bedrock toolSpec format', async () => {
     mockSend.mockResolvedValue(makeResponse([{ text: 'ok' }]));
     await new BedrockClient().complete({
       ...BASE_PARAMS,
@@ -92,5 +153,40 @@ describe('BedrockClient', () => {
         },
       }),
     );
+  });
+
+  it('uses empty object schema for built-in tools with no input_schema', async () => {
+    mockSend.mockResolvedValue(makeResponse([{ text: 'ok' }]));
+    await new BedrockClient().complete({
+      ...BASE_PARAMS,
+      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+    });
+    expect(ConverseCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolConfig: {
+          tools: [{
+            toolSpec: {
+              name: 'web_search',
+              inputSchema: { json: { type: 'object', properties: {} } },
+            },
+          }],
+        },
+      }),
+    );
+  });
+
+  it('retries on ThrottlingException and succeeds on second attempt', async () => {
+    const throttleErr = Object.assign(new Error('Throttled'), {
+      name: 'ThrottlingException',
+    });
+    mockSend
+      .mockRejectedValueOnce(throttleErr)
+      .mockResolvedValueOnce(makeResponse([{ text: 'ok after retry' }]));
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = await new BedrockClient().complete(BASE_PARAMS);
+    expect(result.content).toBe('ok after retry');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('ThrottlingException'));
+    warn.mockRestore();
   });
 });

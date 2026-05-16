@@ -12,7 +12,8 @@
     "eval:bedrock":  "sh -c 'set -a && . ../../.env.local && set +a && tsx scripts/eval-bedrock.ts'",
     "eval:harness":           "sh -c 'set -a && . ../../.env.local && set +a && tsx scripts/eval-harness.ts'",
     "eval:harness:anthropic": "sh -c 'set -a && . ../../.env.local && set +a && tsx scripts/eval-harness.ts anthropic'",
-    "eval:harness:bedrock":   "sh -c 'set -a && . ../../.env.local && set +a && tsx scripts/eval-harness.ts bedrock'"
+    "eval:harness:bedrock":   "sh -c 'set -a && . ../../.env.local && set +a && tsx scripts/eval-harness.ts bedrock'",
+    "test": "vitest run"
   },
   "dependencies": {
     "pino": "^9.0.0",
@@ -33,6 +34,7 @@
   "devDependencies": {
     "typescript": "*",
     "@types/node": "*",
-    "tsx": "^4.0.0"
+    "tsx": "^4.0.0",
+    "vitest": "^1.6.0"
   }
 }

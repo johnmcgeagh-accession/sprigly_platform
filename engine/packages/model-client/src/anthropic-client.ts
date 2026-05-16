@@ -32,12 +32,19 @@ export class AnthropicClient implements ModelClient {
         ...(params.tools !== undefined && { tools: params.tools as Anthropic.Tool[] }),
       });
 
-      totalInputTokens += response.usage.input_tokens;
-      totalOutputTokens += response.usage.output_tokens;
+      const turnInput  = response.usage.input_tokens;
+      const turnOutput = response.usage.output_tokens;
+      totalInputTokens  += turnInput;
+      totalOutputTokens += turnOutput;
       finalStopReason = response.stop_reason ?? 'end_turn';
 
       const textBlock = response.content.find(b => b.type === 'text');
       if (textBlock?.type === 'text') finalText = textBlock.text;
+
+      console.info(
+        `[anthropic] turn=${turnsUsed} model=${params.model} ` +
+        `inputTokens=${turnInput} outputTokens=${turnOutput} stopReason=${finalStopReason}`,
+      );
 
       if (response.stop_reason !== 'tool_use') break;
 

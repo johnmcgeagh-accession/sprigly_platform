@@ -1,4 +1,20 @@
 import { db as _db, incomingEvents, workflowRuns } from '@sprigly/db';
+
+function extractApiErrorMeta(err: Error): Record<string, unknown> {
+  const meta: Record<string, unknown> = {};
+  // Anthropic SDK / Bedrock SDK error shapes
+  const e = err as unknown as Record<string, unknown>;
+  if (typeof e['status'] === 'number')   meta['statusCode'] = e['status'];
+  if (typeof e['error'] === 'object' && e['error'] !== null) meta['apiError'] = e['error'];
+  if (typeof e['request_id'] === 'string') meta['requestId'] = e['request_id'];
+  // AWS SDK error shape
+  if (typeof e['$metadata'] === 'object' && e['$metadata'] !== null) {
+    const md = e['$metadata'] as Record<string, unknown>;
+    meta['statusCode'] = md['httpStatusCode'];
+    meta['requestId'] = md['requestId'];
+  }
+  return meta;
+}
 import type { IncomingEvent as DbIncomingEvent } from '@sprigly/db';
 import { eq, and, desc } from 'drizzle-orm';
 import { Worker as BullWorker } from 'bullmq';
@@ -96,7 +112,12 @@ export function createConsumer(
           logger.info({ eventId, workflowId: rule.workflowId }, 'dispatched');
         }
       } catch (err) {
-        logger.error({ eventId, err: String(err) }, 'job failed');
+        // Log full error details — status code, request ID, body — before re-throwing.
+        // Re-throwing lets BullMQ mark the job as FAILED; it does NOT crash the worker.
+        const detail = err instanceof Error
+          ? { message: err.message, stack: err.stack, ...extractApiErrorMeta(err) }
+          : { raw: String(err) };
+        logger.error({ eventId, ...detail }, 'job failed');
         throw err;
       }
     },

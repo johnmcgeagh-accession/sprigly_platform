@@ -88,3 +88,12 @@ const shutdown = async (): Promise<void> => {
 
 process.on('SIGTERM', () => { void shutdown(); });
 process.on('SIGINT', () => { void shutdown(); });
+
+// Guard against unhandled promise rejections (e.g. from void'd poll() calls).
+// Log the error but keep the process running — BullMQ jobs are the recovery path.
+process.on('unhandledRejection', (reason) => {
+  logger.error({ reason: String(reason) }, 'Unhandled promise rejection — process kept alive');
+});
+process.on('uncaughtException', (err) => {
+  logger.error({ err: String(err), stack: err.stack }, 'Uncaught exception — process kept alive');
+});
