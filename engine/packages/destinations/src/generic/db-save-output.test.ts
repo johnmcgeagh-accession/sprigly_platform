@@ -5,7 +5,7 @@ import type { IncomingEvent, DeliveryContext } from '@sprigly/engine';
 const mockReturning = vi.fn().mockResolvedValue([{ id: 'row-1' }]);
 const mockValues = vi.fn().mockReturnValue({ returning: mockReturning });
 const mockInsert = vi.fn().mockReturnValue({ values: mockValues });
-const mockDb = { insert: mockInsert } as unknown as Parameters<typeof DbSaveOutput>[0];
+const mockDb = { insert: mockInsert } as unknown as ConstructorParameters<typeof DbSaveOutput>[0];
 
 const makeEvent = (): IncomingEvent => ({
   id: 'evt-1',
@@ -30,7 +30,7 @@ describe('DbSaveOutput', () => {
     const data = { brandName: 'Test Firm', url: 'test.co.uk' };
     const output = { data, pdf };
 
-    await destination.deliver(output, makeEvent(), {}, makeCtx());
+    await destination.deliver(output, makeEvent(), { destinationId: 'db-save-output', settings: {} }, makeCtx());
 
     const insertedOutput = mockValues.mock.calls.at(-1)?.[0].output;
     // data field extracted — ProspectBriefData is stored directly
@@ -44,7 +44,7 @@ describe('DbSaveOutput', () => {
     const destination = new DbSaveOutput(mockDb);
     const output = { title: 'My Post', pdf: Buffer.from('%PDF') };
 
-    await destination.deliver(output, makeEvent(), {}, makeCtx());
+    await destination.deliver(output, makeEvent(), { destinationId: 'db-save-output', settings: {} }, makeCtx());
 
     const insertedOutput = mockValues.mock.calls.at(-1)?.[0].output;
     expect(insertedOutput).toEqual({ title: 'My Post', pdf: '[binary]' });
@@ -52,7 +52,7 @@ describe('DbSaveOutput', () => {
 
   it('populates workflowId from DeliveryContext', async () => {
     const destination = new DbSaveOutput(mockDb);
-    await destination.deliver({ brandName: 'X' }, makeEvent(), {}, makeCtx());
+    await destination.deliver({ brandName: 'X' }, makeEvent(), { destinationId: 'db-save-output', settings: {} }, makeCtx());
 
     const insertedRow = mockValues.mock.calls.at(-1)?.[0];
     expect(insertedRow.workflowId).toBe('sprigly-prospect-research');
@@ -61,7 +61,7 @@ describe('DbSaveOutput', () => {
 
   it('returns success with workflowOutputId', async () => {
     const destination = new DbSaveOutput(mockDb);
-    const result = await destination.deliver({ brandName: 'X' }, makeEvent(), {}, makeCtx());
+    const result = await destination.deliver({ brandName: 'X' }, makeEvent(), { destinationId: 'db-save-output', settings: {} }, makeCtx());
     expect(result.success).toBe(true);
     expect(result.metadata?.['workflowOutputId']).toBe('row-1');
   });
