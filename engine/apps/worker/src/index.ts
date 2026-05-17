@@ -13,6 +13,7 @@ import {
   DestinationDispatcher,
 } from '@sprigly/engine';
 import { spriglyBlogPostWorkflow, spriglyProspectResearchWorkflow } from '@sprigly/workflows';
+import { TavilyClient } from '@sprigly/web-search';
 import { GmailPoller } from '@sprigly/sources';
 import {
   DbSaveBlogPost,
@@ -49,7 +50,8 @@ registry.register(spriglyProspectResearchWorkflow);
 logger.info({ workflows: ['sprigly-blog-post', 'sprigly-prospect-research'] }, 'Registered workflows');
 
 const router = new EventRouter(db);
-const runner = new WorkflowRunner(db, registry, model, audit, prompts);
+const search = new TavilyClient(env.TAVILY_API_KEY);
+const runner = new WorkflowRunner(db, registry, model, audit, prompts, search);
 
 const dispatcher = new DestinationDispatcher(db);
 dispatcher.register(new DbSaveBlogPost(db));

@@ -14,6 +14,7 @@ export interface ModelCompleteParams {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
   maxTokens?: number;
   tools?: unknown[];
+  toolHandlers?: Record<string, (input: unknown) => Promise<unknown>>;
 }
 
 export interface ModelCompleteResult {

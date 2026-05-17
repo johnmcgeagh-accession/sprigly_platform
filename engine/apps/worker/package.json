@@ -29,7 +29,8 @@
     "@sprigly/audit": "workspace:*",
     "@sprigly/model-client": "workspace:*",
     "@sprigly/oauth-tokens": "workspace:*",
-    "@sprigly/prompts": "workspace:*"
+    "@sprigly/prompts": "workspace:*",
+    "@sprigly/web-search": "workspace:*"
   },
   "devDependencies": {
     "typescript": "*",

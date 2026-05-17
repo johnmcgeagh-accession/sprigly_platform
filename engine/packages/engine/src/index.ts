@@ -18,6 +18,8 @@ export type {
   DeliveryResult,
   RoutingRule,
   MatchCondition,
+  SearchResult,
+  WebSearchProvider,
 } from './types.js';
 export { stripBuffers } from './strip-buffers.js';
 export { WorkflowRegistry } from './workflow-registry.js';

@@ -153,16 +153,28 @@ export class BedrockClient implements ModelClient {
         messages.push(response.output.message);
       }
 
-      // For Anthropic server-side tools (web_search etc.) Bedrock executes the tool
-      // internally and embeds results in the conversation. The client acknowledges with
-      // empty toolResult blocks so the model can continue to the next turn.
       const toolUseBlocks = content.filter((c) => c.toolUse !== undefined);
-      const toolResultContent: ContentBlock[] = toolUseBlocks.map((c) => ({
-        toolResult: {
-          toolUseId: c.toolUse!.toolUseId ?? '',
-          content: [{ text: '' }],
-        },
-      }));
+      const toolResultContent: ContentBlock[] = await Promise.all(
+        toolUseBlocks.map(async (c) => {
+          const toolUse = c.toolUse!;
+          const handler = params.toolHandlers?.[toolUse.name ?? ''];
+          let resultText = '';
+          if (handler !== undefined) {
+            try {
+              const result = await handler(toolUse.input ?? {});
+              resultText = typeof result === 'string' ? result : JSON.stringify(result);
+            } catch (err) {
+              console.warn(`[bedrock] tool handler "${toolUse.name}" failed:`, err);
+            }
+          }
+          return {
+            toolResult: {
+              toolUseId: toolUse.toolUseId ?? '',
+              content: [{ text: resultText }],
+            },
+          };
+        }),
+      );
       messages.push({ role: 'user', content: toolResultContent });
     }
 

@@ -56,12 +56,23 @@ export class AnthropicClient implements ModelClient {
         break;
       }
 
-      // Append assistant turn and empty tool_results so built-in server-side
-      // tools (e.g. web_search) can continue to the next turn.
       messages.push({ role: 'assistant', content: response.content });
-      const toolResults: Anthropic.ToolResultBlockParam[] = response.content
-        .filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
-        .map(b => ({ type: 'tool_result' as const, tool_use_id: b.id, content: '' }));
+      const toolUseBlocks = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
+      const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
+        toolUseBlocks.map(async (b) => {
+          const handler = params.toolHandlers?.[b.name];
+          let resultContent = '';
+          if (handler !== undefined) {
+            try {
+              const result = await handler(b.input ?? {});
+              resultContent = typeof result === 'string' ? result : JSON.stringify(result);
+            } catch (err) {
+              console.warn(`[anthropic] tool handler "${b.name}" failed:`, err);
+            }
+          }
+          return { type: 'tool_result' as const, tool_use_id: b.id, content: resultContent };
+        }),
+      );
       messages.push({ role: 'user', content: toolResults });
     }
 

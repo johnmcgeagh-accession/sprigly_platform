@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { IncomingEvent, WorkflowContext, ClientConfig, ModelCompleteResult } from '@sprigly/engine';
+import type { IncomingEvent, WorkflowContext, ClientConfig, ModelCompleteResult, ModelCompleteParams } from '@sprigly/engine';
 import { parseProspectInput } from './parse-input.js';
 import { spriglyProspectResearchWorkflow, WRITE_SYSTEM } from './sprigly-prospect-research.js';
 import type { ProspectBriefData } from '@sprigly/pdf-render';
@@ -244,8 +244,8 @@ describe('spriglyProspectResearchWorkflow.run', () => {
   it('returns parsed data as the data field', async () => {
     const ctx = makeCtx();
     const output = await spriglyProspectResearchWorkflow.run({ brandName: 'Test Firm' }, ctx);
-    expect(output.data.brandName).toBe('Test Firm');
-    expect(output.data.url).toBe('testfirm.co.uk');
+    expect(output.data!.brandName).toBe('Test Firm');
+    expect(output.data!.url).toBe('testfirm.co.uk');
   });
 
   it('passes JSON inside code fences in write response', async () => {
@@ -258,7 +258,7 @@ describe('spriglyProspectResearchWorkflow.run', () => {
       },
     };
     const output = await spriglyProspectResearchWorkflow.run({ brandName: 'Test Firm' }, ctx);
-    expect(output.data.brandName).toBe('Test Firm');
+    expect(output.data!.brandName).toBe('Test Firm');
   }, 30_000);
 
   it('write prompt receives research output as a template variable', async () => {
@@ -308,7 +308,7 @@ describe('spriglyProspectResearchWorkflow.run', () => {
   it('parsed data contains all required top-level fields', async () => {
     const ctx = makeCtx();
     const output = await spriglyProspectResearchWorkflow.run({ brandName: 'Test Firm' }, ctx);
-    const d = output.data;
+    const d = output.data!;
     expect(d.brandName).toBeDefined();
     expect(d.spelling).toBeDefined();
     expect(d.founder).toBeDefined();
@@ -326,7 +326,7 @@ describe('spriglyProspectResearchWorkflow.run', () => {
   it('opsTells entries have non-empty evidence', async () => {
     const ctx = makeCtx();
     const output = await spriglyProspectResearchWorkflow.run({ brandName: 'Test Firm' }, ctx);
-    for (const tell of output.data.opsTells) {
+    for (const tell of output.data!.opsTells) {
       expect(tell.evidence.length).toBeGreaterThan(0);
     }
   });
@@ -344,8 +344,177 @@ describe('spriglyProspectResearchWorkflow.run', () => {
     };
     const ctx = makeCtx(JSON.stringify(dataWithPainPoints));
     const output = await spriglyProspectResearchWorkflow.run({ brandName: 'Test Firm' }, ctx);
-    for (const pp of output.data.founder.selfNamedPainPoints) {
+    for (const pp of output.data!.founder.selfNamedPainPoints) {
       expect(pp.source.length).toBeGreaterThan(0);
     }
+  }, 30_000);
+
+  it('passes toolHandlers to the research model call', async () => {
+    const ctx = makeCtx();
+    await spriglyProspectResearchWorkflow.run({ brandName: 'Test Firm' }, ctx);
+    const researchCall = vi.mocked(ctx.model.complete).mock.calls[0]?.[0];
+    expect(researchCall?.toolHandlers).toBeDefined();
+    expect(typeof researchCall?.toolHandlers?.['web_search']).toBe('function');
+  });
+
+  it('does not pass toolHandlers to the write model call', async () => {
+    const ctx = makeCtx();
+    await spriglyProspectResearchWorkflow.run({ brandName: 'Test Firm' }, ctx);
+    const writeCall = vi.mocked(ctx.model.complete).mock.calls[1]?.[0];
+    expect(writeCall?.toolHandlers).toBeUndefined();
+  });
+});
+
+// ─── Tavily / web_search handler ─────────────────────────────────────────────
+
+describe('web_search tool handler', () => {
+  it('calls ctx.search.search with the query from tool input', async () => {
+    const mockSearch = { search: vi.fn().mockResolvedValue([
+      { title: 'Result', url: 'https://example.com', content: 'Content here' },
+    ]) };
+    const ctx: WorkflowContext = {
+      ...makeCtx(),
+      search: mockSearch,
+      model: {
+        complete: vi.fn().mockImplementation(async (params: ModelCompleteParams) => {
+          await params.toolHandlers?.['web_search']?.({ query: 'Test Firm accountants' });
+          return mockModelResult('research');
+        }).mockResolvedValueOnce as never,
+      },
+    };
+    // Override to use the implementation for the first call only
+    const researchImpl = async (params: ModelCompleteParams): Promise<ModelCompleteResult> => {
+      await params.toolHandlers?.['web_search']?.({ query: 'Test Firm accountants' });
+      return mockModelResult('research content');
+    };
+    ctx.model = {
+      complete: vi.fn()
+        .mockImplementationOnce(researchImpl)
+        .mockResolvedValueOnce(mockModelResult(JSON.stringify(SAMPLE_DATA))),
+    };
+    await spriglyProspectResearchWorkflow.run({ brandName: 'Test Firm' }, ctx);
+    expect(mockSearch.search).toHaveBeenCalledWith('Test Firm accountants');
+  });
+
+  it('returns formatted results to the model', async () => {
+    const mockSearch = { search: vi.fn().mockResolvedValue([
+      { title: 'Test Firm', url: 'https://testfirm.co.uk', content: 'An accounting practice.' },
+    ]) };
+    let capturedResult: unknown;
+    const ctx: WorkflowContext = {
+      ...makeCtx(),
+      search: mockSearch,
+      model: {
+        complete: vi.fn()
+          .mockImplementationOnce(async (params: ModelCompleteParams): Promise<ModelCompleteResult> => {
+            capturedResult = await params.toolHandlers?.['web_search']?.({ query: 'Test Firm' });
+            return mockModelResult('research');
+          })
+          .mockResolvedValueOnce(mockModelResult(JSON.stringify(SAMPLE_DATA))),
+      },
+    };
+    await spriglyProspectResearchWorkflow.run({ brandName: 'Test Firm' }, ctx);
+    const result = capturedResult as { results: string };
+    expect(result.results).toContain('Test Firm');
+    expect(result.results).toContain('https://testfirm.co.uk');
+    expect(result.results).toContain('An accounting practice.');
+  });
+
+  it('returns (no results) when search returns empty array', async () => {
+    const mockSearch = { search: vi.fn().mockResolvedValue([]) };
+    let capturedResult: unknown;
+    const ctx: WorkflowContext = {
+      ...makeCtx(),
+      search: mockSearch,
+      model: {
+        complete: vi.fn()
+          .mockImplementationOnce(async (params: ModelCompleteParams): Promise<ModelCompleteResult> => {
+            capturedResult = await params.toolHandlers?.['web_search']?.({ query: 'Test Firm' });
+            return mockModelResult('research');
+          })
+          .mockResolvedValueOnce(mockModelResult(JSON.stringify(SAMPLE_DATA))),
+      },
+    };
+    await spriglyProspectResearchWorkflow.run({ brandName: 'Test Firm' }, ctx);
+    expect((capturedResult as { results: string }).results).toBe('(no results)');
+  });
+});
+
+// ─── noDataAvailable ──────────────────────────────────────────────────────────
+
+describe('noDataAvailable', () => {
+  it('sets noDataAvailable and skips write when 10+ searches all return empty', async () => {
+    const mockSearch = { search: vi.fn().mockResolvedValue([]) };
+    const ctx: WorkflowContext = {
+      ...makeCtx(),
+      search: mockSearch,
+      model: {
+        complete: vi.fn().mockImplementationOnce(async (params: ModelCompleteParams): Promise<ModelCompleteResult> => {
+          for (let i = 0; i < 10; i++) {
+            await params.toolHandlers?.['web_search']?.({ query: `query ${i}` });
+          }
+          return mockModelResult('no data found');
+        }),
+      },
+    };
+    const output = await spriglyProspectResearchWorkflow.run({ brandName: 'Test Firm' }, ctx);
+    expect(output.noDataAvailable).toBe(true);
+    expect(output.data).toBeUndefined();
+    expect(Buffer.isBuffer(output.pdf)).toBe(true);
+    // Write step was skipped — model.complete called only once
+    expect(vi.mocked(ctx.model.complete)).toHaveBeenCalledTimes(1);
+  }, 30_000);
+
+  it('does not set noDataAvailable when fewer than 10 searches were made', async () => {
+    const mockSearch = { search: vi.fn().mockResolvedValue([]) };
+    const ctx: WorkflowContext = {
+      ...makeCtx(),
+      search: mockSearch,
+      model: {
+        complete: vi.fn()
+          .mockImplementationOnce(async (params: ModelCompleteParams): Promise<ModelCompleteResult> => {
+            for (let i = 0; i < 5; i++) {
+              await params.toolHandlers?.['web_search']?.({ query: `query ${i}` });
+            }
+            return mockModelResult('some research');
+          })
+          .mockResolvedValueOnce(mockModelResult(JSON.stringify(SAMPLE_DATA))),
+      },
+    };
+    const output = await spriglyProspectResearchWorkflow.run({ brandName: 'Test Firm' }, ctx);
+    expect(output.noDataAvailable).toBeUndefined();
+    expect(output.data).toBeDefined();
+  }, 30_000);
+
+  it('does not set noDataAvailable when ctx.search is undefined', async () => {
+    const ctx: WorkflowContext = {
+      ...makeCtx(),
+      // no search provider
+      model: {
+        complete: vi.fn()
+          .mockResolvedValueOnce(mockModelResult('research'))
+          .mockResolvedValueOnce(mockModelResult(JSON.stringify(SAMPLE_DATA))),
+      },
+    };
+    const output = await spriglyProspectResearchWorkflow.run({ brandName: 'Test Firm' }, ctx);
+    expect(output.noDataAvailable).toBeUndefined();
+  }, 30_000);
+
+  it('noDataAvailable PDF starts with PDF magic bytes', async () => {
+    const mockSearch = { search: vi.fn().mockResolvedValue([]) };
+    const ctx: WorkflowContext = {
+      ...makeCtx(),
+      search: mockSearch,
+      model: {
+        complete: vi.fn().mockImplementationOnce(async (params: ModelCompleteParams): Promise<ModelCompleteResult> => {
+          for (let i = 0; i < 10; i++) {
+            await params.toolHandlers?.['web_search']?.({ query: `query ${i}` });
+          }
+          return mockModelResult('no data');
+        }),
+      },
+    };
+    const output = await spriglyProspectResearchWorkflow.run({ brandName: 'Test Firm' }, ctx);
+    expect(output.pdf.subarray(0, 4).toString('ascii')).toBe('%PDF');
   }, 30_000);
 });

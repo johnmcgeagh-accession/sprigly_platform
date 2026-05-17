@@ -53,6 +53,16 @@ export interface Workflow<TInput = unknown, TOutput = unknown> {
   run(input: TInput, ctx: WorkflowContext): Promise<TOutput>;
 }
 
+export interface SearchResult {
+  title: string;
+  url: string;
+  content: string;
+}
+
+export interface WebSearchProvider {
+  search(query: string): Promise<SearchResult[]>;
+}
+
 export interface WorkflowContext {
   clientId: string;
   clientConfig: ClientConfig;
@@ -61,6 +71,7 @@ export interface WorkflowContext {
   prompts: PromptResolver;
   eventId: string;
   runId: string;
+  search?: WebSearchProvider;
   /** When true: audit logs go to console only; destinations must skip real writes. */
   dryRun?: boolean;
 }
@@ -84,6 +95,7 @@ export interface ModelCompleteParams {
   messages: Array<{ role: "user" | "assistant"; content: string }>;
   maxTokens?: number;
   tools?: unknown[];
+  toolHandlers?: Record<string, (input: unknown) => Promise<unknown>>;
 }
 
 export interface ModelCompleteResult {

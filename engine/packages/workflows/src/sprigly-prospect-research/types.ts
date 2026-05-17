@@ -10,6 +10,7 @@ export interface ProspectInput {
 }
 
 export interface ProspectOutput {
-  data: import('@sprigly/pdf-render').ProspectBriefData;
+  data?: import('@sprigly/pdf-render').ProspectBriefData;
   pdf: Buffer;
+  noDataAvailable?: boolean;
 }

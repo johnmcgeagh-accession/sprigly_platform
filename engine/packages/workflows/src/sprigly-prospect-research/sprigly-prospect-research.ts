@@ -1,16 +1,25 @@
 import type { Workflow, WorkflowContext, IncomingEvent } from '@sprigly/engine';
-import { render, registerFonts } from '@sprigly/pdf-render';
+import { render, renderNoData, registerFonts } from '@sprigly/pdf-render';
 import type { ProspectBriefData } from '@sprigly/pdf-render';
 import type { ProspectInput, ProspectOutput } from './types.js';
 import { parseProspectInput } from './parse-input.js';
 
 registerFonts();
 
-// Anthropic built-in web search tool (server-side — Anthropic executes searches).
 const WEB_SEARCH_TOOL = {
-  type:  'web_search_20250305',
-  name:  'web_search',
-} as const;
+  name: 'web_search',
+  description: 'Search the web for information about a company, person, or topic.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      query: {
+        type: 'string',
+        description: 'A short, specific search query (1-6 words). Use source-specific terms like "site:linkedin.com" when appropriate. Do not repeat a query you have already used.',
+      },
+    },
+    required: ['query'],
+  },
+};
 
 // Enforced on the write step so the JSON output never contains em-dashes.
 export const WRITE_SYSTEM =
@@ -49,7 +58,25 @@ export const spriglyProspectResearchWorkflow: Workflow<ProspectInput, ProspectOu
   },
 
   async run(input: ProspectInput, ctx: WorkflowContext): Promise<ProspectOutput> {
-    // ── Step 1: Research (Sonnet + web_search) ────────────────────────────────
+    // ── Step 1: Research (Sonnet + custom web_search via Tavily) ─────────────
+    const searchCount = { total: 0, empty: 0 };
+
+    const toolHandlers: Record<string, (input: unknown) => Promise<unknown>> = {
+      web_search: async (rawInput: unknown): Promise<unknown> => {
+        const { query } = rawInput as { query: string };
+        searchCount.total++;
+        if (ctx.search === undefined) return { results: '(no results)' };
+        const results = await ctx.search.search(query);
+        if (results.length === 0) {
+          searchCount.empty++;
+          return { results: '(no results)' };
+        }
+        return {
+          results: results.map((r) => `**${r.title}**\n${r.url}\n${r.content}`).join('\n\n---\n\n'),
+        };
+      },
+    };
+
     const researchPrompt = await ctx.prompts.resolve(
       ctx.clientId,
       'sprigly-prospect-research',
@@ -60,6 +87,7 @@ export const spriglyProspectResearchWorkflow: Workflow<ProspectInput, ProspectOu
       messages: [{ role: 'user', content: fillTemplate(researchPrompt, buildTemplateVars(input)) }],
       maxTokens: 8000,
       tools: [WEB_SEARCH_TOOL],
+      toolHandlers,
     });
     await ctx.audit.logModelCall({
       clientId:     ctx.clientId,
@@ -73,6 +101,18 @@ export const spriglyProspectResearchWorkflow: Workflow<ProspectInput, ProspectOu
         metadata: { toolTurns: researchResult.toolTurns },
       }),
     });
+
+    // If Tavily was available but every search returned nothing, skip the write
+    // step and return a minimal fallback rather than a blank brief.
+    const noDataAvailable =
+      ctx.search !== undefined &&
+      searchCount.total >= 10 &&
+      searchCount.empty === searchCount.total;
+
+    if (noDataAvailable) {
+      const pdf = await renderNoData(input.brandName);
+      return { pdf, noDataAvailable: true };
+    }
 
     // ── Step 2: Write (Sonnet, no tools) ─────────────────────────────────────
     const writePrompt = await ctx.prompts.resolve(

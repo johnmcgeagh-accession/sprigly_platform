@@ -11,6 +11,7 @@ import type {
   AuditLogger,
   PromptResolver,
   SourceType,
+  WebSearchProvider,
 } from './types.js';
 import type { WorkflowRegistry } from './workflow-registry.js';
 
@@ -52,6 +53,7 @@ export class WorkflowRunner {
     private model: ModelClient,
     private audit: AuditLogger,
     private prompts: PromptResolver,
+    private search?: WebSearchProvider,
   ) {}
 
   async run(rule: RoutingRule, dbEventId: string): Promise<unknown> {
@@ -129,6 +131,7 @@ export class WorkflowRunner {
       prompts: this.prompts,
       eventId: dbEventId,
       runId,
+      ...(this.search !== undefined && { search: this.search }),
     };
 
     const input = workflow.parseInput(event);
