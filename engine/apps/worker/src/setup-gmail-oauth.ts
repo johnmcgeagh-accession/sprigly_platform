@@ -16,6 +16,7 @@ const SCOPES = [
   'https://www.googleapis.com/auth/gmail.send',
 ];
 
+
 const slug = process.argv[2];
 if (!slug) {
   console.error('Usage: tsx src/setup-gmail-oauth.ts <client-slug>');
