@@ -211,6 +211,7 @@ export class BedrockClient implements ModelClient {
               resultText = typeof result === 'string' ? result : JSON.stringify(result);
             } catch (err) {
               console.warn(`[bedrock] tool handler "${toolUse.name}" failed:`, err);
+              throw err;
             }
           }
           return {
