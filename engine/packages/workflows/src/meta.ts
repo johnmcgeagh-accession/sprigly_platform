@@ -38,7 +38,21 @@ export const workflowMeta: WorkflowMeta[] = [
     description: 'Researches a prospect firm and identifies where AI can save time, producing a structured briefing for a discovery call.',
     defaultDestinations: [
       { destinationId: 'db-save-output', requireApproval: false, settings: {} },
-      { destinationId: 'gmail-reply-prospect-brief', requireApproval: false, settings: { to: 'sender' } },
+      {
+        destinationId: 'gmail-reply-with-attachment',
+        requireApproval: false,
+        settings: {
+          to: { mode: 'sender' },
+          subjectTemplate: 'Prospect brief: {{brandName}}',
+          bodyTemplate:
+            'Prospect brief ready: {{brandName}}\n\n' +
+            '- What they do: {{summaryBullet1}}\n' +
+            '- Top pipeline: {{summaryBullet2}}\n' +
+            '- Key risk: {{summaryBullet3}}\n\n' +
+            'PDF attached.',
+          attachmentFilenameTemplate: '{{brandName}}-prospect-brief.pdf',
+        },
+      },
     ],
     steps: [
       {
