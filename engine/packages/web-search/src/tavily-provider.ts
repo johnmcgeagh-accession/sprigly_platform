@@ -2,6 +2,9 @@ import { tavily } from '@tavily/core';
 import type { WebSearchProvider, SearchResult, WebSearchOptions } from './types.js';
 import { WebSearchError } from './types.js';
 
+// Detects Google-style operators that Tavily rejects with HTTP 400.
+const OPERATOR_RE = /\bsite:|\bintitle:|\binurl:|\bfiletype:|"[^"]+"|\bOR\b|(?:^|\s)-\S/;
+
 export class TavilyProvider implements WebSearchProvider {
   private readonly client: ReturnType<typeof tavily>;
 
@@ -12,6 +15,13 @@ export class TavilyProvider implements WebSearchProvider {
   }
 
   async search(query: string, options?: WebSearchOptions): Promise<SearchResult[]> {
+    if (OPERATOR_RE.test(query)) {
+      throw new WebSearchError(
+        `Query contains unsupported search operators: "${query}". Tavily requires natural language queries only. ` +
+        `Remove site:, intitle:, inurl:, quoted phrases, and minus operators.`,
+        { provider: 'tavily', query, statusCode: 400 },
+      );
+    }
     try {
       const response = await this.client.search(query, {
         maxResults: options?.maxResults ?? 5,

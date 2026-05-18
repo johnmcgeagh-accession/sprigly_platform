@@ -58,6 +58,32 @@ describe('TavilyProvider', () => {
     await expect(provider.search('no results query')).resolves.toEqual([]);
   });
 
+  it('throws WebSearchError before calling Tavily when query contains site: operator', async () => {
+    const provider = new TavilyProvider();
+    await expect(provider.search('site:example.com')).rejects.toBeInstanceOf(WebSearchError);
+    expect(mockTavilySearch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'site:linkedin.com Sally McLaren',
+    'intitle:Ivy founder',
+    'inurl:about-us',
+    'filetype:pdf annual report',
+    '"Ivy clothing" founder',
+    'Ivy clothing -fashion',
+    'Ivy OR fashion brand',
+  ])('rejects operator query: %s', async (query) => {
+    const provider = new TavilyProvider();
+    await expect(provider.search(query)).rejects.toBeInstanceOf(WebSearchError);
+    expect(mockTavilySearch).not.toHaveBeenCalled();
+  });
+
+  it('does not reject clean natural language queries', async () => {
+    mockTavilySearch.mockResolvedValue({ results: [] });
+    const provider = new TavilyProvider();
+    await expect(provider.search('Ivy clothing Oxford founder')).resolves.toBeDefined();
+  });
+
   it('throws WebSearchError on HTTP 503', async () => {
     const err = Object.assign(new Error('Service Unavailable'), { status: 503 });
     mockTavilySearch.mockRejectedValueOnce(err);

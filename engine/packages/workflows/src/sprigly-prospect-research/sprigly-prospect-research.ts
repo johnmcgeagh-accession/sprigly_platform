@@ -158,6 +158,7 @@ export const spriglyProspectResearchWorkflow: Workflow<ProspectInput, ProspectOu
       'sprigly-prospect-research',
       'research',
     );
+    console.info(`[prospect-research] resolvedPromptHead=${JSON.stringify(researchPrompt.slice(0, 500))}`);
     const researchResult = await ctx.model.complete({
       model: 'sonnet',
       messages: [{ role: 'user', content: fillTemplate(researchPrompt, buildTemplateVars(input)) }],
