@@ -370,7 +370,7 @@ describe('spriglyProspectResearchWorkflow.run', () => {
 describe('web_search tool handler', () => {
   it('calls ctx.search.search with the query from tool input', async () => {
     const mockSearch = { search: vi.fn().mockResolvedValue([
-      { title: 'Result', url: 'https://example.com', content: 'Content here' },
+      { title: 'Result', url: 'https://example.com', snippet: 'Content here' },
     ]) };
     const ctx: WorkflowContext = {
       ...makeCtx(),
@@ -398,7 +398,7 @@ describe('web_search tool handler', () => {
 
   it('returns formatted results to the model', async () => {
     const mockSearch = { search: vi.fn().mockResolvedValue([
-      { title: 'Test Firm', url: 'https://testfirm.co.uk', content: 'An accounting practice.' },
+      { title: 'Test Firm', url: 'https://testfirm.co.uk', snippet: 'An accounting practice.' },
     ]) };
     let capturedResult: unknown;
     const ctx: WorkflowContext = {
@@ -421,11 +421,11 @@ describe('web_search tool handler', () => {
   });
 
   it('returns (no results) when search returns empty array', async () => {
-    const mockSearch = { search: vi.fn().mockResolvedValue([]) };
+    const mockEmpty = { search: vi.fn().mockResolvedValue([]) };
     let capturedResult: unknown;
     const ctx: WorkflowContext = {
       ...makeCtx(),
-      search: mockSearch,
+      search: mockEmpty,
       model: {
         complete: vi.fn()
           .mockImplementationOnce(async (params: ModelCompleteParams): Promise<ModelCompleteResult> => {
@@ -437,6 +437,25 @@ describe('web_search tool handler', () => {
     };
     await spriglyProspectResearchWorkflow.run({ brandName: 'Test Firm' }, ctx);
     expect((capturedResult as { results: string }).results).toBe('(no results)');
+  });
+
+  it('propagates WebSearchError so the workflow run is marked failed', async () => {
+    const { WebSearchError } = await import('@sprigly/web-search');
+    const searchErr = new WebSearchError('Tavily HTTP 503', { provider: 'tavily', query: 'Test Firm', statusCode: 503 });
+    const failingSearch = { search: vi.fn().mockRejectedValue(searchErr) };
+    const ctx: WorkflowContext = {
+      ...makeCtx(),
+      search: failingSearch,
+      model: {
+        complete: vi.fn().mockImplementationOnce(async (params: ModelCompleteParams): Promise<ModelCompleteResult> => {
+          await params.toolHandlers?.['web_search']?.({ query: 'Test Firm' });
+          return mockModelResult('research');
+        }),
+      },
+    };
+    await expect(
+      spriglyProspectResearchWorkflow.run({ brandName: 'Test Firm' }, ctx),
+    ).rejects.toBeInstanceOf(WebSearchError);
   });
 });
 

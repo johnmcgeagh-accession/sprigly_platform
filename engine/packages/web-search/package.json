@@ -14,12 +14,14 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@tavily/core": "^0.0.3"
   },
   "devDependencies": {
-    "typescript": "*"
+    "typescript": "*",
+    "vitest": "^1.6.0"
   }
 }

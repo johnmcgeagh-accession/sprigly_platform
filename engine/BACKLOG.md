@@ -18,3 +18,31 @@ Technical debt and deferred cleanup items. Address when the relevant area is bei
 5. Update `DbSaveOutput` comment that mentions `prospect_sheets` as exempt
 
 **Why deferred:** No data in the table; no live references. Safe to drop at any time once confirmed.
+
+---
+
+## Destinations
+
+### Extract `composeMimeWithAttachment` into a standalone utility
+
+`composeMimeWithAttachment` is currently defined inline in `packages/destinations/src/generic/gmail-reply-with-attachment.ts`. If a second attachment-sending destination is added, this logic should move to a shared `compose-mime.ts` utility in the same `generic/` folder.
+
+**Why deferred:** Only one destination uses it today. Extract when the second consumer arrives.
+
+---
+
+## Web Search
+
+### Add `web_search_errors` table
+
+Mirror the `gmail_operation_errors` pattern: a `web_search_errors` table with `provider`, `query`, `status_code`, `error_message`, `workflow_run_id`, and a resolution state column. Surface in admin UI.
+
+Currently, Tavily failures (`WebSearchError`) propagate up through the BullMQ job and land in `workflow_runs.error` (visible in the admin UI) and Railway pino logs (structured, queryable). That's sufficient visibility for now but not independently queryable.
+
+**To do:**
+1. Create `web_search_errors` migration (mirror `gmail_operation_errors` schema)
+2. Add a `WebSearchErrorLogger` that writes to the table, analogous to `GmailOperationErrorLogger`
+3. Wire into the worker's BullMQ error handler (catch `WebSearchError` instances specifically)
+4. Add admin UI panel alongside the Gmail errors panel
+
+**Why deferred:** Current visibility (Railway logs + `workflow_runs.error`) is sufficient. "Fail loudly with visibility" is already met. The table adds queryability for trends (e.g. recurring provider outages) but is not urgent.

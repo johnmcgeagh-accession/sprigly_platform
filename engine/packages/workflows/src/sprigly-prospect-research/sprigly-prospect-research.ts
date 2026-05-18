@@ -3,23 +3,9 @@ import { render, renderNoData, registerFonts } from '@sprigly/pdf-render';
 import type { ProspectBriefData } from '@sprigly/pdf-render';
 import type { ProspectInput, ProspectOutput } from './types.js';
 import { parseProspectInput } from './parse-input.js';
+import { WEB_SEARCH_TOOL_DEFINITION, handleWebSearchTool, WebSearchError } from '@sprigly/web-search';
 
 registerFonts();
-
-const WEB_SEARCH_TOOL = {
-  name: 'web_search',
-  description: 'Search the web for information about a company, person, or topic.',
-  input_schema: {
-    type: 'object' as const,
-    properties: {
-      query: {
-        type: 'string',
-        description: 'A short, specific search query (1-6 words). Use source-specific terms like "site:linkedin.com" when appropriate. Do not repeat a query you have already used.',
-      },
-    },
-    required: ['query'],
-  },
-};
 
 // Enforced on the write step so the JSON output never contains em-dashes.
 export const WRITE_SYSTEM =
@@ -47,9 +33,19 @@ export const spriglyProspectResearchWorkflow: Workflow<ProspectInput, ProspectOu
       settings: {},
     },
     {
-      destinationId: 'gmail-reply-prospect-brief',
+      destinationId: 'gmail-reply-with-attachment',
       requireApproval: false,
-      settings: { to: 'sender' },
+      settings: {
+        to: { mode: 'sender' },
+        subjectTemplate: 'Prospect brief: {{brandName}}',
+        bodyTemplate:
+          'Prospect brief ready: {{brandName}}\n\n' +
+          '- What they do: {{summaryBullet1}}\n' +
+          '- Top pipeline: {{summaryBullet2}}\n' +
+          '- Key risk: {{summaryBullet3}}\n\n' +
+          'PDF attached.',
+        attachmentFilenameTemplate: '{{brandName}}-prospect-brief.pdf',
+      },
     },
   ],
 
@@ -58,7 +54,7 @@ export const spriglyProspectResearchWorkflow: Workflow<ProspectInput, ProspectOu
   },
 
   async run(input: ProspectInput, ctx: WorkflowContext): Promise<ProspectOutput> {
-    // ── Step 1: Research (Sonnet + custom web_search via Tavily) ─────────────
+    // ── Step 1: Research (Sonnet + web_search via Tavily) ─────────────────────
     const searchCount = { total: 0, empty: 0 };
 
     const toolHandlers: Record<string, (input: unknown) => Promise<unknown>> = {
@@ -66,14 +62,17 @@ export const spriglyProspectResearchWorkflow: Workflow<ProspectInput, ProspectOu
         const { query } = rawInput as { query: string };
         searchCount.total++;
         if (ctx.search === undefined) return { results: '(no results)' };
-        const results = await ctx.search.search(query);
-        if (results.length === 0) {
-          searchCount.empty++;
-          return { results: '(no results)' };
+        try {
+          const result = await handleWebSearchTool(ctx.search, query);
+          if (result.results === '(no results)') searchCount.empty++;
+          return result;
+        } catch (err) {
+          if (err instanceof WebSearchError) {
+            // Structured context lands in workflow_runs.error and Railway logs via BullMQ error handler
+            throw new WebSearchError(err.message, err.options);
+          }
+          throw err;
         }
-        return {
-          results: results.map((r) => `**${r.title}**\n${r.url}\n${r.content}`).join('\n\n---\n\n'),
-        };
       },
     };
 
@@ -86,7 +85,7 @@ export const spriglyProspectResearchWorkflow: Workflow<ProspectInput, ProspectOu
       model: 'sonnet',
       messages: [{ role: 'user', content: fillTemplate(researchPrompt, buildTemplateVars(input)) }],
       maxTokens: 8000,
-      tools: [WEB_SEARCH_TOOL],
+      tools: [WEB_SEARCH_TOOL_DEFINITION],
       toolHandlers,
     });
     await ctx.audit.logModelCall({
@@ -111,7 +110,7 @@ export const spriglyProspectResearchWorkflow: Workflow<ProspectInput, ProspectOu
 
     if (noDataAvailable) {
       const pdf = await renderNoData(input.brandName);
-      return { pdf, noDataAvailable: true };
+      return { pdf, noDataAvailable: true, brandName: input.brandName };
     }
 
     // ── Step 2: Write (Sonnet, no tools) ─────────────────────────────────────
@@ -147,7 +146,17 @@ export const spriglyProspectResearchWorkflow: Workflow<ProspectInput, ProspectOu
     // ── Step 3: Render PDF ────────────────────────────────────────────────────
     const pdf = await render('prospect-brief', data);
 
-    return { data, pdf };
+    const pipeline = data.pipelines[0];
+    const risk = data.risks[0];
+
+    return {
+      data,
+      pdf,
+      brandName: data.brandName,
+      summaryBullet1: data.execSummary.whatTheyActuallyDo,
+      ...(pipeline !== undefined && { summaryBullet2: `${pipeline.name} — ${pipeline.qualifier}` }),
+      ...(risk !== undefined && { summaryBullet3: `${risk.title} — ${risk.detail}` }),
+    };
   },
 };
 

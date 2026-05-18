@@ -1,7 +1,18 @@
 import type { IncomingEvent } from '@sprigly/engine';
+import type { EmailInputSpec } from '@sprigly/sources';
+import { parseEmailInput } from '@sprigly/sources';
 import type { ProspectInput } from './types.js';
 
-const PREFIX = 'prospect:';
+const PROSPECT_SPEC: EmailInputSpec = {
+  subjectPrefix: 'Prospect:',
+  bodyFields: [
+    { key: 'url',           aliases: ['URL', 'Website'] },
+    { key: 'sector',        aliases: ['Sector', 'Industry'] },
+    { key: 'meetingDate',   aliases: ['Meeting date', 'Meeting'] },
+    { key: 'whyInterested', aliases: ['Why interested', 'Why', 'Interest'] },
+    { key: 'notes',         aliases: ['Notes'] },
+  ],
+};
 
 /**
  * Parses a "Prospect: <brandName>" email into a ProspectInput.
@@ -13,6 +24,8 @@ const PREFIX = 'prospect:';
  *   Meeting date: 22 May 2026
  *   Why:          Strong LinkedIn presence, Cotswolds location
  *   Notes:        Two principals, boutique positioning
+ *
+ * Multi-line values and full parsing rules are handled by parseEmailInput.
  */
 export function parseProspectInput(event: IncomingEvent): ProspectInput | null {
   const subject =
@@ -20,33 +33,24 @@ export function parseProspectInput(event: IncomingEvent): ProspectInput | null {
     (event.content.structured?.['subject'] as string | undefined) ??
     '';
 
-  if (!subject.toLowerCase().startsWith(PREFIX)) return null;
+  const rawBody = (event.content.text ?? '').replace(subject, '').trim();
 
-  const brandName = subject.slice(PREFIX.length).trim();
-  if (brandName === '') return null;
+  const parsed = parseEmailInput(subject, rawBody, PROSPECT_SPEC);
+  if (parsed === null) return null;
 
-  const result: ProspectInput = { brandName };
+  const result: ProspectInput = { brandName: parsed.primaryValue };
 
-  const body =
-    (event.content.text ?? '').replace(subject, '').trim();
+  const url           = parsed.bodyFields['url'];
+  const sector        = parsed.bodyFields['sector'];
+  const meetingDate   = parsed.bodyFields['meetingDate'];
+  const whyInterested = parsed.bodyFields['whyInterested'];
+  const notes         = parsed.bodyFields['notes'];
 
-  for (const rawLine of body.split('\n')) {
-    const line = rawLine.trim();
-    if (line === '') continue;
-
-    const colonAt = line.indexOf(':');
-    if (colonAt === -1) continue;
-
-    const key   = line.slice(0, colonAt).trim().toLowerCase();
-    const value = line.slice(colonAt + 1).trim();
-    if (value === '') continue;
-
-    if (key === 'url')                        result.url          = value;
-    else if (key === 'sector')                result.sector       = value;
-    else if (key === 'meeting date' || key === 'meeting') result.meetingDate  = value;
-    else if (key === 'why' || key === 'why interested')   result.whyInterested = value;
-    else if (key === 'notes')                 result.notes        = value;
-  }
+  if (url           !== undefined) result.url           = url;
+  if (sector        !== undefined) result.sector        = sector;
+  if (meetingDate   !== undefined) result.meetingDate   = meetingDate;
+  if (whyInterested !== undefined) result.whyInterested = whyInterested;
+  if (notes         !== undefined) result.notes         = notes;
 
   return result;
 }

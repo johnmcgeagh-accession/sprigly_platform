@@ -56,7 +56,9 @@ export interface Workflow<TInput = unknown, TOutput = unknown> {
 export interface SearchResult {
   title: string;
   url: string;
-  content: string;
+  snippet: string;   // short relevance excerpt from provider
+  content?: string;  // longer raw content if requested
+  score?: number;    // provider relevance score
 }
 
 export interface WebSearchProvider {

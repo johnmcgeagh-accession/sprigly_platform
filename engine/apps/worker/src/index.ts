@@ -13,13 +13,13 @@ import {
   DestinationDispatcher,
 } from '@sprigly/engine';
 import { spriglyBlogPostWorkflow, spriglyProspectResearchWorkflow } from '@sprigly/workflows';
-import { TavilyClient } from '@sprigly/web-search';
+import { TavilyProvider } from '@sprigly/web-search';
 import { GmailPoller } from '@sprigly/sources';
 import {
   DbSaveBlogPost,
   DbSaveOutput,
   GmailSendNotification,
-  GmailReplyProspectBrief,
+  GmailReplyWithAttachment,
 } from '@sprigly/destinations';
 import { Queue } from 'bullmq';
 import { pollAllClients } from './poller.js';
@@ -50,7 +50,7 @@ registry.register(spriglyProspectResearchWorkflow);
 logger.info({ workflows: ['sprigly-blog-post', 'sprigly-prospect-research'] }, 'Registered workflows');
 
 const router = new EventRouter(db);
-const search = new TavilyClient(env.TAVILY_API_KEY);
+const search = new TavilyProvider();
 const runner = new WorkflowRunner(db, registry, model, audit, prompts, search);
 
 const dispatcher = new DestinationDispatcher(db);
@@ -60,10 +60,10 @@ dispatcher.register(
   new GmailSendNotification(db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET),
 );
 dispatcher.register(
-  new GmailReplyProspectBrief(db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET),
+  new GmailReplyWithAttachment(db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET),
 );
 logger.info(
-  { destinations: ['db-save-blog-post', 'db-save-output', 'gmail-send-notification', 'gmail-reply-prospect-brief'] },
+  { destinations: ['db-save-blog-post', 'db-save-output', 'gmail-send-notification', 'gmail-reply-with-attachment'] },
   'Registered destinations',
 );
 

@@ -21,7 +21,9 @@
     "@sprigly/engine": "workspace:*",
     "@sprigly/model-client": "workspace:*",
     "@sprigly/audit": "workspace:*",
-    "@sprigly/pdf-render": "workspace:*"
+    "@sprigly/pdf-render": "workspace:*",
+    "@sprigly/web-search": "workspace:*",
+    "@sprigly/sources": "workspace:*"
   },
   "devDependencies": {
     "typescript": "*",
