@@ -24,6 +24,83 @@ function extractJson(text: string): unknown {
   return JSON.parse(raw);
 }
 
+function safeArray<T>(v: unknown): T[] {
+  return Array.isArray(v) ? (v as T[]) : [];
+}
+
+function safeString(v: unknown, fallback = ''): string {
+  return typeof v === 'string' ? v : fallback;
+}
+
+// Coerces the raw LLM JSON into a shape the renderer can safely consume.
+// Required because the write step can produce malformed output (too-short
+// response, partially populated object, wrong types) when it receives
+// insufficient research context.
+function normalizeBriefData(raw: unknown): ProspectBriefData {
+  const d = (raw ?? {}) as Record<string, unknown>;
+  const founder = (d.founder ?? {}) as Record<string, unknown>;
+  const voiceAndTone = (founder.voiceAndTone ?? {}) as Record<string, unknown>;
+  const publicProfile = (founder.publicProfile ?? {}) as Record<string, unknown>;
+  const ct = (d.callTactics ?? {}) as Record<string, unknown>;
+  const tq = (ct.theOneQuestion ?? {}) as Record<string, unknown>;
+  const es = (d.execSummary ?? {}) as Record<string, unknown>;
+  const location = (d.location ?? {}) as Record<string, unknown>;
+  const spelling = (d.spelling ?? {}) as Record<string, unknown>;
+
+  return {
+    brandName:   safeString(d.brandName, 'Unknown'),
+    url:         safeString(d.url),
+    preparedAt:  safeString(d.preparedAt),
+    positioning: safeString(d.positioning),
+    ...(typeof d.meetingDate === 'string' && { meetingDate: d.meetingDate }),
+    spelling: {
+      correctName: safeString(spelling.correctName, safeString(d.brandName, 'Unknown')),
+      ...(typeof spelling.providedName === 'string' && { providedName: spelling.providedName }),
+      ...(typeof spelling.note === 'string'          && { note: spelling.note }),
+    },
+    location: {
+      registered: safeString(location.registered),
+      ...(typeof location.trading  === 'string' && { trading: location.trading }),
+      ...(typeof location.localHook === 'string' && { localHook: location.localHook }),
+    },
+    stats: safeArray(d.stats),
+    founder: {
+      name:       safeString(founder.name),
+      background: safeString(founder.background),
+      employers:  safeArray(founder.employers),
+      ...(typeof founder.education === 'string' && { education: founder.education }),
+      publicProfile: {
+        ...(typeof publicProfile.linkedIn === 'string'          && { linkedIn: publicProfile.linkedIn }),
+        ...(Array.isArray(publicProfile.podcasts)               && { podcasts: publicProfile.podcasts as string[] }),
+        ...(Array.isArray(publicProfile.interviews)             && { interviews: publicProfile.interviews as string[] }),
+      },
+      voiceAndTone: {
+        description: safeString(voiceAndTone.description),
+        examples:    safeArray(voiceAndTone.examples),
+      },
+      selfNamedPainPoints: safeArray(founder.selfNamedPainPoints),
+      caresAbout:          safeArray(founder.caresAbout),
+    },
+    execSummary: {
+      whatTheyActuallyDo:     safeString(es.whatTheyActuallyDo),
+      revenueModel:           safeString(es.revenueModel),
+      distinctiveVsCorporate: safeString(es.distinctiveVsCorporate),
+      ...(typeof es.localOrSpellingIntel === 'string' && { localOrSpellingIntel: es.localOrSpellingIntel }),
+    },
+    opsTells:  safeArray(d.opsTells),
+    pipelines: safeArray(d.pipelines),
+    risks:     safeArray(d.risks),
+    callTactics: {
+      homeworkHooks: safeArray(ct.homeworkHooks),
+      dontMention:   safeArray(ct.dontMention),
+      theOneQuestion: {
+        question:        safeString(tq.question),
+        whyThisQuestion: safeString(tq.whyThisQuestion),
+      },
+    },
+  };
+}
+
 export const spriglyProspectResearchWorkflow: Workflow<ProspectInput, ProspectOutput> = {
   id: 'sprigly-prospect-research',
   defaultDestinations: [
@@ -141,7 +218,7 @@ export const spriglyProspectResearchWorkflow: Workflow<ProspectInput, ProspectOu
       action:       'prospect-write',
     });
 
-    const data = extractJson(writeResult.content) as ProspectBriefData;
+    const data = normalizeBriefData(extractJson(writeResult.content));
 
     // ── Step 3: Render PDF ────────────────────────────────────────────────────
     const pdf = await render('prospect-brief', data);

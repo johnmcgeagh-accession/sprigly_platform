@@ -143,7 +143,32 @@ export class BedrockClient implements ModelClient {
       if (turn === MAX_TOOL_TURNS - 1) {
         console.warn(
           `[bedrock] max tool turns (${MAX_TOOL_TURNS}) reached for model=${params.model}. ` +
-          `Returning accumulated content. inputTokens=${totalInputTokens} outputTokens=${totalOutputTokens}`,
+          `Forcing summarise turn. inputTokens=${totalInputTokens} outputTokens=${totalOutputTokens}`,
+        );
+        // Append the last assistant turn so the model has full context.
+        if (response.output?.message !== undefined) {
+          messages.push(response.output.message);
+        }
+        messages.push({
+          role: 'user',
+          content: [{ text: 'You have reached the search limit. Please now write up all the research you have gathered into a comprehensive summary.' }],
+        });
+        const summariseCommand = new ConverseCommand({
+          modelId: params.model,
+          messages,
+          ...(params.system !== undefined && { system: [{ text: params.system }] }),
+          // No toolConfig — force a text response.
+          inferenceConfig: { maxTokens: params.maxTokens ?? 4096 },
+        });
+        const summariseResponse = await this.sendWithRetry(summariseCommand);
+        totalInputTokens  += summariseResponse.usage?.inputTokens  ?? 0;
+        totalOutputTokens += summariseResponse.usage?.outputTokens ?? 0;
+        const summariseContent = summariseResponse.output?.message?.content ?? [];
+        const summariseText = summariseContent.find((c) => c.text !== undefined)?.text ?? '';
+        if (summariseText) finalText = summariseText;
+        console.info(
+          `[bedrock] summarise turn model=${params.model} ` +
+          `inputTokens=${summariseResponse.usage?.inputTokens} outputTokens=${summariseResponse.usage?.outputTokens}`,
         );
         break;
       }

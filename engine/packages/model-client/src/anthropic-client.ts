@@ -51,7 +51,27 @@ export class AnthropicClient implements ModelClient {
       if (turn === MAX_TOOL_TURNS - 1) {
         console.warn(
           `[AnthropicClient] max tool turns (${MAX_TOOL_TURNS}) reached for model=${params.model}. ` +
-          `Returning accumulated content. inputTokens=${totalInputTokens} outputTokens=${totalOutputTokens}`,
+          `Forcing summarise turn. inputTokens=${totalInputTokens} outputTokens=${totalOutputTokens}`,
+        );
+        messages.push({ role: 'assistant', content: response.content });
+        messages.push({
+          role: 'user',
+          content: 'You have reached the search limit. Please now write up all the research you have gathered into a comprehensive summary.',
+        });
+        const summariseResponse = await this.client.messages.create({
+          model: params.model,
+          max_tokens: params.maxTokens ?? 4096,
+          messages,
+          ...(params.system !== undefined && { system: params.system }),
+          // No tools — force a text response.
+        });
+        totalInputTokens  += summariseResponse.usage.input_tokens;
+        totalOutputTokens += summariseResponse.usage.output_tokens;
+        const summariseBlock = summariseResponse.content.find(b => b.type === 'text');
+        if (summariseBlock?.type === 'text') finalText = summariseBlock.text;
+        console.info(
+          `[anthropic] summarise turn model=${params.model} ` +
+          `inputTokens=${summariseResponse.usage.input_tokens} outputTokens=${summariseResponse.usage.output_tokens}`,
         );
         break;
       }

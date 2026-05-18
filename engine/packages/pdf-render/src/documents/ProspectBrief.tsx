@@ -574,9 +574,6 @@ const TOC_SECTIONS = [
 ];
 
 function CoverPage({ data }: { data: ProspectBriefData }) {
-  console.log('[CoverPage] stats value:', JSON.stringify(data.stats));
-  console.log('[CoverPage] stats is array?', Array.isArray(data.stats));
-
   const locationDisplay = data.location.trading ?? data.location.registered;
   const subtitle = [data.founder.name, data.positioning, locationDisplay].filter(Boolean).join(' · ');
   const metaParts = [
@@ -584,8 +581,6 @@ function CoverPage({ data }: { data: ProspectBriefData }) {
     data.meetingDate && `Meeting: ${data.meetingDate}`,
     `Prepared: ${data.preparedAt}`,
   ].filter(Boolean) as string[];
-
-  const stats = Array.isArray(data.stats) ? data.stats : [];
 
   return (
     <Page size="A4" style={s.page}>
@@ -601,7 +596,7 @@ function CoverPage({ data }: { data: ProspectBriefData }) {
       <Text style={{ ...s.cardMuted, marginBottom: SPACING.md }}>{metaParts.join(' · ')}</Text>
 
       <View style={s.statGrid}>
-        {stats.map((stat, i) => (
+        {data.stats.map((stat, i) => (
           <View key={i} style={s.statCard}>
             <View style={s.statCardInner}>
               <Text style={s.statLabel}>{stat.label}</Text>
@@ -858,13 +853,7 @@ function PipelinesPage({ data }: { data: ProspectBriefData }) {
 // ─── Page 6: Call Tactics ───────────────────────────────────────────────────
 
 function CallTacticsPage({ data }: { data: ProspectBriefData }) {
-  console.log('[CallTacticsPage] homeworkHooks is array?', Array.isArray(data.callTactics.homeworkHooks));
-  console.log('[CallTacticsPage] dontMention is array?', Array.isArray(data.callTactics.dontMention));
-  const ct = {
-    ...data.callTactics,
-    homeworkHooks: Array.isArray(data.callTactics.homeworkHooks) ? data.callTactics.homeworkHooks : [],
-    dontMention:   Array.isArray(data.callTactics.dontMention)   ? data.callTactics.dontMention   : [],
-  };
+  const { callTactics: ct } = data;
   return (
     <Page size="A4" style={s.page}>
       <SectionStrip num="05" title="Call Tactics" icon="message" />

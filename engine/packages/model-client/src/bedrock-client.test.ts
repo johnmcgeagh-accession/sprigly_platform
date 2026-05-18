@@ -108,15 +108,31 @@ describe('BedrockClient', () => {
     expect(result.toolTurns).toBeUndefined();
   });
 
-  it('stops at MAX_TOOL_TURNS without throwing', async () => {
-    mockSend.mockResolvedValue(makeResponse(
+  it('runs a forced summarise turn when MAX_TOOL_TURNS is reached', async () => {
+    const toolUseResponse = makeResponse(
       [{ toolUse: { toolUseId: 'tu_x', name: 'web_search', input: {} } }],
       'tool_use',
-    ));
+    );
+    const summariseResponse = makeResponse([{ text: 'Here is the research summary.' }], 'end_turn', { inputTokens: 500, outputTokens: 300 });
+    // First 20 calls return tool_use; the 21st is the forced summarise call.
+    mockSend.mockResolvedValue(toolUseResponse);
+    mockSend.mockResolvedValueOnce(summariseResponse);  // last call returns summary
+    // Re-queue: 19 tool_use calls then the summary
+    mockSend.mockReset();
+    for (let i = 0; i < 20; i++) mockSend.mockResolvedValueOnce(toolUseResponse);
+    mockSend.mockResolvedValueOnce(summariseResponse);
+
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const result = await new BedrockClient().complete(BASE_PARAMS);
-    expect(result.stopReason).toBe('tool_use');
+    const result = await new BedrockClient().complete({
+      ...BASE_PARAMS,
+      toolHandlers: { web_search: async () => ({ results: 'some results' }) },
+    });
+    expect(result.content).toBe('Here is the research summary.');
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('max tool turns'));
+    // Summarise call must not include toolConfig (21st ConverseCommand call).
+    const calls = vi.mocked(ConverseCommand).mock.calls;
+    const summariseCall = calls[calls.length - 1]?.[0] as Record<string, unknown>;
+    expect(summariseCall['toolConfig']).toBeUndefined();
     warn.mockRestore();
   });
 
