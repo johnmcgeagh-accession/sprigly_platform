@@ -129,6 +129,10 @@ interface IconProps {
 
 export function Icon({ name, size = 12, color = '#1E2A4A' }: IconProps) {
   const paths = ICON_PATHS[name];
+  if (paths === undefined) {
+    console.warn('[Icon] unknown icon name:', name);
+    return <Svg viewBox="0 0 24 24" width={size} height={size} />;
+  }
   return (
     <Svg viewBox="0 0 24 24" width={size} height={size}>
       {paths.map((d, i) => (

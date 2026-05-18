@@ -754,18 +754,53 @@ function FounderPage({ data }: { data: ProspectBriefData }) {
 
 // ─── Page 4: Ops Tells ──────────────────────────────────────────────────────
 
+const ICON_ALIASES: Record<string, IconName> = {
+  'settings':        'tools',
+  'wrench':          'tools',
+  'gear':            'tools',
+  'chart':           'layout-dashboard',
+  'bar-chart':       'layout-dashboard',
+  'chart-bar':       'layout-dashboard',
+  'check':           'alert-circle',
+  'check-circle':    'alert-circle',
+  'calendar':        'clock',
+  'time':            'clock',
+  'person':          'user',
+  'people':          'users',
+  'team':            'users',
+  'globe':           'world',
+  'link':            'world',
+  'document':        'file-text',
+  'file':            'file-text',
+  'chat':            'message',
+  'comment':         'message',
+  'envelope':        'mail',
+  'email':           'mail',
+  'box':             'package',
+  'warning':         'alert-triangle',
+  'exclamation':     'alert-triangle',
+  'magnify':         'search',
+  'magnifying-glass': 'search',
+};
+
+function resolveIcon(raw: string): IconName {
+  if (raw in ICON_ALIASES) return ICON_ALIASES[raw]!;
+  return 'info-circle';
+}
+
 function OpsTellsPage({ data }: { data: ProspectBriefData }) {
+  const tells = Array.isArray(data.opsTells) ? data.opsTells : [];
   return (
     <Page size="A4" style={s.page}>
       <SectionStrip num="03" title="Operational Tells" icon="tools" />
-      {pairs(data.opsTells).map(([left, right], i) => (
+      {pairs(tells).map(([left, right], i) => (
         <View key={i} wrap={false} style={s.cardRow}>
           <View style={s.cardCellLeft}>
-            <IconCard icon={left.icon as IconName} title={left.title} body={left.evidence} />
+            <IconCard icon={resolveIcon(left.icon)} title={left.title} body={left.evidence} />
           </View>
           {right !== undefined && (
             <View style={s.cardCellRight}>
-              <IconCard icon={right.icon as IconName} title={right.title} body={right.evidence} />
+              <IconCard icon={resolveIcon(right.icon)} title={right.title} body={right.evidence} />
             </View>
           )}
         </View>
