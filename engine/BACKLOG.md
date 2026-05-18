@@ -23,6 +23,14 @@ Technical debt and deferred cleanup items. Address when the relevant area is bei
 
 ## Destinations
 
+### Consolidate template substitution utilities
+
+`substituteTemplate` lives in `packages/destinations/src/generic/template.ts`. The workflow scaffold generates a duplicate `fillTemplate` in each new workflow, and the existing `sprigly-blog-post` and `sprigly-prospect-research` workflows also carry local copies. When a third workflow consumer arrives (or when the destinations/workflows boundary is revisited), extract to a shared `@sprigly/utils` package or a top-level `packages/template/` utility.
+
+**Why deferred:** Three isolated copies is not yet painful. Extract when the fourth arrives or when a bug in the logic needs fixing in multiple places.
+
+---
+
 ### Extract `composeMimeWithAttachment` into a standalone utility
 
 `composeMimeWithAttachment` is currently defined inline in `packages/destinations/src/generic/gmail-reply-with-attachment.ts`. If a second attachment-sending destination is added, this logic should move to a shared `compose-mime.ts` utility in the same `generic/` folder.

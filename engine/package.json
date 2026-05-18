@@ -11,12 +11,14 @@
     "type-check": "turbo type-check",
     "db:generate": "pnpm --filter @sprigly/db generate",
     "db:migrate": "pnpm --filter @sprigly/db migrate",
-    "db:seed": "pnpm --filter @sprigly/db seed"
+    "db:seed": "pnpm --filter @sprigly/db seed",
+    "new-workflow": "tsx scripts/new-workflow.ts"
   },
   "devDependencies": {
     "turbo": "^2.0.0",
     "typescript": "^5.4.0",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "tsx": "^4.7.0"
   }
 }
 

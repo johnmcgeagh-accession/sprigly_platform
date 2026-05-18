@@ -90,4 +90,15 @@ export const workflowMeta: WorkflowMeta[] = [
       },
     ],
   },
+  {
+    id: 'sprigly-meeting-prep',
+    name: 'Meeting Prep',
+    description: 'TODO: describe what this workflow produces.',
+    defaultDestinations: [
+      { destinationId: 'db-save-output', requireApproval: false, settings: {} },
+    ],
+    steps: [
+      { stepName: 'generate', stepDescription: 'TODO: describe this step.', model: 'sonnet', requiresPrompt: true },
+    ],
+  },
 ];
