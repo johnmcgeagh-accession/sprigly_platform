@@ -133,10 +133,18 @@ export class BedrockClient implements ModelClient {
       const textBlock = content.find((c) => c.text !== undefined);
       if (textBlock?.text) finalText = textBlock.text;
 
+      const turnText = textBlock?.text ?? '';
       console.info(
         `[bedrock] turn=${turnsUsed} model=${params.model} ` +
-        `inputTokens=${turnInput} outputTokens=${turnOutput} stopReason=${finalStopReason}`,
+        `inputTokens=${turnInput} outputTokens=${turnOutput} stopReason=${finalStopReason} ` +
+        `contentLength=${turnText.length}`,
       );
+      if (turnText.length > 0) {
+        console.info(`[bedrock] turn=${turnsUsed} contentHead=${JSON.stringify(turnText.slice(0, 1000))}`);
+        if (turnText.length > 1000) {
+          console.info(`[bedrock] turn=${turnsUsed} contentTail=${JSON.stringify(turnText.slice(-1000))}`);
+        }
+      }
 
       if (finalStopReason !== 'tool_use') break;
 
@@ -174,8 +182,15 @@ export class BedrockClient implements ModelClient {
         if (summariseText) finalText = summariseText;
         console.info(
           `[bedrock] summarise turn model=${params.model} ` +
-          `inputTokens=${summariseResponse.usage?.inputTokens} outputTokens=${summariseResponse.usage?.outputTokens}`,
+          `inputTokens=${summariseResponse.usage?.inputTokens} outputTokens=${summariseResponse.usage?.outputTokens} ` +
+          `contentLength=${summariseText.length}`,
         );
+        if (summariseText.length > 0) {
+          console.info(`[bedrock] summarise contentHead=${JSON.stringify(summariseText.slice(0, 1000))}`);
+          if (summariseText.length > 1000) {
+            console.info(`[bedrock] summarise contentTail=${JSON.stringify(summariseText.slice(-1000))}`);
+          }
+        }
         break;
       }
 
