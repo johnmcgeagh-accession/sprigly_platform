@@ -20,7 +20,7 @@ function makeResponse(
   stopReason = 'end_turn',
   usage = { inputTokens: 10, outputTokens: 5 },
 ) {
-  return { output: { message: { content } }, stopReason, usage };
+  return { output: { message: { role: 'assistant', content } }, stopReason, usage };
 }
 
 describe('BedrockClient', () => {
@@ -129,10 +129,25 @@ describe('BedrockClient', () => {
     });
     expect(result.content).toBe('Here is the research summary.');
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('max tool turns'));
-    // Summarise call must not include toolConfig (21st ConverseCommand call).
+
+    // 21 total ConverseCommand calls: 20 tool turns + 1 summarise.
     const calls = vi.mocked(ConverseCommand).mock.calls;
-    const summariseCall = calls[calls.length - 1]?.[0] as unknown as Record<string, unknown>;
-    expect(summariseCall['toolConfig']).toBeUndefined();
+    expect(calls).toHaveLength(21);
+
+    const summariseInput = calls[calls.length - 1]?.[0] as unknown as Record<string, unknown>;
+    // No toolConfig on the summarise call.
+    expect(summariseInput['toolConfig']).toBeUndefined();
+
+    // No toolUse or toolResult blocks in the messages passed to the summarise call.
+    type MsgShape = { role: string; content: Record<string, unknown>[] };
+    const summariseMessages = summariseInput['messages'] as MsgShape[];
+    for (const msg of summariseMessages) {
+      for (const block of msg.content) {
+        expect('toolUse' in block).toBe(false);
+        expect('toolResult' in block).toBe(false);
+      }
+    }
+
     warn.mockRestore();
   });
 

@@ -153,9 +153,15 @@ export class BedrockClient implements ModelClient {
           role: 'user',
           content: [{ text: 'You have reached the search limit. Please now write up all the research you have gathered into a comprehensive summary.' }],
         });
+        // Bedrock rejects a request without toolConfig when the message history
+        // contains toolUse or toolResult blocks. Keep only text blocks across
+        // all messages, then drop any message that becomes empty.
+        const summariseMessages = messages
+          .map((m) => ({ ...m, content: (m.content ?? []).filter((c) => 'text' in c) }))
+          .filter((m) => m.content.length > 0);
         const summariseCommand = new ConverseCommand({
           modelId: params.model,
-          messages,
+          messages: summariseMessages,
           ...(params.system !== undefined && { system: [{ text: params.system }] }),
           // No toolConfig — force a text response.
           inferenceConfig: { maxTokens: params.maxTokens ?? 4096 },
