@@ -131,7 +131,7 @@ describe('BedrockClient', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('max tool turns'));
     // Summarise call must not include toolConfig (21st ConverseCommand call).
     const calls = vi.mocked(ConverseCommand).mock.calls;
-    const summariseCall = calls[calls.length - 1]?.[0] as Record<string, unknown>;
+    const summariseCall = calls[calls.length - 1]?.[0] as unknown as Record<string, unknown>;
     expect(summariseCall['toolConfig']).toBeUndefined();
     warn.mockRestore();
   });
