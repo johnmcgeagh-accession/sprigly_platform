@@ -47,7 +47,7 @@ export const spriglyBlogPostWorkflow: Workflow<BlogPostInput, BlogPostOutput> = 
       model: modelId,
       system,
       messages: [{ role: 'user', content: fillTemplate(researchPrompt, { topic: input.topic }) }],
-      maxTokens: 2000,
+      maxTokens: 5000,
     });
     await ctx.audit.logModelCall({
       clientId: ctx.clientId,
