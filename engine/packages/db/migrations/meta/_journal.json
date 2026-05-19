@@ -36,6 +36,34 @@
       "when": 1778921065800,
       "tag": "0004_seed_prospect_prompts",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1779007465800,
+      "tag": "0005_rename_destination_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1779093865800,
+      "tag": "0006_sprigly_meeting_prep_prompts",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1779180265800,
+      "tag": "0007_research_prompt_tavily_query_rules",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1779266665800,
+      "tag": "0008_fix_research_prompt_query_rules",
+      "breakpoints": true
     }
   ]
 }
