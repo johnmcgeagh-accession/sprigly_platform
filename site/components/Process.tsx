@@ -24,7 +24,7 @@ const steps = [
 export default function Process() {
   return (
     <section
-      id="how"
+      id="start"
       className="py-[130px] px-6 md:px-12 max-w-[1200px] mx-auto"
     >
       <Reveal className="max-w-[800px] mb-14">

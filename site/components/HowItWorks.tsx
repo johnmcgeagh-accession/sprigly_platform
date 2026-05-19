@@ -12,7 +12,7 @@ const docLines = [0.88, 0.72, 0.94, 0.65, 0.80, 0.55, 0.76]
 export default function HowItWorks() {
   return (
     <section
-      id="workflow"
+      id="how"
       className="py-[100px] px-6 md:px-12"
       style={{
         background: 'linear-gradient(to bottom, #FFE4D8 0%, #FCFAF6 100px, #FCFAF6 100%)',

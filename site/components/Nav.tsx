@@ -7,7 +7,7 @@ import { BOOKING_URL } from '@/lib/config'
 const NAV_LINKS = [
   { href: '#how', label: 'How it works' },
   { href: '#outputs', label: 'What you get' },
-  { href: '#compare', label: 'Why Sprigly' },
+  { href: '#start', label: 'Get started' },
 ]
 
 function SpriglyMark() {
