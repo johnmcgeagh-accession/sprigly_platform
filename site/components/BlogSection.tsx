@@ -1,9 +1,9 @@
 import Link from 'next/link'
-import { getAllPosts, formatDate } from '@/lib/blog'
+import { getAllPublishedPosts, formatDate } from '@/lib/blog'
 import { Reveal } from './Reveal'
 
-export default function BlogSection() {
-  const posts = getAllPosts().slice(0, 3)
+export default async function BlogSection() {
+  const posts = (await getAllPublishedPosts()).slice(0, 3)
 
   if (posts.length === 0) return null
 
@@ -19,7 +19,7 @@ export default function BlogSection() {
               className="font-serif font-normal tracking-[-0.025em] text-ink"
               style={{ fontSize: 'clamp(36px, 4.5vw, 56px)', lineHeight: 1.05 }}
             >
-              Field notes.
+              Blog.
             </h2>
           </div>
           <Link
@@ -40,10 +40,11 @@ export default function BlogSection() {
               className="bg-white flex flex-col rounded-[20px] border border-ink/10 transition-all duration-500 hover:-translate-y-2 hover:border-coral/25 hover:shadow-[0_24px_48px_rgba(31,26,24,0.06)]"
               style={{ padding: '40px 36px' }}
             >
-              <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-coral mb-4">
-                {post.category}
-              </p>
-              {/* Title is the link — gives descriptive link text */}
+              {post.category && (
+                <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-coral mb-4">
+                  {post.category}
+                </p>
+              )}
               <h3 className="font-serif font-medium text-[22px] tracking-[-0.015em] leading-[1.2] mb-3 text-ink">
                 <Link
                   href={`/blog/${post.slug}`}
@@ -52,11 +53,13 @@ export default function BlogSection() {
                   {post.title}
                 </Link>
               </h3>
-              <p className="text-[15px] leading-[1.55] text-ink-mid mb-6 flex-grow">
-                {post.excerpt}
-              </p>
-              <time dateTime={post.date} className="text-[13px] text-ink-light">
-                {formatDate(post.date)}
+              {post.excerpt && (
+                <p className="text-[15px] leading-[1.55] text-ink-mid mb-6 flex-grow">
+                  {post.excerpt}
+                </p>
+              )}
+              <time dateTime={post.createdAt.toISOString()} className="text-[13px] text-ink-light">
+                {formatDate(post.createdAt)}
               </time>
             </article>
           ))}

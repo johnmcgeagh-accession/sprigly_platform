@@ -121,6 +121,6 @@ export function createConsumer(
         throw err;
       }
     },
-    { connection: { url: redisUrl }, concurrency: 1 },
+    { connection: { url: redisUrl }, concurrency: 10 },
   );
 }
