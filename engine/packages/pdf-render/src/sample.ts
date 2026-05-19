@@ -128,26 +128,6 @@ const data: ProspectBriefData = {
       replaces:    'Manual calendar watching, ad hoc outreach, and inbound deadline queries',
       whyItFits:   'LinkedIn content shows HMRC deadlines are already a client pain point. Automating removes a recurring manual task and reduces inbound noise.',
     },
-    {
-      rank:        4,
-      name:        'HMRC Deadline Reminder Engine',
-      qualifier:   'Automated personalised deadline reminders at scale',
-      briefIn:     'Client list, deadlines calendar, preferred communication style',
-      trigger:     'Scheduled: 4 weeks, 2 weeks, and 3 days before each client deadline',
-      workOut:     'Personalised HMRC deadline reminder emails in the firm voice',
-      replaces:    'Manual calendar watching, ad hoc outreach, and inbound deadline queries',
-      whyItFits:   'LinkedIn content shows HMRC deadlines are already a client pain point. Automating removes a recurring manual task and reduces inbound noise.',
-    },
-    {
-      rank:        5,
-      name:        'HMRC Deadline Reminder Engine',
-      qualifier:   'Automated personalised deadline reminders at scale',
-      briefIn:     'Client list, deadlines calendar, preferred communication style',
-      trigger:     'Scheduled: 4 weeks, 2 weeks, and 3 days before each client deadline',
-      workOut:     'Personalised HMRC deadline reminder emails in the firm voice',
-      replaces:    'Manual calendar watching, ad hoc outreach, and inbound deadline queries',
-      whyItFits:   'LinkedIn content shows HMRC deadlines are already a client pain point. Automating removes a recurring manual task and reduces inbound noise.',
-    },
   ],
   callTactics: {
     homeworkHooks: [

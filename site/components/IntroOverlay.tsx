@@ -19,6 +19,10 @@ export function IntroOverlay() {
   const [active, setActive] = useState(false)
 
   useEffect(() => {
+    const referrer = document.referrer
+    const isInternalNav = referrer !== '' && new URL(referrer).origin === window.location.origin
+    if (isInternalNav) return
+
     setActive(true)
     const t = setTimeout(() => setActive(false), 10200)
     return () => clearTimeout(t)
