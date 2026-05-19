@@ -1,6 +1,5 @@
 import Nav from '@/components/Nav'
 import Hero from '@/components/Hero'
-import { IntroOverlay } from '@/components/IntroOverlay'
 import HowItWorks from '@/components/HowItWorks'
 import TrustStrip from '@/components/TrustStrip'
 import WhatChanges from '@/components/WhatChanges'
@@ -16,7 +15,6 @@ import Footer from '@/components/Footer'
 export default function HomePage() {
   return (
     <>
-      <IntroOverlay />
       <Nav />
       <main>
         <Hero />

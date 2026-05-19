@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { BOOKING_URL } from '@/lib/config'
 import RotatingWord from './RotatingWord'
+import { HeroIntro } from './HeroIntro'
 
 /*
   RIPPLE_MARK — leaf silhouette derived from the Sprigly mark, centred at (0,0).
@@ -35,7 +36,7 @@ export default function Hero() {
       <svg
         viewBox="0 0 1440 900"
         preserveAspectRatio="xMidYMid slice"
-        className="absolute inset-0 w-full h-full pointer-events-none"
+        className="hero-ripple-svg absolute inset-0 w-full h-full pointer-events-none"
         aria-hidden="true"
       >
         <g transform="translate(720,340)">
@@ -52,6 +53,9 @@ export default function Hero() {
           ))}
         </g>
       </svg>
+
+      {/* Intro animation — scoped to the hero, clipped by overflow-hidden */}
+      <HeroIntro />
 
       {/* Large decorative leaf mark — permanent background, same position as intro overlay leaf */}
       {/*<div className="hero-leaf-large" aria-hidden="true">
