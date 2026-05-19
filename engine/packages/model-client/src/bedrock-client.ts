@@ -13,7 +13,7 @@ import type { ModelClient, ModelCompleteParams, ModelCompleteResult, AnthropicTo
 const MAX_TOOL_TURNS    = 20;
 const THROTTLE_RETRIES  = 3;
 const THROTTLE_BASE_DELAY = 1_000; // 1s, doubles each attempt
-const DEFAULT_TIMEOUT_MS  = 90_000;
+const DEFAULT_TIMEOUT_MS  = 180_000;
 
 function isThrottlingError(err: unknown): boolean {
   if (err == null || typeof err !== 'object') return false;
