@@ -1,0 +1,31 @@
+flowchart LR
+    subgraph Railway ["Railway (London region)"]
+        Worker["Worker service\nNode.js\napps/worker/"]
+        PostgreSQL[("PostgreSQL\nRailway managed")]
+        Redis[("Redis\nRailway managed")]
+    end
+
+    subgraph Vercel ["Vercel (Edge + Serverless)"]
+        AdminApp["Admin Web App\nNext.js\napps/web/"]
+    end
+
+    subgraph AWS ["AWS (eu-west-2)"]
+        Bedrock["Amazon Bedrock\nCross-region inference\nHaiku / Sonnet / Opus"]
+        KMS["AWS KMS\nOAuth token encryption"]
+    end
+
+    subgraph External ["External Services"]
+        Gmail["Gmail API\nGoogle OAuth 2.0"]
+        Tavily["Tavily Search API"]
+        Clerk["Clerk\nAdmin app auth"]
+    end
+
+    Worker <-->|"Drizzle ORM"| PostgreSQL
+    Worker <-->|"BullMQ"| Redis
+    Worker -->|"InvokeModel\nBEDROCK_AWS_ACCESS_KEY_ID"| Bedrock
+    Worker -->|"GenerateDataKey / Decrypt\nKMS_AWS_ACCESS_KEY_ID"| KMS
+    Worker -->|"users.messages.list/get\nsend/markAsRead"| Gmail
+    Worker -->|"search API"| Tavily
+    AdminApp <-->|"Drizzle ORM"| PostgreSQL
+    AdminApp -->|"OAuth callback"| Gmail
+    AdminApp -->|"auth"| Clerk

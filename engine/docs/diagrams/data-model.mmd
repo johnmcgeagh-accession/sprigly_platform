@@ -1,0 +1,134 @@
+erDiagram
+    clients {
+        uuid id PK
+        text name
+        text slug
+        text status
+    }
+    client_configs {
+        uuid id PK
+        uuid client_id FK
+        text brand_voice
+        text author_name
+        text signature
+        jsonb settings
+    }
+    oauth_connections {
+        uuid id PK
+        uuid client_id FK
+        text provider
+        text status
+        text email_address
+        bytea encrypted_token_bundle
+    }
+    routing_rules {
+        uuid id PK
+        uuid client_id FK
+        text workflow_id
+        text source
+        jsonb match_conditions
+        jsonb destinations
+        integer priority
+        boolean is_fallback
+        boolean enabled
+    }
+    prompt_templates {
+        uuid id PK
+        uuid client_id FK
+        text workflow_id
+        text step_name
+        text prompt_text
+        integer version
+        uuid copied_from_template_id
+        integer copied_from_version
+    }
+    incoming_events {
+        uuid id PK
+        uuid client_id FK
+        text source
+        jsonb source_metadata
+        jsonb content
+        text status
+        timestamp received_at
+    }
+    workflow_runs {
+        uuid id PK
+        uuid client_id FK
+        uuid event_id FK
+        text workflow_id
+        text status
+        jsonb output
+        text error
+        timestamp started_at
+        timestamp completed_at
+    }
+    audit_log {
+        uuid id PK
+        uuid client_id FK
+        uuid event_id FK
+        uuid run_id FK
+        text action
+        text model_id
+        integer input_tokens
+        integer output_tokens
+        integer cost_pence
+        jsonb metadata
+    }
+    approvals {
+        uuid id PK
+        uuid client_id FK
+        uuid run_id FK
+        text destination_id
+        text status
+        jsonb output_snapshot
+    }
+    blog_posts {
+        uuid id PK
+        uuid client_id FK
+        text title
+        text slug
+        text body
+        text excerpt
+        text meta_description
+        text target_keyword
+        text category
+        text author
+        text status
+        uuid preview_token
+        uuid publish_token
+    }
+    workflow_outputs {
+        uuid id PK
+        uuid client_id FK
+        uuid event_id FK
+        text workflow_id
+        jsonb output
+        text status
+    }
+    processed_external_ids {
+        uuid id PK
+        uuid client_id FK
+        text source
+        text external_id
+    }
+    gmail_operation_errors {
+        uuid id PK
+        uuid client_id FK
+        text operation
+        text message_id
+        text error_message
+        boolean resolved
+    }
+
+    clients ||--o{ client_configs : "has"
+    clients ||--o{ oauth_connections : "has"
+    clients ||--o{ routing_rules : "has"
+    clients ||--o{ prompt_templates : "overrides"
+    clients ||--o{ incoming_events : "receives"
+    clients ||--o{ workflow_runs : "generates"
+    clients ||--o{ audit_log : "logged for"
+    clients ||--o{ blog_posts : "owns"
+    clients ||--o{ workflow_outputs : "owns"
+    incoming_events ||--o{ workflow_runs : "triggers"
+    workflow_runs ||--o{ audit_log : "logged in"
+    workflow_runs ||--o{ approvals : "may need"

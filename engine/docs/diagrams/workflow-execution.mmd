@@ -1,0 +1,35 @@
+flowchart TD
+    JobReceived["BullMQ job received\n{ eventId, clientId }"]
+    LoadEvent["Load incoming_events row"]
+    RouteAgain["router.route(event)\nre-evaluate routing rules"]
+    NoRules{"rules.length === 0?"}
+    IgnoredStatus["Set incoming_events.status = 'ignored'"]
+    ForEachRule["For each matched rule"]
+    CreateRun["INSERT workflow_runs\nstatus = 'running'"]
+    ParseInput["workflow.parseInput(event)"]
+    NullCheck{"returns null?"}
+    IgnoredRun["Set workflow_run.status = 'ignored'"]
+    RunWorkflow["workflow.run(input, ctx)"]
+    Steps["Steps:\n1. prompts.resolve()\n2. fillTemplate()\n3. model.complete()\n4. audit.logModelCall()\n5. parse result"]
+    ThrowCheck{"threw?"}
+    FailedRun["Set workflow_run.status = 'failed'\nStore error in workflow_runs.error"]
+    CompletedRun["Set workflow_run.status = 'completed'\nStore output"]
+    Dispatch["DestinationDispatcher.dispatch(output)"]
+    Destinations["Deliver to each destination:\ndb-save-output / db-save-blog-post\ngmail-reply-with-attachment\ngmail-send-notification"]
+
+    JobReceived --> LoadEvent
+    LoadEvent --> RouteAgain
+    RouteAgain --> NoRules
+    NoRules -->|yes| IgnoredStatus
+    NoRules -->|no| ForEachRule
+    ForEachRule --> CreateRun
+    CreateRun --> ParseInput
+    ParseInput --> NullCheck
+    NullCheck -->|yes| IgnoredRun
+    NullCheck -->|no| RunWorkflow
+    RunWorkflow --> Steps
+    Steps --> ThrowCheck
+    ThrowCheck -->|yes| FailedRun
+    ThrowCheck -->|no| CompletedRun
+    CompletedRun --> Dispatch
+    Dispatch --> Destinations

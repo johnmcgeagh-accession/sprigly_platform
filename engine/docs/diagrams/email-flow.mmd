@@ -1,0 +1,36 @@
+sequenceDiagram
+    participant Gmail as Gmail API
+    participant Poller as GmailPoller
+    participant IdempotDB as processed_external_ids
+    participant EventsDB as incoming_events
+    participant Router as EventRouter
+    participant Queue as BullMQ Queue
+
+    Note over Poller: Every POLL_INTERVAL_MS (default 60s)
+    Poller->>Gmail: listMessageIds(maxResults=50)<br/>q: "in:inbox is:unread"
+    Gmail-->>Poller: [messageId, ...]
+
+    loop For each messageId
+        Poller->>IdempotDB: SELECT WHERE (clientId, 'gmail', messageId)
+        alt Already processed
+            IdempotDB-->>Poller: row found
+            Poller->>Gmail: markAsRead(messageId)
+        else Not yet processed
+            IdempotDB-->>Poller: no row
+            Poller->>Gmail: getMessage(messageId)
+            Gmail-->>Poller: subject, from, to, date, body
+
+            Poller->>Router: matchRules(draft, rules)
+            Router-->>Poller: matched rules
+
+            alt No rules matched
+                Poller->>IdempotDB: INSERT (clientId, 'gmail', messageId)
+                Poller->>Gmail: markAsRead(messageId)
+            else Rules matched
+                Poller->>EventsDB: INSERT incoming_events row
+                Poller->>IdempotDB: INSERT (clientId, 'gmail', messageId)
+                Poller->>Gmail: markAsRead(messageId)
+                Poller->>Queue: add job { eventId, clientId }<br/>jobId = eventId
+            end
+        end
+    end

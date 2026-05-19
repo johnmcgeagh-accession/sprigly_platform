@@ -1,0 +1,37 @@
+flowchart TD
+    GmailInbox["Gmail Inbox\n(client's email)"]
+    GmailPoller["GmailPoller\napps/worker/src/poller.ts"]
+    IncomingEvents[("incoming_events\nPostgreSQL")]
+    BullMQ["BullMQ Queue\n'incoming-events'\nRedis"]
+    Consumer["BullMQ Consumer\napps/worker/src/consumer.ts\nconcurrency: 10"]
+    EventRouter["EventRouter\npackages/engine/src/event-router.ts"]
+    WorkflowRunner["WorkflowRunner\npackages/engine/src/workflow-runner.ts"]
+    ModelClient["ModelClient\nBedrockClient / AnthropicClient\npackages/model-client/src/"]
+    Bedrock["AWS Bedrock\neu-west-2\nHaiku / Sonnet / Opus"]
+    Tavily["Tavily Search API\npackages/web-search/src/"]
+    PdfRenderer["PDF Renderer\n@react-pdf/renderer\npackages/pdf-render/src/"]
+    Dispatcher["DestinationDispatcher\npackages/engine/src/destination-dispatcher.ts"]
+    BlogPostsDB[("blog_posts\nPostgreSQL")]
+    WorkflowOutputs[("workflow_outputs\nPostgreSQL")]
+    GmailSend["Gmail API\n(send reply with attachment)"]
+    AdminUI["Admin Web App\nNext.js on Vercel\napps/web/"]
+    AuditLog[("audit_log\nPostgreSQL")]
+
+    GmailInbox -->|"is:unread poll\nevery 60s"| GmailPoller
+    GmailPoller -->|"matched events"| IncomingEvents
+    GmailPoller -->|"jobId = eventId"| BullMQ
+    BullMQ --> Consumer
+    Consumer --> EventRouter
+    EventRouter -->|"routing_rules lookup"| WorkflowRunner
+    WorkflowRunner --> ModelClient
+    ModelClient -->|"InvokeModel API"| Bedrock
+    WorkflowRunner -->|"tool calls"| Tavily
+    WorkflowRunner -->|"render()"| PdfRenderer
+    WorkflowRunner --> Dispatcher
+    Dispatcher -->|"db-save-blog-post"| BlogPostsDB
+    Dispatcher -->|"db-save-output"| WorkflowOutputs
+    Dispatcher -->|"gmail-reply-with-attachment"| GmailSend
+    WorkflowRunner -->|"logModelCall()"| AuditLog
+    AdminUI -->|"read/write"| IncomingEvents
+    AdminUI -->|"read"| AuditLog
+    AdminUI -->|"read/write"| BlogPostsDB

@@ -4,6 +4,25 @@ Technical debt and deferred cleanup items. Address when the relevant area is bei
 
 ---
 
+## Sources
+
+### Restore watermark-based Gmail polling
+
+Plan 03-08 designed watermark-based polling: use Gmail's `after:` date operator combined with a `last_polled_at` timestamp per `oauth_connections` row to fetch only messages newer than the last poll. This preserves the client's inbox unread state -- messages are never marked read by Sprigly.
+
+The current implementation (`packages/sources/src/gmail/gmail-client.ts:listMessageIds`) uses `q: 'in:inbox is:unread'` and marks every processed message as read via `markAsRead()`. This mutates the client's inbox and will be confusing or disruptive if the Gmail account is used by a human for non-Sprigly email alongside workflow triggers.
+
+**To do:**
+1. Add `last_polled_at` column to `oauth_connections` (nullable timestamp)
+2. In `GmailApiClient.listMessageIds()`, accept an optional `after` date and include `after:YYYY/MM/DD` in the query string when provided
+3. In `GmailPoller.poll()`, read `last_polled_at` from `oauth_connections` before calling `listMessageIds()`, and update it after each poll cycle
+4. Remove `client.markAsRead(messageId)` calls (idempotency is handled by `processed_external_ids`, not by inbox read state)
+5. Update `infrastructure/sources.md` when this lands
+
+**Why deferred:** No current clients use a shared human inbox alongside workflow triggers. Restore before onboarding any such client.
+
+---
+
 ## Destinations
 
 ### Drop `prospect_sheets` table and `DbSaveProspectSheet` destination class
