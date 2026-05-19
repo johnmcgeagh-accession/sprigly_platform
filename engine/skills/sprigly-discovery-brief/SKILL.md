@@ -25,23 +25,36 @@ If he's missing the URL or contact name, ask once. Otherwise proceed.
 
 ## The research phase
 
-Use web_search and web_fetch liberally — this is the part that earns the brief its evidence base. Aim for 10-20 searches across these sources, in roughly this priority:
+Use a mix of web_fetch (free, deep) and web_search (costs 1 Tavily credit per call). The company URL is already known — fetch it directly rather than searching for it. Cap total web_search calls at 5 per brief; aim for 3.
 
-1. **The company's own site** — homepage, about/our-story, founder page, FAQ, returns/shipping, blog, contact page, product pages. The FAQ and returns pages are gold for operational tells. Product pages reveal pricing and copy patterns.
-2. **Companies House** (UK companies) — registered address, incorporation date, accounts type, SIC codes, officer names. Search both `find-and-update.company-information.service.gov.uk` and aggregator sites like endole.co.uk or companycheck.co.uk if the gov.uk page returns thin results.
-3. **LinkedIn** — founder background, tenure, prior employers, education. Search for the contact by name + company.
-4. **Instagram / Facebook / TikTok / X** — follower counts, post cadence, content style, dormancy signals.
-5. **Review platforms** — Trustpilot, Judge.me, Google reviews, Feefo. Look for review count, average score, and themes (slow response? admin friction? sizing? returns?).
-6. **Press, podcasts, founder interviews** — search `"<founder name>" podcast OR interview OR press`. These reveal voice, tone, and self-named pain points.
-7. **Local/industry context** — pop-up events, collaborations, guest features on other sites.
+**Fetch first, search only for unknowns:**
 
-Be sceptical of third-party revenue estimates (RocketReach, ZoomInfo etc.) — flag them as ceiling-not-gospel if Companies House shows micro-entity status.
+1. `web_fetch(<company URL>)` — homepage, then follow links to: about/our-story, founder page, FAQ, returns/shipping, contact. FAQ and returns pages are gold for operational tells. Product pages reveal pricing and copy patterns.
+2. `web_fetch("https://find-and-update.company-information.service.gov.uk/search?q=<company name>")` — registered address, incorporation date, accounts type, SIC codes, officer names. If the result is thin, also fetch endole.co.uk or companycheck.co.uk.
+
+**Then run exactly these searches, in this order:**
+
+3. `<founder name> <company> LinkedIn` — background, tenure, prior employers, education.
+4. `<company name> Trustpilot reviews` — review count, score, recurring themes. This often surfaces Instagram and social handles too; use those URLs for additional web_fetch calls rather than searching each platform separately.
+5. `<founder name> interview podcast` — press coverage, voice, self-named pain points.
+
+**If time is tight, cut in this order:** press/podcasts (5), then social/reviews (4), then LinkedIn (3). Never cut the company fetch (1) or Companies House (2).
+
+**Do all research upfront, then build the widget. No searches or fetches during widget construction.**
+
+**Query rules (CRITICAL — Tavily rejects operator syntax with HTTP 400):**
+- No `site:`, `intitle:`, `inurl:`, `filetype:` operators
+- No `"quoted phrases"`
+- No `-exclusions` or `OR` operators
+- Plain natural language only: `Sally McLaren Ivy founder` not `"Sally McLaren" site:linkedin.com`
 
 Pay special attention to:
 - **Names**: confirm the founder's surname spelling from primary sources. If John supplied a different spelling, flag the correction in the brief.
 - **Location**: cross-reference registered address against John's location (he's in OX7 / Chipping Norton). If the prospect is local, that's a hook.
 - **Self-named pain points**: founder interviews often contain quotes like "I'd put the accounts off till last minute" — these are pure gold. Quote them.
 - **Operational tells**: every `contact us for sizing/quotes/availability` line on a product page is a repetitive workflow. Count them.
+
+Be sceptical of third-party revenue estimates (RocketReach, ZoomInfo etc.) — flag them as ceiling-not-gospel if Companies House shows micro-entity status.
 
 ## Mapping to Sprigly pipelines
 
@@ -88,7 +101,7 @@ Brand rules to follow (these are non-negotiable):
 ## Workflow
 
 1. Confirm inputs (company URL, contact name). Ask once if missing.
-2. Research thoroughly — 10-20 web searches across the source priority above. Use search_first behaviour: never answer from priors.
+2. Research: fetch the company site and Companies House directly, then run up to 3 targeted searches (LinkedIn, reviews, press). Do all research before touching the widget.
 3. Read `references/widget-template.md`.
 4. Render the widget via the visualize tool (or equivalent HTML rendering path available in the current environment). The widget code is one tool call; no preamble cards, no markdown brief.
 5. After rendering, write one short paragraph (3-5 sentences max) flagging anything that needs John's judgement — spelling corrections, weak evidence, missing data. Nothing else.
