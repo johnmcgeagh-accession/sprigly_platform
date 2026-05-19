@@ -239,6 +239,10 @@ export const spriglyProspectResearchWorkflow: Workflow<ProspectInput, ProspectOu
 };
 
 function buildTemplateVars(input: ProspectInput): Record<string, string> {
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const d = new Date();
+  const month = MONTHS[d.getUTCMonth()] ?? 'UNK';
+  const today = `${String(d.getUTCDate()).padStart(2, '0')} ${month} ${d.getUTCFullYear()}`;
   return {
     brandName:     input.brandName,
     url:           input.url           ?? '',
@@ -246,5 +250,6 @@ function buildTemplateVars(input: ProspectInput): Record<string, string> {
     meetingDate:   input.meetingDate   ?? '',
     whyInterested: input.whyInterested ?? '',
     notes:         input.notes         ?? '',
+    today,
   };
 }

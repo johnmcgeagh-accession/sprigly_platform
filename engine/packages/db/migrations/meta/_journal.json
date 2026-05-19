@@ -64,6 +64,13 @@
       "when": 1779266665800,
       "tag": "0008_fix_research_prompt_query_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1779353065800,
+      "tag": "0009_research_prompt_today_var",
+      "breakpoints": true
     }
   ]
 }
