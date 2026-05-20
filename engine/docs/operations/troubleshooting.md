@@ -205,6 +205,19 @@ If a package upgrade changed or removed this, restore it. See `architecture/deci
 
 ---
 
+## Worker halts with Redis ETIMEDOUT
+
+**Symptom:** Worker logs spam `connect ETIMEDOUT` from ioredis. Redis service shows as unable to connect in the Railway dashboard. All other services (worker, PostgreSQL) appear healthy. No workflows process -- jobs are queued but never consumed.
+
+**Cause:** The Redis service got into a stuck state on Railway. ioredis retries the connection continuously but cannot recover without a Redis restart.
+
+**Resolution:**
+1. Open the Railway dashboard and restart the Redis service.
+2. The worker reconnects automatically once Redis is reachable. No worker restart needed.
+3. If a restart does not recover it, clear the Redis data volume from the Railway dashboard and restart again. BullMQ job state will be lost, but `incoming_events` rows remain in PostgreSQL -- emails can be reprocessed by re-running affected events or waiting for the next poll cycle to re-enqueue them.
+
+---
+
 ## Cross-references
 
 - `reference/env-vars.md` (full env var list)

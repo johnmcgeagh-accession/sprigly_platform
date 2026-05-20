@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`@sprigly/sources` handles everything from the external message arriving to an `incoming_events` row being ready for the BullMQ queue. It fetches messages, parses them, checks idempotency, matches routing rules, persists matched events, and marks messages as processed.
+`@sprigly/sources` handles everything from the external message arriving to an `incoming_events` row being ready for the BullMQ queue. It fetches messages, parses them, checks idempotency, matches routing rules, persists matched events, and marks messages as processed — but only for emails that match a routing rule.
 
 Currently one source is implemented: Gmail. The `SourceType` enum in `packages/engine/src/types.ts` includes `email`, `sms`, `slack`, `form`, `voice`, `webhook`, and `schedule` -- only `email` is wired in the worker.
 
@@ -41,9 +41,10 @@ Key methods:
 
 | Method | Notes |
 |---|---|
-| `listMessageIds(maxResults?)` | Fetches unread inbox messages: `q: 'in:inbox is:unread'`. Default 50. |
+| `listMessageIds(watermark, maxResults?)` | Fetches inbox messages received at or after `watermark`. Query: `in:inbox after:<unix_seconds>`. Falls back to `is:unread` only when watermark is null (should not occur after migrations are applied). |
 | `getMessage(messageId)` | Fetches full message with headers and body. |
-| `markAsRead(messageId)` | Removes the `UNREAD` label. Errors are caught and logged to `gmail_operation_errors`, not re-thrown. |
+| `markAsRead(messageId)` | Removes the `UNREAD` label. Only called for messages that matched a routing rule. Errors are caught and logged to `gmail_operation_errors`, not re-thrown. |
+| `getProfileEmailAddress()` | Calls `users.getProfile` to retrieve the authorised account's email address. Returns `null` on error rather than throwing. Used during OAuth setup and the backfill script. |
 | `createDraft(params)` | Creates a Gmail draft. Errors caught and logged; returns `{ draftId: '', messageId: '' }` on failure. |
 
 Token refresh is handled automatically by the Google OAuth2 client's `tokens` event. When tokens are refreshed, `storeTokens()` is called to persist the new tokens.
@@ -90,22 +91,46 @@ Each workflow's `parse-input.ts` calls this to extract structured input from the
 
 ### Poll cycle sequence in `GmailPoller.poll()`
 
-For each message ID returned by `listMessageIds()`:
+At the start of each cycle, the poller reads `pollingMode` and `lastPolledAt` from the `oauth_connections` row. If `pollingMode` is `'full'`, a warning is logged and the cycle exits immediately (full mode is not yet implemented — see BACKLOG). If `pollingMode` is `'selective'` (the default and only implemented mode), the selective path runs:
 
-1. **Idempotency check first.** Query `processed_external_ids` for `(clientId, 'gmail', messageId)`. If found: call `markAsRead()` and continue to the next message. This is the cheapest path -- avoids fetching the message content at all.
-2. **Fetch and parse.** Call `getMessage()` to get full message content. Parse subject, from, to, date, and body text.
-3. **Build `IncomingEventDraft`.** Assemble the in-memory draft with `sourceMetadata` containing `messageId`, `threadId`, `from`, `to`, `subject`, `date`.
-4. **Match rules (pure, no DB).** Call `matchRules(draft, rules)` using the rules loaded once per poll cycle. No DB query at this step.
-5. **No match:** Insert `processed_external_ids` record (Gmail message ID only -- no email content stored). Call `markAsRead()`. Continue.
-6. **Match:** Insert `incoming_events` row (full content persisted). Insert `processed_external_ids` record. Call `markAsRead()`. Increment count.
+1. **Capture `cycleStart = new Date()`** before any API calls. This becomes the new watermark value if the cycle succeeds.
+2. **Fetch message IDs.** Query Gmail with `in:inbox after:<lastPolledAt unix seconds>`. This returns all inbox messages received at or after the watermark, regardless of read state.
+3. **Load routing rules once** via `router.loadRules(clientId, 'email')`. Avoids a DB query per message.
+4. **For each message ID:**
+   a. **Idempotency check first.** Query `processed_external_ids` for `(clientId, 'gmail', messageId)`. If found: `continue` immediately. No mark-read. No re-evaluation.
+   b. **Fetch and parse.** Call `getMessage()`. Parse subject, from, to, date, body. Build `IncomingEventDraft`.
+   c. **Match rules (pure, no DB).** Call `matchRules(draft, rules)`.
+   d. **No match:** Insert `processed_external_ids` record only. **Do not call `markAsRead`. Do not persist to `incoming_events`. The email is left completely untouched in the client's inbox.**
+   e. **Match:** Insert `incoming_events` row. Insert `processed_external_ids` record. Call `markAsRead`. Increment count.
+5. **Advance watermark.** Update `oauth_connections.last_polled_at = cycleStart`. Only reached if the loop completed without throwing. If the cycle throws, `last_polled_at` is not advanced; the next cycle re-fetches the same window and the idempotency table prevents re-processing.
 
-Rules are loaded once per client per poll cycle (before the message loop) via `router.loadRules(clientId, 'email')`. This avoids a DB query per message when polling a high-volume inbox.
+### Watermark and idempotency: how they work together
 
-### `is:unread` vs watermark
+The watermark determines *which messages to fetch* (only emails since the last cycle). The idempotency table determines *which messages to skip* within that fetch. They serve different purposes:
 
-The current implementation fetches `in:inbox is:unread` messages. Every matched message is marked as read after processing. This mutates the client's inbox.
+- Watermark narrows the Gmail query window, reducing API calls over time.
+- Idempotency catches boundary cases: emails arriving at the exact watermark timestamp, messages that appear in two consecutive windows due to Gmail's `after:` granularity, and cycles that interrupted before `last_polled_at` advanced.
 
-The original design (Plan 03-08) specified watermark-based polling: a `last_polled_at` timestamp stored per `oauth_connections` row, used to build a `after:YYYY/MM/DD` Gmail query. This would avoid marking any messages as read and leave the inbox in its original state. That design was never implemented -- the `oauth_connections` schema has no `last_polled_at` column, no watermark logic exists anywhere in the codebase, and ADR 7 was initially written as "why watermark" before the code was verified. The `is:unread` implementation is the current reality. A BACKLOG item tracks restoring watermark polling. It is architectural debt that must be paid before onboarding any client whose Gmail inbox is shared with a human for non-Sprigly use. See `BACKLOG.md` and `architecture/decisions.md` ADR 7.
+Never rely on the watermark alone. An email must be skippable via `processed_external_ids` even if it falls inside the current query window.
+
+### Watermark advancement: why cycleStart, not cycle-end
+
+The new watermark is captured *before* the Gmail API call, not after. If the cycle takes 30 seconds and emails arrive during that window, using cycle-end as the watermark would discard them. Using cycle-start means the next cycle's window begins at the start of the current one, so emails that arrive during processing are included in the next fetch. The idempotency table prevents re-processing anything already handled.
+
+### Polling mode
+
+`oauth_connections.polling_mode` has two values:
+
+| Value | Status | Behaviour |
+|---|---|---|
+| `selective` | Implemented (this commit) | Watermark-based; only matched emails are marked read |
+| `full` | Placeholder (commit two) | Logs a warning and skips; not implemented |
+
+All connections default to `selective`. The column exists so commit two can introduce `full` mode without a schema migration.
+
+### Email address on connections
+
+`oauth_connections.email_address` stores the Gmail address that was authorised. Populated at connection creation by `setup-gmail-oauth.ts` via `users.getProfile`. Existing connections with a null value can be backfilled by running `pnpm tsx scripts/backfill-connection-emails.ts` (run once in production after deploying this commit).
 
 ### Email parser field detection
 
@@ -139,23 +164,25 @@ Add new `bodyFields` entries to the `spec` passed to `parseEmailInput()` in the 
 
 ## Gotchas
 
-**`markAsRead` errors are swallowed.** If `markAsRead()` fails (e.g. a transient Google API error), the error is logged to `gmail_operation_errors` and pino, but processing continues. The next poll cycle will attempt to process the same message again (it's still unread in Gmail). The `processed_external_ids` idempotency check will catch it and skip content processing, but `markAsRead` will be attempted again. This is a low-risk loop but will generate repeated `gmail_operation_errors` entries until the Gmail API recovers.
+**`markAsRead` errors are swallowed, but only matched emails are ever marked read.** In selective mode, `markAsRead` is called only for emails that matched a routing rule. If it fails, the error is logged to `gmail_operation_errors` and processing continues. The email will not be re-processed (the idempotency record was already written), but it will remain unread in Gmail. Repeated `markAsRead` failures for the same message will not occur because the idempotency skip path does not call `markAsRead`.
 
-**`is:unread` marks client inbox messages as read.** As described above, this is a known limitation of the current polling implementation. See BACKLOG for the watermark fix.
+**Unmatched emails are never touched.** In selective mode, an email that does not match any routing rule is evaluated, written to `processed_external_ids`, and left entirely alone. The `UNREAD` label is not removed. The message is not persisted. The client's inbox stays as they left it for all non-Sprigly emails.
 
-**Idempotency record is written before `incoming_events`.** The sequence is: check `processed_external_ids`, if not found then persist `incoming_events`, then persist `processed_external_ids`. A crash between the two inserts would leave an event row without an idempotency record, allowing the same message to be processed again on the next poll. This is an edge case -- the event would be double-processed and produce a duplicate workflow run. It has not occurred in production.
+**Idempotency record is written before `incoming_events` on the no-match path, but after on the match path.** On the no-match path: `processedExternalIds` is inserted immediately (no `incomingEvents` row exists). On the match path: `incomingEvents` is inserted first, then `processedExternalIds`. A crash between those two on the match path leaves an event row without an idempotency record, allowing the message to be processed again on the next cycle. This is an edge case -- the event would be double-processed and produce a duplicate workflow run. It has not occurred in production.
 
-**The email parser silently discards unknown field labels.** If the email body contains `Unknown Label: some text` and `unknownLabel` is not in the spec, the label and its continuation lines are consumed into a discard bucket. The previous known field is not corrupted. This prevents malformed emails from attaching junk text to valid fields.
+**Watermark `after:` uses Unix seconds, not a date string.** `listMessageIds` passes `Math.floor(watermark.getTime() / 1000)` to Gmail's `q` parameter. Gmail's `after:` operator accepts Unix epoch seconds. If this ever produces unexpected results, verify the watermark value stored in `oauth_connections.last_polled_at` is in UTC and the conversion is correct.
 
-**`content.structured.subject` duplicates `sourceMetadata.subject`.** The `IncomingEventDraft` builder sets `content.structured = { subject }` (line 98 in `gmail-poller.ts`). `subject` is already in `sourceMetadata`. This is because routing conditions on `field: 'subject'` read from `sourceMetadata`, but some workflow parsers read from `content.text` or `content.structured`. The duplication is intentional for routing rule evaluation purposes.
+**The email parser silently discards unknown field labels.** If the email body contains `Unknown Label: some text` and `unknownLabel` is not in the spec, the label and its continuation lines are consumed into a discard bucket. The previous known field is not corrupted.
+
+**`content.structured.subject` duplicates `sourceMetadata.subject`.** The `IncomingEventDraft` builder sets `content.structured = { subject }`. `subject` is already in `sourceMetadata`. Routing conditions on `field: 'subject'` read from `sourceMetadata`, but some workflow parsers read from `content.text` or `content.structured`. The duplication is intentional.
 
 ---
 
 ## Cross-references
 
-- `architecture/decisions.md` ADR 7 (`is:unread` vs watermark)
+- `architecture/decisions.md` ADR 7 (watermark polling: motivation and design)
 - `architecture/decisions.md` ADR 8 (match-all + fallback routing)
 - `infrastructure/routing.md` (rule evaluation and the `matchRules` function)
 - `reference/database-schema.md` (`incoming_events`, `processed_external_ids`, `gmail_operation_errors`, `oauth_connections`)
 - `operations/troubleshooting.md` (Gmail errors, OAuth token issues)
-- `BACKLOG.md` (watermark polling restoration)
+- `BACKLOG.md` (full mode polling, commit two)

@@ -125,23 +125,34 @@ These are not aspirational -- they describe decisions that are live in the code 
 
 ---
 
-### ADR 7: `is:unread` query for Gmail polling (not watermark/history API)
+### ADR 7: Watermark-based selective polling for Gmail (replacing `is:unread`)
 
-**Context:** The Gmail poller needs to fetch new messages at each poll cycle without re-processing already-seen messages.
+**Context:** The initial Gmail polling implementation queried `in:inbox is:unread` and marked every processed message as read — matched or not. This introduced a bug: any email that arrived in a client's inbox while Sprigly was connected, regardless of whether it matched a routing rule, was silently marked as read by the worker. Clients sharing a Gmail account for both Sprigly triggers and normal email would find their inbox mutated in ways they could not predict or control.
 
-**Decision:** Query `in:inbox is:unread` via the Gmail Messages API on each poll cycle. Track seen message IDs in `processed_external_ids` for idempotency. Mark messages as read after processing to remove them from future poll results.
+The original design (Plan 03-08) specified watermark-based polling, but that design was never implemented in the first iteration. `is:unread` was used as a simpler starting point. The bug was identified before any client with a shared inbox was onboarded, but it needed to be fixed before that scenario could arise.
+
+**Decision (Plan 04-02 commit 1):** Replace `is:unread` with watermark-based selective polling.
+
+- Store `last_polled_at` (timestamp) and `polling_mode` ('selective' | 'full') on `oauth_connections`.
+- On each poll cycle, query Gmail with `in:inbox after:<last_polled_at unix seconds>`. This fetches all inbox messages since the last poll regardless of read state.
+- Evaluate each message against routing rules. **Only messages that match a rule are marked as read and persisted.** Unmatched messages receive an idempotency record so they are not re-evaluated, but are otherwise untouched.
+- Advance `last_polled_at` to the cycle-start timestamp (captured before the Gmail API call) after the cycle completes successfully.
+- The idempotency table remains: it handles boundary cases where a message falls in two consecutive watermark windows.
 
 **Alternatives considered:**
-- Gmail History API with a history ID watermark: The History API returns a delta of changes since a given `historyId`. This is the "canonical" approach for real-time Gmail sync. It was rejected because it requires persisting the latest `historyId` per client and handling the case where the history expires (which triggers a full resync). The `is:unread` approach is simpler and more recoverable from failures.
-- Push notifications (Gmail Pub/Sub): True push delivery with near-zero latency. Rejected as over-engineered for the current scale. Requires a webhook endpoint, Pub/Sub setup, and more complex error recovery. Polling at 60-second intervals is adequate for the current use case.
+- Keep `is:unread`, fix by not marking unmatched messages read: Simpler change, but still queries only unread messages. If a client reads a matching email before the next poll, the workflow would never trigger. Watermark-based polling handles this correctly.
+- Gmail History API with a history ID watermark: Returns a delta of changes since a given `historyId`. Rejected because `historyId` expires, triggering a full resync on expiry, and the API surface is more complex to handle correctly.
+- Push notifications (Gmail Pub/Sub): True push delivery. Rejected as over-engineered at current scale.
 
 **Consequences:**
-- Poll latency is up to `POLL_INTERVAL_MS` (default 60 seconds) after a message arrives.
-- Any message that is marked as read by the user before the next poll cycle will be missed. This is a known trade-off. Workflow triggers that arrive and are immediately read by the client will not be processed.
-- The `processed_external_ids` table grows with every seen message ID. It does not have a TTL or cleanup mechanism. For high-volume inboxes this will grow without bound. This is not a concern at current scale.
-- The current approach does not support processing historical messages. If a routing rule is added after an email arrived, that email will not be retroactively processed (the message was already marked read, so it won't appear in `is:unread` results).
+- Unmatched emails are never touched. A client can use their Gmail account normally alongside Sprigly without side effects.
+- Poll latency is still up to `POLL_INTERVAL_MS` (default 60 seconds).
+- A matched email that the client reads before the next poll cycle will still be processed correctly (unlike `is:unread`, which would have missed it).
+- `processed_external_ids` grows with every evaluated message ID, not just matched ones. For a high-volume inbox with few matching emails, the table grows faster than before. No TTL or cleanup mechanism exists. Not a concern at current scale.
+- The cycle-start watermark means emails that arrive during a poll cycle are caught on the next cycle, not missed. This is correct.
+- If a cycle throws partway, `last_polled_at` is not advanced. The next cycle re-fetches the same window. Idempotency prevents double-processing.
 
-**Code references:** `packages/sources/src/gmail/gmail-client.ts:listMessageIds()`, `packages/sources/src/gmail/gmail-poller.ts`.
+**Code references:** `packages/sources/src/gmail/gmail-client.ts:listMessageIds()`, `packages/sources/src/gmail/gmail-poller.ts`, `packages/db/migrations/0010_selective_polling.sql`.
 
 ---
 

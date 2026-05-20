@@ -52,15 +52,25 @@ export class GmailApiClient {
     this.gmail = google.gmail({ version: 'v1', auth });
   }
 
-  async listMessageIds(maxResults = 50): Promise<string[]> {
-    const res = await this.gmail.users.messages.list({
-      userId: 'me',
-      q: 'in:inbox is:unread',
-      maxResults,
-    });
+  async listMessageIds(watermark: Date | null, maxResults = 50): Promise<string[]> {
+    // Null watermark means the poller should have already returned early (see
+    // GmailPoller.poll). Return nothing as a safe fallback so a missed guard
+    // does not replay inbox history.
+    if (watermark === null) return [];
+    const q = `in:inbox after:${Math.floor(watermark.getTime() / 1000)}`;
+    const res = await this.gmail.users.messages.list({ userId: 'me', q, maxResults });
     return (res.data.messages ?? [])
       .map((m) => m.id ?? '')
       .filter((id) => id !== '');
+  }
+
+  async getProfileEmailAddress(): Promise<string | null> {
+    try {
+      const res = await this.gmail.users.getProfile({ userId: 'me' });
+      return res.data.emailAddress ?? null;
+    } catch {
+      return null;
+    }
   }
 
   async getMessage(messageId: string): Promise<gmail_v1.Schema$Message> {

@@ -1,13 +1,11 @@
 import http from 'node:http';
 import { google } from 'googleapis';
-import { db } from '@sprigly/db';
+import { db, oauthConnections } from '@sprigly/db';
 import { clients } from '@sprigly/db';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { storeTokens, createEncryptionProvider } from '@sprigly/oauth-tokens';
 import type { OAuthTokenBundle } from '@sprigly/oauth-tokens';
 import { env } from './env.js';
-// userinfo requires openid/email scope — we only request gmail scopes, so we skip it.
-// emailAddress will be null; GmailSendNotification falls back to toEmail from settings.
 
 const REDIRECT_URI = 'http://localhost:3456';
 const SCOPES = [
@@ -68,6 +66,17 @@ const code = await new Promise<string>((resolve, reject) => {
 
 const { tokens } = await auth.getToken(code);
 
+// Fetch the authorised account's email address before storing tokens.
+auth.setCredentials(tokens);
+const gmail = google.gmail({ version: 'v1', auth });
+let emailAddress: string | undefined;
+try {
+  const profile = await gmail.users.getProfile({ userId: 'me' });
+  emailAddress = profile.data.emailAddress ?? undefined;
+} catch {
+  console.warn('Could not fetch Gmail profile email address — connection will be stored without it.');
+}
+
 const encProvider = createEncryptionProvider();
 
 const bundle: OAuthTokenBundle = {
@@ -75,11 +84,27 @@ const bundle: OAuthTokenBundle = {
   scopes: SCOPES,
   ...(typeof tokens.refresh_token === 'string' && { refreshToken: tokens.refresh_token }),
   ...(tokens.expiry_date != null && { expiresAt: tokens.expiry_date }),
+  ...(emailAddress !== undefined && { emailAddress }),
 };
 
 await storeTokens(db, encProvider, client.id, 'gmail', bundle);
 
+// Set the polling watermark to now so the first poll cycle does not reach back
+// through the client's inbox history.
+await db
+  .update(oauthConnections)
+  .set({ lastPolledAt: new Date(), updatedAt: new Date() })
+  .where(
+    and(
+      eq(oauthConnections.clientId, client.id),
+      eq(oauthConnections.provider, 'gmail'),
+    ),
+  );
+
 console.log(`\nTokens stored for client '${slug}'.`);
+if (emailAddress !== undefined) {
+  console.log(`Email address: ${emailAddress}`);
+}
 console.log('oauth_connections row created. Worker is ready to poll Gmail.');
 
 process.exit(0);

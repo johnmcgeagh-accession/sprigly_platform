@@ -6,20 +6,37 @@ Technical debt and deferred cleanup items. Address when the relevant area is bei
 
 ## Sources
 
-### Restore watermark-based Gmail polling
+### Optimise selective polling: metadata-only fetch for the match check
 
-Plan 03-08 designed watermark-based polling: use Gmail's `after:` date operator combined with a `last_polled_at` timestamp per `oauth_connections` row to fetch only messages newer than the last poll. This preserves the client's inbox unread state -- messages are never marked read by Sprigly.
+In selective mode, `GmailPoller.poll()` calls `client.getMessage(messageId)` (full message: headers + body) for every email in the watermark window before evaluating routing rules. On a busy or shared inbox this means N full Gmail API fetches per cycle, most of which are discarded after the match check fails.
 
-The current implementation (`packages/sources/src/gmail/gmail-client.ts:listMessageIds`) uses `q: 'in:inbox is:unread'` and marks every processed message as read via `markAsRead()`. This mutates the client's inbox and will be confusing or disruptive if the Gmail account is used by a human for non-Sprigly email alongside workflow triggers.
+Gmail's `messages.list` returns the message ID only. Routing conditions today only inspect `subject` and `from` headers — fields available in a `messages.get` with `format: 'metadata'`. Body is only needed for matched messages (to build the `IncomingEventDraft.content.text` field consumed by workflow parsers).
 
 **To do:**
-1. Add `last_polled_at` column to `oauth_connections` (nullable timestamp)
-2. In `GmailApiClient.listMessageIds()`, accept an optional `after` date and include `after:YYYY/MM/DD` in the query string when provided
-3. In `GmailPoller.poll()`, read `last_polled_at` from `oauth_connections` before calling `listMessageIds()`, and update it after each poll cycle
-4. Remove `client.markAsRead(messageId)` calls (idempotency is handled by `processed_external_ids`, not by inbox read state)
-5. Update `infrastructure/sources.md` when this lands
+1. Add `getMessageMetadata(messageId)` to `GmailApiClient` — calls `messages.get` with `format: 'metadata'` and `metadataHeaders: ['Subject', 'From', 'To', 'Date']`
+2. In the selective poll loop, call `getMessageMetadata` first; build a lightweight draft with headers only; run `matchRules`
+3. Only call `getMessage` (full body) for messages that matched; patch `draft.content.text` before persisting
+4. Update `docs/infrastructure/sources.md` when this lands
 
-**Why deferred:** No current clients use a shared human inbox alongside workflow triggers. Restore before onboarding any such client.
+**Why deferred:** All current client inboxes are low-volume dedicated addresses; the extra fetches are not a cost or latency problem. Optimise before onboarding a high-volume or shared inbox.
+
+---
+
+### Full polling mode + management UI (commit 2 of 2)
+
+Watermark-based selective polling landed in `0010_selective_polling.sql`. The `polling_mode` column exists with values `'selective'` (implemented) and `'full'` (placeholder — `GmailPoller.poll()` logs a warning and returns 0).
+
+`full` mode is the path where Sprigly marks every inbox email as read and processes all of them regardless of routing rules. It is intended for clients who use the Gmail account exclusively for Sprigly triggers.
+
+**To do:**
+1. Implement the `full` mode branch in `GmailPoller.poll()` (remove the early-return placeholder)
+2. Add a match-all rule that routes to a no-op default workflow, or route all messages to the existing workflow directly
+3. Add a no-op default workflow that discards matched events without running steps
+4. Add mode-switch logic in the worker (allow toggling between `selective` and `full` without a redeploy)
+5. Add a management UI page (client settings) where `polling_mode` can be toggled per connection
+6. Update `docs/infrastructure/sources.md` and add ADR when this lands
+
+**Why deferred:** No current clients need full mode. Selective mode is the correct default for any client using their Gmail account for non-Sprigly email alongside workflow triggers.
 
 ---
 

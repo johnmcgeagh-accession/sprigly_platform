@@ -65,6 +65,7 @@ export type NewClientConfig = typeof clientConfigs.$inferInsert;
 
 export type OAuthProvider = 'gmail' | 'outlook' | 'slack';
 export type OAuthStatus = 'active' | 'revoked' | 'error';
+export type PollingMode = 'selective' | 'full';
 
 export const oauthConnections = pgTable('oauth_connections', {
   ...baseColumns,
@@ -75,6 +76,8 @@ export const oauthConnections = pgTable('oauth_connections', {
   scopes: text('scopes').array().notNull().default(sql`'{}'`),
   emailAddress: text('email_address'),
   status: text('status').notNull().default('active'),
+  pollingMode: text('polling_mode').notNull().default('selective'),
+  lastPolledAt: timestamp('last_polled_at').default(sql`now()`),
 });
 
 export type OAuthConnection = typeof oauthConnections.$inferSelect;
