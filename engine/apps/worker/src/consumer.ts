@@ -53,11 +53,12 @@ function toEngineEvent(row: DbIncomingEvent): IncomingEvent {
 export function createConsumer(
   db: Db,
   router: EventRouter,
-  _registry: WorkflowRegistry, // used for defaultDestinations lookup
+  _registry: WorkflowRegistry,
   runner: WorkflowRunner,
   dispatcher: DestinationDispatcher,
   logger: Logger,
   redisUrl: string,
+  markRead: (clientId: string, externalId: string) => Promise<void>,
 ): BullWorker {
   return new BullWorker(
     'incoming-events',
@@ -85,14 +86,25 @@ export function createConsumer(
             .update(incomingEvents)
             .set({ status: 'ignored' })
             .where(eq(incomingEvents.id, eventId));
-          // Safety net: should be rare post-refactor (rule disabled between poll and process)
           logger.warn({ eventId }, 'no matching rules');
           return;
         }
 
+        // Track whether ANY matched rule produced a needs_human or deferred
+        // outcome. Only if ALL runs complete successfully and none are
+        // needs_human/deferred do we mark the email as read.
+        // Note: if runner.run() throws, the catch block below rethrows before
+        // we ever reach the markRead call — failed runs always stay unread.
+        let shouldMarkRead = true;
+
         for (const rule of rules) {
           const output = await runner.run(rule, eventId);
           if (output === null) continue;
+
+          const outcome = (output as { outcome?: string }).outcome;
+          if (outcome === 'needs_human' || outcome === 'deferred') {
+            shouldMarkRead = false;
+          }
 
           const runRows = await db
             .select({ id: workflowRuns.id })
@@ -111,9 +123,17 @@ export function createConsumer(
           await dispatcher.dispatch(output, event, rule, runId, workflow?.defaultDestinations);
           logger.info({ eventId, workflowId: rule.workflowId }, 'dispatched');
         }
+
+        // Mark as read only after all rules are processed and no run was
+        // needs_human or deferred. Absent outcome (legacy workflows) defaults
+        // to handled — they are marked read as before.
+        if (shouldMarkRead && dbEvent.externalId !== null && dbEvent.externalId !== undefined) {
+          await markRead(dbEvent.clientId, dbEvent.externalId);
+        }
       } catch (err) {
-        // Log full error details — status code, request ID, body — before re-throwing.
+        // Log full error details before re-throwing.
         // Re-throwing lets BullMQ mark the job as FAILED; it does NOT crash the worker.
+        // A failed job leaves the email unread — the failure is visible in the admin UI.
         const detail = err instanceof Error
           ? { message: err.message, stack: err.stack, ...extractApiErrorMeta(err) }
           : { raw: String(err) };

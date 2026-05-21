@@ -77,7 +77,7 @@ function setup(runFn: ReturnType<typeof vi.fn>) {
   const runner     = { run: runFn } as unknown as Parameters<typeof createConsumer>[3];
   const dispatcher = { dispatch: vi.fn().mockResolvedValue(undefined) } as unknown as Parameters<typeof createConsumer>[4];
   capturedProcessor = undefined;
-  createConsumer(db, router, registry, runner, dispatcher, logger, 'redis://localhost');
+  createConsumer(db, router, registry, runner, dispatcher, logger, 'redis://localhost', vi.fn().mockResolvedValue(undefined));
   return { logger, dispatcher };
 }
 

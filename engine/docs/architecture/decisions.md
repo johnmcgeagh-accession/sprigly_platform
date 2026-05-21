@@ -220,6 +220,55 @@ The problem: it created two competing mechanisms for handling unmatched emails i
 
 ---
 
+### ADR 12: Outcome enum seam — read-state set at resolution, not by the poller
+
+**Context:** The original poller design called `markAsRead` unconditionally after persisting a matched event. This was correct for selective-mode workflows (blog-post, prospect-research) where a matched email is always "handled." It is incorrect for the inbox triage agent, where classified emails stay in the inbox as "still needs you" until a human acts on the agent's suggestion. A uniform mark-read-on-match rule conflates "we have processed this" with "the human has seen and acted on this."
+
+**Decision (inbox-agent phase):** Workflows communicate their read-state intent via an outcome field on the output object: `handled | needs_human | deferred`. Read-state is set at resolution:
+- `handled` (or absent, for legacy workflows): consumer calls `markRead` immediately after dispatch. The email leaves the inbox because the workflow completed the action autonomously.
+- `needs_human`: consumer does NOT call `markRead`. The email stays unread as a secondary "this still needs you" marker. Read-state flips when `recordResolution()` is called by the resolution surface (future UI).
+- Failed workflow run: consumer never reaches the markRead call (exception is rethrown before). Email stays unread. The failure is visible in the admin events UI.
+
+The poller never calls `markAsRead`. The `GmailReadStateService` (`packages/sources/src/gmail/gmail-read-state.ts`) is injected into the consumer for this purpose.
+
+**Alternatives considered:**
+- Poller marks read, workflow sets a "revert to unread" flag post-hoc: Messy. Would require a second API call and introduce a race window between mark-read and revert.
+- Resolution surface calls markRead directly: Considered but deferred — the resolution UI doesn't exist yet. Wiring the seam now means the UI only needs to call `recordResolution()` and read-state management is handled internally.
+
+**Consequences:**
+- Selective-mode workflows (blog-post, prospect-research) now mark as read slightly later — after workflow completion rather than at poll time. This is more correct (the email was handled) but adds a few seconds to the window when the email appears unread. Operationally invisible.
+- A failed workflow run leaves the email unread. This is the correct failure mode — an unread email with no `workflow_run` output signals the failure to the founder even without the admin UI.
+- `markAsRead` failures (network error, revoked token) are logged to `gmail_operation_errors` and swallowed. They must never re-fail a correctly-completed job. The email may remain unread in these cases — visible in the admin error log.
+- The `outcome` column on `workflow_runs` is the queryable record of read-state intent per run.
+
+**Code references:** `packages/sources/src/gmail/gmail-poller.ts` (markAsRead removed), `packages/sources/src/gmail/gmail-read-state.ts`, `apps/worker/src/consumer.ts`, `packages/engine/src/resolution.ts`, `packages/engine/src/types.ts:WorkflowOutcome`.
+
+---
+
+### ADR 13: Triage agent seen-log decoupled from Gmail read-state and poller watermark
+
+**Context:** The inbox triage agent processes every email in full-mode mailboxes. Two existing mechanisms exist for tracking "have we seen this?": Gmail read-state (an email is marked read once processed) and `processed_external_ids` (the poller's idempotency table, keyed by message ID). Both are unsuitable as the agent's primary seen-log:
+- Gmail read-state: a founder manually reading an email before the next poll cycle changes its state, potentially causing confusion. Under the new outcome-seam design (ADR 12), emails remain unread until resolved — so read-state is no longer a proxy for "processed."
+- `processed_external_ids`: correct for poller-level dedup but semantically conflates "poller has seen this message" with "triage agent has classified this message." Future logic (e.g. thread-level human-reply detection) needs to distinguish the two.
+
+**Decision:** The triage workflow writes its own seen-log to `triage_seen_messages` after successful classification. This table is:
+- Keyed on `(client_id, message_id)` — unique index, `ON CONFLICT DO NOTHING` on insert.
+- Carries `thread_id` so future logic can query "has any message in this thread been classified?" without an additional Gmail API call.
+- Carries `outcome` so the log is independently queryable without joining `triage_capture_log`.
+
+The `processed_external_ids` table continues to serve as the poller's idempotency watermark. The two tables have different owners, different consumers, and different semantics.
+
+**Why deferred (thread-level human-reply detection):** Detecting "a human replied to this thread before the agent classified it" requires calling Gmail's Threads API to inspect all messages in the thread. This adds per-email API calls to the poll cycle and requires Gmail access inside the workflow layer. The `thread_id` column is present so this can be implemented without a migration when needed.
+
+**Consequences:**
+- The triage agent's processing history is independently queryable without touching `processed_external_ids` or inspecting Gmail read-state.
+- `triage_seen_messages` grows at one row per classified email per client. No TTL or cleanup mechanism. Not a concern at current scale.
+- A workflow run that fails before writing to `triage_seen_messages` leaves no seen-log entry. On a hypothetical retry, the same message would be classified again. In practice, `processed_external_ids` prevents the poller from re-enqueuing the message, so this scenario cannot arise.
+
+**Code references:** `packages/db/src/schema.ts:triageSeenMessages`, `packages/engine/src/workflow-runner.ts:DbTriageStore`, `packages/workflows/src/sprigly-inbox-triage/sprigly-inbox-triage.ts`.
+
+---
+
 ### ADR 9: Two dedicated IAM users instead of shared AWS credentials
 
 **Context:** The worker needs AWS access for two unrelated operations: Bedrock inference and KMS token encryption/decryption. Both could share a single IAM user.
@@ -243,7 +292,7 @@ The generic `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` env vars are not used.
 
 ---
 
-### ADR 10: BullMQ for the job queue
+### ADR 13: BullMQ for the job queue
 
 **Context:** Gmail polling runs on a fixed interval. Processing an email (running a workflow with multiple model calls) takes 10-180 seconds. Without a queue, the poll loop would either block or drop events.
 
@@ -263,7 +312,7 @@ The generic `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` env vars are not used.
 
 ---
 
-### ADR 11: WebSearchError throws immediately; no silent degradation
+### ADR 14: WebSearchError throws immediately; no silent degradation
 
 **Context:** When a Tavily API call fails (network error, 400 operator rejection, 5xx server error), the web search step gets no results. The design choice is whether to continue the workflow with partial data, or to fail loudly.
 
@@ -283,7 +332,7 @@ The generic `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` env vars are not used.
 
 ---
 
-### ADR 12: Tool-use loop at the model-client layer, not per workflow
+### ADR 15: Tool-use loop at the model-client layer, not per workflow
 
 **Context:** Using tools (like web_search) requires a multi-turn conversation: the model requests a tool call, the application executes it, the result is appended to the conversation, and the model responds again. This loop could live in each workflow, or in the model client.
 

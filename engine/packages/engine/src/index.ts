@@ -4,6 +4,7 @@ export type {
   Attachment,
   ReplyContext,
   SourceType,
+  WorkflowOutcome,
   Workflow,
   WorkflowContext,
   ClientConfig,
@@ -20,7 +21,13 @@ export type {
   MatchCondition,
   SearchResult,
   WebSearchProvider,
+  TriageCategory,
+  ReplyExample,
+  TriageConfig,
+  TriageStore,
 } from './types.js';
+export { recordResolution } from './resolution.js';
+export type { RecordResolutionParams } from './resolution.js';
 export { stripBuffers } from './strip-buffers.js';
 export { WorkflowRegistry } from './workflow-registry.js';
 export { EventRouter, extractField, evaluateCondition, evaluateConditions, matchRules } from './event-router.js';

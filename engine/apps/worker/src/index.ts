@@ -12,9 +12,14 @@ import {
   WorkflowRunner,
   DestinationDispatcher,
 } from '@sprigly/engine';
-import { spriglyBlogPostWorkflow, spriglyProspectResearchWorkflow, spriglyInboxNoopWorkflow } from '@sprigly/workflows';
+import {
+  spriglyBlogPostWorkflow,
+  spriglyProspectResearchWorkflow,
+  spriglyInboxNoopWorkflow,
+  spriglyInboxTriageWorkflow,
+} from '@sprigly/workflows';
 import { TavilyProvider } from '@sprigly/web-search';
-import { GmailPoller } from '@sprigly/sources';
+import { GmailPoller, createGmailReadStateService } from '@sprigly/sources';
 import {
   DbSaveBlogPost,
   DbSaveOutput,
@@ -48,7 +53,11 @@ const registry = new WorkflowRegistry();
 registry.register(spriglyBlogPostWorkflow);
 registry.register(spriglyProspectResearchWorkflow);
 registry.register(spriglyInboxNoopWorkflow);
-logger.info({ workflows: ['sprigly-blog-post', 'sprigly-prospect-research', 'sprigly-inbox-noop'] }, 'Registered workflows');
+registry.register(spriglyInboxTriageWorkflow);
+logger.info(
+  { workflows: ['sprigly-blog-post', 'sprigly-prospect-research', 'sprigly-inbox-noop', 'sprigly-inbox-triage'] },
+  'Registered workflows',
+);
 
 const router = new EventRouter(db);
 const search = new TavilyProvider();
@@ -68,12 +77,37 @@ logger.info(
   'Registered destinations',
 );
 
+// Read-state service used by the consumer to mark emails as read after a
+// successful workflow run with outcome !== needs_human.
+// Errors are logged to gmail_operation_errors and never rethrown.
+const readStateService = createGmailReadStateService(
+  db,
+  encProvider,
+  env.GOOGLE_CLIENT_ID,
+  env.GOOGLE_CLIENT_SECRET,
+);
+
 const gmailPoller = new GmailPoller(db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, router, logger);
 
 const queue = new Queue('incoming-events', { connection: { url: env.REDIS_URL } });
 
-const consumer = createConsumer(db, router, registry, runner, dispatcher, logger, env.REDIS_URL);
+const consumer = createConsumer(
+  db,
+  router,
+  registry,
+  runner,
+  dispatcher,
+  logger,
+  env.REDIS_URL,
+  (clientId, externalId) => readStateService.markRead(clientId, externalId),
+);
 logger.info('BullMQ consumer started');
+
+// To activate sprigly-inbox-triage for a mailbox in full mode, run:
+//   UPDATE routing_rules
+//     SET workflow_id = 'sprigly-inbox-triage'
+//   WHERE auto_created = true AND client_id = '<client-uuid>';
+// Also ensure a triage_configs row exists for the client.
 
 const poll = (): Promise<void> => pollAllClients(db, gmailPoller, queue, logger);
 void poll();
@@ -92,8 +126,6 @@ const shutdown = async (): Promise<void> => {
 process.on('SIGTERM', () => { void shutdown(); });
 process.on('SIGINT', () => { void shutdown(); });
 
-// Guard against unhandled promise rejections (e.g. from void'd poll() calls).
-// Log the error but keep the process running — BullMQ jobs are the recovery path.
 process.on('unhandledRejection', (reason) => {
   logger.error({ reason: String(reason) }, 'Unhandled promise rejection — process kept alive');
 });

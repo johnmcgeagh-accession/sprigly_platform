@@ -99,6 +99,41 @@
       "when": 1747836120000,
       "tag": "0013_routing_rules_auto_created_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "5",
+      "when": 1747836180000,
+      "tag": "0014_triage_configs",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "5",
+      "when": 1747836240000,
+      "tag": "0015_triage_capture_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "5",
+      "when": 1747836300000,
+      "tag": "0016_triage_seen_messages",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1747836360000,
+      "tag": "0017_workflow_runs_outcome",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1747836420000,
+      "tag": "0018_inbox_triage_prompts",
+      "breakpoints": true
     }
   ]
 }

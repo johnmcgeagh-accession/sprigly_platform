@@ -155,7 +155,7 @@ const MOCK_ENC_PROVIDER = {} as import('@sprigly/oauth-tokens').EncryptionProvid
 describe('GmailPoller — selective mode, matched email', () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
-  it('fetches, evaluates, persists, marks read, writes idempotency record', async () => {
+  it('fetches, evaluates, persists event and idempotency record (read-state set by consumer on outcome)', async () => {
     const db     = makeDb([[CONN_ROW], []]);
     const client = makeGmailClient(['msg-1'], makeGmailMessage('Blog: AI tools'));
     const router = makeRouter([makeRule()]);
@@ -166,7 +166,9 @@ describe('GmailPoller — selective mode, matched email', () => {
     expect(count).toBe(1);
     expect((db.txInsert as Mock)).toHaveBeenCalledWith(incomingEvents);
     expect((db.txInsert as Mock)).toHaveBeenCalledWith(processedExternalIds);
-    expect(client.markAsRead).toHaveBeenCalledWith('msg-1');
+    // markAsRead is no longer the poller's responsibility — read-state is set
+    // by the consumer after dispatch, conditional on workflow outcome.
+    expect(client.markAsRead).not.toHaveBeenCalled();
   });
 
   it('inserts incomingEvents before processedExternalIds inside the transaction (ordering matters for crash recovery)', async () => {
@@ -196,7 +198,7 @@ describe('GmailPoller — selective mode, matched email', () => {
     expect((db.insert as Mock)).not.toHaveBeenCalledWith(processedExternalIds);
   });
 
-  it('does not call markAsRead if the transaction throws (safe direction: processed but unread)', async () => {
+  it('does not call markAsRead if the transaction throws (poller never calls markAsRead — consumer owns read-state)', async () => {
     const db = makeDb([[CONN_ROW], []]);
     const client = makeGmailClient(['msg-1'], makeGmailMessage('Blog: AI tools'));
     const router = makeRouter([makeRule()]);
@@ -419,14 +421,14 @@ describe('GmailPoller — cross-cycle atomicity', () => {
 describe('GmailPoller — full mode, fallback rule present', () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
-  it('an otherwise-unmatched email matches the fallback rule and is persisted + marked read', async () => {
+  it('an otherwise-unmatched email matches the fallback rule and is persisted (consumer sets read-state)', async () => {
     const db     = makeDb([[FULL_CONN_ROW], []]);
     const client = makeGmailClient(['msg-2'], makeGmailMessage('Invoice: quarterly bill'));
     const router = makeRouter([makeFallbackRule()]);
 
     const poller = new GmailPoller(db, MOCK_ENC_PROVIDER, 'gid', 'gsecret', router);
     expect(await poller.poll('client-1')).toBe(1);
-    expect(client.markAsRead).toHaveBeenCalledWith('msg-2');
+    expect(client.markAsRead).not.toHaveBeenCalled();
     expect((db.txInsert as Mock)).toHaveBeenCalledWith(incomingEvents);
     expect((db.txInsert as Mock)).toHaveBeenCalledWith(processedExternalIds);
     expect((db.transaction as Mock)).toHaveBeenCalledOnce();
@@ -439,7 +441,7 @@ describe('GmailPoller — full mode, fallback rule present', () => {
 
     const poller = new GmailPoller(db, MOCK_ENC_PROVIDER, 'gid', 'gsecret', router);
     expect(await poller.poll('client-1')).toBe(1);
-    expect(client.markAsRead).toHaveBeenCalledWith('msg-1');
+    expect(client.markAsRead).not.toHaveBeenCalled();
   });
 
   it('advances watermark after a successful cycle', async () => {

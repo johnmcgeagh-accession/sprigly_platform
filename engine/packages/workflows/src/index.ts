@@ -8,3 +8,5 @@ export { spriglyMeetingPrepWorkflow } from './sprigly-meeting-prep/sprigly-meeti
 export type { SpriglyMeetingPrepInput, SpriglyMeetingPrepOutput } from './sprigly-meeting-prep/types.js';
 export { spriglyInboxNoopWorkflow } from './sprigly-inbox-noop/sprigly-inbox-noop.js';
 export type { InboxNoopInput, InboxNoopOutput } from './sprigly-inbox-noop/types.js';
+export { spriglyInboxTriageWorkflow } from './sprigly-inbox-triage/sprigly-inbox-triage.js';
+export type { TriageInput, TriageOutput } from './sprigly-inbox-triage/types.js';

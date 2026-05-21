@@ -1,3 +1,5 @@
+export type WorkflowOutcome = 'handled' | 'needs_human' | 'deferred';
+
 export type SourceType =
   | "email"
   | "sms"
@@ -65,6 +67,47 @@ export interface WebSearchProvider {
   search(query: string): Promise<SearchResult[]>;
 }
 
+export interface TriageCategory {
+  key: string;
+  label: string;
+  description: string;
+  action: 'draft_reply' | 'escalate' | 'label' | `invoke_workflow:${string}`;
+  graduationEligible: boolean;
+  escalationReason?: string;
+  escalationContext?: string;
+}
+
+export interface ReplyExample {
+  inbound: string;
+  reply: string;
+  note?: string;
+}
+
+export interface TriageConfig {
+  categories: TriageCategory[];
+  voiceSample: string;
+  replyExamples: ReplyExample[];
+  additionalInstructions?: string;
+}
+
+export interface TriageStore {
+  writeSeenMessage(params: {
+    clientId: string;
+    messageId: string;
+    threadId: string;
+    outcome: WorkflowOutcome;
+  }): Promise<void>;
+  writeCaptureLogDraft(params: {
+    clientId: string;
+    eventId: string;
+    workflowRunId: string;
+    category: string;
+    suggestedAction: string;
+    draftText?: string;
+    escalationReason?: string;
+  }): Promise<string>;
+}
+
 export interface WorkflowContext {
   clientId: string;
   clientConfig: ClientConfig;
@@ -74,6 +117,8 @@ export interface WorkflowContext {
   eventId: string;
   runId: string;
   search?: WebSearchProvider;
+  triageConfig?: TriageConfig;
+  triageStore?: TriageStore;
   /** When true: audit logs go to console only; destinations must skip real writes. */
   dryRun?: boolean;
 }

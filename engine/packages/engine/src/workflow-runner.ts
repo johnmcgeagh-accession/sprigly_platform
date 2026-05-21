@@ -1,4 +1,12 @@
-import { db as _db, workflowRuns, incomingEvents, clientConfigs } from '@sprigly/db';
+import {
+  db as _db,
+  workflowRuns,
+  incomingEvents,
+  clientConfigs,
+  triageConfigs,
+  triageCaptureLog,
+  triageSeenMessages,
+} from '@sprigly/db';
 import { stripBuffers } from './strip-buffers.js';
 import type { IncomingEvent as DbIncomingEvent } from '@sprigly/db';
 import { eq } from 'drizzle-orm';
@@ -12,6 +20,11 @@ import type {
   PromptResolver,
   SourceType,
   WebSearchProvider,
+  TriageConfig,
+  TriageCategory,
+  ReplyExample,
+  TriageStore,
+  WorkflowOutcome,
 } from './types.js';
 import type { WorkflowRegistry } from './workflow-registry.js';
 
@@ -45,6 +58,53 @@ const defaultClientConfig = (clientId: string): ClientConfig => ({
   authorName: '',
   settings: {},
 });
+
+class DbTriageStore implements TriageStore {
+  constructor(private db: Db) {}
+
+  async writeSeenMessage(params: {
+    clientId: string;
+    messageId: string;
+    threadId: string;
+    outcome: WorkflowOutcome;
+  }): Promise<void> {
+    await this.db
+      .insert(triageSeenMessages)
+      .values({
+        clientId: params.clientId,
+        messageId: params.messageId,
+        threadId: params.threadId,
+        outcome: params.outcome,
+      })
+      .onConflictDoNothing();
+  }
+
+  async writeCaptureLogDraft(params: {
+    clientId: string;
+    eventId: string;
+    workflowRunId: string;
+    category: string;
+    suggestedAction: string;
+    draftText?: string;
+    escalationReason?: string;
+  }): Promise<string> {
+    const [row] = await this.db
+      .insert(triageCaptureLog)
+      .values({
+        clientId: params.clientId,
+        eventId: params.eventId,
+        workflowRunId: params.workflowRunId,
+        category: params.category,
+        suggestedAction: params.suggestedAction,
+        draftText: params.draftText ?? null,
+        escalationReason: params.escalationReason ?? null,
+      })
+      .returning({ id: triageCaptureLog.id });
+
+    if (row === undefined) throw new Error('Failed to insert triage_capture_log row');
+    return row.id;
+  }
+}
 
 export class WorkflowRunner {
   constructor(
@@ -123,6 +183,40 @@ export class WorkflowRunner {
       }
     }
 
+    // Load triage-specific context when the workflow requires it.
+    let triageConfig: TriageConfig | undefined;
+    let triageStore: TriageStore | undefined;
+
+    if (rule.workflowId === 'sprigly-inbox-triage') {
+      const triageRows = await this.db
+        .select()
+        .from(triageConfigs)
+        .where(eq(triageConfigs.clientId, dbEvent.clientId))
+        .limit(1);
+
+      if (triageRows[0] === undefined) {
+        const error = `No triage_config found for client: ${dbEvent.clientId} — create one via the admin UI or seed migration`;
+        await this.db
+          .update(workflowRuns)
+          .set({ status: 'failed', endedAt: new Date(), error })
+          .where(eq(workflowRuns.id, runId));
+        await this.db
+          .update(incomingEvents)
+          .set({ status: 'failed' })
+          .where(eq(incomingEvents.id, dbEventId));
+        throw new Error(error);
+      }
+
+      const row = triageRows[0];
+      triageConfig = {
+        categories: (row.categories as Array<Record<string, unknown>>) as unknown as TriageCategory[],
+        voiceSample: row.voiceSample,
+        replyExamples: (row.replyExamples as Array<Record<string, unknown>>) as unknown as ReplyExample[],
+        ...(row.additionalInstructions !== null && { additionalInstructions: row.additionalInstructions }),
+      };
+      triageStore = new DbTriageStore(this.db);
+    }
+
     const ctx: WorkflowContext = {
       clientId: dbEvent.clientId,
       clientConfig,
@@ -132,6 +226,8 @@ export class WorkflowRunner {
       eventId: dbEventId,
       runId,
       ...(this.search !== undefined && { search: this.search }),
+      ...(triageConfig !== undefined && { triageConfig }),
+      ...(triageStore !== undefined && { triageStore }),
     };
 
     const input = workflow.parseInput(event);
@@ -149,9 +245,15 @@ export class WorkflowRunner {
 
     try {
       const output = await workflow.run(input, ctx);
+      const outcome = ((output as { outcome?: string }).outcome ?? 'handled') as WorkflowOutcome;
       await this.db
         .update(workflowRuns)
-        .set({ status: 'completed', endedAt: new Date(), output: stripBuffers(output) as Record<string, unknown> })
+        .set({
+          status: 'completed',
+          endedAt: new Date(),
+          output: stripBuffers(output) as Record<string, unknown>,
+          outcome,
+        })
         .where(eq(workflowRuns.id, runId));
       await this.db
         .update(incomingEvents)

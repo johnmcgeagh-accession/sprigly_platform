@@ -111,6 +111,7 @@ Determines which workflow to run for incoming events matching given conditions.
 | `client_config_id` | uuid | yes | | FK to `client_configs.id`. Loaded into `WorkflowContext.clientConfig`. |
 | `priority` | integer | no | `0` | Rules ordered by priority DESC when loaded. Higher number = evaluated first. |
 | `is_fallback` | boolean | no | `false` | When true, only fires if no non-fallback rule matched. |
+| `auto_created` | boolean | no | `false` | Set to `true` on rules managed by `switchPollingMode()`. `switchPollingMode` only ever touches `auto_created = true` rows — manually-authored rules are never modified. |
 
 **`match_conditions` JSONB element shape (`MatchCondition`):**
 ```typescript
@@ -219,6 +220,7 @@ One row per workflow execution. Created by `WorkflowRunner.run()` before the wor
 | `ended_at` | timestamp | yes | | Set on completion or failure. |
 | `output` | jsonb | yes | | Serialized workflow output. Buffers stripped by `stripBuffers()` before storage. |
 | `error` | text | yes | | Error string on failure. |
+| `outcome` | text | no | `'handled'` | `WorkflowOutcome`: `handled`, `needs_human`, `deferred`. Written by `WorkflowRunner` from `output.outcome`. Absent outcome on legacy workflows defaults to `handled`. |
 
 ---
 
@@ -381,6 +383,97 @@ Structured log of Gmail API failures. Written by `GmailPoller` when `markAsRead`
 
 ---
 
+## `triage_configs`
+
+Per-tenant configuration for the `sprigly-inbox-triage` workflow. One row per client. Loaded by `WorkflowRunner` when `rule.workflowId === 'sprigly-inbox-triage'` and injected into `WorkflowContext.triageConfig`.
+
+| Column | Type | Nullable | Default | Notes |
+|---|---|---|---|---|
+| `id` | uuid | no | gen_random_uuid() | PK |
+| `created_at` | timestamp | no | now() | |
+| `updated_at` | timestamp | no | now() | |
+| `client_id` | uuid | no | | FK to `clients.id` |
+| `categories` | jsonb | no | `[]` | Array of `TriageCategory`. Defines routing policy. |
+| `voice_sample` | text | no | `''` | Founder writing style description. Injected into the classify prompt. |
+| `reply_examples` | jsonb | no | `[]` | Array of `ReplyExample`. Injected into the classify prompt. |
+| `additional_instructions` | text | yes | | Freeform overflow appended to assembled prompt. |
+
+**`categories` JSONB element shape (`TriageCategory`, defined in `packages/engine/src/types.ts`):**
+```typescript
+{
+  key: string;                    // stable identifier used in capture log
+  label: string;                  // human-readable
+  description: string;            // what this category means
+  action: 'draft_reply' | 'escalate' | 'label' | `invoke_workflow:${string}`;
+  graduationEligible: boolean;    // unused this build; must exist for future policy loop
+  escalationReason?: string;      // default escalation reason for escalate-action categories
+  escalationContext?: string;     // additional context for escalation
+}
+```
+
+**`reply_examples` JSONB element shape (`ReplyExample`):**
+```typescript
+{
+  inbound: string;   // the email being replied to
+  reply: string;     // the exemplary reply in the founder's voice
+  note?: string;     // optional annotation
+}
+```
+
+---
+
+## `triage_capture_log`
+
+One row per triage suggestion, created by `sprigly-inbox-triage` for every classified email — including escalations, label actions, and workflow invocations, not just drafts. `decision` and `correction_type` are `null` until a human resolves via `recordResolution()`. Captures both approvals and corrections so denominators exist for the quarterly review.
+
+| Column | Type | Nullable | Default | Notes |
+|---|---|---|---|---|
+| `id` | uuid | no | gen_random_uuid() | PK |
+| `created_at` | timestamp | no | now() | |
+| `updated_at` | timestamp | no | now() | |
+| `client_id` | uuid | no | | FK to `clients.id` |
+| `event_id` | uuid | no | | FK to `incoming_events.id` |
+| `workflow_run_id` | uuid | no | | FK to `workflow_runs.id` |
+| `category` | text | no | | The category key matched by the agent. |
+| `suggested_action` | text | no | | The action the agent recommended. |
+| `draft_text` | text | yes | | The draft reply text, if `suggested_action = draft_reply`. |
+| `escalation_reason` | text | yes | | The escalation reason, if `suggested_action = escalate`. |
+| `decision` | text | yes | | `TriageDecision`: `approved_as_is`, `modified`, `rejected`. Null until resolved. |
+| `correction_type` | text | yes | | `CorrectionType`: `voice`, `substance`, `routing`, `none`. Inferred structurally by `recordResolution()`. Null until resolved. |
+| `final_action` | text | yes | | Human's actual action, if different from suggestion. |
+| `final_text` | text | yes | | Human's final text, if different from draft. |
+| `decided_at` | timestamp | yes | | Set when the row is resolved. |
+| `decided_by` | uuid | yes | | FK to `users.id`. Set when a named user resolves. |
+
+**`correction_type` inference logic (in `packages/engine/src/resolution.ts`):**
+- `approved_as_is` → `none`
+- `rejected` → `routing`
+- `modified`, action changed → `routing`
+- `modified`, text growth >30% → `substance` (new facts added)
+- `modified`, similar length → `voice` (style/tone edit)
+
+---
+
+## `triage_seen_messages`
+
+The triage agent's own per-tenant processed-message seen-log. Decoupled from Gmail read-state and from the poller's `processed_external_ids` watermark. Written by `DbTriageStore.writeSeenMessage()` after successful classification. Unique on `(client_id, message_id)`.
+
+The `thread_id` column is captured for future thread-level human-reply detection (if a thread already has a human reply the agent didn't author, treat as externally handled). The detection logic is not yet implemented; the column is present so it can be queried without a migration.
+
+| Column | Type | Nullable | Default | Notes |
+|---|---|---|---|---|
+| `id` | uuid | no | gen_random_uuid() | PK |
+| `created_at` | timestamp | no | now() | |
+| `updated_at` | timestamp | no | now() | |
+| `client_id` | uuid | no | | FK to `clients.id` |
+| `message_id` | text | no | | Gmail message ID. |
+| `thread_id` | text | no | | Gmail thread ID. For future thread-level dedup. |
+| `outcome` | text | no | | `WorkflowOutcome` at classification time. Currently always `needs_human`. |
+
+**Unique index:** `(client_id, message_id)`. Insert uses `ON CONFLICT DO NOTHING`.
+
+---
+
 ## Foreign key summary
 
 ```
@@ -404,4 +497,10 @@ workflow_outputs.client_id    → clients.id
 workflow_outputs.workflow_run_id → workflow_runs.id
 prospect_sheets.client_id     → clients.id
 gmail_operation_errors.client_id → clients.id
+triage_configs.client_id          → clients.id
+triage_capture_log.client_id      → clients.id
+triage_capture_log.event_id       → incoming_events.id
+triage_capture_log.workflow_run_id → workflow_runs.id
+triage_capture_log.decided_by     → users.id  (nullable)
+triage_seen_messages.client_id    → clients.id
 ```

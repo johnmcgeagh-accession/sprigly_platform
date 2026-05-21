@@ -3,6 +3,7 @@ export { parseEmailInput } from './email-parser/index.js';
 export type { EmailInputSpec, BodyFieldSpec, ParsedEmailInput } from './email-parser/index.js';
 export { GmailPoller } from './gmail/gmail-poller.js';
 export { GmailApiClient } from './gmail/gmail-client.js';
+export { createGmailReadStateService } from './gmail/gmail-read-state.js';
 export {
   extractMessageText,
   extractTextFromParts,

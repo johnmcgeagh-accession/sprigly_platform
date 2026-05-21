@@ -167,6 +167,7 @@ export type NewIncomingEvent = typeof incomingEvents.$inferInsert;
 // ─── workflow_runs ────────────────────────────────────────────────────────────
 
 export type WorkflowRunStatus = 'running' | 'completed' | 'failed';
+export type WorkflowOutcome = 'handled' | 'needs_human' | 'deferred';
 
 export const workflowRuns = pgTable('workflow_runs', {
   ...baseColumns,
@@ -178,6 +179,7 @@ export const workflowRuns = pgTable('workflow_runs', {
   endedAt: timestamp('ended_at'),
   output: jsonb('output').$type<Record<string, unknown>>(),
   error: text('error'),
+  outcome: text('outcome').notNull().default('handled'),
 });
 
 export type WorkflowRun = typeof workflowRuns.$inferSelect;
@@ -308,6 +310,74 @@ export const prospectSheets = pgTable('prospect_sheets', {
 
 export type ProspectSheet = typeof prospectSheets.$inferSelect;
 export type NewProspectSheet = typeof prospectSheets.$inferInsert;
+
+// ─── triage_configs ──────────────────────────────────────────────────────────
+// Per-tenant configuration for the sprigly-inbox-triage workflow.
+// categories JSONB shape: TriageCategory[] (defined in packages/engine/src/types.ts)
+// reply_examples JSONB shape: ReplyExample[] (defined in packages/engine/src/types.ts)
+
+export const triageConfigs = pgTable('triage_configs', {
+  ...baseColumns,
+  clientId: uuid('client_id').notNull().references(() => clients.id),
+  categories: jsonb('categories').$type<Array<Record<string, unknown>>>().notNull().default([]),
+  voiceSample: text('voice_sample').notNull().default(''),
+  replyExamples: jsonb('reply_examples').$type<Array<Record<string, unknown>>>().notNull().default([]),
+  additionalInstructions: text('additional_instructions'),
+});
+
+export type TriageConfig = typeof triageConfigs.$inferSelect;
+export type NewTriageConfig = typeof triageConfigs.$inferInsert;
+
+// ─── triage_capture_log ───────────────────────────────────────────────────────
+// One row per triage suggestion, created by sprigly-inbox-triage for every
+// classified email. Decision/correctionType are null until a human resolves.
+// decision: 'approved_as_is' | 'modified' | 'rejected'
+// correction_type: 'voice' | 'substance' | 'routing' | 'none'
+
+export type TriageDecision = 'approved_as_is' | 'modified' | 'rejected';
+export type CorrectionType = 'voice' | 'substance' | 'routing' | 'none';
+
+export const triageCaptureLog = pgTable('triage_capture_log', {
+  ...baseColumns,
+  clientId: uuid('client_id').notNull().references(() => clients.id),
+  eventId: uuid('event_id').notNull().references(() => incomingEvents.id),
+  workflowRunId: uuid('workflow_run_id').notNull().references(() => workflowRuns.id),
+  category: text('category').notNull(),
+  suggestedAction: text('suggested_action').notNull(),
+  draftText: text('draft_text'),
+  escalationReason: text('escalation_reason'),
+  decision: text('decision'),
+  correctionType: text('correction_type'),
+  finalAction: text('final_action'),
+  finalText: text('final_text'),
+  decidedAt: timestamp('decided_at'),
+  decidedBy: uuid('decided_by').references(() => users.id),
+});
+
+export type TriageCaptureLogEntry = typeof triageCaptureLog.$inferSelect;
+export type NewTriageCaptureLogEntry = typeof triageCaptureLog.$inferInsert;
+
+// ─── triage_seen_messages ─────────────────────────────────────────────────────
+// The triage agent's own seen-log, decoupled from Gmail read-state and from
+// the poller's processed_external_ids watermark. Written after successful
+// classification. Unique on (client_id, message_id).
+
+export const triageSeenMessages = pgTable(
+  'triage_seen_messages',
+  {
+    ...baseColumns,
+    clientId: uuid('client_id').notNull().references(() => clients.id),
+    messageId: text('message_id').notNull(),
+    threadId: text('thread_id').notNull(),
+    outcome: text('outcome').notNull(),
+  },
+  (t) => ({
+    uniqSeenMessage: uniqueIndex('triage_seen_messages_unique').on(t.clientId, t.messageId),
+  }),
+);
+
+export type TriageSeenMessage = typeof triageSeenMessages.$inferSelect;
+export type NewTriageSeenMessage = typeof triageSeenMessages.$inferInsert;
 
 // ─── gmail_operation_errors ───────────────────────────────────────────────────
 

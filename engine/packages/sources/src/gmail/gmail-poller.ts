@@ -151,14 +151,16 @@ export class GmailPoller {
         continue;
       }
 
-      // ── 4. Matched: persist → idempotency record → mark read ─────────────
+      // ── 4. Matched: persist → idempotency record ─────────────────────────
       // Both inserts are wrapped in a transaction so they commit atomically.
       // If the process dies between them, neither is committed: no orphaned
       // incomingEvents row, no missing idempotency record. The next cycle
       // re-processes the message cleanly.
-      // markAsRead stays outside — the Gmail API is not transactional. Worst
-      // case after a crash here: event was processed but the email stays
-      // unread. The idempotency record prevents a duplicate run next cycle.
+      //
+      // markAsRead is no longer called here. Read-state is set at resolution:
+      // the consumer calls markRead after dispatch, conditional on the workflow
+      // outcome. needs_human outcomes leave the email unread until a human
+      // resolves the suggestion via recordResolution().
       await this.db.transaction(async (tx) => {
         await tx.insert(incomingEvents).values({
           clientId,
@@ -178,7 +180,6 @@ export class GmailPoller {
         });
       });
 
-      await client.markAsRead(messageId);
       count++;
     }
 
