@@ -205,9 +205,15 @@ export async function sendDigestsForAllClients(
         continue;
       }
 
-      const toEmail = config.emailAddress ?? '';
+      // email_address on oauth_connections is nullable; fall back to the address
+      // stored in the encrypted token bundle (same pattern as GmailSendNotification).
+      let toEmail = config.emailAddress ?? '';
       if (toEmail === '') {
-        logger.warn({ clientId: config.clientId }, 'digest: no email address on oauth_connection, skipping');
+        const tokens = await getTokens(db, encProvider, config.clientId, 'gmail');
+        toEmail = tokens?.emailAddress ?? '';
+      }
+      if (toEmail === '') {
+        logger.warn({ clientId: config.clientId }, 'digest: no email address in connection or tokens, skipping');
         continue;
       }
 
