@@ -29,6 +29,12 @@ importers:
       '@sprigly/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@sprigly/engine':
+        specifier: workspace:*
+        version: link:../../packages/engine
+      '@sprigly/oauth-tokens':
+        specifier: workspace:*
+        version: link:../../packages/oauth-tokens
       '@sprigly/sources':
         specifier: workspace:*
         version: link:../../packages/sources

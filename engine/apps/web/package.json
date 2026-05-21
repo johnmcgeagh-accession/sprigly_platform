@@ -16,6 +16,8 @@
     "@clerk/nextjs": "^6.0.0",
     "drizzle-orm": "^0.30.0",
     "@sprigly/db": "workspace:*",
+    "@sprigly/engine": "workspace:*",
+    "@sprigly/oauth-tokens": "workspace:*",
     "@sprigly/sources": "workspace:*",
     "@sprigly/ui": "workspace:*",
     "@sprigly/workflows": "workspace:*"

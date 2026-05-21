@@ -9,3 +9,5 @@ export type { OutputEmailParams } from './notification/compose-email.js';
 export { DbSaveProspectSheet } from './prospect/db-save-prospect-sheet.js';
 export { composeProspectEmail } from './prospect/compose-prospect-email.js';
 export type { ProspectEmailParams } from './prospect/compose-prospect-email.js';
+export { composeDigestEmail } from './notification/compose-digest-email.js';
+export type { DigestEmailParams, DigestItem } from './notification/compose-digest-email.js';

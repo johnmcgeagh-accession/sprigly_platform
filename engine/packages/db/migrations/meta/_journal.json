@@ -134,6 +134,13 @@
       "when": 1747836420000,
       "tag": "0018_inbox_triage_prompts",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "5",
+      "when": 1748476800000,
+      "tag": "0019_triage_digest",
+      "breakpoints": true
     }
   ]
 }

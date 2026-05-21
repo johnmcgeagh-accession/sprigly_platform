@@ -29,6 +29,7 @@ import {
 import { Queue } from 'bullmq';
 import { pollAllClients } from './poller.js';
 import { createConsumer } from './consumer.js';
+import { sendDigestsForAllClients } from './digest-sender.js';
 
 const logger = pino({ name: 'sprigly-worker' });
 logger.info('Worker starting');
@@ -114,9 +115,17 @@ void poll();
 const interval = setInterval(() => { void poll(); }, env.POLL_INTERVAL_MS);
 logger.info({ intervalMs: env.POLL_INTERVAL_MS }, 'Polling started');
 
+const DIGEST_CHECK_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+const sendDigests = (): Promise<void> =>
+  sendDigestsForAllClients(db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, env.APP_BASE_URL, logger);
+void sendDigests();
+const digestInterval = setInterval(() => { void sendDigests(); }, DIGEST_CHECK_INTERVAL_MS);
+logger.info({ intervalMs: DIGEST_CHECK_INTERVAL_MS }, 'Digest sender started');
+
 const shutdown = async (): Promise<void> => {
   logger.info('Shutting down...');
   clearInterval(interval);
+  clearInterval(digestInterval);
   await consumer.close();
   await queue.close();
   logger.info('Shutdown complete');

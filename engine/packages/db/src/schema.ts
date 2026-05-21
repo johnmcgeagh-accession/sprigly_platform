@@ -316,6 +316,8 @@ export type NewProspectSheet = typeof prospectSheets.$inferInsert;
 // categories JSONB shape: TriageCategory[] (defined in packages/engine/src/types.ts)
 // reply_examples JSONB shape: ReplyExample[] (defined in packages/engine/src/types.ts)
 
+export type DigestCadence = 'twice_daily' | 'end_of_day' | 'end_of_week';
+
 export const triageConfigs = pgTable('triage_configs', {
   ...baseColumns,
   clientId: uuid('client_id').notNull().references(() => clients.id),
@@ -323,6 +325,8 @@ export const triageConfigs = pgTable('triage_configs', {
   voiceSample: text('voice_sample').notNull().default(''),
   replyExamples: jsonb('reply_examples').$type<Array<Record<string, unknown>>>().notNull().default([]),
   additionalInstructions: text('additional_instructions'),
+  digestCadence: text('digest_cadence').notNull().default('end_of_day'),
+  lastDigestSentAt: timestamp('last_digest_sent_at'),
 });
 
 export type TriageConfig = typeof triageConfigs.$inferSelect;
@@ -378,6 +382,24 @@ export const triageSeenMessages = pgTable(
 
 export type TriageSeenMessage = typeof triageSeenMessages.$inferSelect;
 export type NewTriageSeenMessage = typeof triageSeenMessages.$inferInsert;
+
+// ─── triage_digest_tokens ─────────────────────────────────────────────────────
+// One active token per tenant. Lookup-or-create: if an unexpired token exists
+// when a digest fires, it is reused and its expiry is extended (sliding 72h).
+// The token is the sole auth for the review page (/review/[token]).
+// Every capture-log query on that page filters by token.client_id — no
+// cross-tenant data is ever accessible through this surface.
+
+export const triageDigestTokens = pgTable('triage_digest_tokens', {
+  id:        uuid('id').primaryKey().defaultRandom(),
+  clientId:  uuid('client_id').notNull().references(() => clients.id),
+  token:     text('token').notNull().unique(),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export type TriageDigestToken = typeof triageDigestTokens.$inferSelect;
+export type NewTriageDigestToken = typeof triageDigestTokens.$inferInsert;
 
 // ─── gmail_operation_errors ───────────────────────────────────────────────────
 
