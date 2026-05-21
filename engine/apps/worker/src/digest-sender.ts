@@ -93,21 +93,26 @@ async function upsertDigestToken(db: Db, clientId: string, now: Date): Promise<s
   return token;
 }
 
-// ── Gmail send ────────────────────────────────────────────────────────────────
+// ── Gmail client builder ──────────────────────────────────────────────────────
 
-async function sendViaGmail(
+interface GmailClientResult {
+  gmail: ReturnType<typeof google.gmail>;
+  emailAddress: string;
+}
+
+async function buildGmailClient(
   db: Db,
   encProvider: EncryptionProvider,
   googleClientId: string,
   googleClientSecret: string,
   clientId: string,
-  rawMessage: string,
+  knownEmail: string | null,
   logger: Logger,
-): Promise<boolean> {
+): Promise<GmailClientResult | null> {
   const tokens = await getTokens(db, encProvider, clientId, 'gmail');
   if (tokens === null) {
     logger.warn({ clientId }, 'digest: no Gmail tokens, skipping');
-    return false;
+    return null;
   }
 
   let currentTokens: OAuthTokenBundle = tokens;
@@ -138,9 +143,20 @@ async function sendViaGmail(
   });
 
   const gmail = google.gmail({ version: 'v1', auth });
-  const encoded = Buffer.from(rawMessage).toString('base64url');
-  await gmail.users.messages.send({ userId: 'me', requestBody: { raw: encoded } });
-  return true;
+
+  // Resolve email address: connection column → token bundle → Gmail profile API.
+  let emailAddress = knownEmail ?? tokens.emailAddress ?? '';
+  if (emailAddress === '') {
+    const profile = await gmail.users.getProfile({ userId: 'me' });
+    emailAddress = profile.data.emailAddress ?? '';
+  }
+
+  if (emailAddress === '') {
+    logger.warn({ clientId }, 'digest: could not resolve email address from connection, tokens, or Gmail profile — skipping');
+    return null;
+  }
+
+  return { gmail, emailAddress };
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
@@ -205,17 +221,13 @@ export async function sendDigestsForAllClients(
         continue;
       }
 
-      // email_address on oauth_connections is nullable; fall back to the address
-      // stored in the encrypted token bundle (same pattern as GmailSendNotification).
-      let toEmail = config.emailAddress ?? '';
-      if (toEmail === '') {
-        const tokens = await getTokens(db, encProvider, config.clientId, 'gmail');
-        toEmail = tokens?.emailAddress ?? '';
-      }
-      if (toEmail === '') {
-        logger.warn({ clientId: config.clientId }, 'digest: no email address in connection or tokens, skipping');
-        continue;
-      }
+      const gmailClient = await buildGmailClient(
+        db, encProvider, googleClientId, googleClientSecret,
+        config.clientId, config.emailAddress ?? null, logger,
+      );
+      if (gmailClient === null) continue;
+
+      const { gmail, emailAddress } = gmailClient;
 
       const token = await upsertDigestToken(db, config.clientId, now);
       const reviewUrl = `${appBaseUrl}/review/${token}`;
@@ -234,29 +246,25 @@ export async function sendDigestsForAllClients(
       });
 
       const rawMessage = composeDigestEmail({
-        toEmail,
-        fromEmail: toEmail,
-        clientName: toEmail,
+        toEmail:    emailAddress,
+        fromEmail:  emailAddress,
+        clientName: emailAddress,
         reviewUrl,
         items,
       });
 
-      const sent = await sendViaGmail(
-        db, encProvider, googleClientId, googleClientSecret,
-        config.clientId, rawMessage, logger,
+      const encoded = Buffer.from(rawMessage).toString('base64url');
+      await gmail.users.messages.send({ userId: 'me', requestBody: { raw: encoded } });
+
+      await db
+        .update(triageConfigs)
+        .set({ lastDigestSentAt: now, updatedAt: now })
+        .where(eq(triageConfigs.id, config.configId));
+
+      logger.info(
+        { clientId: config.clientId, itemCount: items.length, toEmail: emailAddress },
+        'digest sent',
       );
-
-      if (sent) {
-        await db
-          .update(triageConfigs)
-          .set({ lastDigestSentAt: now, updatedAt: now })
-          .where(eq(triageConfigs.id, config.configId));
-
-        logger.info(
-          { clientId: config.clientId, itemCount: items.length },
-          'digest sent',
-        );
-      }
     } catch (err) {
       // Per-tenant failure must not abort other tenants.
       logger.error({ clientId: config.clientId, err: String(err) }, 'digest send failed');
