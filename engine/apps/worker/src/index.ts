@@ -12,7 +12,7 @@ import {
   WorkflowRunner,
   DestinationDispatcher,
 } from '@sprigly/engine';
-import { spriglyBlogPostWorkflow, spriglyProspectResearchWorkflow } from '@sprigly/workflows';
+import { spriglyBlogPostWorkflow, spriglyProspectResearchWorkflow, spriglyInboxNoopWorkflow } from '@sprigly/workflows';
 import { TavilyProvider } from '@sprigly/web-search';
 import { GmailPoller } from '@sprigly/sources';
 import {
@@ -47,7 +47,8 @@ const encProvider = createEncryptionProvider();
 const registry = new WorkflowRegistry();
 registry.register(spriglyBlogPostWorkflow);
 registry.register(spriglyProspectResearchWorkflow);
-logger.info({ workflows: ['sprigly-blog-post', 'sprigly-prospect-research'] }, 'Registered workflows');
+registry.register(spriglyInboxNoopWorkflow);
+logger.info({ workflows: ['sprigly-blog-post', 'sprigly-prospect-research', 'sprigly-inbox-noop'] }, 'Registered workflows');
 
 const router = new EventRouter(db);
 const search = new TavilyProvider();

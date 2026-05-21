@@ -6,3 +6,5 @@ export { workflowMeta } from './meta.js';
 export type { WorkflowMeta, WorkflowStepMeta } from './meta.js';
 export { spriglyMeetingPrepWorkflow } from './sprigly-meeting-prep/sprigly-meeting-prep.js';
 export type { SpriglyMeetingPrepInput, SpriglyMeetingPrepOutput } from './sprigly-meeting-prep/types.js';
+export { spriglyInboxNoopWorkflow } from './sprigly-inbox-noop/sprigly-inbox-noop.js';
+export type { InboxNoopInput, InboxNoopOutput } from './sprigly-inbox-noop/types.js';

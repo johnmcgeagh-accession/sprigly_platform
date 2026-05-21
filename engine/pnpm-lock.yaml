@@ -29,6 +29,9 @@ importers:
       '@sprigly/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@sprigly/sources':
+        specifier: workspace:*
+        version: link:../../packages/sources
       '@sprigly/ui':
         specifier: workspace:*
         version: link:../../packages/ui

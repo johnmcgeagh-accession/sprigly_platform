@@ -9,6 +9,7 @@ const navItems = [
   { href: '/admin/events', label: 'Events' },
   { href: '/admin/approvals', label: 'Approvals' },
   { href: '/admin/audit', label: 'Audit Log' },
+  { href: '/admin/mailboxes',    label: 'Mailboxes' },
   { href: '/admin/gmail-errors', label: 'Gmail Errors' },
 ];
 

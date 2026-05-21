@@ -105,6 +105,17 @@ export const workflowMeta: WorkflowMeta[] = [
     ],
   },
   {
+    // Full-mode catch-all. No model calls, no sends. Replaced by the triage
+    // agent when inbox intelligence is configured (see BACKLOG: inbox-agent phase).
+    id: 'sprigly-inbox-noop',
+    name: 'Inbox (no-op)',
+    description: 'Full-mode default workflow. Records that an email was seen and marks it processed. Makes no model calls, sends nothing, takes no irreversible action.',
+    defaultDestinations: [
+      { destinationId: 'db-save-output', requireApproval: false, settings: {} },
+    ],
+    steps: [],
+  },
+  {
     id: 'sprigly-meeting-prep',
     name: 'Meeting Prep',
     description: 'TODO: describe what this workflow produces.',

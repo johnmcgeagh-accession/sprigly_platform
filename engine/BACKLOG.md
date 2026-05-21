@@ -22,21 +22,60 @@ Gmail's `messages.list` returns the message ID only. Routing conditions today on
 
 ---
 
-### Full polling mode + management UI (commit 2 of 2)
+### Re-target full-mode fallback rule to the triage agent (inbox-agent phase)
 
-Watermark-based selective polling landed in `0010_selective_polling.sql`. The `polling_mode` column exists with values `'selective'` (implemented) and `'full'` (placeholder — `GmailPoller.poll()` logs a warning and returns 0).
-
-`full` mode is the path where Sprigly marks every inbox email as read and processes all of them regardless of routing rules. It is intended for clients who use the Gmail account exclusively for Sprigly triggers.
+Full mode currently routes unmatched emails to `sprigly-inbox-noop` (the no-op confirmation workflow). This is a scaffold — the intended target is an inbox triage agent that intelligently routes and prioritises emails.
 
 **To do:**
-1. Implement the `full` mode branch in `GmailPoller.poll()` (remove the early-return placeholder)
-2. Add a match-all rule that routes to a no-op default workflow, or route all messages to the existing workflow directly
-3. Add a no-op default workflow that discards matched events without running steps
-4. Add mode-switch logic in the worker (allow toggling between `selective` and `full` without a redeploy)
-5. Add a management UI page (client settings) where `polling_mode` can be toggled per connection
-6. Update `docs/infrastructure/sources.md` and add ADR when this lands
+1. Build the triage agent workflow.
+2. Update `NOOP_WORKFLOW_ID` in `packages/sources/src/mailbox-mode.ts` to the triage agent's workflow ID.
+3. Migrate existing auto-created rules: `UPDATE routing_rules SET workflow_id = '<triage-agent-id>' WHERE auto_created = true`.
+4. Update `docs/workflows/existing.md` to describe the triage agent and retire the noop entry.
 
-**Why deferred:** No current clients need full mode. Selective mode is the correct default for any client using their Gmail account for non-Sprigly email alongside workflow triggers.
+**Why deferred:** No triage logic exists yet. The noop workflow proves the full-mode plumbing end-to-end with zero risk of autonomous action.
+
+---
+
+### Admin server actions have no test coverage
+
+All `actions.ts` files in `apps/web/src/app/admin/` (routing-rules, approvals, gmail-errors, clients, mailboxes) are untested. These are thin callers over `@sprigly/db` and `@sprigly/sources` functions that are themselves unit-tested, so the risk is low — but a broken action would not be caught before deploy.
+
+**To do:**
+- Decide on a test strategy for Next.js server actions (Jest + MSW, Playwright E2E, or mocking `@sprigly/db`).
+- At minimum, test `changeMailboxMode` in `apps/web/src/app/admin/mailboxes/[id]/actions.ts` — the highest-stakes action since it calls the atomic `switchPollingMode` operation.
+
+**Why deferred:** No test framework is currently set up for Next.js server actions in this repo. The `switchPollingMode` unit tests in `packages/sources/src/mailbox-mode.test.ts` cover the logic; the UI is a thin caller.
+
+---
+
+### `switchPollingMode` and multi-mailbox-per-client routing
+
+`switchPollingMode` manages the auto-created fallback rule at `clientId` scope — one fallback rule per client. This works correctly today because each client has at most one Gmail mailbox.
+
+If a client ever has multiple mailboxes (e.g. two Gmail connections), switching one mailbox to selective would disable the fallback rule for both, breaking full mode on the other. The routing rules need to be re-scoped to per-connection rather than per-client before multi-mailbox is supported.
+
+**To do:**
+1. Add a `connectionId` foreign key on `routing_rules` (nullable — existing manual rules are not connection-scoped).
+2. Update `switchPollingMode` to scope the rule lookup and disable/enable to `connectionId` rather than `clientId`.
+3. Update the Mailboxes admin UI to reflect per-connection rule state.
+4. Migrate any existing auto-created rules to carry the `connectionId` of the connection that created them.
+
+**Why deferred:** All current clients have exactly one Gmail mailbox. Address before onboarding any client who needs multiple mailboxes.
+
+---
+
+### Dockerfile should run migrations on container start
+
+The deploy ordering requirement (migrate before deploy) has caused two production incidents: once with a missing-column error when the worker booted before migrations ran, once when a manual Railway SQL console session did not auto-commit DDL.
+
+Making `pnpm db:migrate` part of the container entrypoint would make the ordering automatic and prevent this class of incident.
+
+**To do:**
+1. Add a migration entrypoint script that runs `pnpm db:migrate` and only starts the worker on success.
+2. Ensure `DATABASE_URL` is available at container start (Railway injects it; verify the env var is present before the entrypoint exits).
+3. Test the entrypoint by deploying a no-op migration and observing the startup log.
+
+**Why deferred:** Requires `DATABASE_URL` to be present during container build/start, which means Railway env injection must be confirmed before relying on it. The manual migration step is documented in `operations/deployment.md` as a stopgap.
 
 ---
 

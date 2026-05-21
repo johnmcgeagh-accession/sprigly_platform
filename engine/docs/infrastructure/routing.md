@@ -108,6 +108,26 @@ A fallback rule's conditions are still evaluated -- the fallback flag only contr
 
 An empty `match.conditions` array (`[]`) causes `evaluateConditions()` to return `true` via `Array.every()` (vacuously true). This is how match-all rules work. There is no special-case code.
 
+### Auto-created fallback rule and polling mode
+
+When a mailbox is switched to full mode via `switchPollingMode()` (`packages/sources/src/mailbox-mode.ts`), a match-all fallback rule is automatically created (or re-enabled) for that client:
+
+```
+conditions:  []           (vacuously matches every email)
+isFallback:  true
+workflowId:  sprigly-inbox-noop
+autoCreated: true
+enabled:     true
+```
+
+The `autoCreated: boolean` column on `routing_rules` (default `false`) is the distinguishing marker. `switchPollingMode` **only ever touches rules where `autoCreated = true`**. Manually authored rules (`autoCreated = false`) are never modified, disabled, or deleted by mode switching — even if they are also match-all fallback rules.
+
+When a mailbox switches back to selective mode, the auto-created rule is **disabled** (not deleted). This preserves history and makes re-enabling on the next full-mode switch a clean `UPDATE enabled = true` rather than a new `INSERT`.
+
+The `sprigly-inbox-noop` workflow (the current target) records that an email was seen and takes no further action. The inbox-agent phase will re-target the auto-created rule to the triage agent by updating `workflowId` — no other code change needed.
+
+**Full mode's mark-everything-read property is a consequence of this rule existing**, not a poller branch. The poller does not read `polling_mode`. If the auto-created rule is missing or disabled, full mode behaves identically to selective mode (leave-unread safety branch fires for every email).
+
 ### Multiple matched rules
 
 `matchRules()` can return more than one rule. The consumer calls `runner.run(rule, eventId)` and `dispatcher.dispatch(output, ...)` once per matched rule. An email that matches two enabled routing rules will trigger two workflow runs.
@@ -150,7 +170,9 @@ No code change needed. Any key present in `event.sourceMetadata` is matchable us
 ## Cross-references
 
 - `architecture/decisions.md` ADR 8 (match-all + fallback design)
+- `architecture/decisions.md` ADR 10 (no-op default workflow for full mode)
+- `architecture/decisions.md` ADR 11 (polling mode lives in routing rules, not the poller)
 - `reference/database-schema.md` (`routing_rules` table and JSONB shapes)
 - `reference/glossary.md` (routing rule, match condition, fallback rule, match-all rule, priority)
-- `infrastructure/sources.md` (how `GmailPoller` uses `loadRules()` before the message loop)
-- `operations/monitoring.md` (admin UI routing rules page)
+- `infrastructure/sources.md` (how `GmailPoller` uses `loadRules()` before the message loop; polling mode and routing rules)
+- `operations/monitoring.md` (admin UI routing rules page, mailboxes page)

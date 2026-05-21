@@ -71,6 +71,34 @@
       "when": 1779353065800,
       "tag": "0009_research_prompt_today_var",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1747749600000,
+      "tag": "0010_selective_polling",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1747749660000,
+      "tag": "0011_add_polling_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1747749720000,
+      "tag": "0012_routing_rules_auto_created",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1747836120000,
+      "tag": "0013_routing_rules_auto_created_guard",
+      "breakpoints": true
     }
   ]
 }

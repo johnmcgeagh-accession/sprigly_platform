@@ -77,15 +77,27 @@ Railway sends SIGTERM before a deploy. The worker finishes in-flight jobs before
 
 ### Running migrations before deploy
 
+**This is a manual step that has caused production failures twice. It must happen before the code that requires the new columns is deployed.**
+
 Migrations run via:
 
 ```bash
-pnpm db:migrate
+DATABASE_URL=<production-url> pnpm db:migrate
 ```
 
 This runs `tsx src/migrate.ts` in `packages/db`, which calls `drizzle-orm/postgres-js/migrator` against `DATABASE_URL`. It prints `Migration complete` and exits cleanly on success.
 
-Run this before deploying a worker version that requires new tables or schema changes. Migrations are forward-only -- there are no down migrations.
+**Critical:** The Drizzle runtime migrator reads `packages/db/migrations/meta/_journal.json` to determine which migrations to apply. Any manually created SQL file that is not registered in `_journal.json` is silently skipped. If you create a migration file manually (as opposed to running `drizzle-kit generate`), you must add an entry to `_journal.json` with the correct `idx`, `version`, `when`, `tag`, and `breakpoints` fields, or the migration will never run.
+
+**Deploy ordering — required sequence:**
+
+1. **Run migrations** (`DATABASE_URL=<prod> pnpm db:migrate`). Verify the output lists the new migration tag and prints `Migration complete`.
+2. **Deploy the worker** to Railway. The worker starts and expects the new columns to exist. If columns are missing, the worker fails at the first DB query with a PostgreSQL error (`column "x" does not exist`), which crashes the poll cycle and logs structured errors.
+3. If migrations were skipped or failed silently, **connect to the database directly** (`psql "$DATABASE_URL"`) and run the DDL manually. The Railway SQL console has had issues with auto-commit — use `psql` for any schema changes.
+
+Migrations are forward-only — there are no down migrations.
+
+**BACKLOG:** The Dockerfile should run `pnpm db:migrate` as an entrypoint step before starting the worker, making migration ordering automatic. This has not been implemented because the production `DATABASE_URL` must be available at container start, which requires Railway's environment injection. Track as a deployment reliability improvement.
 
 ---
 

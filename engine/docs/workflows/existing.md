@@ -1,6 +1,43 @@
 # Existing Workflows
 
-Two workflows are registered and running in production. One is a scaffold skeleton, not yet operational.
+Three workflows are registered and running in production. One is a scaffold skeleton, not yet operational. One is a no-op placeholder that will be replaced by the triage agent.
+
+---
+
+## `sprigly-inbox-noop`
+
+**Status:** Production. Registered with the worker. The default routing target for full-mode mailboxes.
+
+**Trigger:** Any email matched by the auto-created match-all fallback rule (`conditions: []`, `isFallback: true`) when a mailbox is in full mode. Not triggered by any client-authored rule.
+
+**What it does:** Records that an email was seen. Takes no further action — no draft, no reply, no escalation, no model calls.
+
+**Location:** `packages/workflows/src/sprigly-inbox-noop/`
+
+### Purpose
+
+`sprigly-inbox-noop` exists so that full mode can ship before the inbox triage agent is built. It is a scaffold — deliberately inert — that proves the full-mode plumbing end-to-end (poll → fallback rule match → persist → consumer → workflow → audit) while guaranteeing zero autonomous action in the interim.
+
+In the inbox-agent phase, the auto-created fallback rule's `workflowId` will be re-targeted to the triage agent. The noop workflow can then be retired or kept for testing purposes.
+
+### Input / Output
+
+```typescript
+interface InboxNoopInput  { messageId: string; subject: string; from: string; }
+interface InboxNoopOutput { status: 'seen'; messageId: string; subject: string; from: string; }
+```
+
+### Steps
+
+None. Zero model calls. Zero prompt resolutions.
+
+### Side effects
+
+One audit log entry per email (`action: 'inbox-noop-seen'`, `modelId: 'none'`, `inputTokens: 0`, `outputTokens: 0`). This records that the email was processed without producing output.
+
+### Destinations (default)
+
+1. `db-save-output` — saves the `{ status: 'seen', messageId, subject, from }` output to `workflow_outputs`. No `requireApproval`.
 
 ---
 

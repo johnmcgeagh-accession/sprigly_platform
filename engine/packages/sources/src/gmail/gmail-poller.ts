@@ -24,7 +24,6 @@ export class GmailPoller {
     // ── Load connection row ───────────────────────────────────────────────────
     const connRows = await this.db
       .select({
-        pollingMode: oauthConnections.pollingMode,
         lastPolledAt: oauthConnections.lastPolledAt,
       })
       .from(oauthConnections)
@@ -38,14 +37,6 @@ export class GmailPoller {
 
     const conn = connRows[0];
     if (conn === undefined) return 0;
-
-    if (conn.pollingMode === 'full') {
-      this.logger.warn(
-        { clientId },
-        'full polling mode is not yet implemented — skipping poll cycle',
-      );
-      return 0;
-    }
 
     // ── Capture cycle-start time BEFORE any API calls ─────────────────────────
     // This timestamp becomes the new watermark only after the cycle succeeds.
@@ -147,6 +138,10 @@ export class GmailPoller {
       if (matched.length === 0) {
         // Unmatched: record idempotency only. Do NOT mark as read. The email
         // stays in the client's inbox exactly as they left it.
+        // In full mode this branch is effectively dead once the match-all
+        // fallback rule exists (Stage 3) — but if somehow nothing matches,
+        // leaving the email untouched is the safe default (not force-persisting
+        // an event with no workflow to route to).
         await this.db.insert(processedExternalIds).values({
           clientId,
           source:      'gmail',

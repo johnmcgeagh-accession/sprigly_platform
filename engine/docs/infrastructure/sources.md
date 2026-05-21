@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`@sprigly/sources` handles everything from the external message arriving to an `incoming_events` row being ready for the BullMQ queue. It fetches messages, parses them, checks idempotency, matches routing rules, persists matched events, and marks messages as processed — but only for emails that match a routing rule.
+`@sprigly/sources` handles everything from the external message arriving to an `incoming_events` row being ready for the BullMQ queue. It fetches messages, parses them, checks idempotency, matches routing rules, persists matched events, and marks matched messages as processed.
 
 Currently one source is implemented: Gmail. The `SourceType` enum in `packages/engine/src/types.ts` includes `email`, `sms`, `slack`, `form`, `voice`, `webhook`, and `schedule` -- only `email` is wired in the worker.
 
@@ -91,7 +91,7 @@ Each workflow's `parse-input.ts` calls this to extract structured input from the
 
 ### Poll cycle sequence in `GmailPoller.poll()`
 
-At the start of each cycle, the poller reads `pollingMode` and `lastPolledAt` from the `oauth_connections` row. If `pollingMode` is `'full'`, a warning is logged and the cycle exits immediately (full mode is not yet implemented — see BACKLOG). If `pollingMode` is `'selective'` (the default and only implemented mode), the selective path runs:
+The poller is **mode-agnostic** — it does not branch on `polling_mode`. Selective vs full behaviour is expressed entirely through which routing rules exist for the client (see "Polling mode and routing rules" below). The cycle is identical for both modes:
 
 1. **Capture `cycleStart = new Date()`** before any API calls. This becomes the new watermark value if the cycle succeeds.
 2. **Fetch message IDs.** Query Gmail with `in:inbox after:<lastPolledAt unix seconds>`. This returns all inbox messages received at or after the watermark, regardless of read state.
@@ -100,8 +100,8 @@ At the start of each cycle, the poller reads `pollingMode` and `lastPolledAt` fr
    a. **Idempotency check first.** Query `processed_external_ids` for `(clientId, 'gmail', messageId)`. If found: `continue` immediately. No mark-read. No re-evaluation.
    b. **Fetch and parse.** Call `getMessage()`. Parse subject, from, to, date, body. Build `IncomingEventDraft`.
    c. **Match rules (pure, no DB).** Call `matchRules(draft, rules)`.
-   d. **No match:** Insert `processed_external_ids` record only. **Do not call `markAsRead`. Do not persist to `incoming_events`. The email is left completely untouched in the client's inbox.**
-   e. **Match:** Insert `incoming_events` row. Insert `processed_external_ids` record. Call `markAsRead`. Increment count.
+   d. **No match:** Insert `processed_external_ids` record only. **Do not call `markAsRead`. Do not persist to `incoming_events`. The email is left completely untouched in the client's inbox.** In full mode this branch is dead code once the match-all fallback rule exists — but if no rules are configured at all, leaving the email untouched is the safe default (not force-persisting an event with no workflow to route to).
+   e. **Match:** Wrap in a transaction: insert `incoming_events` row, insert `processed_external_ids` record. Then call `markAsRead`. Increment count.
 5. **Advance watermark.** Update `oauth_connections.last_polled_at = cycleStart`. Only reached if the loop completed without throwing. If the cycle throws, `last_polled_at` is not advanced; the next cycle re-fetches the same window and the idempotency table prevents re-processing.
 
 ### Watermark and idempotency: how they work together
@@ -117,16 +117,25 @@ Never rely on the watermark alone. An email must be skippable via `processed_ext
 
 The new watermark is captured *before* the Gmail API call, not after. If the cycle takes 30 seconds and emails arrive during that window, using cycle-end as the watermark would discard them. Using cycle-start means the next cycle's window begins at the start of the current one, so emails that arrive during processing are included in the next fetch. The idempotency table prevents re-processing anything already handled.
 
-### Polling mode
+### Polling mode and routing rules
 
-`oauth_connections.polling_mode` has two values:
+`oauth_connections.polling_mode` controls what routing rules exist for the client's mailbox, but **does not change the poller's per-message logic**. The distinction between modes is expressed entirely in the routing layer:
 
-| Value | Status | Behaviour |
+| Mode | What routing rules exist | Effect |
 |---|---|---|
-| `selective` | Implemented (this commit) | Watermark-based; only matched emails are marked read |
-| `full` | Placeholder (commit two) | Logs a warning and skips; not implemented |
+| `selective` | Client-specific rules only (subject prefix etc.) | Unmatched emails are untouched; only explicitly matching emails are persisted and marked read |
+| `full` | Client-specific rules PLUS an auto-created match-all fallback rule (`conditions: []`, `isFallback: true`) targeting `sprigly-inbox-noop` | Every email matches (specific rules fire first; fallback catches the rest); every email is persisted and marked read |
 
-All connections default to `selective`. The column exists so commit two can introduce `full` mode without a schema migration.
+**Full mode's "mark everything read" property is a consequence of the fallback rule matching everything**, not a poller override. This means a full-mode mailbox that has no fallback rule (e.g. between a mode switch and the rule being created, or if it is manually disabled) behaves identically to selective mode — emails hit the leave-unread safety branch rather than being force-persisted with no workflow to route to.
+
+**Switching modes** must go through `switchPollingMode()` in `packages/sources/src/mailbox-mode.ts`. This atomically:
+1. Updates `polling_mode` on the connection row (keyed on connection `id`).
+2. Resets `last_polled_at = NOW()` so pre-switch emails are not reprocessed.
+3. Ensures/disables the auto-created fallback rule.
+
+Never write `polling_mode` directly — this bypasses the rule sync and watermark reset. The admin UI's mailbox management page (`/admin/mailboxes`) enforces this by routing through `switchPollingMode`.
+
+All connections default to `selective` on creation.
 
 ### Email address on connections
 
@@ -164,9 +173,9 @@ Add new `bodyFields` entries to the `spec` passed to `parseEmailInput()` in the 
 
 ## Gotchas
 
-**`markAsRead` errors are swallowed, but only matched emails are ever marked read.** In selective mode, `markAsRead` is called only for emails that matched a routing rule. If it fails, the error is logged to `gmail_operation_errors` and processing continues. The email will not be re-processed (the idempotency record was already written), but it will remain unread in Gmail. Repeated `markAsRead` failures for the same message will not occur because the idempotency skip path does not call `markAsRead`.
+**`markAsRead` errors are swallowed, but only matched emails are ever marked read.** `markAsRead` is called only for emails that matched a routing rule (in selective mode) or matched the fallback rule (in full mode). If it fails, the error is logged to `gmail_operation_errors` and processing continues. The email will not be re-processed (the idempotency record was already written), but it will remain unread in Gmail. Repeated `markAsRead` failures for the same message will not occur because the idempotency skip path does not call `markAsRead`.
 
-**Unmatched emails are never touched.** In selective mode, an email that does not match any routing rule is evaluated, written to `processed_external_ids`, and left entirely alone. The `UNREAD` label is not removed. The message is not persisted. The client's inbox stays as they left it for all non-Sprigly emails.
+**Unmatched emails are never force-processed.** An email that matches no routing rule (including no fallback rule) is written to `processed_external_ids` and left entirely alone. The `UNREAD` label is not removed. The message is not persisted. In selective mode this is the normal path for non-Sprigly emails. In full mode with a correctly configured fallback rule, this path should never be reached.
 
 **Idempotency record is written before `incoming_events` on the no-match path, but after on the match path.** On the no-match path: `processedExternalIds` is inserted immediately (no `incomingEvents` row exists). On the match path: `incomingEvents` is inserted first, then `processedExternalIds`. A crash between those two on the match path leaves an event row without an idempotency record, allowing the message to be processed again on the next cycle. This is an edge case -- the event would be double-processed and produce a duplicate workflow run. It has not occurred in production.
 
@@ -182,7 +191,8 @@ Add new `bodyFields` entries to the `spec` passed to `parseEmailInput()` in the 
 
 - `architecture/decisions.md` ADR 7 (watermark polling: motivation and design)
 - `architecture/decisions.md` ADR 8 (match-all + fallback routing)
-- `infrastructure/routing.md` (rule evaluation and the `matchRules` function)
+- `architecture/decisions.md` ADR 10 (no-op default workflow for full mode)
+- `architecture/decisions.md` ADR 11 (polling mode lives in routing rules, not the poller)
+- `infrastructure/routing.md` (rule evaluation, `matchRules`, auto-created fallback rule, `switchPollingMode`)
 - `reference/database-schema.md` (`incoming_events`, `processed_external_ids`, `gmail_operation_errors`, `oauth_connections`)
 - `operations/troubleshooting.md` (Gmail errors, OAuth token issues)
-- `BACKLOG.md` (full mode polling, commit two)

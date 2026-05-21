@@ -9,9 +9,7 @@
  * if refresh fails the connection is logged and skipped.
  *
  * Usage:
- *   pnpm tsx scripts/backfill-connection-emails.ts
- *
- * Requires DATABASE_URL and the appropriate KMS / LOCAL_DEV_ENCRYPTION_KEY vars.
+ *   pnpm --filter @sprigly/worker backfill-emails
  */
 
 import { db, oauthConnections } from '@sprigly/db';

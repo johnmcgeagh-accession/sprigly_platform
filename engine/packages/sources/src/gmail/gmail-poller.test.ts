@@ -40,6 +40,22 @@ function makeRule(conditions = [{ field: 'subject', op: 'startsWith', value: 'Bl
   };
 }
 
+// Match-all fallback rule. In full mode, Stage 3 auto-creates one targeting
+// sprigly-inbox-noop. conditions: [] evaluates vacuously true for every email.
+function makeFallbackRule(): RoutingRule {
+  return {
+    id:           'rule-fallback',
+    clientId:     'client-1',
+    enabled:      true,
+    match:        { source: 'email', conditions: [] },
+    workflowId:   'sprigly-inbox-noop',
+    destinations: [],
+    clientConfigId: 'config-1',
+    priority:     0,
+    isFallback:   true,
+  };
+}
+
 function makeGmailMessage(subject = 'Blog: Test post') {
   return {
     threadId:     'thread-1',
@@ -56,8 +72,11 @@ function makeGmailMessage(subject = 'Blog: Test post') {
   };
 }
 
-const WATERMARK = new Date('2026-05-20T09:00:00Z');
-const CONN_ROW = { pollingMode: 'selective', lastPolledAt: WATERMARK };
+const WATERMARK     = new Date('2026-05-20T09:00:00Z');
+// pollingMode is no longer read by the poller — selective vs full is expressed
+// purely through which routing rules exist (fallback rule for full mode, none for selective).
+const CONN_ROW      = { lastPolledAt: WATERMARK };
+const FULL_CONN_ROW = { lastPolledAt: WATERMARK };  // alias for test clarity
 
 /**
  * makeDb — builds a mock db object.
@@ -339,7 +358,7 @@ describe('GmailPoller — watermark advancement', () => {
   });
 
   it('null watermark (fresh connection): advances watermark without fetching any messages', async () => {
-    const freshConn = { pollingMode: 'selective', lastPolledAt: null };
+    const freshConn = { lastPolledAt: null };
     const db     = makeDb([[freshConn]]);
     const client = makeGmailClient([]);
     const router = makeRouter([]);
@@ -390,31 +409,107 @@ describe('GmailPoller — cross-cycle atomicity', () => {
   });
 });
 
-// ── full mode placeholder ────────────────────────────────────────────────────
+// ── full mode: fallback rule present ─────────────────────────────────────────
+//
+// Full mode works by having a match-all fallback rule (conditions: [], isFallback: true)
+// targeting sprigly-inbox-noop. The poller itself is mode-agnostic — the mark-read
+// behaviour comes from matchRules returning the fallback rule, not from a poller
+// override. These tests simulate the state after Stage 3 auto-creates the rule.
 
-describe('GmailPoller — full mode (not yet implemented)', () => {
+describe('GmailPoller — full mode, fallback rule present', () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
-  it('does not crash when pollingMode is full', async () => {
-    const fullConn = { pollingMode: 'full', lastPolledAt: WATERMARK };
-    const db       = makeDb([[fullConn]]);
-    const client   = makeGmailClient([]);
-    const router   = makeRouter([makeRule()]);
+  it('an otherwise-unmatched email matches the fallback rule and is persisted + marked read', async () => {
+    const db     = makeDb([[FULL_CONN_ROW], []]);
+    const client = makeGmailClient(['msg-2'], makeGmailMessage('Invoice: quarterly bill'));
+    const router = makeRouter([makeFallbackRule()]);
 
     const poller = new GmailPoller(db, MOCK_ENC_PROVIDER, 'gid', 'gsecret', router);
-    await expect(poller.poll('client-1')).resolves.toBe(0);
+    expect(await poller.poll('client-1')).toBe(1);
+    expect(client.markAsRead).toHaveBeenCalledWith('msg-2');
+    expect((db.txInsert as Mock)).toHaveBeenCalledWith(incomingEvents);
+    expect((db.txInsert as Mock)).toHaveBeenCalledWith(processedExternalIds);
+    expect((db.transaction as Mock)).toHaveBeenCalledOnce();
   });
 
-  it('does not call listMessageIds when pollingMode is full', async () => {
-    const fullConn = { pollingMode: 'full', lastPolledAt: WATERMARK };
-    const db       = makeDb([[fullConn]]);
-    const client   = makeGmailClient([]);
-    const router   = makeRouter([makeRule()]);
+  it('a matched primary rule fires; fallback is suppressed', async () => {
+    const db     = makeDb([[FULL_CONN_ROW], []]);
+    const client = makeGmailClient(['msg-1'], makeGmailMessage('Blog: AI tools'));
+    const router = makeRouter([makeRule(), makeFallbackRule()]);
+
+    const poller = new GmailPoller(db, MOCK_ENC_PROVIDER, 'gid', 'gsecret', router);
+    expect(await poller.poll('client-1')).toBe(1);
+    expect(client.markAsRead).toHaveBeenCalledWith('msg-1');
+  });
+
+  it('advances watermark after a successful cycle', async () => {
+    const db = makeDb([[FULL_CONN_ROW], []]);
+    makeGmailClient(['msg-2'], makeGmailMessage('Invoice: quarterly bill'));
+    const router = makeRouter([makeFallbackRule()]);
 
     const poller = new GmailPoller(db, MOCK_ENC_PROVIDER, 'gid', 'gsecret', router);
     await poller.poll('client-1');
 
-    expect(client.listMessageIds).not.toHaveBeenCalled();
+    expect((db.update as Mock)).toHaveBeenCalledWith(oauthConnections);
+  });
+
+  it('does not advance watermark when the transaction throws', async () => {
+    const db = makeDb([[FULL_CONN_ROW], []]);
+    makeGmailClient(['msg-2'], makeGmailMessage('Invoice: quarterly bill'));
+    const router = makeRouter([makeFallbackRule()]);
+
+    (db.transaction as Mock).mockRejectedValueOnce(new Error('db crash'));
+
+    const poller = new GmailPoller(db, MOCK_ENC_PROVIDER, 'gid', 'gsecret', router);
+    await expect(poller.poll('client-1')).rejects.toThrow('db crash');
+
+    expect((db.update as Mock)).not.toHaveBeenCalled();
+  });
+});
+
+// ── full mode: no fallback rule (misconfigured) ───────────────────────────────
+//
+// If full mode is configured but no fallback rule exists yet (e.g. between mode
+// switch and Stage 3 auto-creation), the poller falls back to the safe default:
+// leave the email untouched (idempotency-only). It does NOT force-persist an
+// event with no workflow to route to. The consumer's safety net handles any
+// stray persisted events.
+
+describe('GmailPoller — full mode, no fallback rule (safety branch)', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('unmatched email is left unread and NOT persisted to incomingEvents', async () => {
+    const db     = makeDb([[FULL_CONN_ROW], []]);
+    const client = makeGmailClient(['msg-2'], makeGmailMessage('Invoice: quarterly bill'));
+    const router = makeRouter([]);  // no rules at all
+
+    const poller = new GmailPoller(db, MOCK_ENC_PROVIDER, 'gid', 'gsecret', router);
+    await poller.poll('client-1');
+
+    expect(client.markAsRead).not.toHaveBeenCalled();
+    expect((db.insert as Mock)).not.toHaveBeenCalledWith(incomingEvents);
+    expect((db.transaction as Mock)).not.toHaveBeenCalled();
+    // Idempotency record written so the email is not re-evaluated next cycle
+    expect((db.insert as Mock)).toHaveBeenCalledWith(processedExternalIds);
+  });
+});
+
+// ── leave-unread safety / selective regression guard ─────────────────────────
+
+describe('GmailPoller — unmatched email: leave-unread safety (both modes)', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('selective + no rules: does NOT mark read, does NOT persist to incomingEvents', async () => {
+    const db     = makeDb([[CONN_ROW], []]);
+    const client = makeGmailClient(['msg-2'], makeGmailMessage('Invoice: quarterly bill'));
+    const router = makeRouter([]);
+
+    const poller = new GmailPoller(db, MOCK_ENC_PROVIDER, 'gid', 'gsecret', router);
+    await poller.poll('client-1');
+
+    expect(client.markAsRead).not.toHaveBeenCalled();
+    expect((db.insert as Mock)).not.toHaveBeenCalledWith(incomingEvents);
+    expect((db.transaction as Mock)).not.toHaveBeenCalled();
   });
 });
 

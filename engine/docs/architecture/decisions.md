@@ -174,6 +174,52 @@ The original design (Plan 03-08) specified watermark-based polling, but that des
 
 ---
 
+### ADR 10: No-op default workflow as the full-mode routing target
+
+**Context:** Full mode (Plan 04-02 commit 2) requires a routing target for emails that do not match any specific rule. The intended long-term target is an inbox triage agent that intelligently routes and prioritises emails. That agent does not exist yet. Without a routing target, a full-mode mailbox cannot be shipped — an email with no matched workflow would be persisted to `incoming_events` and then discarded by the consumer with `status = 'ignored'`. Worse: if no fallback rule existed at all, the leave-unread safety branch would fire and full mode would silently do nothing.
+
+**Decision:** Ship a `sprigly-inbox-noop` workflow as the immediate full-mode routing target. It makes zero model calls, produces no drafts or replies, and records one audit entry per email. The auto-created fallback rule points at it. This workflow is explicitly a scaffold — the `workflowId` on the fallback rule is the only thing that needs to change when the triage agent lands.
+
+**Alternatives considered:**
+- Block full-mode shipping until the triage agent exists: Delays the delivery of full-mode plumbing. The plumbing (poll → fallback rule → persist → consumer → workflow dispatch → output save) is independently testable and useful to validate in production before intelligence is overlaid.
+- Route unmatched full-mode emails to an existing workflow: No existing workflow is safe to run against arbitrary inbox email — all current workflows make model calls.
+
+**Consequences:**
+- Full mode is shippable now. Clients can switch a dedicated mailbox to full mode and observe that every email is processed and marked read, with `db-save-output` records accumulating in `workflow_outputs`.
+- No autonomous action occurs. The noop workflow is provably inert — unit tests verify zero model calls, zero prompt resolutions, and exactly one audit entry per email.
+- The intelligence upgrade is a single field update: `UPDATE routing_rules SET workflow_id = '<triage-agent-id>' WHERE auto_created = true AND client_id = '<id>'`. No schema migration, no code change in the poller or consumer.
+- `workflow_outputs` will accumulate `{ status: 'seen', messageId, subject, from }` rows for every full-mode email. These are low-cost rows (no model output blob) and can be cleaned up or filtered as needed.
+
+**Code references:** `packages/workflows/src/sprigly-inbox-noop/`, `packages/sources/src/mailbox-mode.ts`, `packages/db/migrations/0012_routing_rules_auto_created.sql`.
+
+---
+
+### ADR 11: Polling mode expressed in routing rules, not the poller
+
+**Context:** The initial Stage 2 design for full mode added a branch to `GmailPoller.poll()`: if `pollingMode === 'full'`, process and mark read all emails regardless of match result, treating `matched.length === 0` as a special case to force-persist. This was rejected before merging.
+
+The problem: it created two competing mechanisms for handling unmatched emails in full mode — the fallback rule routing the email to noop, and the poller force-persisting it with no routing target. A force-persisted event with no matched workflow hits the consumer's `status = 'ignored'` safety net rather than running the noop workflow. The two paths conflict and the force-persist path is incorrect.
+
+**Decision (ADR 11):** The poller is mode-agnostic. It reads `lastPolledAt` but not `polling_mode`. Selective vs full behaviour is expressed entirely through the routing rules that exist for the client:
+
+- Selective: client-specific rules only. Unmatched emails hit the leave-unread safety branch.
+- Full: same client-specific rules PLUS an auto-created match-all fallback rule (`conditions: []`, `isFallback: true`). The fallback catches everything the specific rules miss. Because something always matches in full mode, the leave-unread branch is dead code.
+
+`switchPollingMode()` manages this rule state atomically when the mode changes.
+
+**Alternatives considered:**
+- Poller branches on mode (original Stage 2 design): Creates redundant logic, potential for conflicting paths, and couples the poller to a concept that is better expressed as data (routing rules).
+
+**Consequences:**
+- The poller stays simple. There is no `if (conn.pollingMode === 'full')` branch anywhere in the poll loop.
+- Full vs selective mode is purely an operational configuration of the routing rule table. Anyone who wants to understand what a client's full mailbox does in production reads the routing rules admin UI, not the poller source.
+- The triage agent upgrade in the inbox-agent phase changes the fallback rule's `workflowId`. No poller code change needed.
+- The load-bearing invariant: **a full mailbox without its auto-created fallback rule silently behaves like selective mode**. This is the correct failure mode (safe default rather than force-processing), but it means the rule must always be present and enabled for full mode to work. `switchPollingMode()` guarantees this atomically.
+
+**Code references:** `packages/sources/src/gmail/gmail-poller.ts` (note absence of `pollingMode` read), `packages/sources/src/mailbox-mode.ts`, `packages/engine/src/event-router.ts:matchRules()`.
+
+---
+
 ### ADR 9: Two dedicated IAM users instead of shared AWS credentials
 
 **Context:** The worker needs AWS access for two unrelated operations: Bedrock inference and KMS token encryption/decryption. Both could share a single IAM user.
