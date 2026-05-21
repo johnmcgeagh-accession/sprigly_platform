@@ -292,7 +292,7 @@ The generic `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` env vars are not used.
 
 ---
 
-### ADR 13: BullMQ for the job queue
+### ADR 16: BullMQ for the job queue
 
 **Context:** Gmail polling runs on a fixed interval. Processing an email (running a workflow with multiple model calls) takes 10-180 seconds. Without a queue, the poll loop would either block or drop events.
 
