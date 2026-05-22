@@ -350,6 +350,7 @@ export const triageCaptureLog = pgTable('triage_capture_log', {
   suggestedAction: text('suggested_action').notNull(),
   draftText: text('draft_text'),
   escalationReason: text('escalation_reason'),
+  gmailDraftId: text('gmail_draft_id'),
   decision: text('decision'),
   correctionType: text('correction_type'),
   finalAction: text('final_action'),

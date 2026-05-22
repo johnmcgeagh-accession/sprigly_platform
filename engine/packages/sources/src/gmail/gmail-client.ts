@@ -157,6 +157,68 @@ async markAsRead(messageId: string): Promise<void> {
     }
   }
 
+  async updateDraft(draftId: string, params: {
+    to: string;
+    subject: string;
+    bodyText: string;
+    threadId?: string;
+    inReplyToMessageId?: string;
+  }): Promise<void> {
+    const { to, subject, bodyText, threadId, inReplyToMessageId } = params;
+
+    const lines: string[] = [
+      `To: ${to}`,
+      `Subject: ${subject}`,
+      'MIME-Version: 1.0',
+      'Content-Type: text/plain; charset=UTF-8',
+    ];
+
+    if (inReplyToMessageId !== undefined) {
+      lines.push(`In-Reply-To: <${inReplyToMessageId}>`);
+      lines.push(`References: <${inReplyToMessageId}>`);
+    }
+
+    lines.push('');
+    lines.push(bodyText);
+
+    const raw = Buffer.from(lines.join('\r\n')).toString('base64url');
+
+    try {
+      await this.gmail.users.drafts.update({
+        userId: 'me',
+        id: draftId,
+        requestBody: {
+          message: {
+            raw,
+            ...(threadId !== undefined && { threadId }),
+          },
+        },
+      });
+    } catch (err) {
+      const e = err as Error & { code?: unknown };
+      await this.reportError({
+        operation: 'updateDraft',
+        externalId: draftId,
+        ...(e.code !== undefined && { errorCode: String(e.code) }),
+        errorMessage: e.message,
+      });
+    }
+  }
+
+  async deleteDraft(draftId: string): Promise<void> {
+    try {
+      await this.gmail.users.drafts.delete({ userId: 'me', id: draftId });
+    } catch (err) {
+      const e = err as Error & { code?: unknown };
+      await this.reportError({
+        operation: 'deleteDraft',
+        externalId: draftId,
+        ...(e.code !== undefined && { errorCode: String(e.code) }),
+        errorMessage: e.message,
+      });
+    }
+  }
+
   private async reportError(params: GmailOperationErrorParams): Promise<void> {
     if (this.onOperationError === undefined) return;
     try {

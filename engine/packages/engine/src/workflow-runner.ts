@@ -106,6 +106,16 @@ class DbTriageStore implements TriageStore {
   }
 }
 
+interface GmailDraftOps {
+  createDraft(clientId: string, params: {
+    threadId?: string;
+    to: string;
+    subject: string;
+    bodyText: string;
+    inReplyToMessageId?: string;
+  }): Promise<string | null>;
+}
+
 export class WorkflowRunner {
   constructor(
     private db: Db,
@@ -114,6 +124,7 @@ export class WorkflowRunner {
     private audit: AuditLogger,
     private prompts: PromptResolver,
     private search?: WebSearchProvider,
+    private gmailDraftService?: GmailDraftOps,
   ) {}
 
   async run(rule: RoutingRule, dbEventId: string): Promise<unknown> {
@@ -259,6 +270,41 @@ export class WorkflowRunner {
         .update(incomingEvents)
         .set({ status: 'completed' })
         .where(eq(incomingEvents.id, dbEventId));
+
+      // For triage draft_reply items: create a Gmail draft in the correct thread.
+      // Failure here must not unwind the run — the capture log row is already written.
+      if (
+        rule.workflowId === 'sprigly-inbox-triage' &&
+        this.gmailDraftService !== undefined
+      ) {
+        const o = output as { action?: string; draftText?: string; captureLogId?: string };
+        if (o.action === 'draft_reply' && o.draftText && o.captureLogId) {
+          try {
+            const meta = dbEvent.sourceMetadata as Record<string, unknown>;
+            const from       = typeof meta['from']      === 'string' ? meta['from']      : '';
+            const subject    = typeof meta['subject']   === 'string' ? meta['subject']   : '';
+            const threadId   = typeof meta['threadId']  === 'string' ? meta['threadId']  : undefined;
+            const messageId  = typeof meta['messageId'] === 'string' ? meta['messageId'] : undefined;
+            const replySubj  = subject.startsWith('Re: ') ? subject : `Re: ${subject}`;
+
+            const draftId = await this.gmailDraftService.createDraft(dbEvent.clientId, {
+              to: from,
+              subject: replySubj,
+              bodyText: o.draftText,
+              ...(threadId  !== undefined && { threadId }),
+              ...(messageId !== undefined && { inReplyToMessageId: messageId }),
+            });
+
+            if (draftId !== null) {
+              await this.db
+                .update(triageCaptureLog)
+                .set({ gmailDraftId: draftId, updatedAt: new Date() })
+                .where(eq(triageCaptureLog.id, o.captureLogId));
+            }
+          } catch { /* draft failure must not fail the run */ }
+        }
+      }
+
       return output;
     } catch (err) {
       const error = String(err);

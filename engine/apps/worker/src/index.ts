@@ -19,7 +19,7 @@ import {
   spriglyInboxTriageWorkflow,
 } from '@sprigly/workflows';
 import { TavilyProvider } from '@sprigly/web-search';
-import { GmailPoller, createGmailReadStateService } from '@sprigly/sources';
+import { GmailPoller, createGmailReadStateService, createGmailDraftService } from '@sprigly/sources';
 import {
   DbSaveBlogPost,
   DbSaveOutput,
@@ -62,7 +62,8 @@ logger.info(
 
 const router = new EventRouter(db);
 const search = new TavilyProvider();
-const runner = new WorkflowRunner(db, registry, model, audit, prompts, search);
+const gmailDraftService = createGmailDraftService(db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET);
+const runner = new WorkflowRunner(db, registry, model, audit, prompts, search, gmailDraftService);
 
 const dispatcher = new DestinationDispatcher(db);
 dispatcher.register(new DbSaveBlogPost(db));

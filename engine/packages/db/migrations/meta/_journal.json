@@ -141,6 +141,13 @@
       "when": 1748476800000,
       "tag": "0019_triage_digest",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "5",
+      "when": 1748563200000,
+      "tag": "0020_gmail_draft_id",
+      "breakpoints": true
     }
   ]
 }

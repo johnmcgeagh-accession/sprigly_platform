@@ -170,8 +170,6 @@ export async function sendDigestsForAllClients(
   logger: Logger,
 ): Promise<void> {
   const now = new Date();
-  const utcHour = now.getUTCHours();
-  logger.info({ utcHour, utcDay: now.getUTCDay() }, `digest: check starting h=${utcHour}`);
 
   const configs = await db
     .select({
@@ -189,22 +187,13 @@ export async function sendDigestsForAllClients(
         eq(oauthConnections.provider, 'gmail'),
         eq(oauthConnections.status, 'active'),
       ),
-    )
-    .catch((err: unknown) => {
-      logger.error({ err: String(err) }, 'digest: failed to load configs');
-      return [] as never[];
-    });
-  logger.info({ configCount: configs.length }, 'digest: configs loaded');
+    );
 
   for (const config of configs) {
     const cadence = (config.digestCadence ?? 'end_of_day') as
       'twice_daily' | 'end_of_day' | 'end_of_week';
 
-    logger.info({ clientId: config.clientId, cadence, lastDigestSentAt: config.lastDigestSentAt, utcHour }, `digest: cadence check h=${utcHour} cadence=${cadence} lastSent=${config.lastDigestSentAt?.toISOString() ?? 'null'}`);
-    if (!shouldSendDigest(cadence, config.lastDigestSentAt, now)) {
-      logger.info({ clientId: config.clientId }, `digest: skipping h=${utcHour} cadence=${cadence}`);
-      continue;
-    }
+    if (!shouldSendDigest(cadence, config.lastDigestSentAt, now)) continue;
 
     try {
       // Pending items: decision IS NULL, joined to incoming_events for subject/from.

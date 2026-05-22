@@ -123,3 +123,35 @@ Manual config is fine at one or two tenants. It does not scale: each onboarding 
 **Trigger to build**
 
 After enough human-led onboarding audits to know what questions to ask and what prompts to use. The agent-assisted path needs example good configs to train the prompting against. Target: after 3–5 manual onboardings, patterns in category structures and voice descriptions will be visible enough to write a reliable bootstrapping prompt.
+
+---
+
+## 6. Send-observation blind spot (known limitation)
+
+**What it is**
+
+Sprigly does not observe the actual Gmail send. The capture log reflects the review-page state, not what was actually sent. If a founder edits the draft in Gmail before sending, or sends without using the review page, the capture log and read-state can diverge from reality. A draft-reply item approved on the review page (decision = `approved_as_is`, email marked read) records the agent's original draft text as the final artefact — any edits made in Gmail after that are invisible to Sprigly.
+
+**Cost/risk of not having it**
+
+Bounded and clearly understood. The failure mode is weaker correction data: `correction_type` is inferred from review-page edits, not from what was actually sent. Founders who bypass the review page and edit directly in Gmail will show as `approved_as_is` in the capture log even when they made substantive changes. Items may also show as pending in the digest after the founder has already sent the reply from Gmail without using the review page.
+
+**Trigger to build**
+
+Ships with thread-level human-reply detection (item 1) — that is the same thread-scan mechanism needed to detect that a send occurred. Once thread-level detection exists, distinguishing agent-authored sends from human sends becomes possible, and send-observation reconciliation can be layered on top.
+
+---
+
+## 7. Drafting knowledge base (substance-quality upgrade)
+
+**What it is**
+
+Voice samples make drafts sound like the firm; they do not make drafts factually correct. A drafting knowledge base would let the agent answer enquiries with real firm-specific facts (pricing, availability, what the firm does and does not do) rather than only matching tone. Without it, a well-voiced draft can be factually empty or wrong — which is worse than an obviously generic draft because it looks sendable. Per-tenant retrieval over a firm-supplied knowledge source, fed into the classify/draft prompt at triage time.
+
+**Cost/risk of not having it**
+
+Drafts are reviewed by the founder before being sent, so a factually wrong draft is caught at review — the risk is friction and review overhead, not an incorrect send. However, a draft that looks right but is empty of facts may be approved without editing, and the recipient receives a polished non-answer. The likelihood of this grows with draft-acceptance rates: as voice quality improves and founders approve more quickly, the gap between "sounds right" and "is right" becomes the dominant correction type.
+
+**Trigger to build**
+
+After real drafts have been reviewed for at least one quarter and the correction patterns are visible in `triage_capture_log`. If `correction_type = 'substance'` is the dominant correction type (not `voice`), the knowledge base is the correct fix. Build after the quarterly review cycle (item 3) has produced enough data to confirm the diagnosis.

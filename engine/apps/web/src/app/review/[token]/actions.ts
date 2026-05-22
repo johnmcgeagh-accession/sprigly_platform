@@ -5,10 +5,10 @@
 // triage suggestion. Token is re-validated on every action — not just
 // on page load — so a leaked or expired token cannot submit.
 
-import { db, triageDigestTokens, triageCaptureLog } from '@sprigly/db';
+import { db, triageDigestTokens, triageCaptureLog, incomingEvents } from '@sprigly/db';
 import { eq, and, gt } from 'drizzle-orm';
 import { recordResolution } from '@sprigly/engine';
-import { createGmailReadStateService } from '@sprigly/sources';
+import { createGmailReadStateService, createGmailDraftService } from '@sprigly/sources';
 import { createEncryptionProvider } from '@sprigly/oauth-tokens';
 import { revalidatePath } from 'next/cache';
 
@@ -36,22 +36,47 @@ async function makeMark(): Promise<(clientId: string, externalId: string) => Pro
   return (clientId: string, externalId: string) => svc.markRead(clientId, externalId);
 }
 
+function makeDraftService() {
+  const googleClientId = process.env.GOOGLE_CLIENT_ID;
+  const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  if (!googleClientId || !googleClientSecret) return null;
+  const encProvider = createEncryptionProvider();
+  return createGmailDraftService(db, encProvider, googleClientId, googleClientSecret);
+}
+
 async function getOriginals(captureLogId: string, clientId: string) {
   const rows = await db
     .select({
       suggestedAction: triageCaptureLog.suggestedAction,
       draftText:       triageCaptureLog.draftText,
+      gmailDraftId:    triageCaptureLog.gmailDraftId,
+      eventId:         triageCaptureLog.eventId,
     })
     .from(triageCaptureLog)
     .where(
       and(
         eq(triageCaptureLog.id, captureLogId),
-        // Scope to this tenant — no cross-tenant access possible.
         eq(triageCaptureLog.clientId, clientId),
       ),
     )
     .limit(1);
   return rows[0] ?? null;
+}
+
+async function getEventMeta(eventId: string): Promise<{ from: string; subject: string; messageId: string; threadId: string } | null> {
+  const rows = await db
+    .select({ sourceMetadata: incomingEvents.sourceMetadata })
+    .from(incomingEvents)
+    .where(eq(incomingEvents.id, eventId))
+    .limit(1);
+  const meta = rows[0]?.sourceMetadata as Record<string, unknown> | undefined;
+  if (meta === undefined) return null;
+  return {
+    from:      typeof meta['from']      === 'string' ? meta['from']      : '',
+    subject:   typeof meta['subject']   === 'string' ? meta['subject']   : '',
+    messageId: typeof meta['messageId'] === 'string' ? meta['messageId'] : '',
+    threadId:  typeof meta['threadId']  === 'string' ? meta['threadId']  : '',
+  };
 }
 
 export async function approveItem(captureLogId: string, token: string): Promise<{ error?: string }> {
@@ -75,6 +100,15 @@ export async function rejectItem(captureLogId: string, token: string): Promise<{
 
     const originals = await getOriginals(captureLogId, clientId);
     if (originals === null) return { error: 'Item not found.' };
+
+    // Delete the Gmail draft so a rejected reply does not linger as an
+    // accidentally-sendable artefact.
+    if (originals.gmailDraftId !== null && originals.gmailDraftId !== undefined) {
+      const draftSvc = makeDraftService();
+      if (draftSvc !== null) {
+        await draftSvc.deleteDraft(clientId, originals.gmailDraftId);
+      }
+    }
 
     const markRead = await makeMark();
     await recordResolution(db, markRead, {
@@ -100,6 +134,28 @@ export async function modifyAndApprove(
 
     const originals = await getOriginals(captureLogId, clientId);
     if (originals === null) return { error: 'Item not found.' };
+
+    // Update the existing Gmail draft to match the edited text — no duplicate created.
+    if (originals.gmailDraftId !== null && originals.gmailDraftId !== undefined) {
+      const draftSvc = makeDraftService();
+      if (draftSvc !== null) {
+        const eventMeta = originals.eventId !== null
+          ? await getEventMeta(originals.eventId)
+          : null;
+        if (eventMeta !== null) {
+          const replySubject = eventMeta.subject.startsWith('Re: ')
+            ? eventMeta.subject
+            : `Re: ${eventMeta.subject}`;
+          await draftSvc.updateDraft(clientId, originals.gmailDraftId, {
+            to:      eventMeta.from,
+            subject: replySubject,
+            bodyText: finalText,
+            ...(eventMeta.threadId  && { threadId: eventMeta.threadId }),
+            ...(eventMeta.messageId && { inReplyToMessageId: eventMeta.messageId }),
+          });
+        }
+      }
+    }
 
     const markRead = await makeMark();
     await recordResolution(db, markRead, {
