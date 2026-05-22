@@ -63,7 +63,7 @@ async function getOriginals(captureLogId: string, clientId: string) {
   return rows[0] ?? null;
 }
 
-async function getEventMeta(eventId: string): Promise<{ from: string; subject: string; messageId: string; threadId: string } | null> {
+async function getEventMeta(eventId: string): Promise<{ from: string; subject: string; rfcMessageId?: string; threadId: string } | null> {
   const rows = await db
     .select({ sourceMetadata: incomingEvents.sourceMetadata })
     .from(incomingEvents)
@@ -72,10 +72,10 @@ async function getEventMeta(eventId: string): Promise<{ from: string; subject: s
   const meta = rows[0]?.sourceMetadata as Record<string, unknown> | undefined;
   if (meta === undefined) return null;
   return {
-    from:      typeof meta['from']      === 'string' ? meta['from']      : '',
-    subject:   typeof meta['subject']   === 'string' ? meta['subject']   : '',
-    messageId: typeof meta['messageId'] === 'string' ? meta['messageId'] : '',
-    threadId:  typeof meta['threadId']  === 'string' ? meta['threadId']  : '',
+    from:          typeof meta['from']          === 'string' ? meta['from']          : '',
+    subject:       typeof meta['subject']       === 'string' ? meta['subject']       : '',
+    threadId:      typeof meta['threadId']      === 'string' ? meta['threadId']      : '',
+    ...(typeof meta['rfcMessageId'] === 'string' && { rfcMessageId: meta['rfcMessageId'] }),
   };
 }
 
@@ -150,8 +150,8 @@ export async function modifyAndApprove(
             to:      eventMeta.from,
             subject: replySubject,
             bodyText: finalText,
-            ...(eventMeta.threadId  && { threadId: eventMeta.threadId }),
-            ...(eventMeta.messageId && { inReplyToMessageId: eventMeta.messageId }),
+            ...(eventMeta.threadId      && { threadId: eventMeta.threadId }),
+            ...(eventMeta.rfcMessageId  && { inReplyToMessageId: eventMeta.rfcMessageId }),
           });
         }
       }

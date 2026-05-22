@@ -281,18 +281,18 @@ export class WorkflowRunner {
         if (o.action === 'draft_reply' && o.draftText && o.captureLogId) {
           try {
             const meta = dbEvent.sourceMetadata as Record<string, unknown>;
-            const from       = typeof meta['from']      === 'string' ? meta['from']      : '';
-            const subject    = typeof meta['subject']   === 'string' ? meta['subject']   : '';
-            const threadId   = typeof meta['threadId']  === 'string' ? meta['threadId']  : undefined;
-            const messageId  = typeof meta['messageId'] === 'string' ? meta['messageId'] : undefined;
-            const replySubj  = subject.startsWith('Re: ') ? subject : `Re: ${subject}`;
+            const from        = typeof meta['from']         === 'string' ? meta['from']         : '';
+            const subject     = typeof meta['subject']      === 'string' ? meta['subject']      : '';
+            const threadId    = typeof meta['threadId']     === 'string' ? meta['threadId']     : undefined;
+            const rfcMessageId = typeof meta['rfcMessageId'] === 'string' ? meta['rfcMessageId'] : undefined;
+            const replySubj   = subject.startsWith('Re: ') ? subject : `Re: ${subject}`;
 
             const draftId = await this.gmailDraftService.createDraft(dbEvent.clientId, {
               to: from,
               subject: replySubj,
               bodyText: o.draftText,
-              ...(threadId  !== undefined && { threadId }),
-              ...(messageId !== undefined && { inReplyToMessageId: messageId }),
+              ...(threadId     !== undefined && { threadId }),
+              ...(rfcMessageId !== undefined && { inReplyToMessageId: rfcMessageId }),
             });
 
             if (draftId !== null) {

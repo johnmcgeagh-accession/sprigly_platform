@@ -123,12 +123,19 @@ export class GmailPoller {
       const from     = getHeader(headers, 'From');
       const to       = getHeader(headers, 'To');
       const date     = getHeader(headers, 'Date');
+      // RFC 2822 Message-ID (strip angle brackets) — used for In-Reply-To when drafting replies.
+      const rfcMessageId = getHeader(headers, 'Message-ID').replace(/^<|>$/g, '');
       const receivedAt = parseReceivedAt(message);
 
       const draft: IncomingEventDraft = {
         clientId,
         source: 'email',
-        sourceMetadata: { messageId, threadId: message.threadId ?? '', from, to, subject, date },
+        sourceMetadata: {
+          messageId,
+          threadId: message.threadId ?? '',
+          from, to, subject, date,
+          ...(rfcMessageId !== '' && { rfcMessageId }),
+        },
         content: { text, structured: { subject } },
       };
 
