@@ -170,8 +170,8 @@ export async function sendDigestsForAllClients(
   logger: Logger,
 ): Promise<void> {
   const now = new Date();
+  logger.info({ utcHour: now.getUTCHours(), utcDay: now.getUTCDay() }, 'digest: check starting');
 
-  // Load all clients that have a triage_configs row AND an active Gmail connection.
   const configs = await db
     .select({
       configId:         triageConfigs.id,
@@ -188,13 +188,22 @@ export async function sendDigestsForAllClients(
         eq(oauthConnections.provider, 'gmail'),
         eq(oauthConnections.status, 'active'),
       ),
-    );
+    )
+    .catch((err: unknown) => {
+      logger.error({ err: String(err) }, 'digest: failed to load configs');
+      return [] as never[];
+    });
+  logger.info({ configCount: configs.length }, 'digest: configs loaded');
 
   for (const config of configs) {
     const cadence = (config.digestCadence ?? 'end_of_day') as
       'twice_daily' | 'end_of_day' | 'end_of_week';
 
-    if (!shouldSendDigest(cadence, config.lastDigestSentAt, now)) continue;
+    logger.info({ clientId: config.clientId, cadence, lastDigestSentAt: config.lastDigestSentAt, utcHour: now.getUTCHours() }, 'digest: cadence check');
+    if (!shouldSendDigest(cadence, config.lastDigestSentAt, now)) {
+      logger.info({ clientId: config.clientId }, 'digest: cadence check — skipping');
+      continue;
+    }
 
     try {
       // Pending items: decision IS NULL, joined to incoming_events for subject/from.
