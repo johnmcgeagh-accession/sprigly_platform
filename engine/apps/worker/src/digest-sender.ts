@@ -170,7 +170,8 @@ export async function sendDigestsForAllClients(
   logger: Logger,
 ): Promise<void> {
   const now = new Date();
-  logger.info({ utcHour: now.getUTCHours(), utcDay: now.getUTCDay() }, 'digest: check starting');
+  const utcHour = now.getUTCHours();
+  logger.info({ utcHour, utcDay: now.getUTCDay() }, `digest: check starting h=${utcHour}`);
 
   const configs = await db
     .select({
@@ -199,9 +200,9 @@ export async function sendDigestsForAllClients(
     const cadence = (config.digestCadence ?? 'end_of_day') as
       'twice_daily' | 'end_of_day' | 'end_of_week';
 
-    logger.info({ clientId: config.clientId, cadence, lastDigestSentAt: config.lastDigestSentAt, utcHour: now.getUTCHours() }, 'digest: cadence check');
+    logger.info({ clientId: config.clientId, cadence, lastDigestSentAt: config.lastDigestSentAt, utcHour }, `digest: cadence check h=${utcHour} cadence=${cadence} lastSent=${config.lastDigestSentAt?.toISOString() ?? 'null'}`);
     if (!shouldSendDigest(cadence, config.lastDigestSentAt, now)) {
-      logger.info({ clientId: config.clientId }, 'digest: cadence check — skipping');
+      logger.info({ clientId: config.clientId }, `digest: skipping h=${utcHour} cadence=${cadence}`);
       continue;
     }
 
