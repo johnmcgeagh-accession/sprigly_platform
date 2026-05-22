@@ -7,6 +7,7 @@ import {
   triageCaptureLog,
   incomingEvents,
   oauthConnections,
+  processedExternalIds,
 } from '@sprigly/db';
 import { eq, and, isNull, gt } from 'drizzle-orm';
 import { getTokens, storeTokens } from '@sprigly/oauth-tokens';
@@ -253,7 +254,19 @@ export async function sendDigestsForAllClients(
       });
 
       const encoded = Buffer.from(rawMessage).toString('base64url');
-      await gmail.users.messages.send({ userId: 'me', requestBody: { raw: encoded } });
+      const sentRes = await gmail.users.messages.send({ userId: 'me', requestBody: { raw: encoded } });
+
+      // Register the sent digest message ID so the poller never routes it into
+      // the triage workflow.
+      const sentMessageId = sentRes.data.id;
+      if (sentMessageId) {
+        await db.insert(processedExternalIds).values({
+          clientId: config.clientId,
+          source: 'gmail',
+          externalId: sentMessageId,
+          processedAt: new Date(),
+        }).onConflictDoNothing();
+      }
 
       await db
         .update(triageConfigs)
