@@ -113,7 +113,15 @@ export const spriglyProspectResearchWorkflow: Workflow<ProspectInput, ProspectOu
       destinationId: 'gmail-reply-with-attachment',
       requireApproval: false,
       settings: {
-        to: { mode: 'sender' },
+        // SAFETY: this workflow produces a dossier ABOUT the inbound party.
+        // mode:'verified-domain-gate' is the leak guard — it lives in the
+        // gmail-reply-with-attachment destination so protection travels with
+        // the workflow regardless of caller. The gate queries clients.verified_domain
+        // at delivery time and compares it against event.reply.data['from'].
+        // Same domain → deliver to that sender (internal colleague).
+        // Any other case (different domain, null verified_domain, parse error)
+        // → deliver to the client's on-file Gmail address. Never to the prospect.
+        to: { mode: 'verified-domain-gate', fallbackToClient: true },
         subjectTemplate: 'Prospect brief: {{brandName}}',
         bodyTemplate:
           'Prospect brief ready: {{brandName}}\n\n' +

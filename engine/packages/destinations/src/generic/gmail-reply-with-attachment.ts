@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { google } from 'googleapis';
-import { db as _db } from '@sprigly/db';
+import { db as _db, clients, oauthConnections } from '@sprigly/db';
+import { eq, and } from 'drizzle-orm';
 import { getTokens, storeTokens } from '@sprigly/oauth-tokens';
 import type { EncryptionProvider, OAuthTokenBundle } from '@sprigly/oauth-tokens';
 import type { Destination, DestinationConfig, DeliveryResult, DeliveryContext, IncomingEvent } from '@sprigly/engine';
@@ -9,7 +10,10 @@ import { substituteTemplate } from './template.js';
 type Db = typeof _db;
 
 export interface GmailReplyWithAttachmentSettings {
-  to: { mode: 'sender' } | { mode: 'address'; address: string };
+  to:
+    | { mode: 'sender' }
+    | { mode: 'address'; address: string }
+    | { mode: 'verified-domain-gate'; fallbackToClient?: boolean };
   subjectTemplate: string;
   bodyTemplate: string;
   attachmentFilenameTemplate: string;
@@ -54,11 +58,77 @@ export function composeMimeWithAttachment(params: {
   ].join('\r\n');
 }
 
-function resolveRecipient(settings: GmailReplyWithAttachmentSettings, event: IncomingEvent): string | undefined {
+function extractEmailDomain(address: string): string {
+  const emailMatch = address.match(/<([^>]+)>/) ?? address.match(/([^\s]+@[^\s]+)/);
+  const email = emailMatch?.[1] ?? '';
+  return email.split('@')[1]?.toLowerCase() ?? '';
+}
+
+// SAFETY: this workflow produces a dossier ABOUT the inbound party.
+// The verified-domain-gate mode is the delivery safety mechanism — it lives
+// here in the destination so protection travels with the workflow regardless
+// of caller. FAIL-SAFE CONTRACT: every failure/missing-data path resolves to
+// the client's on-file address; the function never defaults open to the sender.
+// Any new caller that uses this destination with mode:'verified-domain-gate'
+// must set event.reply.data['from'] to the real inbound sender's address so
+// the domain comparison is meaningful.
+async function resolveRecipient(
+  settings: GmailReplyWithAttachmentSettings,
+  event: IncomingEvent,
+  db: Db,
+): Promise<string | undefined> {
   if (settings.to.mode === 'sender') {
     return event.reply.data['from'] as string | undefined;
   }
-  return settings.to.address;
+  if (settings.to.mode === 'address') {
+    return settings.to.address;
+  }
+
+  // verified-domain-gate ────────────────────────────────────────────────────
+  // Fail-safe on every branch: if anything is missing or throws, we return the
+  // client's on-file address. Returning undefined is also safe (delivery fails
+  // with an error rather than leaking to the sender).
+  try {
+    const senderAddress = (event.reply.data['from'] as string | undefined) ?? '';
+    const senderDomain  = extractEmailDomain(senderAddress);
+
+    const [clientRows, connRows] = await Promise.all([
+      db
+        .select({ verifiedDomain: clients.verifiedDomain })
+        .from(clients)
+        .where(eq(clients.id, event.clientId))
+        .limit(1),
+      db
+        .select({ emailAddress: oauthConnections.emailAddress })
+        .from(oauthConnections)
+        .where(
+          and(
+            eq(oauthConnections.clientId, event.clientId),
+            eq(oauthConnections.provider, 'gmail'),
+            eq(oauthConnections.status, 'active'),
+          ),
+        )
+        .limit(1),
+    ]);
+
+    const verifiedDomain = clientRows[0]?.verifiedDomain?.toLowerCase() ?? '';
+    const clientOnFile   = connRows[0]?.emailAddress ?? '';
+
+    // Gate: all three conditions must hold to deliver to the sender.
+    // Empty verifiedDomain → no gate configured → always falls through to client.
+    // Empty senderDomain (parse failure) → same.
+    if (verifiedDomain !== '' && senderDomain !== '' && senderDomain === verifiedDomain) {
+      return senderAddress;  // same-domain colleague
+    }
+
+    // No match, or gate not configured, or parse failure → client's address.
+    // If clientOnFile is also empty the delivery hard-fails (returns undefined)
+    // rather than silently leaking to the sender.
+    return clientOnFile || undefined;
+  } catch {
+    // DB error: hard-fail rather than default open to the sender.
+    return undefined;
+  }
 }
 
 export class GmailReplyWithAttachment implements Destination<unknown> {
@@ -84,7 +154,7 @@ export class GmailReplyWithAttachment implements Destination<unknown> {
       const pdf = o['pdf'] as Buffer;
 
       const settings = config.settings as unknown as GmailReplyWithAttachmentSettings;
-      const toEmail = resolveRecipient(settings, event);
+      const toEmail = await resolveRecipient(settings, event, this.db);
       if (!toEmail) {
         return { success: false, error: 'Could not resolve recipient address' };
       }

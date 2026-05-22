@@ -5,12 +5,13 @@
 // triage suggestion. Token is re-validated on every action — not just
 // on page load — so a leaked or expired token cannot submit.
 
-import { db, triageDigestTokens, triageCaptureLog, incomingEvents } from '@sprigly/db';
+import { db, triageDigestTokens, triageCaptureLog, incomingEvents, oauthConnections } from '@sprigly/db';
 import { eq, and, gt } from 'drizzle-orm';
 import { recordResolution } from '@sprigly/engine';
 import { createGmailReadStateService, createGmailDraftService } from '@sprigly/sources';
 import { createEncryptionProvider } from '@sprigly/oauth-tokens';
 import { revalidatePath } from 'next/cache';
+import { Queue } from 'bullmq';
 
 async function resolveToken(token: string): Promise<string | null> {
   const rows = await db
@@ -63,26 +64,139 @@ async function getOriginals(captureLogId: string, clientId: string) {
   return rows[0] ?? null;
 }
 
-async function getEventMeta(eventId: string): Promise<{ from: string; subject: string; rfcMessageId?: string; threadId: string } | null> {
+async function getEventMeta(eventId: string): Promise<{ from: string; subject: string; rfcMessageId?: string; threadId: string; bodyText: string } | null> {
   const rows = await db
-    .select({ sourceMetadata: incomingEvents.sourceMetadata })
+    .select({ sourceMetadata: incomingEvents.sourceMetadata, content: incomingEvents.content })
     .from(incomingEvents)
     .where(eq(incomingEvents.id, eventId))
     .limit(1);
-  const meta = rows[0]?.sourceMetadata as Record<string, unknown> | undefined;
-  if (meta === undefined) return null;
+  const row = rows[0];
+  if (row === undefined) return null;
+  const meta = row.sourceMetadata as Record<string, unknown>;
+  const content = row.content as Record<string, unknown>;
   return {
-    from:          typeof meta['from']          === 'string' ? meta['from']          : '',
-    subject:       typeof meta['subject']       === 'string' ? meta['subject']       : '',
-    threadId:      typeof meta['threadId']      === 'string' ? meta['threadId']      : '',
+    from:        typeof meta['from']          === 'string' ? meta['from']          : '',
+    subject:     typeof meta['subject']       === 'string' ? meta['subject']       : '',
+    threadId:    typeof meta['threadId']      === 'string' ? meta['threadId']      : '',
+    bodyText:    typeof content['text']       === 'string' ? content['text']       : '',
     ...(typeof meta['rfcMessageId'] === 'string' && { rfcMessageId: meta['rfcMessageId'] }),
   };
 }
+
+// ── invoke_workflow trigger ───────────────────────────────────────────────────
+
+function extractBrandName(fromAddress: string): string {
+  // Prefer display name: "Acme Corp <contact@acme.com>" → "Acme Corp"
+  const displayMatch = fromAddress.match(/^([^<]+)</);
+  if (displayMatch !== null) {
+    const name = (displayMatch[1] ?? '').trim();
+    if (name.length > 0 && name.length < 60) return name;
+  }
+  // Fall back to domain without TLD: john@acme.com → "acme"
+  const domainMatch = fromAddress.match(/@([^>@\s.]+)/);
+  return domainMatch?.[1] ?? 'Unknown';
+}
+
+async function triggerWorkflowFromTriage(
+  clientId: string,
+  sourceEventId: string,
+  workflowId: string,
+): Promise<void> {
+  const redisUrl = process.env.REDIS_URL;
+  if (!redisUrl) {
+    console.error('[triage-review] REDIS_URL missing — cannot trigger workflow');
+    return;
+  }
+
+  // Look up the original inbound event (the prospect/trigger email).
+  const eventMeta = await getEventMeta(sourceEventId);
+  if (eventMeta === null) {
+    console.error('[triage-review] source event not found:', sourceEventId);
+    return;
+  }
+
+  // Confirm an active Gmail connection exists for the client.
+  const connRows = await db
+    .select({ emailAddress: oauthConnections.emailAddress })
+    .from(oauthConnections)
+    .where(
+      and(
+        eq(oauthConnections.clientId, clientId),
+        eq(oauthConnections.provider, 'gmail'),
+        eq(oauthConnections.status, 'active'),
+      ),
+    )
+    .limit(1);
+
+  if (connRows.length === 0) {
+    console.error('[triage-review] no active Gmail connection for client:', clientId);
+    return;
+  }
+
+  // Brand name comes from the INBOUND sender, not the client.
+  const brandName = extractBrandName(eventMeta.from);
+
+  // Construct a synthetic "Prospect: <brandName>" email in the format
+  // parseProspectInput expects — subject prefix + Notes field for context.
+  const syntheticSubject = `Prospect: ${brandName}`;
+  const syntheticBody = `Notes: ${eventMeta.bodyText}`.slice(0, 4000);
+
+  // The synthetic event's 'from' is the REAL inbound sender. The delivery
+  // safety gate (domain comparison against clients.verified_domain) now lives
+  // in the gmail-reply-with-attachment destination under mode:'verified-domain-gate'.
+  // It resolves the recipient at delivery time — this caller no longer needs to
+  // compute syntheticFrom. externalId null means the poller never touches this row.
+  const [inserted] = await db
+    .insert(incomingEvents)
+    .values({
+      clientId,
+      source: 'email',
+      sourceMetadata: {
+        from:    eventMeta.from,
+        to:      connRows[0]?.emailAddress ?? '',
+        subject: syntheticSubject,
+      },
+      content: { text: syntheticBody },
+      receivedAt: new Date(),
+      status: 'received',
+    })
+    .returning({ id: incomingEvents.id });
+
+  if (inserted === undefined) {
+    console.error('[triage-review] failed to insert synthetic event');
+    return;
+  }
+
+  const queue = new Queue('incoming-events', { connection: { url: redisUrl } });
+  try {
+    await queue.add('process', {
+      eventId: inserted.id,
+      clientId,
+      directWorkflowId: workflowId,
+    });
+  } finally {
+    await queue.close();
+  }
+}
+
+// ── Actions ───────────────────────────────────────────────────────────────────
 
 export async function approveItem(captureLogId: string, token: string): Promise<{ error?: string }> {
   try {
     const clientId = await resolveToken(token);
     if (clientId === null) return { error: 'This review link has expired. Please wait for the next digest.' };
+
+    const originals = await getOriginals(captureLogId, clientId);
+    if (originals === null) return { error: 'Item not found.' };
+
+    // If this is an invoke_workflow item, enqueue the named workflow before
+    // recording the decision. The research job runs independently of the
+    // decision record — if the queue enqueue fails we still record the decision
+    // so the item is cleared from the review page.
+    if (originals.suggestedAction.startsWith('invoke_workflow:') && originals.eventId !== null) {
+      const workflowId = originals.suggestedAction.slice('invoke_workflow:'.length);
+      await triggerWorkflowFromTriage(clientId, originals.eventId, workflowId);
+    }
 
     const markRead = await makeMark();
     await recordResolution(db, markRead, { captureLogId, decision: 'approved_as_is' });

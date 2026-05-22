@@ -23,6 +23,7 @@ import type {
   WorkflowRunner,
   DestinationDispatcher,
   WorkflowRegistry,
+  RoutingRule,
   SourceType,
   IncomingEvent,
 } from '@sprigly/engine';
@@ -63,7 +64,7 @@ export function createConsumer(
   return new BullWorker(
     'incoming-events',
     async (job) => {
-      const { eventId } = job.data as { eventId: string; clientId: string };
+      const { eventId, directWorkflowId } = job.data as { eventId: string; clientId: string; directWorkflowId?: string };
 
       try {
         const rows = await db
@@ -79,7 +80,25 @@ export function createConsumer(
         }
 
         const event = toEngineEvent(dbEvent);
-        const rules = await router.route(event);
+
+        // directWorkflowId bypasses routing — used when the review page explicitly
+        // triggers a workflow (e.g. approving an invoke_workflow triage item).
+        let rules: RoutingRule[];
+        if (directWorkflowId !== undefined) {
+          rules = [{
+            id: `direct-${eventId}`,
+            clientId: event.clientId,
+            enabled: true,
+            match: { source: event.source, conditions: [] },
+            workflowId: directWorkflowId,
+            destinations: [],
+            clientConfigId: '',
+            priority: 0,
+            isFallback: false,
+          }];
+        } else {
+          rules = await router.route(event);
+        }
 
         if (rules.length === 0) {
           await db

@@ -20,7 +20,8 @@
     "@sprigly/oauth-tokens": "workspace:*",
     "@sprigly/sources": "workspace:*",
     "@sprigly/ui": "workspace:*",
-    "@sprigly/workflows": "workspace:*"
+    "@sprigly/workflows": "workspace:*",
+    "bullmq": "^5.0.0"
   },
   "devDependencies": {
     "typescript": "*",

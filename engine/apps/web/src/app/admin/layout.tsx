@@ -9,8 +9,9 @@ const navItems = [
   { href: '/admin/events', label: 'Events' },
   { href: '/admin/approvals', label: 'Approvals' },
   { href: '/admin/audit', label: 'Audit Log' },
-  { href: '/admin/mailboxes',    label: 'Mailboxes' },
-  { href: '/admin/gmail-errors', label: 'Gmail Errors' },
+  { href: '/admin/mailboxes',      label: 'Mailboxes' },
+  { href: '/admin/triage-config', label: 'Triage Config' },
+  { href: '/admin/gmail-errors',  label: 'Gmail Errors' },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

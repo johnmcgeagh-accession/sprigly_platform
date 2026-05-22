@@ -148,6 +148,13 @@
       "when": 1748563200000,
       "tag": "0020_gmail_draft_id",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "5",
+      "when": 1748649600000,
+      "tag": "0021_verified_domain",
+      "breakpoints": true
     }
   ]
 }
