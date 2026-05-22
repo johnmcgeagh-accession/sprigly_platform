@@ -167,13 +167,23 @@ async function triggerWorkflowFromTriage(
     return;
   }
 
+  console.info('[triage-review] enqueueing workflow job', {
+    eventId: inserted.id,
+    clientId,
+    workflowId,
+    redisUrlPrefix: redisUrl.slice(0, 20),
+  });
   const queue = new Queue('incoming-events', { connection: { url: redisUrl } });
   try {
-    await queue.add('process', {
+    const job = await queue.add('process', {
       eventId: inserted.id,
       clientId,
       directWorkflowId: workflowId,
     });
+    console.info('[triage-review] enqueued job', { jobId: job.id, eventId: inserted.id });
+  } catch (queueErr) {
+    console.error('[triage-review] queue.add failed:', String(queueErr));
+    throw queueErr;
   } finally {
     await queue.close();
   }
@@ -190,12 +200,15 @@ export async function approveItem(captureLogId: string, token: string): Promise<
     if (originals === null) return { error: 'Item not found.' };
 
     // If this is an invoke_workflow item, enqueue the named workflow before
-    // recording the decision. The research job runs independently of the
-    // decision record — if the queue enqueue fails we still record the decision
-    // so the item is cleared from the review page.
+    // recording the decision. Trigger failures are logged but never rethrow —
+    // the decision is recorded regardless so the item is cleared from the review page.
     if (originals.suggestedAction.startsWith('invoke_workflow:') && originals.eventId !== null) {
       const workflowId = originals.suggestedAction.slice('invoke_workflow:'.length);
-      await triggerWorkflowFromTriage(clientId, originals.eventId, workflowId);
+      try {
+        await triggerWorkflowFromTriage(clientId, originals.eventId, workflowId);
+      } catch (triggerErr) {
+        console.error('[triage-review] triggerWorkflowFromTriage threw — decision will still be recorded:', String(triggerErr));
+      }
     }
 
     const markRead = await makeMark();
