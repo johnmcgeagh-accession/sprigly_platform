@@ -25,10 +25,11 @@ async function makeMark(): Promise<(clientId: string, externalId: string) => Pro
   const googleClientId = process.env.GOOGLE_CLIENT_ID;
   const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!googleClientId || !googleClientSecret) {
-    // Return a no-op so resolution still records to the DB even if read-state
-    // can't be flipped. The failure surfaces in gmail_operation_errors if
-    // createGmailReadStateService is used — here we fail safe at the env level.
-    return async () => { /* env not configured — markRead skipped */ };
+    console.error(
+      '[triage-review] GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET missing from process.env — markRead skipped. ' +
+      `GOOGLE_CLIENT_ID present: ${!!googleClientId}, GOOGLE_CLIENT_SECRET present: ${!!googleClientSecret}`,
+    );
+    return async () => {};
   }
   const encProvider = createEncryptionProvider();
   const svc = createGmailReadStateService(db, encProvider, googleClientId, googleClientSecret);
