@@ -39,11 +39,15 @@ export function extractMarkdownBody(rawBody: string): string {
 
 function parsedBodyJson(rawBody: string): Record<string, unknown> | null {
   if (!rawBody) return null;
-  const fenceMatch = rawBody.trim().match(/^```(?:json)?\s*\r?\n([\s\S]*?)\r?\n?```\s*$/);
-  const toParse = fenceMatch ? fenceMatch[1].trim() : rawBody.trim();
-  if (!toParse.startsWith('{')) return null;
+  // Strip opening fence (```json or ```) with or without a newline after it,
+  // then strip the closing fence. Handles both ```json\n{...}\n``` and ```json{...}```.
+  const stripped = rawBody.trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/, '')
+    .trim();
+  if (!stripped.startsWith('{')) return null;
   try {
-    const parsed = JSON.parse(toParse);
+    const parsed = JSON.parse(stripped);
     return typeof parsed === 'object' && parsed !== null ? parsed as Record<string, unknown> : null;
   } catch {
     return null;

@@ -111,20 +111,37 @@ export const spriglyBlogPostWorkflow: Workflow<BlogPostInput, BlogPostOutput> = 
       action: 'blog-write',
     });
 
-    const title = structure.title ?? input.topic;
+    let writeOutput: Record<string, unknown>;
+    try {
+      writeOutput = extractJson(writeResult.content) as Record<string, unknown>;
+    } catch (err) {
+      console.error('[blog-write] JSON parse failed. Raw response:', writeResult.content);
+      throw new Error(`[blog-write] Write step returned unparseable content: ${String(err)}`);
+    }
+
+    const body = typeof writeOutput['body'] === 'string' ? writeOutput['body'] : '';
+    if (!body) {
+      console.error('[blog-write] Parsed write response has no body field. Raw:', writeResult.content);
+      throw new Error('[blog-write] Write response missing body field');
+    }
+
+    const title =
+      (typeof writeOutput['title'] === 'string' ? writeOutput['title'] : structure.title) ?? input.topic;
 
     return {
       title,
-      slug: generateSlug(title),
-      body: writeResult.content,
-      excerpt: structure.excerpt ?? '',
-      metaDescription: structure.metaDescription ?? '',
-      targetKeyword: research.targetKeyword ?? '',
-      category: structure.category ?? 'General',
+      slug: generateSlug(typeof writeOutput['slug'] === 'string' ? writeOutput['slug'] : title),
+      body,
+      excerpt:         (typeof writeOutput['excerpt']         === 'string' ? writeOutput['excerpt']         : structure.excerpt)         ?? '',
+      metaDescription: (typeof writeOutput['metaDescription'] === 'string' ? writeOutput['metaDescription'] : structure.metaDescription) ?? '',
+      targetKeyword:   (typeof writeOutput['targetKeyword']   === 'string' ? writeOutput['targetKeyword']   : research.targetKeyword)    ?? '',
+      category:        (typeof writeOutput['category']        === 'string' ? writeOutput['category']        : structure.category)        ?? 'General',
       author: ctx.clientConfig.authorName,
-      cta: structure.cta ?? '',
-      researchNotes: research.researchNotes ?? JSON.stringify(research),
-      faq: research.faq ?? [],
+      cta:             (typeof writeOutput['cta']             === 'string' ? writeOutput['cta']             : structure.cta)             ?? '',
+      researchNotes:   (typeof writeOutput['researchNotes']   === 'string' ? writeOutput['researchNotes']   : research.researchNotes)    ?? JSON.stringify(research),
+      faq: Array.isArray(writeOutput['faq'])
+        ? writeOutput['faq'] as Array<{ question: string; answer: string }>
+        : (research.faq ?? []),
       topic: input.topic,
     };
   },
