@@ -11,6 +11,8 @@ COPY . .
 # Install deps and build the worker (and all its workspace dependencies)
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @sprigly/worker... build
+RUN chmod +x /app/docker-entrypoint.sh
 
-# Run the worker
-CMD ["pnpm", "--filter", "@sprigly/worker", "start"]
+# Migrate then start — entrypoint runs migrations before handing off to the worker.
+# DATABASE_URL must be present at container start (Railway injects it automatically).
+CMD ["/app/docker-entrypoint.sh"]

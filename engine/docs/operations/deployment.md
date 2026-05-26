@@ -75,29 +75,21 @@ On SIGTERM or SIGINT:
 
 Railway sends SIGTERM before a deploy. The worker finishes in-flight jobs before exiting.
 
-### Running migrations before deploy
+### Migrations
 
-**This is a manual step that has caused production failures twice. It must happen before the code that requires the new columns is deployed.**
+Migrations run automatically on every container start. `docker-entrypoint.sh` runs `pnpm --filter @sprigly/db migrate:prod` before handing off to the worker. If migration fails, the container exits immediately — the worker never starts.
 
-Migrations run via:
-
-```bash
-DATABASE_URL=<production-url> pnpm db:migrate
-```
-
-This runs `tsx src/migrate.ts` in `packages/db`, which calls `drizzle-orm/postgres-js/migrator` against `DATABASE_URL`. It prints `Migration complete` and exits cleanly on success.
+`migrate:prod` calls `drizzle-orm/postgres-js/migrator` against the `DATABASE_URL` injected by Railway. It prints `Migration complete` and exits cleanly on success.
 
 **Critical:** The Drizzle runtime migrator reads `packages/db/migrations/meta/_journal.json` to determine which migrations to apply. Any manually created SQL file that is not registered in `_journal.json` is silently skipped. If you create a migration file manually (as opposed to running `drizzle-kit generate`), you must add an entry to `_journal.json` with the correct `idx`, `version`, `when`, `tag`, and `breakpoints` fields, or the migration will never run.
 
-**Deploy ordering — required sequence:**
-
-1. **Run migrations** (`DATABASE_URL=<prod> pnpm db:migrate`). Verify the output lists the new migration tag and prints `Migration complete`.
-2. **Deploy the worker** to Railway. The worker starts and expects the new columns to exist. If columns are missing, the worker fails at the first DB query with a PostgreSQL error (`column "x" does not exist`), which crashes the poll cycle and logs structured errors.
-3. If migrations were skipped or failed silently, **connect to the database directly** (`psql "$DATABASE_URL"`) and run the DDL manually. The Railway SQL console has had issues with auto-commit — use `psql` for any schema changes.
-
 Migrations are forward-only — there are no down migrations.
 
-**BACKLOG:** The Dockerfile should run `pnpm db:migrate` as an entrypoint step before starting the worker, making migration ordering automatic. This has not been implemented because the production `DATABASE_URL` must be available at container start, which requires Railway's environment injection. Track as a deployment reliability improvement.
+To run migrations manually against production (e.g. for a hotfix outside of a deploy):
+
+```bash
+DATABASE_URL=<production-url> pnpm --filter @sprigly/db migrate:prod
+```
 
 ---
 
@@ -162,7 +154,7 @@ No code change is needed.
 
 ## Gotchas
 
-**Migrations are not run automatically on deploy.** Railway deploys the worker by pulling the image and starting it. The Drizzle migrator is a separate step -- it does not run as part of `index.ts`. You must run `pnpm db:migrate` manually (or as a pre-deploy step in your CI pipeline) before deploying schema-changing code.
+**Migrations run automatically on every container start** via `docker-entrypoint.sh`. The entrypoint runs `migrate:prod` before starting the worker; if migration fails the container exits. Drizzle's migrator is idempotent — it skips already-applied migrations.
 
 **The worker does not wait for the database to be ready.** If the database is starting up when the worker launches, the first `db.select()` call may fail. Railway typically starts services in dependency order, but there is no built-in wait. If this occurs, the poller logs an error and continues on the next interval.
 

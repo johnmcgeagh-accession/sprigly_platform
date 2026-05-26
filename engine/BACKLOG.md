@@ -64,18 +64,9 @@ If a client ever has multiple mailboxes (e.g. two Gmail connections), switching 
 
 ---
 
-### Dockerfile should run migrations on container start
+### ~~Dockerfile should run migrations on container start~~ ✓ Done
 
-The deploy ordering requirement (migrate before deploy) has caused two production incidents: once with a missing-column error when the worker booted before migrations ran, once when a manual Railway SQL console session did not auto-commit DDL.
-
-Making `pnpm db:migrate` part of the container entrypoint would make the ordering automatic and prevent this class of incident.
-
-**To do:**
-1. Add a migration entrypoint script that runs `pnpm db:migrate` and only starts the worker on success.
-2. Ensure `DATABASE_URL` is available at container start (Railway injects it; verify the env var is present before the entrypoint exits).
-3. Test the entrypoint by deploying a no-op migration and observing the startup log.
-
-**Why deferred:** Requires `DATABASE_URL` to be present during container build/start, which means Railway env injection must be confirmed before relying on it. The manual migration step is documented in `operations/deployment.md` as a stopgap.
+`docker-entrypoint.sh` runs `pnpm --filter @sprigly/db migrate:prod` (no `--env-file`; reads `DATABASE_URL` from Railway env) then `exec`s into the worker. Dockerfile `CMD` now points to the entrypoint. `@sprigly/db` gained a `migrate:prod` script alongside the dev `migrate` script.
 
 ---
 
