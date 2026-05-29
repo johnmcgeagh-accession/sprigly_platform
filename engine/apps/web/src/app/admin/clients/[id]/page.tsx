@@ -7,6 +7,7 @@ import { db, clients, clientConfigs, oauthConnections, incomingEvents, routingRu
 import { eq, desc, and, isNull } from 'drizzle-orm';
 import { workflowMeta, type WorkflowMeta } from '@sprigly/workflows';
 import { customisePrompt } from './actions';
+import { StepModelForm } from './StepModelForm';
 
 type PromptRow = { id: string; clientId: string | null; workflowId: string; stepName: string; version: number };
 
@@ -185,16 +186,30 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                     <thead>
                       <tr className="border-b border-gray-100 text-left text-gray-500">
                         <th className="py-2 pr-6 font-medium">Step</th>
+                        <th className="py-2 pr-6 font-medium">Model</th>
                         <th className="py-2 pr-6 font-medium">Status</th>
                         <th className="py-2 font-medium"></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {wf.steps.map(({ step, clientSpecific, sharedDefault }) => (
+                      {wf.steps.map(({ step, clientSpecific, sharedDefault }) => {
+                        const stepModels = config?.settings['stepModels'] as Record<string, Record<string, string>> | undefined;
+                        const effectiveModel = stepModels?.[wf.workflowId]?.[step.stepName] ?? step.model;
+                        const isOverridden = stepModels?.[wf.workflowId]?.[step.stepName] !== undefined;
+                        return (
                         <tr key={step.stepName} className="border-b border-gray-50">
                           <td className="py-2 pr-6">
                             <span className="font-mono text-xs text-gray-900">{step.stepName}</span>
                             <span className="text-xs text-gray-400 ml-2">{step.stepDescription}</span>
+                          </td>
+                          <td className="py-2 pr-6">
+                            <StepModelForm
+                              clientId={params.id}
+                              workflowId={wf.workflowId}
+                              stepName={step.stepName}
+                              currentModel={effectiveModel}
+                              isOverridden={isOverridden}
+                            />
                           </td>
                           <td className="py-2 pr-6">
                             {clientSpecific ? (
@@ -234,7 +249,8 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                             )}
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}

@@ -101,6 +101,11 @@ function normalizeBriefData(raw: unknown): ProspectBriefData {
   };
 }
 
+function getStepModel(ctx: WorkflowContext, stepName: string): string {
+  const stepModels = ctx.clientConfig.settings['stepModels'] as Record<string, Record<string, string>> | undefined;
+  return stepModels?.['sprigly-prospect-research']?.[stepName] ?? 'sonnet';
+}
+
 export const spriglyProspectResearchWorkflow: Workflow<ProspectInput, ProspectOutput> = {
   id: 'sprigly-prospect-research',
   defaultDestinations: [
@@ -168,7 +173,7 @@ export const spriglyProspectResearchWorkflow: Workflow<ProspectInput, ProspectOu
     );
     console.info(`[prospect-research] resolvedPromptHead=${JSON.stringify(researchPrompt.slice(0, 500))}`);
     const researchResult = await ctx.model.complete({
-      model: 'sonnet',
+      model: getStepModel(ctx, 'research'),
       messages: [{ role: 'user', content: fillTemplate(researchPrompt, buildTemplateVars(input)) }],
       maxTokens: 8000,
       tools: [WEB_SEARCH_TOOL_DEFINITION],
@@ -206,7 +211,7 @@ export const spriglyProspectResearchWorkflow: Workflow<ProspectInput, ProspectOu
       'write',
     );
     const writeResult = await ctx.model.complete({
-      model:  'sonnet',
+      model:  getStepModel(ctx, 'write'),
       system: WRITE_SYSTEM,
       messages: [{
         role: 'user',

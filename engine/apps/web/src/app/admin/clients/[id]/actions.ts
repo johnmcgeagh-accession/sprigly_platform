@@ -1,9 +1,33 @@
 'use server';
 
-import { db, promptTemplates } from '@sprigly/db';
+import { db, promptTemplates, clientConfigs } from '@sprigly/db';
 import { and, eq, isNull, desc, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+
+export async function updateStepModel(formData: FormData): Promise<void> {
+  const clientId = formData.get('clientId') as string;
+  const workflowId = formData.get('workflowId') as string;
+  const stepName = formData.get('stepName') as string;
+  const model = formData.get('model') as string;
+
+  const rows = await db
+    .select({ settings: clientConfigs.settings })
+    .from(clientConfigs)
+    .where(eq(clientConfigs.clientId, clientId))
+    .limit(1);
+
+  const current = rows[0]?.settings ?? {};
+  const stepModels = (current['stepModels'] ?? {}) as Record<string, Record<string, string>>;
+  stepModels[workflowId] = { ...(stepModels[workflowId] ?? {}), [stepName]: model };
+
+  await db
+    .update(clientConfigs)
+    .set({ settings: { ...current, stepModels } })
+    .where(eq(clientConfigs.clientId, clientId));
+
+  revalidatePath(`/admin/clients/${clientId}`);
+}
 
 export async function customisePrompt(formData: FormData): Promise<void> {
   const clientId = formData.get('clientId') as string;

@@ -9,8 +9,11 @@ function extractJson(text: string): unknown {
   return JSON.parse(raw);
 }
 
-function getModelId(ctx: WorkflowContext): string {
-  return (ctx.clientConfig.settings['model'] as string | undefined) ?? 'haiku';
+function getStepModel(ctx: WorkflowContext, stepName: string): string {
+  const stepModels = ctx.clientConfig.settings['stepModels'] as Record<string, Record<string, string>> | undefined;
+  return stepModels?.['sprigly-blog-post']?.[stepName]
+    ?? (ctx.clientConfig.settings['model'] as string | undefined)
+    ?? 'haiku';
 }
 
 function buildSystemPrompt(ctx: WorkflowContext): string {
@@ -38,13 +41,12 @@ export const spriglyBlogPostWorkflow: Workflow<BlogPostInput, BlogPostOutput> = 
   },
 
   async run(input: BlogPostInput, ctx: WorkflowContext): Promise<BlogPostOutput> {
-    const modelId = getModelId(ctx);
     const system = buildSystemPrompt(ctx);
 
     // ── Call 1: Research ─────────────────────────────────────────────────────
     const researchPrompt = await ctx.prompts.resolve(ctx.clientId, 'sprigly-blog-post', 'research');
     const researchResult = await ctx.model.complete({
-      model: modelId,
+      model: getStepModel(ctx, 'research'),
       system,
       messages: [{ role: 'user', content: fillTemplate(researchPrompt, { topic: input.topic }) }],
       maxTokens: 5000,
@@ -63,7 +65,7 @@ export const spriglyBlogPostWorkflow: Workflow<BlogPostInput, BlogPostOutput> = 
     // ── Call 2: Structure ────────────────────────────────────────────────────
     const structurePrompt = await ctx.prompts.resolve(ctx.clientId, 'sprigly-blog-post', 'structure');
     const structureResult = await ctx.model.complete({
-      model: modelId,
+      model: getStepModel(ctx, 'structure'),
       system,
       messages: [{
         role: 'user',
@@ -88,7 +90,7 @@ export const spriglyBlogPostWorkflow: Workflow<BlogPostInput, BlogPostOutput> = 
     // ── Call 3: Write ────────────────────────────────────────────────────────
     const writePrompt = await ctx.prompts.resolve(ctx.clientId, 'sprigly-blog-post', 'write');
     const writeResult = await ctx.model.complete({
-      model: modelId,
+      model: getStepModel(ctx, 'write'),
       system,
       messages: [{
         role: 'user',

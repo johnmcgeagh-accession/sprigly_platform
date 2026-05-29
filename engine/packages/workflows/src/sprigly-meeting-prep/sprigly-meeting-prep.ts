@@ -8,6 +8,11 @@ function fillTemplate(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => vars[key] ?? '');
 }
 
+function getStepModel(ctx: WorkflowContext, stepName: string): string {
+  const stepModels = ctx.clientConfig.settings['stepModels'] as Record<string, Record<string, string>> | undefined;
+  return stepModels?.['sprigly-meeting-prep']?.[stepName] ?? 'sonnet';
+}
+
 export const spriglyMeetingPrepWorkflow: Workflow<SpriglyMeetingPrepInput, SpriglyMeetingPrepOutput> = {
   id: 'sprigly-meeting-prep',
   defaultDestinations: [
@@ -33,7 +38,7 @@ export const spriglyMeetingPrepWorkflow: Workflow<SpriglyMeetingPrepInput, Sprig
     }
 
     const result = await ctx.model.complete({
-      model: 'sonnet',
+      model: getStepModel(ctx, 'generate'),
       messages: [{ role: 'user', content: fillTemplate(prompt, {
         topic: input.topic,
         notes: input.notes ?? '',
