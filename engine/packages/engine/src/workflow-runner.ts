@@ -175,12 +175,10 @@ export class WorkflowRunner {
     const event = toEngineEvent(dbEvent);
 
     let clientConfig: ClientConfig = defaultClientConfig(dbEvent.clientId);
-    if (rule.clientConfigId !== '') {
-      const configRows = await this.db
-        .select()
-        .from(clientConfigs)
-        .where(eq(clientConfigs.id, rule.clientConfigId))
-        .limit(1);
+    {
+      const configRows = rule.clientConfigId !== ''
+        ? await this.db.select().from(clientConfigs).where(eq(clientConfigs.id, rule.clientConfigId)).limit(1)
+        : await this.db.select().from(clientConfigs).where(eq(clientConfigs.clientId, dbEvent.clientId)).limit(1);
       if (configRows[0] !== undefined) {
         const row = configRows[0];
         clientConfig = {
