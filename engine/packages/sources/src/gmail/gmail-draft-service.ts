@@ -74,6 +74,14 @@ export function createGmailDraftService(
         await client.deleteDraft(draftId);
       } catch { /* errors logged inside GmailApiClient.reportError */ }
     },
+
+    async applyLabel(clientId: string, threadId: string, labelName: string): Promise<void> {
+      try {
+        const client = await buildClient(clientId);
+        if (client === null) return;
+        await client.applyLabel(threadId, labelName);
+      } catch { /* errors logged inside GmailApiClient.reportError */ }
+    },
   };
 }
 

@@ -226,6 +226,51 @@ function WorkflowActionCard({ item, token, onDone }: ItemCardProps) {
   );
 }
 
+// ── Label card ────────────────────────────────────────────────────────────────
+
+function LabelCard({ item, token, onDone }: ItemCardProps) {
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  function act(fn: () => Promise<{ error?: string }>) {
+    startTransition(async () => {
+      setError(null);
+      const result = await fn();
+      if (result.error) setError(result.error);
+      else onDone(item.captureLogId);
+    });
+  }
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 px-6 py-5">
+      <div className="mb-1">
+        <span className="text-sm font-medium text-gray-900">{item.from}</span>
+      </div>
+      <div className="text-sm text-gray-600 mb-1">{item.subject}</div>
+      <div className="text-xs text-gray-400 mb-3">
+        Label: <span className="font-medium text-gray-600">{item.category}</span>
+      </div>
+      {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
+      <div className="flex items-center gap-3">
+        <button
+          disabled={isPending}
+          onClick={() => act(() => approveItem(item.captureLogId, token))}
+          className="px-4 py-2 rounded-md bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 disabled:opacity-50"
+        >
+          {isPending ? 'Applying…' : 'Apply label'}
+        </button>
+        <button
+          disabled={isPending}
+          onClick={() => act(() => rejectItem(item.captureLogId, token))}
+          className="px-4 py-2 rounded-md border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+        >
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Root component ────────────────────────────────────────────────────────────
 
 interface ReviewClientProps {
@@ -242,8 +287,11 @@ export function ReviewClient({ token, items: initialItems }: ReviewClientProps) 
 
   const escalations     = items.filter((i) => i.suggestedAction === 'escalate');
   const workflowActions = items.filter((i) => i.suggestedAction.startsWith('invoke_workflow:'));
+  const labelItems      = items.filter((i) => i.suggestedAction === 'label');
   const draftReplies    = items.filter(
-    (i) => i.suggestedAction !== 'escalate' && !i.suggestedAction.startsWith('invoke_workflow:'),
+    (i) => i.suggestedAction !== 'escalate' &&
+           i.suggestedAction !== 'label' &&
+           !i.suggestedAction.startsWith('invoke_workflow:'),
   );
 
   if (items.length === 0) {
@@ -276,6 +324,18 @@ export function ReviewClient({ token, items: initialItems }: ReviewClientProps) 
           <div className="space-y-4">
             {workflowActions.map((item) => (
               <WorkflowActionCard key={item.captureLogId} item={item} token={token} onDone={handleDone} />
+            ))}
+          </div>
+        </section>
+      )}
+      {labelItems.length > 0 && (
+        <section>
+          <h2 className="text-base font-semibold text-gray-900 mb-3">
+            Labels — {labelItems.length}
+          </h2>
+          <div className="space-y-4">
+            {labelItems.map((item) => (
+              <LabelCard key={item.captureLogId} item={item} token={token} onDone={handleDone} />
             ))}
           </div>
         </section>

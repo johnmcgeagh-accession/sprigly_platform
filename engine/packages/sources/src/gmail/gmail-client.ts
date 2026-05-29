@@ -82,7 +82,42 @@ export class GmailApiClient {
     return res.data;
   }
 
-async markAsRead(messageId: string): Promise<void> {
+  async applyLabel(threadId: string, labelName: string): Promise<void> {
+    try {
+      const labelId = await this.findOrCreateLabel(labelName);
+      if (labelId === null) return;
+      await this.gmail.users.threads.modify({
+        userId: 'me',
+        id: threadId,
+        requestBody: { addLabelIds: [labelId] },
+      });
+    } catch (err) {
+      const e = err as Error & { code?: unknown };
+      await this.reportError({
+        operation: 'applyLabel',
+        externalId: threadId,
+        ...(e.code !== undefined && { errorCode: String(e.code) }),
+        errorMessage: e.message,
+      });
+    }
+  }
+
+  private async findOrCreateLabel(name: string): Promise<string | null> {
+    try {
+      const list = await this.gmail.users.labels.list({ userId: 'me' });
+      const existing = list.data.labels?.find((l) => l.name === name);
+      if (existing?.id) return existing.id;
+      const created = await this.gmail.users.labels.create({
+        userId: 'me',
+        requestBody: { name, labelListVisibility: 'labelShow', messageListVisibility: 'show' },
+      });
+      return created.data.id ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  async markAsRead(messageId: string): Promise<void> {
     try {
       await this.gmail.users.messages.modify({
         userId: 'me',

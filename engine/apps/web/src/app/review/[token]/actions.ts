@@ -49,6 +49,7 @@ async function getOriginals(captureLogId: string, clientId: string) {
   const rows = await db
     .select({
       suggestedAction: triageCaptureLog.suggestedAction,
+      category:        triageCaptureLog.category,
       draftText:       triageCaptureLog.draftText,
       gmailDraftId:    triageCaptureLog.gmailDraftId,
       eventId:         triageCaptureLog.eventId,
@@ -208,6 +209,21 @@ export async function approveItem(captureLogId: string, token: string): Promise<
         await triggerWorkflowFromTriage(clientId, originals.eventId, workflowId);
       } catch (triggerErr) {
         console.error('[triage-review] triggerWorkflowFromTriage threw — decision will still be recorded:', String(triggerErr));
+      }
+    }
+
+    // If this is a label item, apply the Gmail label to the thread on approval.
+    if (originals.suggestedAction === 'label' && originals.eventId !== null) {
+      const eventMeta = await getEventMeta(originals.eventId);
+      if (eventMeta !== null && eventMeta.threadId !== '') {
+        const draftSvc = makeDraftService();
+        if (draftSvc !== null) {
+          try {
+            await draftSvc.applyLabel(clientId, eventMeta.threadId, originals.category);
+          } catch (labelErr) {
+            console.error('[triage-review] applyLabel threw — decision will still be recorded:', String(labelErr));
+          }
+        }
       }
     }
 
