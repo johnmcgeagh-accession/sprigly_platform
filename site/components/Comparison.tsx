@@ -98,6 +98,12 @@ export default function Comparison() {
             </ul>
           </div>
         </Reveal>
+
+        <Reveal className="mt-10 max-w-[640px]">
+          <p className="text-[17px] leading-[1.6] text-ink-mid">
+            Generic AI gives you a draft to finish. Sprigly gives you the work, done your way.
+          </p>
+        </Reveal>
       </div>
     </section>
   )

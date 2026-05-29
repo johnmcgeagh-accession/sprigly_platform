@@ -1,5 +1,6 @@
 import Nav from '@/components/Nav'
 import Hero from '@/components/Hero'
+import ThreeWays from '@/components/ThreeWays'
 import HowItWorks from '@/components/HowItWorks'
 import TrustStrip from '@/components/TrustStrip'
 import WhatChanges from '@/components/WhatChanges'
@@ -18,6 +19,7 @@ export default function HomePage() {
       <Nav />
       <main>
         <Hero />
+        <ThreeWays />
         <HowItWorks />
         {/* Transition: paper → paper (HowItWorks already fades to #FCFAF6) */}
         <TrustStrip />

@@ -6,6 +6,7 @@ import { BOOKING_URL } from '@/lib/config'
 
 const NAV_LINKS = [
   { href: '#how', label: 'How it works' },
+  { href: '/how-handoff-works', label: 'How handoff works' },
   { href: '#outputs', label: 'What you get' },
   { href: '#start', label: 'Get started' },
 ]

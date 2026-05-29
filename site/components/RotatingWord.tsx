@@ -3,16 +3,11 @@
 import { useEffect, useRef, useState } from 'react'
 
 const WORDS = [
-  'proposals',
   'follow-ups',
-  'blog posts',
-  'social posts',
+  'proposals',
   'lead lists',
   'client updates',
-  'case studies',
-  'cold emails',
-  'meeting prep',
-  'prospect research',
+  'reports',
 ]
 
 const TYPING_SPEED = 65
@@ -102,7 +97,7 @@ export default function RotatingWord() {
         color: '#FFFFFF',
         fontSize: 17,
         fontWeight: 700,
-        minWidth: '12ch',
+        minWidth: '14ch',
         textAlign: 'left',
       }}
     >

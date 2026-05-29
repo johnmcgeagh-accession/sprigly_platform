@@ -476,6 +476,375 @@
 }
 
 /* ----------------------------------------------------------------
+   Three ways to hand off — interactive section
+   ---------------------------------------------------------------- */
+
+.tw-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 32px;
+  align-items: start;
+}
+
+.tw-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tw-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  text-align: left;
+  width: 100%;
+  padding: 20px;
+  border-radius: 16px;
+  border: 0.5px solid rgba(31,26,24,0.14);
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s;
+}
+.tw-card:hover { background: rgba(255,111,98,0.03); }
+.tw-card[data-active="true"] {
+  border: 2px solid #FF6F62;
+  background: rgba(255,111,98,0.04);
+}
+
+.tw-card-num {
+  font-family: var(--font-fraunces), Georgia, serif;
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 400;
+  flex-shrink: 0;
+  padding-top: 1px;
+  transition: color 0.18s;
+}
+
+.tw-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1F1A18;
+  margin-bottom: 5px;
+  line-height: 1.3;
+}
+
+.tw-card-body {
+  font-size: 13px;
+  color: #5C4F4A;
+  line-height: 1.55;
+}
+
+.tw-panel {
+  background: white;
+  border: 1px solid rgba(31,26,24,0.08);
+  border-radius: 20px;
+  overflow: hidden;
+  min-height: 340px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Stage */
+.tw-stage {
+  position: relative;
+  width: 100%;
+  height: 340px;
+  overflow: hidden;
+}
+
+.tw-frame {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  opacity: 0;
+}
+
+@keyframes twFrame1 {
+  0%    { opacity: 0; transform: translateY(6px); }
+  6%    { opacity: 1; transform: none; }
+  30%   { opacity: 1; transform: none; }
+  38%   { opacity: 0; transform: translateY(-8px); }
+  100%  { opacity: 0; transform: translateY(-8px); }
+}
+@keyframes twFrame2 {
+  0%, 35%  { opacity: 0; transform: translateY(6px); }
+  43%      { opacity: 1; transform: none; }
+  65%      { opacity: 1; transform: none; }
+  73%      { opacity: 0; transform: translateY(-8px); }
+  100%     { opacity: 0; transform: translateY(-8px); }
+}
+@keyframes twFrame3 {
+  0%, 68%  { opacity: 0; transform: translateY(6px); }
+  76%      { opacity: 1; transform: none; }
+  96%      { opacity: 1; transform: none; }
+  100%     { opacity: 0; transform: translateY(-8px); }
+}
+
+.tw-frame-1 { animation: twFrame1 5s ease-in-out infinite; }
+.tw-frame-2 { animation: twFrame2 5s ease-in-out infinite; }
+.tw-frame-3 { animation: twFrame3 5s ease-in-out infinite; }
+
+/* Stage UI elements */
+.tw-email-card {
+  background: white;
+  border: 1px solid rgba(31,26,24,0.10);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 16px rgba(31,26,24,0.06);
+}
+.tw-email-label {
+  font-size: 11px;
+  color: #8A7E78;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(31,26,24,0.07);
+  margin-bottom: 6px;
+}
+.tw-email-body {
+  font-size: 12px;
+  color: #8A7E78;
+  margin-top: 8px;
+  line-height: 1.5;
+}
+
+.tw-done-card {
+  background: #1E2A4A;
+  border-radius: 12px;
+  padding: 24px;
+}
+.tw-check-circle-white {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: rgba(255,255,255,0.18);
+  border-radius: 50%;
+  font-size: 11px;
+  color: white;
+  flex-shrink: 0;
+}
+
+.tw-inbox-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: white;
+  border: 1px solid rgba(31,26,24,0.10);
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(31,26,24,0.05);
+}
+.tw-forward-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: rgba(255,111,98,0.10);
+  color: #FF6F62;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.tw-check-coral-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: #FF6F62;
+  color: white;
+  border-radius: 50%;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.tw-rule-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: white;
+  border: 1px solid rgba(31,26,24,0.08);
+  border-radius: 8px;
+  margin-bottom: 6px;
+}
+
+.tw-approval-card {
+  background: white;
+  border: 2px solid #FF6F62;
+  border-radius: 12px;
+  padding: 22px;
+  box-shadow: 0 2px 20px rgba(255,111,98,0.10);
+}
+
+/* Progress bar */
+@keyframes twProgressBar {
+  0%   { width: 0%; }
+  70%  { width: 74%; }
+  100% { width: 74%; }
+}
+.tw-progress-track {
+  height: 4px;
+  background: rgba(31,26,24,0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.tw-progress-bar {
+  height: 100%;
+  background: #FF6F62;
+  border-radius: 2px;
+  animation: twProgressBar 1.8s ease-out infinite;
+}
+
+/* Activity dots */
+@keyframes twDotPulse {
+  0%, 100% { opacity: 0.25; transform: scale(0.8); }
+  50%      { opacity: 1;    transform: scale(1); }
+}
+.tw-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: #FF6F62;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.tw-dot-1 { animation: twDotPulse 1.2s ease-in-out 0s infinite; }
+.tw-dot-2 { animation: twDotPulse 1.2s ease-in-out 0.2s infinite; }
+.tw-dot-3 { animation: twDotPulse 1.2s ease-in-out 0.4s infinite; }
+
+/* Watch pulse */
+@keyframes twWatchPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,111,98,0.4); }
+  60%      { box-shadow: 0 0 0 6px rgba(255,111,98,0); }
+}
+.tw-watch-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: #FF6F62;
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: twWatchPulse 2s ease-in-out infinite;
+}
+
+/* Pills */
+.tw-pill-coral {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  background: #FF6F62;
+  color: white;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+.tw-pill-coral-sm {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  background: #FF6F62;
+  color: white;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: auto;
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.tw-pill-white {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  background: white;
+  color: #1E2A4A;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+.tw-pill-white-ghost {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  background: rgba(255,255,255,0.14);
+  color: rgba(255,255,255,0.85);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1;
+}
+.tw-pill-ghost {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  background: transparent;
+  color: #5C4F4A;
+  border-radius: 8px;
+  border: 1px solid rgba(31,26,24,0.15);
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .tw-frame-1, .tw-frame-2 {
+    animation: none !important;
+    opacity: 0 !important;
+    transform: none !important;
+  }
+  .tw-frame-3 {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .tw-dot-1, .tw-dot-2, .tw-dot-3 {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .tw-watch-dot, .tw-progress-bar {
+    animation: none !important;
+  }
+  .tw-watch-dot { box-shadow: none !important; }
+  .tw-progress-bar { width: 74% !important; }
+}
+
+/* Mobile: horizontal segmented control */
+@media (max-width: 559px) {
+  .tw-layout {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  .tw-cards {
+    flex-direction: row;
+    gap: 6px;
+  }
+  .tw-card {
+    flex: 1;
+    flex-direction: column;
+    gap: 5px;
+    padding: 12px 10px;
+    align-items: center;
+    text-align: center;
+    border-radius: 12px;
+  }
+  .tw-card-body { display: none; }
+  .tw-card-title { font-size: 11px; }
+  .tw-card-num { font-size: 18px; }
+  .tw-stage { height: 280px; }
+  .tw-frame { padding: 20px; }
+}
+
+/* ----------------------------------------------------------------
    Focus styles — keyboard accessibility
    ---------------------------------------------------------------- */
 :focus-visible {

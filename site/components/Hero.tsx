@@ -115,7 +115,7 @@ export default function Hero() {
             textShadow: '0 1px 16px rgba(0,0,0,0.16)',
           }}
         >
-          Delegate by email, text or Slack. Your Sprigly agents deliver the {' '}
+          Sprigly learns how your business works: your voice, your formats, the standards only your people know. Send it a brief, or let it spot the work itself. Your Sprigly agents deliver the{' '}
           <RotatingWord />
         </p>
 

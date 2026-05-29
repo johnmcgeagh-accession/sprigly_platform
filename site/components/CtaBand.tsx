@@ -1,8 +1,28 @@
+import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { Reveal } from './Reveal'
 import { BOOKING_URL } from '@/lib/config'
 
-export default function CtaBand() {
+interface CtaBandProps {
+  label?: string
+  heading?: ReactNode
+  body?: string
+  buttonText?: string
+  footnote?: string | null
+}
+
+export default function CtaBand({
+  label = 'Start here',
+  heading = (
+    <>
+      See exactly what we&rsquo;d{' '}
+      <em className="fraunces-soft">automate first.</em>
+    </>
+  ),
+  body = "20 minutes on a call. We'll either show you the two or three workflows where AI agents would pay back fastest in your business, or we'll tell you it's not the right fit. Either way, you leave with a clear answer.",
+  buttonText = 'Book your discovery call',
+  footnote = 'Typically replaces the work of a mid-level hire. Set-up fee plus monthly access. Pricing covered on the call.',
+}: CtaBandProps) {
   return (
     <section
       id="book"
@@ -20,7 +40,7 @@ export default function CtaBand() {
 
       <Reveal className="relative z-[2] max-w-[800px] mx-auto">
         <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/85 mb-7">
-          Start here
+          {label}
         </p>
         <h2
           className="font-serif font-normal tracking-[-0.025em] text-white mb-7"
@@ -30,20 +50,17 @@ export default function CtaBand() {
             textShadow: '0 2px 30px rgba(122,31,34,0.25)',
           }}
         >
-          See exactly what we'd{' '}
-          <em className="fraunces-soft">automate first.</em>
+          {heading}
         </h2>
         <p className="text-[17px] text-white/92 mb-11 leading-[1.55] max-w-[560px] mx-auto">
-          20 minutes on a call. We'll either show you the two or three workflows where AI agents
-          would pay back fastest in your business, or we'll tell you it's not the right fit.
-          Either way, you leave with a clear answer.
+          {body}
         </p>
         <Link
           href={BOOKING_URL}
           className="inline-flex items-center gap-[10px] px-7 py-4 bg-white text-ink rounded-lg font-medium text-[15px] transition-all duration-200 hover:-translate-y-px"
           style={{ boxShadow: '0 4px 20px rgba(122,31,34,0.25)' }}
         >
-          Book your discovery call
+          {buttonText}
           <svg
             width="14"
             height="14"
@@ -55,10 +72,9 @@ export default function CtaBand() {
             <path d="M1 7H13M13 7L7 1M13 7L7 13" stroke="currentColor" strokeWidth="1.5" />
           </svg>
         </Link>
-        <p className="text-[13px] text-white/70 mt-7 tracking-[0.01em]">
-          Typically replaces the work of a mid-level hire. Set-up fee plus monthly access. Pricing
-          covered on the call.
-        </p>
+        {footnote && (
+          <p className="text-[13px] text-white/70 mt-7 tracking-[0.01em]">{footnote}</p>
+        )}
       </Reveal>
     </section>
   )
