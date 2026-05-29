@@ -105,6 +105,22 @@ export const workflowMeta: WorkflowMeta[] = [
     ],
   },
   {
+    id: 'sprigly-inbox-triage',
+    name: 'Inbox Triage',
+    description: 'Classifies incoming emails and decides the appropriate action (draft reply, escalate, label, or invoke a workflow).',
+    defaultDestinations: [
+      { destinationId: 'db-save-output', requireApproval: false, settings: {} },
+    ],
+    steps: [
+      {
+        stepName: 'classify',
+        stepDescription: 'Reads the email and returns a category, action, and optional draft reply.',
+        model: 'sonnet',
+        requiresPrompt: true,
+      },
+    ],
+  },
+  {
     // Full-mode catch-all. No model calls, no sends. Replaced by the triage
     // agent when inbox intelligence is configured (see BACKLOG: inbox-agent phase).
     id: 'sprigly-inbox-noop',

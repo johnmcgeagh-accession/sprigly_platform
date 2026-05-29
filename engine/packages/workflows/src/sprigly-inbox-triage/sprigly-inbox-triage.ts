@@ -13,6 +13,11 @@ function extractJson(text: string): unknown {
   return JSON.parse(raw);
 }
 
+function getStepModel(ctx: WorkflowContext, stepName: string): string {
+  const stepModels = ctx.clientConfig.settings['stepModels'] as Record<string, Record<string, string>> | undefined;
+  return stepModels?.['sprigly-inbox-triage']?.[stepName] ?? 'sonnet';
+}
+
 export const spriglyInboxTriageWorkflow: Workflow<TriageInput, TriageOutput> = {
   id: 'sprigly-inbox-triage',
 
@@ -57,7 +62,7 @@ export const spriglyInboxTriageWorkflow: Workflow<TriageInput, TriageOutput> = {
     });
 
     const result = await ctx.model.complete({
-      model: 'sonnet',
+      model: getStepModel(ctx, 'classify'),
       messages: [{ role: 'user', content: prompt }],
       maxTokens: 2000,
     });
