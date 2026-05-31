@@ -2,6 +2,7 @@ import { env } from './env.js';
 import pino from 'pino';
 import { db } from '@sprigly/db';
 import { createModelClientFromEnv } from '@sprigly/model-client';
+import { createEmbeddingClientFromEnv } from '@sprigly/embedding-client';
 import { ZodError } from 'zod';
 import { createAuditLogger } from '@sprigly/audit';
 import { DbPromptResolver } from '@sprigly/prompts';
@@ -17,6 +18,7 @@ import {
   spriglyProspectResearchWorkflow,
   spriglyInboxNoopWorkflow,
   spriglyInboxTriageWorkflow,
+  spriglyQuestionAnswererWorkflow,
 } from '@sprigly/workflows';
 import { TavilyProvider } from '@sprigly/web-search';
 import { GmailPoller, createGmailReadStateService, createGmailDraftService } from '@sprigly/sources';
@@ -30,6 +32,8 @@ import { Queue } from 'bullmq';
 import { pollAllClients } from './poller.js';
 import { createConsumer } from './consumer.js';
 import { sendDigestsForAllClients } from './digest-sender.js';
+import { checkSentDraftsForAllClients } from './check-sent-drafts.js';
+import type { IngestDeps } from '@sprigly/knowledge';
 
 const logger = pino({ name: 'sprigly-worker' });
 logger.info('Worker starting');
@@ -50,20 +54,34 @@ const audit = createAuditLogger(db);
 const prompts = new DbPromptResolver(db);
 const encProvider = createEncryptionProvider();
 
+let embeddingClient: ReturnType<typeof createEmbeddingClientFromEnv>;
+try {
+  embeddingClient = createEmbeddingClientFromEnv();
+} catch (err) {
+  if (err instanceof ZodError) {
+    const lines = err.issues.map((i) => `  • ${i.path.join('.')}: ${i.message}`).join('\n');
+    logger.fatal(`Embedding client configuration error — fix env vars and restart:\n${lines}`);
+  } else {
+    logger.fatal({ err }, 'Failed to create embedding client');
+  }
+  process.exit(1);
+}
+
 const registry = new WorkflowRegistry();
 registry.register(spriglyBlogPostWorkflow);
 registry.register(spriglyProspectResearchWorkflow);
 registry.register(spriglyInboxNoopWorkflow);
 registry.register(spriglyInboxTriageWorkflow);
+registry.register(spriglyQuestionAnswererWorkflow);
 logger.info(
-  { workflows: ['sprigly-blog-post', 'sprigly-prospect-research', 'sprigly-inbox-noop', 'sprigly-inbox-triage'] },
+  { workflows: ['sprigly-blog-post', 'sprigly-prospect-research', 'sprigly-inbox-noop', 'sprigly-inbox-triage', 'sprigly-question-answerer'] },
   'Registered workflows',
 );
 
 const router = new EventRouter(db);
 const search = new TavilyProvider();
 const gmailDraftService = createGmailDraftService(db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET);
-const runner = new WorkflowRunner(db, registry, model, audit, prompts, search, gmailDraftService);
+const runner = new WorkflowRunner(db, registry, model, audit, prompts, search, gmailDraftService, embeddingClient);
 
 const dispatcher = new DestinationDispatcher(db);
 dispatcher.register(new DbSaveBlogPost(db));
@@ -91,6 +109,13 @@ const readStateService = createGmailReadStateService(
 
 const gmailPoller = new GmailPoller(db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, router, logger);
 
+const ingestDeps: IngestDeps = {
+  db,
+  model,
+  embeddingClient,
+  labelModel: 'haiku',
+};
+
 const queue = new Queue('incoming-events', { connection: { url: env.REDIS_URL } });
 
 const consumer = createConsumer(
@@ -102,6 +127,7 @@ const consumer = createConsumer(
   logger,
   env.REDIS_URL,
   (clientId, externalId) => readStateService.markRead(clientId, externalId),
+  queue,
 );
 logger.info('BullMQ consumer started');
 
@@ -111,7 +137,10 @@ logger.info('BullMQ consumer started');
 //   WHERE auto_created = true AND client_id = '<client-uuid>';
 // Also ensure a triage_configs row exists for the client.
 
-const poll = (): Promise<void> => pollAllClients(db, gmailPoller, queue, logger);
+const poll = async (): Promise<void> => {
+  await pollAllClients(db, gmailPoller, queue, logger);
+  await checkSentDraftsForAllClients(db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, ingestDeps, logger);
+};
 void poll();
 const interval = setInterval(() => { void poll(); }, env.POLL_INTERVAL_MS);
 logger.info({ intervalMs: env.POLL_INTERVAL_MS }, 'Polling started');

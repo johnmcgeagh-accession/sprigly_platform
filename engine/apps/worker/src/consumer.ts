@@ -17,7 +17,7 @@ function extractApiErrorMeta(err: Error): Record<string, unknown> {
 }
 import type { IncomingEvent as DbIncomingEvent } from '@sprigly/db';
 import { eq, and, desc } from 'drizzle-orm';
-import { Worker as BullWorker } from 'bullmq';
+import { Worker as BullWorker, Queue } from 'bullmq';
 import type {
   EventRouter,
   WorkflowRunner,
@@ -60,6 +60,7 @@ export function createConsumer(
   logger: Logger,
   redisUrl: string,
   markRead: (clientId: string, externalId: string) => Promise<void>,
+  queue: Queue,
 ): BullWorker {
   return new BullWorker(
     'incoming-events',
@@ -141,6 +142,24 @@ export function createConsumer(
           const workflow = _registry.get(rule.workflowId);
           await dispatcher.dispatch(output, event, rule, runId, workflow?.defaultDestinations);
           logger.info({ eventId, workflowId: rule.workflowId }, 'dispatched');
+
+          // Auto-chain: when triage classifies an email as invoke_workflow:xxx,
+          // queue a new job for that workflow automatically rather than waiting
+          // for manual approval. The chained workflow produces a draft for review.
+          if (rule.workflowId === 'sprigly-inbox-triage') {
+            const action = (output as { action?: string }).action;
+            if (typeof action === 'string' && action.startsWith('invoke_workflow:')) {
+              const targetWorkflow = action.replace('invoke_workflow:', '');
+              if (_registry.get(targetWorkflow) !== undefined) {
+                await queue.add('incoming-events', {
+                  eventId,
+                  clientId: event.clientId,
+                  directWorkflowId: targetWorkflow,
+                });
+                logger.info({ eventId, targetWorkflow }, 'auto-chained invoke_workflow');
+              }
+            }
+          }
         }
 
         // Mark as read only after all rules are processed and no run was

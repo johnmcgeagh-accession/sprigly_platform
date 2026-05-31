@@ -52,6 +52,15 @@ export class GmailApiClient {
     this.gmail = google.gmail({ version: 'v1', auth });
   }
 
+  async listSentMessageIds(since: Date | null, maxResults = 100): Promise<string[]> {
+    if (since === null) return [];
+    const q = `in:sent after:${Math.floor(since.getTime() / 1000)}`;
+    const res = await this.gmail.users.messages.list({ userId: 'me', q, maxResults });
+    return (res.data.messages ?? [])
+      .map((m) => m.id ?? '')
+      .filter((id) => id !== '');
+  }
+
   async listMessageIds(watermark: Date | null, maxResults = 50): Promise<string[]> {
     // Null watermark means the poller should have already returned early (see
     // GmailPoller.poll). Return nothing as a safe fallback so a missed guard
@@ -252,6 +261,27 @@ export class GmailApiClient {
         errorMessage: e.message,
       });
     }
+  }
+
+  /** Returns true if the draft exists, false if it returns 404 (sent or deleted). */
+  async getDraft(draftId: string): Promise<boolean> {
+    try {
+      await this.gmail.users.drafts.get({ userId: 'me', id: draftId, format: 'minimal' });
+      return true;
+    } catch (err) {
+      const e = err as { code?: number | string };
+      if (Number(e.code) === 404) return false;
+      throw err;
+    }
+  }
+
+  /** Returns message IDs of sent messages in a thread after `since`, newest-first. */
+  async listSentByThread(threadId: string, since: Date): Promise<string[]> {
+    const q = `in:sent threadId:${threadId} after:${Math.floor(since.getTime() / 1000)}`;
+    const res = await this.gmail.users.messages.list({ userId: 'me', q, maxResults: 10 });
+    return (res.data.messages ?? [])
+      .map((m) => m.id ?? '')
+      .filter((id) => id !== '');
   }
 
   private async reportError(params: GmailOperationErrorParams): Promise<void> {

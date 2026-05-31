@@ -108,6 +108,20 @@ export interface TriageStore {
   }): Promise<string>;
 }
 
+/** Minimal embedding interface — keeps @sprigly/engine free of the embedding-client dep. */
+export interface EmbeddingClient {
+  embed(text: string): Promise<number[]>;
+  embedBatch(texts: string[]): Promise<number[][]>;
+  readonly dimensions: number;
+}
+
+/** One row from knowledge_topics — loaded by WorkflowRunner for question-answerer. */
+export interface KnowledgeTopicSummary {
+  id: string;
+  name: string;
+  description: string | null;
+}
+
 export interface WorkflowContext {
   clientId: string;
   clientConfig: ClientConfig;
@@ -119,6 +133,8 @@ export interface WorkflowContext {
   search?: WebSearchProvider;
   triageConfig?: TriageConfig;
   triageStore?: TriageStore;
+  embeddingClient?: EmbeddingClient;
+  knowledgeTopics?: KnowledgeTopicSummary[];
   /** When true: audit logs go to console only; destinations must skip real writes. */
   dryRun?: boolean;
 }

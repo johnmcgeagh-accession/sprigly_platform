@@ -6,6 +6,7 @@ import {
   triageConfigs,
   triageCaptureLog,
   triageSeenMessages,
+  knowledgeTopics,
 } from '@sprigly/db';
 import { stripBuffers } from './strip-buffers.js';
 import type { IncomingEvent as DbIncomingEvent } from '@sprigly/db';
@@ -25,6 +26,8 @@ import type {
   ReplyExample,
   TriageStore,
   WorkflowOutcome,
+  EmbeddingClient,
+  KnowledgeTopicSummary,
 } from './types.js';
 import type { WorkflowRegistry } from './workflow-registry.js';
 
@@ -125,6 +128,7 @@ export class WorkflowRunner {
     private prompts: PromptResolver,
     private search?: WebSearchProvider,
     private gmailDraftService?: GmailDraftOps,
+    private embeddingClient?: EmbeddingClient,
   ) {}
 
   async run(rule: RoutingRule, dbEventId: string): Promise<unknown> {
@@ -195,6 +199,19 @@ export class WorkflowRunner {
     // Load triage-specific context when the workflow requires it.
     let triageConfig: TriageConfig | undefined;
     let triageStore: TriageStore | undefined;
+    let knowledgeTopicsList: KnowledgeTopicSummary[] | undefined;
+
+    if (rule.workflowId === 'sprigly-question-answerer') {
+      const topicRows = await this.db
+        .select({
+          id:          knowledgeTopics.id,
+          name:        knowledgeTopics.name,
+          description: knowledgeTopics.description,
+        })
+        .from(knowledgeTopics)
+        .where(eq(knowledgeTopics.clientId, dbEvent.clientId));
+      knowledgeTopicsList = topicRows;
+    }
 
     if (rule.workflowId === 'sprigly-inbox-triage') {
       const triageRows = await this.db
@@ -234,9 +251,11 @@ export class WorkflowRunner {
       prompts: this.prompts,
       eventId: dbEventId,
       runId,
-      ...(this.search !== undefined && { search: this.search }),
-      ...(triageConfig !== undefined && { triageConfig }),
-      ...(triageStore !== undefined && { triageStore }),
+      ...(this.search             !== undefined && { search: this.search }),
+      ...(triageConfig            !== undefined && { triageConfig }),
+      ...(triageStore             !== undefined && { triageStore }),
+      ...(this.embeddingClient    !== undefined && { embeddingClient: this.embeddingClient }),
+      ...(knowledgeTopicsList     !== undefined && { knowledgeTopics: knowledgeTopicsList }),
     };
 
     const input = workflow.parseInput(event);
@@ -298,6 +317,39 @@ export class WorkflowRunner {
                 .update(triageCaptureLog)
                 .set({ gmailDraftId: draftId, updatedAt: new Date() })
                 .where(eq(triageCaptureLog.id, o.captureLogId));
+            }
+          } catch { /* draft failure must not fail the run */ }
+        }
+      }
+
+      // For question-answerer: create a Gmail draft in the correct thread.
+      // Failure here must not unwind the run — the workflow_run output is already written.
+      if (
+        rule.workflowId === 'sprigly-question-answerer' &&
+        this.gmailDraftService !== undefined
+      ) {
+        const o = output as {
+          draftText?: string;
+          from?: string;
+          subject?: string;
+          threadId?: string;
+          rfcMessageId?: string;
+        };
+        if (o.draftText && o.from && o.subject) {
+          try {
+            const replySubj = o.subject.startsWith('Re: ') ? o.subject : `Re: ${o.subject}`;
+            const draftId = await this.gmailDraftService.createDraft(dbEvent.clientId, {
+              to: o.from,
+              subject: replySubj,
+              bodyText: o.draftText,
+              ...(o.threadId     !== undefined && { threadId: o.threadId }),
+              ...(o.rfcMessageId !== undefined && { inReplyToMessageId: o.rfcMessageId }),
+            });
+            if (draftId !== null) {
+              await this.db
+                .update(workflowRuns)
+                .set({ output: { ...(output as Record<string, unknown>), gmailDraftId: draftId } })
+                .where(eq(workflowRuns.id, runId));
             }
           } catch { /* draft failure must not fail the run */ }
         }

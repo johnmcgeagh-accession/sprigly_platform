@@ -10,3 +10,5 @@ export { spriglyInboxNoopWorkflow } from './sprigly-inbox-noop/sprigly-inbox-noo
 export type { InboxNoopInput, InboxNoopOutput } from './sprigly-inbox-noop/types.js';
 export { spriglyInboxTriageWorkflow } from './sprigly-inbox-triage/sprigly-inbox-triage.js';
 export type { TriageInput, TriageOutput } from './sprigly-inbox-triage/types.js';
+export { spriglyQuestionAnswererWorkflow } from './sprigly-question-answerer/sprigly-question-answerer.js';
+export type { QuestionAnswererInput, QuestionAnswererOutput } from './sprigly-question-answerer/types.js';

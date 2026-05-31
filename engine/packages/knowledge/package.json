@@ -1,5 +1,5 @@
 {
-  "name": "@sprigly/workflows",
+  "name": "@sprigly/knowledge",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -14,20 +14,16 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "type-check": "tsc --noEmit",
-    "test": "vitest run"
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@sprigly/engine": "workspace:*",
-    "@sprigly/knowledge": "workspace:*",
+    "@sprigly/db": "workspace:*",
+    "@sprigly/embedding-client": "workspace:*",
     "@sprigly/model-client": "workspace:*",
-    "@sprigly/audit": "workspace:*",
-    "@sprigly/pdf-render": "workspace:*",
-    "@sprigly/web-search": "workspace:*",
-    "@sprigly/sources": "workspace:*"
+    "@sprigly/sources": "workspace:*",
+    "drizzle-orm": "^0.30.0"
   },
   "devDependencies": {
-    "typescript": "*",
-    "vitest": "^1.6.0"
+    "typescript": "*"
   }
 }

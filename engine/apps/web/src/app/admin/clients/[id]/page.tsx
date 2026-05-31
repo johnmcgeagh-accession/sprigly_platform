@@ -3,10 +3,10 @@ export const revalidate = 0;
 
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { db, clients, clientConfigs, oauthConnections, incomingEvents, routingRules, promptTemplates } from '@sprigly/db';
-import { eq, desc, and, isNull } from 'drizzle-orm';
+import { db, clients, clientConfigs, oauthConnections, incomingEvents, routingRules, promptTemplates, workflowRuns } from '@sprigly/db';
+import { eq, desc, and, isNull, sql } from 'drizzle-orm';
 import { workflowMeta, type WorkflowMeta } from '@sprigly/workflows';
-import { customisePrompt } from './actions';
+import { customisePrompt, approveQaDraft } from './actions';
 import { StepModelForm } from './StepModelForm';
 
 type PromptRow = { id: string; clientId: string | null; workflowId: string; stepName: string; version: number };
@@ -63,6 +63,40 @@ async function getRecentEvents(clientId: string) {
     .limit(10);
 }
 
+type QaDraft = {
+  id: string;
+  startedAt: Date;
+  cleanQuestion: string | null;
+  draftText: string | null;
+};
+
+async function getPendingQaDrafts(clientId: string): Promise<QaDraft[]> {
+  const rows = await db
+    .select({ id: workflowRuns.id, startedAt: workflowRuns.startedAt, output: workflowRuns.output })
+    .from(workflowRuns)
+    .where(
+      and(
+        eq(workflowRuns.clientId, clientId),
+        eq(workflowRuns.workflowId, 'sprigly-question-answerer'),
+        sql`${workflowRuns.output}->>'gmailDraftId' IS NOT NULL`,
+        sql`${workflowRuns.output}->>'feedbackIngestedAt' IS NULL`,
+        sql`${workflowRuns.output}->>'feedbackDiscardedAt' IS NULL`,
+      ),
+    )
+    .orderBy(desc(workflowRuns.startedAt))
+    .limit(20);
+
+  return rows.map((r) => {
+    const o = r.output as { cleanQuestion?: string; draftText?: string } | null;
+    return {
+      id:            r.id,
+      startedAt:     r.startedAt,
+      cleanQuestion: o?.cleanQuestion ?? null,
+      draftText:     o?.draftText ?? null,
+    };
+  });
+}
+
 async function getClientRoutingRules(clientId: string) {
   return db
     .select({ workflowId: routingRules.workflowId })
@@ -117,12 +151,13 @@ async function getPromptCoverage(clientId: string, workflowIds: string[]): Promi
 }
 
 export default async function ClientDetailPage({ params }: { params: { id: string } }) {
-  const [client, config, connections, events, clientRules] = await Promise.all([
+  const [client, config, connections, events, clientRules, pendingQaDrafts] = await Promise.all([
     getClient(params.id),
     getClientConfig(params.id),
     getOAuthConnections(params.id),
     getRecentEvents(params.id),
     getClientRoutingRules(params.id),
+    getPendingQaDrafts(params.id),
   ]);
 
   if (!client) notFound();
@@ -298,6 +333,52 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
           </table>
         ) : (
           <p className="text-sm text-gray-400">No OAuth connections.</p>
+        )}
+      </section>
+
+      {/* Q&A Drafts — send-detection catches the Gmail-send path; this panel catches
+          the in-panel path where a human approves text directly without sending from Gmail. */}
+      <section className="bg-white rounded-lg border border-gray-200 px-6 py-5">
+        <h2 className="text-base font-semibold text-gray-900 mb-1">Pending Q&A Drafts</h2>
+        <p className="text-xs text-gray-400 mb-4">
+          Drafts awaiting feedback. Paste the final sent text (or leave as-is) and click Approve to
+          add it to the knowledge bank. If already sent from Gmail, this is handled automatically.
+        </p>
+        {pendingQaDrafts.length === 0 ? (
+          <p className="text-sm text-gray-400">No pending Q&A drafts.</p>
+        ) : (
+          <div className="space-y-6">
+            {pendingQaDrafts.map((draft) => (
+              <div key={draft.id} className="border border-gray-100 rounded p-4 space-y-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="text-sm">
+                    {draft.cleanQuestion && (
+                      <p className="font-medium text-gray-800">{draft.cleanQuestion}</p>
+                    )}
+                    <p className="text-gray-400 text-xs mt-0.5">
+                      {draft.startedAt.toLocaleString('en-GB')} · run {draft.id.slice(0, 8)}
+                    </p>
+                  </div>
+                </div>
+                <form action={approveQaDraft} className="space-y-2">
+                  <input type="hidden" name="runId" value={draft.id} />
+                  <textarea
+                    name="finalText"
+                    defaultValue={draft.draftText ?? ''}
+                    rows={6}
+                    className="w-full text-sm border border-gray-200 rounded px-3 py-2 font-mono text-gray-800 resize-y"
+                    placeholder="Paste the final sent text here…"
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-1.5 text-sm font-medium bg-blue-600 text-white rounded hover:bg-blue-700"
+                  >
+                    Approve &amp; add to knowledge bank
+                  </button>
+                </form>
+              </div>
+            ))}
+          </div>
         )}
       </section>
 

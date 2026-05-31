@@ -29,9 +29,18 @@ importers:
       '@sprigly/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@sprigly/embedding-client':
+        specifier: workspace:*
+        version: link:../../packages/embedding-client
       '@sprigly/engine':
         specifier: workspace:*
         version: link:../../packages/engine
+      '@sprigly/knowledge':
+        specifier: workspace:*
+        version: link:../../packages/knowledge
+      '@sprigly/model-client':
+        specifier: workspace:*
+        version: link:../../packages/model-client
       '@sprigly/oauth-tokens':
         specifier: workspace:*
         version: link:../../packages/oauth-tokens
@@ -93,9 +102,15 @@ importers:
       '@sprigly/destinations':
         specifier: workspace:*
         version: link:../../packages/destinations
+      '@sprigly/embedding-client':
+        specifier: workspace:*
+        version: link:../../packages/embedding-client
       '@sprigly/engine':
         specifier: workspace:*
         version: link:../../packages/engine
+      '@sprigly/knowledge':
+        specifier: workspace:*
+        version: link:../../packages/knowledge
       '@sprigly/model-client':
         specifier: workspace:*
         version: link:../../packages/model-client
@@ -158,6 +173,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@sprigly/embedding-client':
+        specifier: workspace:*
+        version: link:../embedding-client
       drizzle-orm:
         specifier: ^0.30.0
         version: 0.30.10(@types/react@19.2.14)(postgres@3.4.9)(react@18.3.1)
@@ -212,6 +230,22 @@ importers:
         specifier: ^1.6.0
         version: 1.6.1(@types/node@20.19.40)
 
+  packages/embedding-client:
+    dependencies:
+      '@aws-sdk/client-bedrock-runtime':
+        specifier: ^3.0.0
+        version: 3.1045.0
+      zod:
+        specifier: ^3.22.0
+        version: 3.25.76
+    devDependencies:
+      typescript:
+        specifier: '*'
+        version: 5.9.3
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@20.19.40)
+
   packages/engine:
     dependencies:
       '@sprigly/audit':
@@ -233,6 +267,28 @@ importers:
       vitest:
         specifier: ^1.6.0
         version: 1.6.1(@types/node@20.19.40)
+
+  packages/knowledge:
+    dependencies:
+      '@sprigly/db':
+        specifier: workspace:*
+        version: link:../db
+      '@sprigly/embedding-client':
+        specifier: workspace:*
+        version: link:../embedding-client
+      '@sprigly/model-client':
+        specifier: workspace:*
+        version: link:../model-client
+      '@sprigly/sources':
+        specifier: workspace:*
+        version: link:../sources
+      drizzle-orm:
+        specifier: ^0.30.0
+        version: 0.30.10(@types/react@19.2.14)(postgres@3.4.9)(react@18.3.1)
+    devDependencies:
+      typescript:
+        specifier: '*'
+        version: 5.9.3
 
   packages/model-client:
     dependencies:
@@ -378,6 +434,9 @@ importers:
       '@sprigly/engine':
         specifier: workspace:*
         version: link:../engine
+      '@sprigly/knowledge':
+        specifier: workspace:*
+        version: link:../knowledge
       '@sprigly/model-client':
         specifier: workspace:*
         version: link:../model-client

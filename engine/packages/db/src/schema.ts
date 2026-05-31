@@ -8,7 +8,30 @@ import {
   integer,
   jsonb,
   uniqueIndex,
+  customType,
 } from 'drizzle-orm/pg-core';
+import { EMBEDDING_DIMENSIONS } from '@sprigly/embedding-client';
+
+/** Serialises a float array to the PostgreSQL vector literal `[x,y,...]`. */
+export function serializeVector(v: number[]): string {
+  return `[${v.join(',')}]`;
+}
+
+const pgVector = customType<{
+  data: number[];
+  driverData: string;
+  config: { dimensions: number };
+}>({
+  dataType(config) {
+    return `vector(${config?.dimensions ?? 1536})`;
+  },
+  toDriver(value: number[]): string {
+    return serializeVector(value);
+  },
+  fromDriver(value: string): number[] {
+    return value.slice(1, -1).split(',').map(Number);
+  },
+});
 
 // ─── shared column helpers ───────────────────────────────────────────────────
 
@@ -419,3 +442,53 @@ export const gmailOperationErrors = pgTable('gmail_operation_errors', {
 
 export type GmailOperationError = typeof gmailOperationErrors.$inferSelect;
 export type NewGmailOperationError = typeof gmailOperationErrors.$inferInsert;
+
+// ─── knowledge_topics ─────────────────────────────────────────────────────────
+
+export const knowledgeTopics = pgTable(
+  'knowledge_topics',
+  {
+    id:          uuid('id').primaryKey().defaultRandom(),
+    clientId:    uuid('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+    name:        text('name').notNull(),
+    description: text('description'),
+    createdAt:   timestamp('created_at').notNull().defaultNow(),
+    updatedAt:   timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    uniqClientName: uniqueIndex('knowledge_topics_client_name').on(t.clientId, t.name),
+  }),
+);
+
+export type KnowledgeTopic = typeof knowledgeTopics.$inferSelect;
+export type NewKnowledgeTopic = typeof knowledgeTopics.$inferInsert;
+
+// ─── knowledge_chunks ─────────────────────────────────────────────────────────
+
+export type KnowledgeSourceType = 'faq_scrape' | 'gmail_import' | 'approved_draft' | 'manual';
+export type KnowledgeStatusType = 'active' | 'archived' | 'pending_review';
+
+export const knowledgeChunks = pgTable(
+  'knowledge_chunks',
+  {
+    id:          uuid('id').primaryKey().defaultRandom(),
+    clientId:    uuid('client_id').notNull().references(() => clients.id, { onDelete: 'cascade' }),
+    topicId:     uuid('topic_id').references(() => knowledgeTopics.id, { onDelete: 'set null' }),
+    content:     text('content').notNull(),
+    summary:     text('summary'),
+    keywords:    text('keywords').array().notNull().default(sql`'{}'`),
+    embedding:   pgVector('embedding', { dimensions: EMBEDDING_DIMENSIONS }),
+    sourceType:  text('source_type').$type<KnowledgeSourceType>().notNull(),
+    sourceRef:   text('source_ref'),
+    status:      text('status').$type<KnowledgeStatusType>().notNull().default('active'),
+    contentHash: text('content_hash').notNull(),
+    createdAt:   timestamp('created_at').notNull().defaultNow(),
+    updatedAt:   timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    uniqClientHash: uniqueIndex('knowledge_chunks_client_hash').on(t.clientId, t.contentHash),
+  }),
+);
+
+export type KnowledgeChunk = typeof knowledgeChunks.$inferSelect;
+export type NewKnowledgeChunk = typeof knowledgeChunks.$inferInsert;

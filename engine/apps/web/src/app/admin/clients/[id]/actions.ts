@@ -1,9 +1,12 @@
 'use server';
 
-import { db, promptTemplates, clientConfigs } from '@sprigly/db';
+import { db, promptTemplates, clientConfigs, workflowRuns } from '@sprigly/db';
 import { and, eq, isNull, desc, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { createModelClientFromEnv } from '@sprigly/model-client';
+import { createEmbeddingClientFromEnv } from '@sprigly/embedding-client';
+import { ingestSource } from '@sprigly/knowledge';
 
 export async function updateStepModel(formData: FormData): Promise<void> {
   const clientId = formData.get('clientId') as string;
@@ -27,6 +30,52 @@ export async function updateStepModel(formData: FormData): Promise<void> {
     .where(eq(clientConfigs.clientId, clientId));
 
   revalidatePath(`/admin/clients/${clientId}`);
+}
+
+export async function approveQaDraft(formData: FormData): Promise<void> {
+  const runId    = formData.get('runId') as string;
+  const finalText = formData.get('finalText') as string;
+
+  if (!runId || !finalText.trim()) return;
+
+  const rows = await db
+    .select({ clientId: workflowRuns.clientId, output: workflowRuns.output })
+    .from(workflowRuns)
+    .where(eq(workflowRuns.id, runId))
+    .limit(1);
+
+  const run = rows[0];
+  if (run === undefined) return;
+
+  const output = run.output as { feedbackIngestedAt?: string; draftText?: string } | null;
+
+  // Idempotency guard — whichever path (send-detection or admin) fires first wins.
+  if (output?.feedbackIngestedAt !== undefined) return;
+
+  if (typeof output?.draftText === 'string' && output.draftText !== finalText) {
+    console.log(
+      `[qa-feedback] admin approve run=${runId} ` +
+      `original=${output.draftText.length}chars final=${finalText.length}chars`,
+    );
+  }
+
+  const model          = createModelClientFromEnv();
+  const embeddingClient = createEmbeddingClientFromEnv();
+
+  await ingestSource(
+    run.clientId,
+    { sourceType: 'approved_draft', text: finalText, ref: runId },
+    { db, model, embeddingClient, labelModel: 'haiku' },
+  );
+
+  await db
+    .update(workflowRuns)
+    .set({
+      output: sql`COALESCE(${workflowRuns.output}, '{}'::jsonb) || ${JSON.stringify({ feedbackIngestedAt: new Date().toISOString() })}::jsonb`,
+    })
+    .where(eq(workflowRuns.id, runId));
+
+  revalidatePath(`/admin/clients/${run.clientId}`);
 }
 
 export async function customisePrompt(formData: FormData): Promise<void> {

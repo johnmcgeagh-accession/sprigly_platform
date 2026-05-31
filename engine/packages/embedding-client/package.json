@@ -1,5 +1,5 @@
 {
-  "name": "@sprigly/workflows",
+  "name": "@sprigly/embedding-client",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -18,13 +18,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@sprigly/engine": "workspace:*",
-    "@sprigly/knowledge": "workspace:*",
-    "@sprigly/model-client": "workspace:*",
-    "@sprigly/audit": "workspace:*",
-    "@sprigly/pdf-render": "workspace:*",
-    "@sprigly/web-search": "workspace:*",
-    "@sprigly/sources": "workspace:*"
+    "@aws-sdk/client-bedrock-runtime": "^3.0.0",
+    "zod": "^3.22.0"
   },
   "devDependencies": {
     "typescript": "*",

@@ -25,6 +25,8 @@ export type {
   ReplyExample,
   TriageConfig,
   TriageStore,
+  EmbeddingClient,
+  KnowledgeTopicSummary,
 } from './types.js';
 export { recordResolution } from './resolution.js';
 export type { RecordResolutionParams } from './resolution.js';

@@ -121,6 +121,28 @@ export const workflowMeta: WorkflowMeta[] = [
     ],
   },
   {
+    id: 'sprigly-question-answerer',
+    name: 'Question Answerer',
+    description: 'Answers customer questions from the client\'s knowledge bank, in their voice, as a Gmail draft for human review.',
+    defaultDestinations: [
+      { destinationId: 'db-save-output', requireApproval: false, settings: {} },
+    ],
+    steps: [
+      {
+        stepName: 'reformulate',
+        stepDescription: 'Strips the raw email to a clean question and maps it to a knowledge topic.',
+        model: 'sonnet',
+        requiresPrompt: true,
+      },
+      {
+        stepName: 'compose',
+        stepDescription: 'Drafts a reply grounded strictly in retrieved knowledge chunks.',
+        model: 'sonnet',
+        requiresPrompt: true,
+      },
+    ],
+  },
+  {
     // Full-mode catch-all. No model calls, no sends. Replaced by the triage
     // agent when inbox intelligence is configured (see BACKLOG: inbox-agent phase).
     id: 'sprigly-inbox-noop',
