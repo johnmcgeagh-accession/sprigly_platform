@@ -106,9 +106,34 @@ export const spriglyQuestionAnswererWorkflow: Workflow<QuestionAnswererInput, Qu
     }
 
     // ── Step 2: Retrieve ────────────────────────────────────────────────────────
-    const chunks = await retrieveChunks(
+    // Precision path: topic-filtered first. If the topic has no chunks yet,
+    // fall back to whole-bank search once before giving up — so a partial
+    // knowledge bank doesn't block questions the bank can actually answer.
+    // The retrievalPath log line tracks how often the fallback fires; if it's
+    // the majority path, the topic filter is earning its keep less than it
+    // costs and is worth revisiting.
+    let chunks = await retrieveChunks(
       { clientId: ctx.clientId, queryText: cleanQuestion, topicId, k: 6 },
       { embeddingClient: ctx.embeddingClient },
+    );
+
+    let retrievalPath: 'topic-filtered' | 'whole-bank-fallback' | 'zero-chunks';
+
+    if (chunks.length > 0) {
+      retrievalPath = 'topic-filtered';
+    } else if (topicId !== null) {
+      chunks = await retrieveChunks(
+        { clientId: ctx.clientId, queryText: cleanQuestion, topicId: null, k: 6 },
+        { embeddingClient: ctx.embeddingClient },
+      );
+      retrievalPath = chunks.length > 0 ? 'whole-bank-fallback' : 'zero-chunks';
+    } else {
+      retrievalPath = 'zero-chunks';
+    }
+
+    console.log(
+      `[question-answerer] retrieve path=${retrievalPath} topicId=${topicId ?? 'null'} ` +
+      `chunks=${chunks.length} eventId=${ctx.eventId}`,
     );
 
     // ── Zero-chunks branch ──────────────────────────────────────────────────────
