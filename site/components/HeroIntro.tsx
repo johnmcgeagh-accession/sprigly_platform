@@ -7,7 +7,7 @@ export function HeroIntro() {
 
   useEffect(() => {
     setActive(true)
-    const t = setTimeout(() => setActive(false), 10200)
+    const t = setTimeout(() => setActive(false), 5100)
     return () => clearTimeout(t)
   }, [])
 

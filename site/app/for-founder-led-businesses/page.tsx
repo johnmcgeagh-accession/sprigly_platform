@@ -1,41 +1,31 @@
 import type { Metadata } from 'next'
-import Nav from '@/components/Nav'
-import Footer from '@/components/Footer'
-import CtaBand from '@/components/CtaBand'
+import SectorPage, { type SectorData } from '@/components/SectorPage'
 import { SITE_URL } from '@/lib/config'
 
 export const metadata: Metadata = {
-  title: 'AI agents for founder-led businesses',
+  title: 'AI agents for founder-led businesses | Sprigly',
   description:
-    'Proposals, client comms, research, reports and whatever else is taking your time. Built around how your business actually works.',
+    "Sprigly learns exactly how your business works and takes on whatever’s taking most of your time: briefs, proposals, research, client comms.",
   alternates: { canonical: `${SITE_URL}/for-founder-led-businesses` },
 }
 
+const data: SectorData = {
+  eyebrow: 'For founder-led businesses',
+  headlinePlain: 'The work only you can write.',
+  headlineItalic: 'Turned around in hours, not days.',
+  subhead:
+    "Sprigly learns exactly how your business works and takes on whatever’s taking most of your time.",
+  pains: [
+    "The documents that sit in your queue — briefs, proposals, reports that need your voice and your standards before they go anywhere.",
+    "Research and prep — background on who you’re meeting and what they care about, ready before you walk in.",
+    "Client comms — updates and follow-ups in your tone, ready to send or hold.",
+  ],
+  send: '“Brief me on Acme Ltd. Meeting their MD Tuesday at 10.”',
+  get: "A two-page brief: company background, recent news, the MD’s role and likely priorities, three angles to lead with.",
+  disclaimer:
+    "The discovery call exists because every business is different. Twenty minutes, and we’ll tell you what we’d build — or that it isn’t a fit.",
+}
+
 export default function FounderLedPage() {
-  return (
-    <>
-      <Nav />
-      <main className="min-h-screen bg-paper">
-        <div className="pt-[140px] pb-[130px] px-6 md:px-12 max-w-[1200px] mx-auto">
-          <div className="max-w-[760px]">
-            <p className="text-2xs font-medium uppercase tracking-[0.15em] text-coral mb-5">
-              For founder-led businesses
-            </p>
-            <h1
-              className="font-serif font-normal tracking-[-0.025em] text-ink mb-6"
-              style={{ fontSize: 'clamp(36px, 4.5vw, 56px)', lineHeight: 1.05 }}
-            >
-              Proposals, comms, research, reports. <em className="font-serif italic text-coral">Off your plate.</em>
-            </h1>
-            <p className="text-[17px] leading-[1.7] text-ink-mid">
-              More detail on this coming soon. In the meantime, book a discovery call to talk
-              through your specific business.
-            </p>
-          </div>
-        </div>
-      </main>
-      <CtaBand />
-      <Footer />
-    </>
-  )
+  return <SectorPage data={data} />
 }

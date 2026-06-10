@@ -124,7 +124,7 @@ export default function Hero() {
           className="hero-support mt-3 text-white/60"
           style={{ fontSize: '14px' }}
         >
-          Built for founder-led agencies. 
+          Built for founder-led businesses.
         </p>
 
         {/* CTA */}

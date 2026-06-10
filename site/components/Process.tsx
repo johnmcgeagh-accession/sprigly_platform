@@ -29,7 +29,7 @@ export default function Process() {
     >
       <Reveal className="max-w-[800px] mb-14">
         <p className="text-2xs font-medium uppercase tracking-[0.15em] text-coral mb-5">
-          How it works
+          Getting started
         </p>
         <h2
           className="font-serif font-normal tracking-[-0.025em] text-ink"

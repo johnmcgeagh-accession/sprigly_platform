@@ -46,7 +46,7 @@ export class ResolvedModelClient implements ModelClient {
 export const ANTHROPIC_DEFAULTS: Record<LogicalModelName, string> = {
   haiku:  'claude-haiku-4-5',
   sonnet: 'claude-sonnet-4-6',
-  opus:   'claude-opus-4-7',
+  opus:   'claude-opus-4-8',
 };
 
 /**

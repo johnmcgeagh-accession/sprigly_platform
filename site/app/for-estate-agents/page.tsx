@@ -1,41 +1,29 @@
 import type { Metadata } from 'next'
-import Nav from '@/components/Nav'
-import Footer from '@/components/Footer'
-import CtaBand from '@/components/CtaBand'
+import SectorPage, { type SectorData } from '@/components/SectorPage'
 import { SITE_URL } from '@/lib/config'
 
 export const metadata: Metadata = {
-  title: 'AI agents for estate & lettings agents',
+  title: 'AI agents for estate & lettings agents | Sprigly',
   description:
-    'Property descriptions, tenancy renewals, landlord reports, compliance letters. The paperwork that runs on repeat, taken off your plate.',
+    "Sprigly takes the paperwork off your team — property descriptions, tenancy renewals, landlord reports — so you can focus on the business, not the admin.",
   alternates: { canonical: `${SITE_URL}/for-estate-agents` },
 }
 
+const data: SectorData = {
+  eyebrow: 'For estate & lettings agents',
+  headlinePlain: 'Property descriptions, renewals, landlord reports.',
+  headlineItalic: 'Off the team’s plate.',
+  subhead:
+    'Sprigly takes the paperwork off your team — so you can focus on the viewings, the deals, and the clients.',
+  pains: [
+    'Property descriptions — written for every new instruction in your house style, with portal variants ready to post.',
+    'Tenancy renewal letters — sent to the right tenants at the right time, in your format and voice.',
+    'Landlord reports — monthly updates drafted and ready for your review, in the format landlords expect.',
+  ],
+  send: '‘14 Mill Lane, 3-bed semi, photos attached, available March.’',
+  get: 'A listing description in your house style, plus the portal variants, ready to post.',
+}
+
 export default function EstateAgentsPage() {
-  return (
-    <>
-      <Nav />
-      <main className="min-h-screen bg-paper">
-        <div className="pt-[140px] pb-[130px] px-6 md:px-12 max-w-[1200px] mx-auto">
-          <div className="max-w-[760px]">
-            <p className="text-2xs font-medium uppercase tracking-[0.15em] text-coral mb-5">
-              For estate & lettings agents
-            </p>
-            <h1
-              className="font-serif font-normal tracking-[-0.025em] text-ink mb-6"
-              style={{ fontSize: 'clamp(36px, 4.5vw, 56px)', lineHeight: 1.05 }}
-            >
-              The paperwork that runs on repeat. <em className="font-serif italic text-coral">Taken off your plate.</em>
-            </h1>
-            <p className="text-[17px] leading-[1.7] text-ink-mid">
-              More detail on this coming soon. In the meantime, book a discovery call to talk
-              through your specific agency.
-            </p>
-          </div>
-        </div>
-      </main>
-      <CtaBand />
-      <Footer />
-    </>
-  )
+  return <SectorPage data={data} />
 }

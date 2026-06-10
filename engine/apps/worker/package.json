@@ -15,6 +15,7 @@
     "eval:harness:anthropic": "sh -c 'set -a && . ../../.env.local && set +a && tsx scripts/eval-harness.ts anthropic'",
     "eval:harness:bedrock":   "sh -c 'set -a && . ../../.env.local && set +a && tsx scripts/eval-harness.ts bedrock'",
     "seed:knowledge":         "sh -c 'set -a && . ../../.env.local && set +a && tsx scripts/seed-knowledge.ts \"$@\"' --",
+    "archive:knowledge":      "sh -c 'set -a && . ../../.env.local && set +a && tsx scripts/archive-knowledge.ts \"$@\"' --",
     "test": "vitest run"
   },
   "dependencies": {

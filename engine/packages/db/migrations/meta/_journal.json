@@ -169,6 +169,20 @@
       "when": 1779440246000,
       "tag": "0023_question_answerer_prompts",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "5",
+      "when": 1779440306000,
+      "tag": "0024_sprigly_compose_override",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1779440366000,
+      "tag": "0025_blog_post_global_prompts",
+      "breakpoints": true
     }
   ]
 }

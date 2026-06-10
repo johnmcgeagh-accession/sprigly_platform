@@ -3,8 +3,8 @@ import { Reveal } from './Reveal'
 const cards = [
   {
     num: 'i.',
-    title: "Proposals go out the day they're asked for",
-    body: "The lead that came in on Monday gets a proposal by Tuesday morning, not next week. No more losing deals to slow turnaround. No more \"I'll send that over by Friday\" emails.",
+    title: "Client work goes out the day it's asked for",
+    body: "The lead that came in on Monday gets a proposal or a brief back by Tuesday morning, not next week. No more losing deals to slow turnaround. No more \"I'll send that over by Friday\" emails.",
   },
   {
     num: 'ii.',

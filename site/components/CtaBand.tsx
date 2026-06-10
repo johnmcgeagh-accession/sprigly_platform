@@ -21,7 +21,7 @@ export default function CtaBand({
   ),
   body = "20 minutes on a call. We'll either show you the two or three workflows where AI agents would pay back fastest in your business, or we'll tell you it's not the right fit. Either way, you leave with a clear answer.",
   buttonText = 'Book your discovery call',
-  footnote = 'Typically replaces the work of a mid-level hire. Set-up fee plus monthly access. Pricing covered on the call.',
+  footnote = "Costs a fraction of the hire it replaces. Exact pricing depends on your workflows — you’ll get a number on the call, in writing the same day.",
 }: CtaBandProps) {
   return (
     <section

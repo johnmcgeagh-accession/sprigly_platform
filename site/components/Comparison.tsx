@@ -10,7 +10,7 @@ const generic = [
 
 const sprigly = [
   'No prompting. Brief it like you\'d brief a junior: "proposal for Acme, similar to Brighton."',
-  'Trained on your past proposals, reports, voice and standards. It already knows how you work.',
+  'Trained on your past work, your voice and your standards. It already knows how you work.',
   "Output in your format, your structure, your tone. Edit if you want to. Most of the time you don't.",
   'Consistent quality. Same voice, same standards, every brief.',
   "Lives in your inbox and Slack. The work just happens where work already happens.",
@@ -38,7 +38,7 @@ export default function Comparison() {
 
         <Reveal className="max-w-[720px] mb-14 text-[17px] leading-[1.6] text-ink-mid">
           Generic AI tools are good at generic tasks. But your business isn&rsquo;t generic. The
-          proposal that wins for you isn&rsquo;t the proposal that wins for someone else. Here&rsquo;s
+          work that wins clients for you isn&rsquo;t the work that wins for someone else. Here&rsquo;s
           the difference.
         </Reveal>
 

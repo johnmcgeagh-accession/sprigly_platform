@@ -20,20 +20,6 @@ export default function HowItWorks() {
     >
       <div className="max-w-[1100px] mx-auto">
 
-        {/* Section header */}
-        <Reveal className="text-center mb-14">
-          <p className="text-2xs font-medium uppercase tracking-[0.15em] text-coral mb-4">
-            How it works
-          </p>
-          <h2
-            className="font-serif font-normal tracking-[-0.025em] text-ink"
-            style={{ fontSize: 'clamp(30px, 4vw, 50px)', lineHeight: 1.1 }}
-          >
-            From brief to deliverable,{' '}
-            <em className="fraunces-soft text-coral">automatically</em>
-          </h2>
-        </Reveal>
-
         {/* Workflow panel */}
         <Reveal className="max-w-[680px] mx-auto">
 
@@ -42,7 +28,7 @@ export default function HowItWorks() {
             {[
               { n: '01', label: 'Email brief sent',    dotCls: 'hw-dot-1', barCls: 'hw-bar-1' },
               { n: '02', label: 'AI agents working',   dotCls: 'hw-dot-2', barCls: 'hw-bar-2' },
-              { n: '03', label: 'Proposal delivered',  dotCls: 'hw-dot-3', barCls: 'hw-bar-3' },
+              { n: '03', label: 'Deliverable ready',    dotCls: 'hw-dot-3', barCls: 'hw-bar-3' },
             ].map(({ n, label, dotCls, barCls }) => (
               <div key={n} className={`flex-1 px-3 first:pl-0 last:pr-0 ${dotCls}`}>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-light mb-1">
@@ -82,14 +68,14 @@ export default function HowItWorks() {
                 {/* Email meta */}
                 <p className="text-[12px] text-ink-mid mb-4">
                   <span className="font-medium text-ink">Subject:</span>{' '}
-                  Client proposal request: TechCorp digital ops
+                  Client project brief: TechCorp digital ops
                 </p>
                 {/* Email body */}
                 <div className="text-[13px] text-ink-mid leading-[1.65] flex-grow">
                   <p>Hi team,</p>
                   <p className="mt-2">
-                    We need a proposal for TechCorp by Thursday. Budget £45k,
-                    focus on digital operations. Meeting notes and brief attached.
+                    We need a brief for TechCorp by Thursday. Budget £45k,
+                    focus on digital operations. Meeting notes attached.
                   </p>
                 </div>
                 {/* Sent badge */}
@@ -107,7 +93,7 @@ export default function HowItWorks() {
             {/* ── Step 2: AI agents working ── */}
             <div className="hw-step-2 absolute inset-0 p-7 flex flex-col">
               <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-light mb-4">
-                Working on: TechCorp Proposal
+                Working on: TechCorp brief
               </p>
               <div className="grid grid-cols-2 gap-3 flex-grow">
                 {agents.map((agent) => (
@@ -160,7 +146,7 @@ export default function HowItWorks() {
                   </span>
                 </div>
                 {/* Doc title */}
-                <p className="text-[10px] uppercase tracking-[0.12em] text-ink-light mb-1">Proposal</p>
+                <p className="text-[10px] uppercase tracking-[0.12em] text-ink-light mb-1">Report</p>
                 <p className="font-serif text-[18px] font-medium text-ink leading-tight mb-1">
                   Digital Operations Transformation
                 </p>

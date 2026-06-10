@@ -79,13 +79,13 @@ function Stage1({ paused }: { paused: boolean }) {
             <SprigLeaf />
           </div>
           <div style={{ fontSize: 14, fontWeight: 600, color: '#1F1A18', marginBottom: 12 }}>
-            Trained engine working...
+            Your agents working…
           </div>
           <div className="tw-progress-track" style={{ width: 200, margin: '0 auto' }}>
             <div className="tw-progress-bar" style={{ animationPlayState: ps }} />
           </div>
           <div style={{ fontSize: 12, color: '#8A7E78', marginTop: 10 }}>
-            Checking your past proposals
+            Checking your past work
           </div>
         </div>
       </div>
