@@ -16,7 +16,7 @@ export default async function BlogSection() {
               Latest thinking
             </p>
             <h2
-              className="font-serif font-normal tracking-[-0.025em] text-ink"
+              className="font-serif font-normal tracking-[-0.025em] text-[#334155]"
               style={{ fontSize: 'clamp(36px, 4.5vw, 56px)', lineHeight: 1.05 }}
             >
               Blog.
@@ -45,7 +45,7 @@ export default async function BlogSection() {
                   {post.category}
                 </p>
               )}
-              <h3 className="font-serif font-medium text-[22px] tracking-[-0.015em] leading-[1.2] mb-3 text-ink">
+              <h3 className="font-serif font-medium text-[22px] tracking-[-0.015em] leading-[1.2] mb-3 text-[#334155]">
                 <Link
                   href={`/blog/${post.slug}`}
                   className="hover:text-coral transition-colors"

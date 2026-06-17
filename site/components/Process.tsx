@@ -32,7 +32,7 @@ export default function Process() {
           Getting started
         </p>
         <h2
-          className="font-serif font-normal tracking-[-0.025em] text-ink"
+          className="font-serif font-normal tracking-[-0.025em] text-[#334155]"
           style={{ fontSize: 'clamp(36px, 4.5vw, 56px)', lineHeight: 1.05 }}
         >
           From <em className="fraunces-soft text-coral">first call</em> to live agents in three weeks.
@@ -54,7 +54,7 @@ export default function Process() {
             <p className="text-[11px] font-medium tracking-[0.12em] uppercase text-ink-mid mb-3">
               {step.label}
             </p>
-            <h3 className="font-serif font-medium text-[24px] tracking-[-0.015em] mb-[14px] text-ink">
+            <h3 className="font-serif font-medium text-[24px] tracking-[-0.015em] mb-[14px] text-[#334155]">
               {step.title}
             </h3>
             <p className="text-[15px] leading-[1.55] text-ink-mid">{step.body}</p>

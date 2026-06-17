@@ -90,7 +90,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${fraunces.variable} ${inter.variable} ${jakarta.variable}`}>
       <head>
-        <meta name="color-scheme" content="light only" />
+        <meta name="color-scheme" content="only light" />
         <meta name="theme-color" content="#FF6F62" />
         <script
           type="application/ld+json"

@@ -171,7 +171,7 @@ function Stage2({ paused }: { paused: boolean }) {
         <div style={{ width: '100%', maxWidth: 320 }}>
           <div
             className="tw-inbox-row"
-            style={{ border: '1.5px solid rgba(30,42,74,0.18)', background: 'rgba(30,42,74,0.03)' }}
+            style={{ border: '1.5px solid rgba(51,65,85,0.18)', background: 'rgba(51,65,85,0.03)' }}
           >
             <span className="tw-check-coral-sm">✓</span>
             <div style={{ flex: 1 }}>
@@ -314,7 +314,7 @@ export default function ThreeWays() {
             How it works
           </p>
           <h2
-            className="font-serif font-normal tracking-[-0.025em] text-ink"
+            className="font-serif font-normal tracking-[-0.025em] text-[#334155]"
             style={{ fontSize: 'clamp(32px, 4vw, 52px)', lineHeight: 1.1 }}
           >
             Three ways to hand work off.{' '}

@@ -57,7 +57,7 @@ export default function Verticals() {
             Built for
           </p>
           <h2
-            className="font-serif font-normal tracking-[-0.025em] text-ink"
+            className="font-serif font-normal tracking-[-0.025em] text-[#334155]"
             style={{ fontSize: 'clamp(36px, 4.5vw, 56px)', lineHeight: 1.05 }}
           >
             Built around your business.{' '}
@@ -82,7 +82,7 @@ export default function Verticals() {
               ].join(' ')}
               style={{ padding: '48px 36px' }}
             >
-              <h3 className="font-serif font-medium text-[22px] tracking-[-0.015em] leading-[1.2] mb-[14px] text-ink">
+              <h3 className="font-serif font-medium text-[22px] tracking-[-0.015em] leading-[1.2] mb-[14px] text-[#334155]">
                 {v.title}
               </h3>
               <p className="text-[15px] leading-[1.55] text-ink-mid mb-6 flex-grow">{v.body}</p>

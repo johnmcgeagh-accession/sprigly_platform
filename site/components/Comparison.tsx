@@ -20,7 +20,7 @@ export default function Comparison() {
   return (
     <section
       id="compare"
-      className="py-[130px] px-6 md:px-12 bg-paper border-b border-ink/10"
+      className="py-[130px] px-6 md:px-12 bg-[#334155]"
     >
       <div className="max-w-[1100px] mx-auto">
         <Reveal className="max-w-[800px] mb-14">
@@ -28,7 +28,7 @@ export default function Comparison() {
             Why Sprigly
           </p>
           <h2
-            className="font-serif font-normal tracking-[-0.025em] text-ink"
+            className="font-serif font-normal tracking-[-0.025em] text-white"
             style={{ fontSize: 'clamp(36px, 4.5vw, 56px)', lineHeight: 1.05 }}
           >
             This isn&rsquo;t{' '}
@@ -36,7 +36,7 @@ export default function Comparison() {
           </h2>
         </Reveal>
 
-        <Reveal className="max-w-[720px] mb-14 text-[17px] leading-[1.6] text-ink-mid">
+        <Reveal className="max-w-[720px] mb-14 text-[17px] leading-[1.6] text-white/75">
           Generic AI tools are good at generic tasks. But your business isn&rsquo;t generic. The
           work that wins clients for you isn&rsquo;t the work that wins for someone else. Here&rsquo;s
           the difference.
@@ -48,7 +48,7 @@ export default function Comparison() {
             <p className="text-2xs font-medium uppercase tracking-[0.15em] text-ink-light mb-[18px]">
               ChatGPT, Claude, generic AI
             </p>
-            <h3 className="font-serif font-medium text-[22px] tracking-[-0.015em] mb-6 text-ink">
+            <h3 className="font-serif font-medium text-[22px] tracking-[-0.015em] mb-6 text-[#334155]">
               You&rsquo;re the one doing the work
             </h3>
             <ul className="space-y-0" role="list">
@@ -77,7 +77,7 @@ export default function Comparison() {
             <p className="text-2xs font-medium uppercase tracking-[0.15em] text-coral mb-[18px]">
               Sprigly
             </p>
-            <h3 className="font-serif font-medium text-[22px] tracking-[-0.015em] mb-6 text-ink">
+            <h3 className="font-serif font-medium text-[22px] tracking-[-0.015em] mb-6 text-[#334155]">
               The work comes back already done
             </h3>
             <ul className="space-y-0" role="list">
@@ -100,7 +100,7 @@ export default function Comparison() {
         </Reveal>
 
         <Reveal className="mt-10 max-w-[640px]">
-          <p className="text-[17px] leading-[1.6] text-ink-mid">
+          <p className="text-[17px] leading-[1.6] text-white/75">
             Generic AI gives you a draft to finish. Sprigly gives you the work, done your way.
           </p>
         </Reveal>

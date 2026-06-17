@@ -62,7 +62,7 @@ export default async function BlogIndexPage() {
                       {post.category}
                     </p>
                   )}
-                  <h2 className="font-serif font-medium text-[22px] tracking-[-0.015em] leading-[1.2] mb-3 text-ink">
+                  <h2 className="font-serif font-medium text-[22px] tracking-[-0.015em] leading-[1.2] mb-3 text-[#334155]">
                     <Link
                       href={`/blog/${post.slug}`}
                       className="hover:text-coral transition-colors"

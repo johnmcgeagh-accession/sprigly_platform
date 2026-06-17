@@ -108,7 +108,7 @@ export default function Hero() {
 
         {/* Subheadline */}
         <p
-          className="hero-sub mt-6 text-white/88 max-w-[600px]"
+          className="hero-sub mt-6 text-white max-w-[600px]"
           style={{
             fontSize: 'clamp(16px, 1.8vw, 20px)',
             lineHeight: 1.55,
@@ -121,23 +121,22 @@ export default function Hero() {
 
         {/* Supporting line */}
         <p
-          className="hero-support mt-3 text-white/60"
+          className="hero-support mt-3 text-white"
           style={{ fontSize: '14px' }}
         >
           Built for founder-led businesses.
         </p>
 
         {/* CTA */}
-        <div className="hero-cta mt-9 flex flex-col items-center gap-3">
+        <div className="hero-cta mt-9">
           <Link
             href={BOOKING_URL}
             className="inline-flex items-center gap-[10px] px-8 py-[14px] bg-white text-coral-deep rounded-lg font-semibold text-[15px] transition-all duration-200 hover:-translate-y-px"
             style={{ boxShadow: '0 4px 28px rgba(0,0,0,0.22)' }}
           >
-            Get started
+            Book a discovery call
             <ArrowIcon />
           </Link>
-          <p className="text-white/55 text-[13px]">Book a free 20 minute discovery call. </p>
         </div>
       </div>
     </section>

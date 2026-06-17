@@ -10,7 +10,7 @@ export default function AboutSection() {
             About
           </p>
           <h2
-            className="font-serif font-normal tracking-[-0.025em] text-ink mb-10"
+            className="font-serif font-normal tracking-[-0.025em] text-[#334155] mb-10"
             style={{ fontSize: 'clamp(36px, 4.5vw, 56px)', lineHeight: 1.05 }}
           >
             Built for businesses where <em className="fraunces-soft text-coral">the same few people</em> keep becoming the bottleneck.

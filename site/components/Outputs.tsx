@@ -33,18 +33,18 @@ const outputs = [
   },
 ]
 
-const dayCards = [
+const outcomes = [
   {
-    title: 'Brief by email or Slack',
-    body: 'However you already work. No new app. No new login. No prompts to learn.',
+    title: "Client work goes out the day it's asked for",
+    body: "The lead that came in on Monday gets a proposal back by Tuesday morning, not next week. No more losing deals to slow turnaround.",
   },
   {
-    title: "Get it back the way you'd write it",
-    body: "In your voice, in your format, ready to send or refine. Usually within the hour.",
+    title: 'Senior people stop drafting from scratch',
+    body: "Your most expensive person reviews a draft that's already 80% there — in their voice, in your format — and adds the judgement only they can.",
   },
   {
-    title: 'Your team carries on',
-    body: "Nobody changes how they work. Nobody learns new software. The agent fits around your team, not the other way around.",
+    title: 'The next client without the next salary',
+    body: "No three-month recruitment. No £50k+ salary line. The capacity is in place from week one, and it scales the moment you need it.",
   },
 ]
 
@@ -60,7 +60,7 @@ export default function Outputs() {
   return (
     <section
       id="outputs"
-      className="py-[130px] px-6 md:px-12 bg-peach-soft border-t border-ink/10 border-b"
+      className="py-[130px] px-6 md:px-12 bg-white border-t border-ink/10 border-b"
     >
       <div className="max-w-[1200px] mx-auto">
         <Reveal className="mb-16 max-w-[800px]">
@@ -68,7 +68,7 @@ export default function Outputs() {
             What you get
           </p>
           <h2
-            className="font-serif font-normal tracking-[-0.025em] text-ink"
+            className="font-serif font-normal tracking-[-0.025em] text-[#334155]"
             style={{ fontSize: 'clamp(36px, 4.5vw, 56px)', lineHeight: 1.05 }}
           >
             Real work. <em className="fraunces-soft text-coral">Sent and returned.</em>
@@ -90,7 +90,7 @@ export default function Outputs() {
               style={{ padding: '40px 36px' }}
             >
               <div className="font-serif italic text-sm text-coral mb-3">{o.num}</div>
-              <h3 className="font-serif font-medium text-[26px] tracking-[-0.015em] leading-[1.2] mb-[14px] text-ink">
+              <h3 className="font-serif font-medium text-[26px] tracking-[-0.015em] leading-[1.2] mb-[14px] text-[#334155]">
                 {o.title}
               </h3>
               <p className="text-[15px] leading-[1.55] text-ink-mid">{o.body}</p>
@@ -108,20 +108,19 @@ export default function Outputs() {
             </article>
           ))}
 
-          {/* CTA card — navy, spans full width */}
+          {/* CTA card — slate, spans full width */}
           <article
             className="md:col-span-2 rounded-[20px] flex flex-col md:flex-row md:items-center md:justify-between gap-8"
-            style={{ padding: '40px 36px', background: '#1E2A4A' }}
+            style={{ padding: '40px 36px', background: '#334155' }}
           >
             <div className="flex-1 max-w-[640px]">
               <h3
-                className="font-serif font-medium text-[26px] tracking-[-0.015em] leading-[1.2] mb-[14px]"
-                style={{ color: '#F7F5F0' }}
+                className="font-serif font-medium text-[26px] tracking-[-0.015em] leading-[1.2] mb-[14px] text-white"
               >
                 Something else{' '}
-                <em className="fraunces-soft" style={{ color: '#FF6F62' }}>on your plate?</em>
+                <em className="fraunces-soft text-coral">on your plate?</em>
               </h3>
-              <p className="text-[15px] leading-[1.55]" style={{ color: 'rgba(247,245,240,0.70)' }}>
+              <p className="text-[15px] leading-[1.55] text-white/70">
                 That&rsquo;s usually where the best agent lives. The four above are where founders often
                 start &mdash; the right one for you comes out of a 20-minute conversation.
               </p>
@@ -132,7 +131,7 @@ export default function Outputs() {
                 className="inline-flex items-center gap-[10px] px-7 py-[13px] bg-coral text-white rounded-lg font-semibold text-[15px] transition-all duration-200 hover:-translate-y-px"
                 style={{ boxShadow: '0 4px 20px rgba(255,111,98,0.40)' }}
               >
-                Book a call
+                Book a discovery call
                 <ArrowIcon />
               </Link>
             </div>
@@ -141,12 +140,12 @@ export default function Outputs() {
 
         <Reveal className="mt-[72px] pt-14 border-t border-ink/10">
           <p className="text-2xs font-medium uppercase tracking-[0.15em] text-ink-mid mb-8">
-            How it works day to day
+            What changes in your week
           </p>
           <Reveal stagger className="grid grid-cols-1 md:grid-cols-3 gap-10">
-            {dayCards.map((card) => (
+            {outcomes.map((card) => (
               <div key={card.title}>
-                <h4 className="font-serif font-medium text-[18px] tracking-[-0.015em] leading-[1.3] mb-[10px] text-ink">
+                <h4 className="font-serif font-medium text-[18px] tracking-[-0.015em] leading-[1.3] mb-[10px] text-[#334155]">
                   {card.title}
                 </h4>
                 <p className="text-sm leading-[1.55] text-ink-mid">{card.body}</p>

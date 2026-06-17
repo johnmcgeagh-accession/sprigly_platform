@@ -15,7 +15,7 @@ export default function HowItWorks() {
       id="how"
       className="py-[100px] px-6 md:px-12"
       style={{
-        background: 'linear-gradient(to bottom, #FFE4D8 0%, #FCFAF6 100px, #FCFAF6 100%)',
+        background: '#FFFFFF',
       }}
     >
       <div className="max-w-[1100px] mx-auto">

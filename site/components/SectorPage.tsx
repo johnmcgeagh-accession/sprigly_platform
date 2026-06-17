@@ -49,7 +49,7 @@ export default function SectorPage({ data }: { data: SectorData }) {
         <section
           className="pt-[140px] pb-[100px] px-6 md:px-12"
           style={{
-            background: 'linear-gradient(to bottom, #FFE4D8 0%, #FCFAF6 200px, #FCFAF6 100%)',
+            background: '#FFFFFF',
           }}
         >
           <div className="max-w-[1200px] mx-auto">
@@ -58,7 +58,7 @@ export default function SectorPage({ data }: { data: SectorData }) {
                 {data.eyebrow}
               </p>
               <h1
-                className="font-serif font-normal tracking-[-0.025em] text-ink mb-6"
+                className="font-serif font-normal tracking-[-0.025em] text-[#334155] mb-6"
                 style={{ fontSize: 'clamp(36px, 4.5vw, 56px)', lineHeight: 1.05 }}
               >
                 {data.headlinePlain}{' '}
@@ -88,7 +88,7 @@ export default function SectorPage({ data }: { data: SectorData }) {
                 The hours that add up
               </p>
               <h2
-                className="font-serif font-normal tracking-[-0.025em] text-ink"
+                className="font-serif font-normal tracking-[-0.025em] text-[#334155]"
                 style={{ fontSize: 'clamp(28px, 3.5vw, 42px)', lineHeight: 1.1 }}
               >
                 Where the time actually goes.
@@ -115,7 +115,7 @@ export default function SectorPage({ data }: { data: SectorData }) {
                 What it looks like in practice
               </p>
               <h2
-                className="font-serif font-normal tracking-[-0.025em] text-ink"
+                className="font-serif font-normal tracking-[-0.025em] text-[#334155]"
                 style={{ fontSize: 'clamp(28px, 3.5vw, 42px)', lineHeight: 1.1 }}
               >
                 A real brief.{' '}
@@ -155,7 +155,7 @@ export default function SectorPage({ data }: { data: SectorData }) {
                 How it works
               </p>
               <h2
-                className="font-serif font-normal tracking-[-0.025em] text-ink"
+                className="font-serif font-normal tracking-[-0.025em] text-[#334155]"
                 style={{ fontSize: 'clamp(28px, 3.5vw, 42px)', lineHeight: 1.1 }}
               >
                 Fits into how your team{' '}
@@ -165,7 +165,7 @@ export default function SectorPage({ data }: { data: SectorData }) {
             <Reveal stagger className="grid grid-cols-1 md:grid-cols-3 gap-10">
               {HOW_IT_LANDS.map((item) => (
                 <div key={item.title}>
-                  <h3 className="font-serif font-medium text-[20px] tracking-[-0.015em] leading-[1.2] mb-[12px] text-ink">
+                  <h3 className="font-serif font-medium text-[20px] tracking-[-0.015em] leading-[1.2] mb-[12px] text-[#334155]">
                     {item.title}
                   </h3>
                   <p className="text-[15px] leading-[1.6] text-ink-mid">{item.body}</p>

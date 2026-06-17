@@ -19,10 +19,10 @@ const config: Config = {
           DEFAULT: '#E8B66A',
           deep: '#B8864A',
         },
-        paper: '#FCFAF6',
+        paper: '#FFFFFF',
         peach: {
           DEFAULT: '#FFE8DD',
-          soft: '#FFF1E8',
+          soft: '#FFFFFF',
         },
         ink: {
           DEFAULT: '#1F1A18',

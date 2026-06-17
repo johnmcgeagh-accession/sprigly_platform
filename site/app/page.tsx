@@ -3,7 +3,6 @@ import Hero from '@/components/Hero'
 import ThreeWays from '@/components/ThreeWays'
 import HowItWorks from '@/components/HowItWorks'
 import TrustStrip from '@/components/TrustStrip'
-import WhatChanges from '@/components/WhatChanges'
 import Outputs from '@/components/Outputs'
 import Comparison from '@/components/Comparison'
 import Verticals from '@/components/Verticals'
@@ -21,9 +20,7 @@ export default function HomePage() {
         <Hero />
         <ThreeWays />
         <HowItWorks />
-        {/* Transition: paper → paper (HowItWorks already fades to #FCFAF6) */}
         <TrustStrip />
-        <WhatChanges />
         <Outputs />
         <Comparison />
         <Verticals />
