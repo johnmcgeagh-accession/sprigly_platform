@@ -13,8 +13,8 @@ export default function TrustStrip() {
             style={{ fontSize: 'clamp(22px, 2.2vw, 28px)', lineHeight: 1.4, maxWidth: 820 }}
           >
             <span className="text-coral/70 italic font-medium">&ldquo;</span>
-            I built Sprigly after years of watching small firms lose work to slow turnaround
-            &mdash; not because the work was hard, but because it all sat with one or two people.
+            I built Sprigly after years of watching small firms lose work to slow turnaround,
+            not because the work was hard, but because it all sat with one or two people.
             The first agents are live with early clients now, and the first thing every founder
             says is the same: &lsquo;it actually sounds like me.&rsquo;
             <span className="text-coral/70 italic font-medium">&rdquo;</span>

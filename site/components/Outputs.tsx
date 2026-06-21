@@ -20,7 +20,7 @@ const outputs = [
   {
     num: 'iii.',
     title: 'Quality control',
-    body: "Your standards, applied consistently. Catches the things only you would catch — before anything goes to a client.",
+    body: "Your standards, applied consistently. Catches the things only you would catch, before anything goes to a client.",
     send: 'A draft proposal, report or client email.',
     get: "Flagged inconsistencies, missing scope items, tone mismatches, and the small-print issues you'd normally only catch on the third read.",
   },
@@ -40,7 +40,7 @@ const outcomes = [
   },
   {
     title: 'Senior people stop drafting from scratch',
-    body: "Your most expensive person reviews a draft that's already 80% there — in their voice, in your format — and adds the judgement only they can.",
+    body: "Your most expensive person reviews a draft that's already 80% there, in their voice and your format, then adds the judgement only they can.",
   },
   {
     title: 'The next client without the next salary',
@@ -79,7 +79,7 @@ export default function Outputs() {
           In the first two weeks we capture how your business works: your voice, your
           formats, your standards, the things only your senior people know. After that, you brief
           by email or Slack. The work comes back the way you&rsquo;d write it, usually within an hour.
-          Here are four places founders usually start. Yours might be different &mdash; that&rsquo;s the point.
+          Here are four places founders usually start. Yours might be different. That&rsquo;s the point.
         </Reveal>
 
         <Reveal stagger className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -122,7 +122,7 @@ export default function Outputs() {
               </h3>
               <p className="text-[15px] leading-[1.55] text-white/70">
                 That&rsquo;s usually where the best agent lives. The four above are where founders often
-                start &mdash; the right one for you comes out of a 20-minute conversation.
+                start. The right one for you comes out of a 20-minute conversation.
               </p>
             </div>
             <div className="flex-shrink-0">

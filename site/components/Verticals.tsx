@@ -66,7 +66,7 @@ export default function Verticals() {
         </Reveal>
 
         <Reveal className="max-w-[640px] mb-[60px] text-[17px] leading-[1.6] text-ink-mid">
-          Every Sprigly agent is built around one specific business &mdash; yours. These are
+          Every Sprigly agent is built around your specific business. These are
           the sectors where founders most often start.
         </Reveal>
 
@@ -98,7 +98,7 @@ export default function Verticals() {
                     <ArrowIcon />
                   </Link>
                   <p className="text-[12px] text-ink-light">
-                    Or skip ahead &mdash;{' '}
+                    Or just{' '}
                     <Link href="/book" className="underline underline-offset-2 hover:text-coral transition-colors">
                       book a 20-minute call.
                     </Link>

@@ -1,7 +1,7 @@
 import { ImageResponse } from 'next/og'
 
 export const runtime = 'edge'
-export const alt = 'Sprigly — AI agents trained on the way your business actually works'
+export const alt = 'Sprigly: AI agents trained on the way your business actually works'
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 

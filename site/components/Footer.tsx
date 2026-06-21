@@ -37,7 +37,7 @@ export default function Footer() {
               href="/"
               className="flex items-center gap-[10px] text-[22px] tracking-[-0.025em] text-white no-underline"
               style={{ fontFamily: 'var(--font-jakarta)', fontWeight: 800 }}
-              aria-label="Sprigly — home"
+              aria-label="Sprigly home"
             >
               <SpriglyMark />
               Sprigly

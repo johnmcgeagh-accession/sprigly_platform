@@ -67,7 +67,7 @@ export default function Nav() {
             scrolled ? 'text-coral' : 'text-white'
           }`}
           style={{ fontFamily: 'var(--font-jakarta)', fontWeight: 800 }}
-          aria-label="Sprigly — home"
+          aria-label="Sprigly home"
         >
           <SpriglyMark scrolled={scrolled} />
           Sprigly

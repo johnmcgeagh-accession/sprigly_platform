@@ -16,14 +16,14 @@ const data: SectorData = {
   subhead:
     "Sprigly drafts the reports and letters. You sign off every one before it goes anywhere near a client. Built for FCA-regulated firms.",
   pains: [
-    "Suitability reports — drafted from your meeting notes in your firm's template, flagged where your judgement is needed.",
-    "Meeting and file notes — written up before you've left the room.",
-    "Annual review letters — in your format, ready for your signature.",
+    "Suitability reports drafted from your meeting notes in your firm's template, flagged where your judgement is needed.",
+    "Meeting and file notes written up before you've left the room.",
+    "Annual review letters in your format, ready for your signature.",
   ],
   send: 'Meeting notes from a pension transfer review.',
   get: "A draft suitability report in your firm's template, flagged where it needs your judgement.",
   disclaimer:
-    "Drafts only — every document is reviewed and approved by the adviser before anything reaches a client.",
+    "Drafts only. Every document is reviewed and approved by the adviser before anything reaches a client.",
 }
 
 export default function FinancialAdvisersPage() {

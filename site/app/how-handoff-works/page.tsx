@@ -8,7 +8,7 @@ import { SITE_URL } from '@/lib/config'
 export const metadata: Metadata = {
   title: 'How handoff works',
   description:
-    "How Sprigly fits into your day. One engine, three ways to hand work off — you decide how much rein to give it.",
+    "How Sprigly fits into your day. One engine, three ways to hand work off. You decide how much rein to give it.",
   alternates: {
     canonical: `${SITE_URL}/how-handoff-works`,
   },
@@ -17,13 +17,13 @@ export const metadata: Metadata = {
     url: `${SITE_URL}/how-handoff-works`,
     title: 'How handoff works | Sprigly',
     description:
-      "How Sprigly fits into your day. One engine, three ways to hand work off — you decide how much rein to give it.",
+      "How Sprigly fits into your day. One engine, three ways to hand work off. You decide how much rein to give it.",
   },
   twitter: {
     card: 'summary_large_image',
     title: 'How handoff works | Sprigly',
     description:
-      "How Sprigly fits into your day. One engine, three ways to hand work off — you decide how much rein to give it.",
+      "How Sprigly fits into your day. One engine, three ways to hand work off. You decide how much rein to give it.",
   },
 }
 
