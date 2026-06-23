@@ -1,0 +1,9 @@
+# Exclude build artifacts and local dev files that are not needed in the image.
+# pnpm install runs inside the container and populates node_modules fresh.
+node_modules/
+.git/
+.turbo/
+dist/
+*.log
+.env
+.env.*
