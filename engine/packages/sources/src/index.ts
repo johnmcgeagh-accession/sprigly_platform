@@ -1,4 +1,6 @@
 export { switchPollingMode } from './mailbox-mode.js';
+export { DriveApiClient } from './drive/index.js';
+export type { DriveFileMeta } from './drive/index.js';
 export { parseEmailInput } from './email-parser/index.js';
 export type { EmailInputSpec, BodyFieldSpec, ParsedEmailInput } from './email-parser/index.js';
 export { GmailPoller } from './gmail/gmail-poller.js';

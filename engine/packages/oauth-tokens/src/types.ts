@@ -1,4 +1,4 @@
-export type OAuthProvider = 'gmail' | 'outlook' | 'slack';
+export type OAuthProvider = 'gmail' | 'outlook' | 'slack' | 'drive';
 
 export interface OAuthTokenBundle {
   accessToken: string;
