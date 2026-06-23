@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { substituteTemplate } from './template.js';
-import { composeMimeWithAttachment } from './gmail-reply-with-attachment.js';
+import { composeMimeWithAttachment, resolveAttachmentBuffer } from './gmail-reply-with-attachment.js';
 
 // ── substituteTemplate ────────────────────────────────────────────────────────
 
@@ -107,5 +107,38 @@ describe('composeMimeWithAttachment', () => {
     const raw = composeMimeWithAttachment({ ...BASE_PARAMS, attachmentData: pdf });
     expect(raw).toContain('Ivy Tax Partners');
     expect(raw).toContain('PDF attached.');
+  });
+});
+
+// ── resolveAttachmentBuffer ───────────────────────────────────────────────────
+// Covers the attachmentDataKey behaviour added in Fix 3.
+// Default key is 'pdf' (all existing callers are unaffected).
+// Calendar xlsx delivery sets key to 'xlsx'.
+
+describe('resolveAttachmentBuffer', () => {
+  it("returns the buffer when the key is 'pdf' (default caller contract)", () => {
+    const buf = Buffer.from('%PDF-1.4');
+    expect(resolveAttachmentBuffer({ pdf: buf }, 'pdf')).toBe(buf);
+  });
+
+  it("returns the buffer when the key is 'xlsx' (calendar xlsx delivery)", () => {
+    const buf = Buffer.from('PK'); // xlsx magic bytes
+    expect(resolveAttachmentBuffer({ xlsx: buf }, 'xlsx')).toBe(buf);
+  });
+
+  it('returns null when the key is absent', () => {
+    const buf = Buffer.from('%PDF-1.4');
+    expect(resolveAttachmentBuffer({ pdf: buf }, 'xlsx')).toBeNull();
+  });
+
+  it('returns null when the value at the key is not a Buffer', () => {
+    expect(resolveAttachmentBuffer({ pdf: 'not-a-buffer' }, 'pdf')).toBeNull();
+    expect(resolveAttachmentBuffer({ pdf: 42 }, 'pdf')).toBeNull();
+    expect(resolveAttachmentBuffer({ pdf: null }, 'pdf')).toBeNull();
+    expect(resolveAttachmentBuffer({ pdf: undefined }, 'pdf')).toBeNull();
+  });
+
+  it('returns null for an empty output object', () => {
+    expect(resolveAttachmentBuffer({}, 'pdf')).toBeNull();
   });
 });

@@ -19,6 +19,21 @@ export interface GmailReplyWithAttachmentSettings {
   attachmentFilenameTemplate: string;
   attachmentMimeType?: string;
   bodyMimeType?: 'text/html' | 'text/plain';
+  /** Key in the workflow output object that holds the attachment Buffer.
+   *  Defaults to 'pdf' so all existing callers are unaffected.
+   *  Set to 'xlsx' for content-calendar delivery. */
+  attachmentDataKey?: string;
+}
+
+/** Resolve the attachment buffer from a workflow output object by key.
+ *  Returns null if the key is missing or the value is not a Buffer.
+ *  Exported for unit-testing only — callers use deliver(). */
+export function resolveAttachmentBuffer(
+  output: Record<string, unknown>,
+  key: string,
+): Buffer | null {
+  const val = output[key];
+  return Buffer.isBuffer(val) ? val : null;
 }
 
 export function composeMimeWithAttachment(params: {
@@ -148,12 +163,13 @@ export class GmailReplyWithAttachment implements Destination<unknown> {
   async deliver(output: unknown, event: IncomingEvent, config: DestinationConfig, _ctx: DeliveryContext): Promise<DeliveryResult> {
     try {
       const o = output as Record<string, unknown>;
-      if (!Buffer.isBuffer(o['pdf'])) {
-        return { success: false, error: 'Output missing pdf buffer' };
-      }
-      const pdf = o['pdf'] as Buffer;
-
       const settings = config.settings as unknown as GmailReplyWithAttachmentSettings;
+      const attachmentKey = settings.attachmentDataKey ?? 'pdf';
+      const attachmentBuf = resolveAttachmentBuffer(o, attachmentKey);
+      if (!attachmentBuf) {
+        return { success: false, error: `Output missing buffer at key '${attachmentKey}'` };
+      }
+
       const toEmail = await resolveRecipient(settings, event, this.db);
       if (!toEmail) {
         return { success: false, error: 'Could not resolve recipient address' };
@@ -206,7 +222,7 @@ export class GmailReplyWithAttachment implements Destination<unknown> {
         fromEmail,
         subject,
         bodyText,
-        attachmentData: pdf,
+        attachmentData: attachmentBuf,
         attachmentFilename,
         attachmentMimeType,
         bodyMimeType,
