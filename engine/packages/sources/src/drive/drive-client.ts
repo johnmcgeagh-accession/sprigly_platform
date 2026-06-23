@@ -119,6 +119,72 @@ export class DriveApiClient {
     });
   }
 
+  /** Create a new file in a folder; returns the new file's Drive ID.
+   *  Alias for uploadFile with an explicit name that matches the stage-3 poll contract. */
+  async createFile(
+    folderId: string,
+    name: string,
+    mimeType: string,
+    data: Buffer,
+  ): Promise<string> {
+    const res = await this.drive.files.create({
+      requestBody: { name, parents: [folderId] },
+      media: { mimeType, body: Readable.from(data) },
+      fields: 'id',
+    });
+    return res.data.id ?? '';
+  }
+
+  /** Get metadata for a single file. Alias for getFileMetadata (cleaner name for callers). */
+  async getFileMeta(fileId: string): Promise<DriveFileMeta> {
+    return this.getFileMetadata(fileId);
+  }
+
+  /** Permanently delete a file. Use only for cleanup — moves to trash are not supported. */
+  async deleteFile(fileId: string): Promise<void> {
+    await this.drive.files.delete({ fileId });
+  }
+
+  /** Return a page token representing the current head of the Drive changes feed.
+   *  Capture this BEFORE making changes; pass it to changesList() to see only
+   *  changes that occurred after this point. This is exactly Stage 3's poll anchor. */
+  async getStartPageToken(): Promise<string> {
+    const res = await this.drive.changes.getStartPageToken({});
+    return res.data.startPageToken ?? '';
+  }
+
+  /** Return all file IDs that have changed since startPageToken, paging through
+   *  the entire result set. Each fileId appears at most once (Drive deduplicates).
+   *  With drive.file scope, only files the app created or opened are returned —
+   *  that is intentional; the verify script tests this boundary explicitly. */
+  async changesList(startPageToken: string): Promise<{ fileIds: string[]; nextPageToken: string }> {
+    const seen = new Set<string>();
+    let pageToken = startPageToken;
+
+    for (;;) {
+      const res = await this.drive.changes.list({
+        pageToken,
+        fields: 'changes(fileId,removed),newStartPageToken,nextPageToken',
+        spaces: 'drive',
+        includeItemsFromAllDrives: false,
+        pageSize: 100,
+      });
+
+      for (const change of res.data.changes ?? []) {
+        if (change.fileId) seen.add(change.fileId);
+      }
+
+      if (res.data.nextPageToken) {
+        pageToken = res.data.nextPageToken;
+      } else {
+        return {
+          fileIds: [...seen],
+          nextPageToken: res.data.newStartPageToken ?? '',
+        };
+      }
+    }
+  }
+
   /** Returns the email address of the Drive account these tokens authorise. */
   async getAuthorizedEmail(): Promise<string | null> {
     try {
