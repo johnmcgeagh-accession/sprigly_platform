@@ -6,8 +6,10 @@ import {
   timestamp,
   boolean,
   integer,
+  numeric,
   jsonb,
   uniqueIndex,
+  index,
   customType,
 } from 'drizzle-orm/pg-core';
 import { EMBEDDING_DIMENSIONS } from '@sprigly/embedding-client';
@@ -492,3 +494,96 @@ export const knowledgeChunks = pgTable(
 
 export type KnowledgeChunk = typeof knowledgeChunks.$inferSelect;
 export type NewKnowledgeChunk = typeof knowledgeChunks.$inferInsert;
+
+// ─── client_channels ─────────────────────────────────────────────────────────
+// Per-client, per-channel config: Drive folder pointer + optional inbound-address
+// guard. Populated manually at onboarding — this IS the pointer to Drive, not
+// derived from it. Status mirrors clients.status convention.
+
+export const clientChannels = pgTable(
+  'client_channels',
+  {
+    ...baseColumns,
+    clientId:       uuid('client_id').notNull().references(() => clients.id),
+    channel:        text('channel').notNull(),          // 'instagram', 'linkedin', etc.
+    inboundAddress: text('inbound_address'),            // optional sender-email guard
+    driveFolderId:  text('drive_folder_id'),            // Google Drive folder ID
+    status:         text('status').notNull().default('active'),
+  },
+  (t) => ({
+    uniqClientChannel: uniqueIndex('client_channels_unique').on(t.clientId, t.channel),
+  }),
+);
+
+export type ClientChannel = typeof clientChannels.$inferSelect;
+export type NewClientChannel = typeof clientChannels.$inferInsert;
+
+// ─── voice_snapshots ──────────────────────────────────────────────────────────
+// Immutable snapshots of voice.md at each ingestion point. voice.md is derived;
+// rollback = find an earlier snapshot and re-write the file.
+
+export const voiceSnapshots = pgTable('voice_snapshots', {
+  ...baseColumns,
+  clientId:    uuid('client_id').notNull().references(() => clients.id),
+  channel:     text('channel').notNull(),
+  snapshotMd:  text('snapshot_md').notNull(),   // full channel block at this point
+  reason:      text('reason').notNull(),         // 'monthly-ingest' | 'manual-override' | 'rollback' | 'initial'
+  sourceMonth: text('source_month'),             // YYYY-MM; null for initial/manual
+  runId:       uuid('run_id'),                   // FK to voice_ingestion_runs — set after that row exists
+  isCurrent:   boolean('is_current').notNull().default(false),
+});
+
+export type VoiceSnapshot = typeof voiceSnapshots.$inferSelect;
+export type NewVoiceSnapshot = typeof voiceSnapshots.$inferInsert;
+
+// ─── voice_ingestion_runs ─────────────────────────────────────────────────────
+// One row per calendar:detect-edits + voice:ingest pair. The partial unique index
+// (in migration SQL) prevents two completed runs for the same client/channel/month.
+
+export const voiceIngestionRuns = pgTable('voice_ingestion_runs', {
+  ...baseColumns,
+  clientId:   uuid('client_id').notNull().references(() => clients.id),
+  channel:    text('channel').notNull(),
+  month:      text('month').notNull(),          // YYYY-MM
+  status:     text('status').notNull().default('running'),  // running | completed | failed
+  editCount:  integer('edit_count'),
+  editRate:   numeric('edit_rate', { precision: 5, scale: 2 }),  // fraction, e.g. '0.33'
+  snapshotId: uuid('snapshot_id').references(() => voiceSnapshots.id),
+  error:      text('error'),
+  startedAt:  timestamp('started_at').notNull().defaultNow(),
+  endedAt:    timestamp('ended_at'),
+});
+
+export type VoiceIngestionRun = typeof voiceIngestionRuns.$inferSelect;
+export type NewVoiceIngestionRun = typeof voiceIngestionRuns.$inferInsert;
+
+// ─── voice_edits ─────────────────────────────────────────────────────────────
+// Immutable ledger: one row per edited post per ingestion run. Each month's edit
+// set is retained forever. contact_amended is null when the client approved as-is.
+
+export const voiceEdits = pgTable(
+  'voice_edits',
+  {
+    ...baseColumns,
+    clientId:       uuid('client_id').notNull().references(() => clients.id),
+    channel:        text('channel').notNull(),
+    month:          text('month').notNull(),         // YYYY-MM
+    postIndex:      integer('post_index'),           // 1-based position in edit array
+    date:           text('date'),                    // e.g. '16 Jul'
+    postTitle:      text('post_title'),
+    category:       text('category'),
+    pillar:         text('pillar'),
+    spriglyDraft:   text('sprigly_draft'),
+    contactAmended: text('contact_amended'),         // null = approved draft as-is
+    notes:          text('notes'),
+    ingestionRunId: uuid('ingestion_run_id').notNull().references(() => voiceIngestionRuns.id),
+  },
+  (t) => ({
+    idxClientChannelMonth: index('voice_edits_client_channel_month').on(
+      t.clientId, t.channel, t.month,
+    ),
+  }),
+);
+
+export type VoiceEdit = typeof voiceEdits.$inferSelect;
+export type NewVoiceEdit = typeof voiceEdits.$inferInsert;
