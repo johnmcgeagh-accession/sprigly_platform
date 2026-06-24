@@ -12,3 +12,5 @@ export { spriglyInboxTriageWorkflow } from './sprigly-inbox-triage/sprigly-inbox
 export type { TriageInput, TriageOutput } from './sprigly-inbox-triage/types.js';
 export { spriglyQuestionAnswererWorkflow } from './sprigly-question-answerer/sprigly-question-answerer.js';
 export type { QuestionAnswererInput, QuestionAnswererOutput } from './sprigly-question-answerer/types.js';
+export { createCalendarBuildWorkbookWorkflow } from './sprigly-calendar-build-workbook/sprigly-calendar-build-workbook.js';
+export type { SpriglyCalendarBuildWorkbookInput, SpriglyCalendarBuildWorkbookOutput } from './sprigly-calendar-build-workbook/types.js';

@@ -7,22 +7,29 @@
  * visible to changesList and the Drive poller can detect future edits to it.
  *
  * Usage:
- *   pnpm --filter @sprigly/worker gate3-seed-xlsx <client-slug> <channel>
+ *   pnpm --filter @sprigly/worker gate3-seed-xlsx <client-slug> <channel> [local-xlsx-path]
+ *
+ * If local-xlsx-path is provided, that file is uploaded as-is (must be a real
+ * xlsx — create one via Google Sheets → File → Download → Microsoft Excel).
+ * If omitted, a minimal placeholder is used (Drive stores it but Sheets cannot
+ * open it for in-place editing).
  *
  * Prints the fileId. Save it — you'll need it to verify Gate 3 checks (c)+(d).
  */
 
+import { readFileSync } from 'node:fs';
 import { db, clients, clientChannels } from '@sprigly/db';
 import { eq, and } from 'drizzle-orm';
 import { getTokens, createEncryptionProvider } from '@sprigly/oauth-tokens';
 import { DriveApiClient } from '@sprigly/sources';
 import { env } from './env.js';
 
-const slug    = process.argv[2];
-const channel = process.argv[3];
+const slug      = process.argv[2];
+const channel   = process.argv[3];
+const localPath = process.argv[4];
 
 if (!slug || !channel) {
-  console.error('Usage: pnpm --filter @sprigly/worker gate3-seed-xlsx <slug> <channel>');
+  console.error('Usage: pnpm --filter @sprigly/worker gate3-seed-xlsx <slug> <channel> [local-xlsx-path]');
   process.exit(1);
 }
 
@@ -59,12 +66,20 @@ const drive = new DriveApiClient(
 );
 
 const name    = `gate3-test-calendar-${Date.now()}.xlsx`;
-const content = Buffer.from(`gate3 test calendar placeholder — ${new Date().toISOString()}\n`);
-const fileId  = await drive.createFile(channelRow.driveFolderId, name, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', content);
+const content = localPath
+  ? readFileSync(localPath)
+  : Buffer.from(`gate3 test calendar placeholder — ${new Date().toISOString()}\n`);
+
+const fileId = await drive.createFile(channelRow.driveFolderId, name, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', content);
 
 console.log(`Created: ${name}`);
 console.log(`fileId:  ${fileId}`);
 console.log(`folder:  ${channelRow.driveFolderId}`);
 console.log('');
-console.log('The next worker poll tick will detect this file and enqueue calendar:detect-edits.');
-console.log('After that, edit the file via Drive and run a second poll to test check (d).');
+if (localPath) {
+  console.log('Real xlsx uploaded — open it in Google Sheets from Drive, edit a cell, and save.');
+  console.log('The next worker poll tick will detect the Sheets save as a new calendar:detect-edits job.');
+} else {
+  console.log('Placeholder uploaded — the next worker poll tick will detect it (check b).');
+  console.log('To test in-place editing (check d), pass a real xlsx path as the 3rd argument.');
+}

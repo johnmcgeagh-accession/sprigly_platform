@@ -7,4 +7,5 @@ export const env = z.object({
   POLL_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
   TAVILY_API_KEY: z.string().min(1),
   APP_BASE_URL: z.string().url(),
+  CAL_PYTHON_BIN: z.string().min(1).default('/opt/cal-venv/bin/python'),
 }).parse(process.env);

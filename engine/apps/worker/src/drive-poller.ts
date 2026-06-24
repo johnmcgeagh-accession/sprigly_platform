@@ -1,10 +1,12 @@
 /**
  * drive-poller.ts — poll Drive changes feeds for all active client channels.
  *
- * Lives in the worker (not @sprigly/sources) because it holds a BullMQ Queue
- * reference and enqueues calendar:detect-edits directly. GmailPoller can live
- * in @sprigly/sources because it writes incomingEvents rows and the worker's
- * pollAllClients handles the enqueueing. Drive has no incomingEvents row.
+ * Lives in the worker (not @sprigly/sources) because it holds BullMQ Queue
+ * references and enqueues jobs directly. GmailPoller can live in @sprigly/sources
+ * because it writes incomingEvents rows and the worker's pollAllClients handles
+ * the enqueueing. Drive has no incomingEvents row for xlsx — it enqueues directly
+ * to calendar-events. For CSV files it creates an incomingEvents row and enqueues
+ * to incoming-events so the normal workflow consumer handles it.
  *
  * Watermark model (mirrors GmailPoller's last_polled_at discipline):
  *   - drive_page_token stored per client_channel (not per oauth_connection)
@@ -31,6 +33,7 @@
 import {
   db as _db,
   clientChannels,
+  incomingEvents,
   oauthConnections,
   processedExternalIds,
 } from '@sprigly/db';
@@ -57,7 +60,8 @@ export class DrivePoller {
     private encProvider: EncryptionProvider,
     private googleClientId: string,
     private googleClientSecret: string,
-    private queue: Queue,
+    private calendarQueue: Queue,   // calendar-events: xlsx detect-edits jobs
+    private incomingQueue: Queue,   // incoming-events: CSV build-workbook jobs
     private logger: Logger,
   ) {}
 
@@ -112,8 +116,8 @@ export class DrivePoller {
     }
   }
 
-  /** Poll one channel. Returns the number of calendar:detect-edits jobs enqueued.
-   *  Exported for use in the Gate 3 test script. */
+  /** Poll one channel. Returns the number of calendar:detect-edits jobs enqueued
+   *  (xlsx edits only; CSV build-workbook jobs are logged separately). */
   async pollChannel(channel: ChannelRow): Promise<number> {
     const { clientId, channel: channelName, driveFolderId, drivePageToken: storedToken } = channel;
     if (!driveFolderId) return 0;
@@ -145,20 +149,13 @@ export class DrivePoller {
     }
 
     // ── Poll changes since the stored watermark ───────────────────────────────
-    // changesList pages through ALL changes until exhausted, returning the new
-    // head token as nextPageToken. The token advances only after the cycle
-    // succeeds — if anything throws below, the watermark stays at storedToken.
     const { changes, nextPageToken } = await drive.changesList(storedToken);
 
     let count = 0;
 
     for (const change of changes) {
-      // Skip deletions/trashes — only live content changes trigger workflows.
       if (change.removed) continue;
 
-      // Fetch metadata to get modifiedTime (for the idempotency key) and
-      // parents (for the folder filter). A try-catch handles the race where
-      // the file was deleted between changesList and now.
       let meta: Awaited<ReturnType<typeof drive.getFileMeta>>;
       try {
         meta = await drive.getFileMeta(change.fileId);
@@ -175,9 +172,6 @@ export class DrivePoller {
       if (!meta.parents?.includes(driveFolderId)) continue;
 
       // Idempotency key: `${fileId}:${modifiedTime}`.
-      // A bare fileId would suppress a second client edit to the same file.
-      // modifiedTime (Drive's own timestamp, ms precision) changes on every save,
-      // so two distinct edits produce two distinct keys and two enqueued jobs.
       const externalId = `${change.fileId}:${meta.modifiedTime}`;
 
       const existing = await this.db
@@ -201,12 +195,10 @@ export class DrivePoller {
       const isCsv = lname.endsWith('.csv') || meta.mimeType === 'text/csv';
 
       if (isXlsx) {
-        // Enqueue with a deterministic jobId so duplicate enqueue attempts are
-        // idempotent at the BullMQ level too (Belt-and-suspenders on top of
-        // the processedExternalIds check).
+        // Enqueue xlsx edit detection.
         // BullMQ forbids colons in custom jobIds (Redis namespace separator).
         // Encode them as underscores for the jobId; the DB externalId is unchanged.
-        await this.queue.add(
+        await this.calendarQueue.add(
           'calendar:detect-edits',
           { clientId, channel: channelName, fileId: change.fileId },
           { jobId: `detect-edits_${externalId.replace(/:/g, '_')}` },
@@ -225,10 +217,61 @@ export class DrivePoller {
           'drive: xlsx change detected — enqueued calendar:detect-edits',
         );
       } else if (isCsv) {
-        // TODO(stage-4): CSV is the raw calendar schedule; wire build-workbook hook here.
+        // CSV detected — trigger the calendar:build-workbook workflow via the
+        // standard incoming-events queue. Look up the contact email from
+        // calendar-config.json so the delivery destination can resolve 'sender'.
+        let contact: string | null = null;
+        try {
+          const folderFiles = await drive.listFiles(driveFolderId);
+          const configMeta  = folderFiles.find((f) => f.name === 'calendar-config.json');
+          if (configMeta) {
+            const configBuf = await drive.downloadFile(configMeta.id);
+            const config    = JSON.parse(configBuf.toString('utf-8')) as Record<string, unknown>;
+            contact = (config['contact'] as string | undefined) ?? null;
+          }
+        } catch (err) {
+          this.logger.warn(
+            { clientId, channel: channelName, err: String(err) },
+            'drive: could not read calendar-config.json for contact email',
+          );
+        }
+
+        const [newEvent] = await this.db
+          .insert(incomingEvents)
+          .values({
+            clientId,
+            source: 'drive',
+            sourceMetadata: {
+              csvFileId:    change.fileId,
+              csvName:      meta.name,
+              channel:      channelName,
+              driveFolderId,
+              from:         contact,
+            },
+            content: { text: `CSV updated: ${meta.name}` },
+            receivedAt: new Date(),
+            status: 'received',
+            externalId,
+          })
+          .returning({ id: incomingEvents.id });
+
+        if (!newEvent) throw new Error('Failed to create incoming_events row for CSV trigger');
+
+        await this.db.insert(processedExternalIds).values({
+          clientId,
+          source:      'drive',
+          externalId,
+          processedAt: new Date(),
+        });
+
+        await this.incomingQueue.add(
+          'incoming-events',
+          { eventId: newEvent.id, clientId, directWorkflowId: 'sprigly-calendar-build-workbook' },
+        );
+
         this.logger.info(
-          { clientId, channel: channelName, fileId: change.fileId, name: meta.name },
-          'drive: CSV change detected — Stage 4 hook not yet wired',
+          { clientId, channel: channelName, fileId: change.fileId, name: meta.name, eventId: newEvent.id },
+          'drive: CSV change detected — enqueued calendar:build-workbook',
         );
       }
     }

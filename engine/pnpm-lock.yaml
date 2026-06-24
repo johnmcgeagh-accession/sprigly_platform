@@ -440,6 +440,9 @@ importers:
       '@sprigly/model-client':
         specifier: workspace:*
         version: link:../model-client
+      '@sprigly/oauth-tokens':
+        specifier: workspace:*
+        version: link:../oauth-tokens
       '@sprigly/pdf-render':
         specifier: workspace:*
         version: link:../pdf-render

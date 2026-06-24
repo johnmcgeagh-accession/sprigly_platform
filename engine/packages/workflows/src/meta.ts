@@ -164,4 +164,24 @@ export const workflowMeta: WorkflowMeta[] = [
       { stepName: 'generate', stepDescription: 'TODO: describe this step.', model: 'sonnet', requiresPrompt: true },
     ],
   },
+  {
+    id: 'sprigly-calendar-build-workbook',
+    name: 'Calendar Build Workbook',
+    description: 'Deterministic: CSV + calendar-config.json → 3-tab xlsx via generate_calendar.py; delivered by email. Zero LLM calls.',
+    defaultDestinations: [
+      {
+        destinationId: 'gmail-reply-with-attachment',
+        requireApproval: false,
+        settings: {
+          to: { mode: 'sender' },
+          subjectTemplate: 'Content calendar ready — {{month}} {{year}}',
+          bodyTemplate: "Hi,\n\nYour Sprigly content calendar for {{month}} {{year}} is attached.\n\nBest,\nSprigly",
+          attachmentFilenameTemplate: '{{filename}}',
+          attachmentMimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          attachmentDataKey: 'xlsx',
+        },
+      },
+    ],
+    steps: [],
+  },
 ];

@@ -13,13 +13,20 @@ import {
   WorkflowRunner,
   DestinationDispatcher,
 } from '@sprigly/engine';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import {
   spriglyBlogPostWorkflow,
   spriglyProspectResearchWorkflow,
   spriglyInboxNoopWorkflow,
   spriglyInboxTriageWorkflow,
   spriglyQuestionAnswererWorkflow,
+  createCalendarBuildWorkbookWorkflow,
 } from '@sprigly/workflows';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = dirname(__filename);
+const calScriptPath = join(__dirname, '../scripts/calendar/generate_calendar.py');
 import { TavilyProvider } from '@sprigly/web-search';
 import { GmailPoller, createGmailReadStateService, createGmailDraftService } from '@sprigly/sources';
 import {
@@ -74,8 +81,13 @@ registry.register(spriglyProspectResearchWorkflow);
 registry.register(spriglyInboxNoopWorkflow);
 registry.register(spriglyInboxTriageWorkflow);
 registry.register(spriglyQuestionAnswererWorkflow);
+registry.register(createCalendarBuildWorkbookWorkflow(
+  db, encProvider,
+  env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET,
+  calScriptPath, env.CAL_PYTHON_BIN,
+));
 logger.info(
-  { workflows: ['sprigly-blog-post', 'sprigly-prospect-research', 'sprigly-inbox-noop', 'sprigly-inbox-triage', 'sprigly-question-answerer'] },
+  { workflows: ['sprigly-blog-post', 'sprigly-prospect-research', 'sprigly-inbox-noop', 'sprigly-inbox-triage', 'sprigly-question-answerer', 'sprigly-calendar-build-workbook'] },
   'Registered workflows',
 );
 
@@ -126,6 +138,7 @@ const drivePoller = new DrivePoller(
   env.GOOGLE_CLIENT_ID,
   env.GOOGLE_CLIENT_SECRET,
   calendarQueue,
+  queue,          // incoming-events queue — for CSV build-workbook jobs
   logger,
 );
 
