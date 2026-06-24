@@ -4,14 +4,13 @@
  *
  * Usage: tsx src/setup-drive-oauth.ts <client-slug>
  *
- * Scope: https://www.googleapis.com/auth/drive
- *   Full Drive access is required because the worker must:
- *     - list files in a shared folder (including xlsx files uploaded by clients, not
- *       created by the worker — which rules out the narrower drive.file scope)
- *     - download xlsx files the client returns
- *     - upload generated xlsx and write voice.md back to Drive
- *
- *   Restrict to drive.readonly + drive.file once the access patterns are confirmed stable.
+ * Scope: https://www.googleapis.com/auth/drive.file
+ *   Grants access only to files the app creates or opens. This is sufficient because:
+ *     - the worker creates the generated xlsx → it can read it back later
+ *     - the worker uploads it to the shared folder → Drive tracks it as app-created
+ *     - the client edits and re-uploads via the same shared folder → same file ID, still
+ *       accessible under drive.file
+ *   drive.file is the minimum necessary scope. Do not widen to drive.
  *
  * Gate 2 verification: after running this script, run verify-drive-token.ts to confirm
  * the stored tokens decrypt correctly and the Drive API responds to a real request.
@@ -31,7 +30,7 @@ import { env } from './env.js';
 
 const REDIRECT_URI = 'http://localhost:3456';
 const SCOPES = [
-  'https://www.googleapis.com/auth/drive',
+  'https://www.googleapis.com/auth/drive.file',
 ];
 
 const slug = process.argv[2];
