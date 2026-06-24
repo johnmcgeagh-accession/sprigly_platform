@@ -11,6 +11,7 @@
     "setup-gmail": "tsx --env-file ../../.env.local src/setup-gmail-oauth.ts",
     "setup-drive": "tsx --env-file ../../.env.local src/setup-drive-oauth.ts",
     "verify-drive": "sh -c 'set -a && . ../../.env.local && set +a && tsx src/verify-drive-token.ts \"$@\"' --",
+    "revoke-drive": "tsx --env-file ../../.env.local src/revoke-drive-oauth.ts",
     "backfill-emails": "tsx --env-file ../../.env.local src/backfill-connection-emails.ts",
     "eval:bedrock":  "sh -c 'set -a && . ../../.env.local && set +a && tsx scripts/eval-bedrock.ts'",
     "eval:harness":           "sh -c 'set -a && . ../../.env.local && set +a && tsx scripts/eval-harness.ts'",
