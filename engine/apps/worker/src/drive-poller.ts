@@ -204,10 +204,12 @@ export class DrivePoller {
         // Enqueue with a deterministic jobId so duplicate enqueue attempts are
         // idempotent at the BullMQ level too (Belt-and-suspenders on top of
         // the processedExternalIds check).
+        // BullMQ forbids colons in custom jobIds (Redis namespace separator).
+        // Encode them as underscores for the jobId; the DB externalId is unchanged.
         await this.queue.add(
           'calendar:detect-edits',
           { clientId, channel: channelName, fileId: change.fileId },
-          { jobId: `detect-edits:${externalId}` },
+          { jobId: `detect-edits_${externalId.replace(/:/g, '_')}` },
         );
 
         await this.db.insert(processedExternalIds).values({
