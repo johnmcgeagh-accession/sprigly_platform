@@ -9,6 +9,7 @@ export interface DriveFileMeta {
   mimeType: string;
   modifiedTime: string;
   size?: string;
+  parents?: string[];  // parent folder IDs; used by the poller to filter by channel folder
 }
 
 export class DriveApiClient {
@@ -76,7 +77,7 @@ export class DriveApiClient {
   async getFileMetadata(fileId: string): Promise<DriveFileMeta> {
     const res = await this.drive.files.get({
       fileId,
-      fields: 'id,name,mimeType,modifiedTime,size',
+      fields: 'id,name,mimeType,modifiedTime,size,parents',
     });
     return {
       id: res.data.id ?? '',
@@ -84,6 +85,7 @@ export class DriveApiClient {
       mimeType: res.data.mimeType ?? '',
       modifiedTime: res.data.modifiedTime ?? '',
       ...(res.data.size !== undefined && res.data.size !== null && { size: res.data.size }),
+      ...(res.data.parents !== undefined && res.data.parents !== null && { parents: res.data.parents }),
     };
   }
 
@@ -169,12 +171,21 @@ export class DriveApiClient {
     return res.data.startPageToken ?? '';
   }
 
-  /** Return all file IDs that have changed since startPageToken, paging through
-   *  the entire result set. Each fileId appears at most once (Drive deduplicates).
-   *  With drive.file scope, only files the app created or opened are returned —
-   *  that is intentional; the verify script tests this boundary explicitly. */
-  async changesList(startPageToken: string): Promise<{ fileIds: string[]; nextPageToken: string }> {
-    const seen = new Set<string>();
+  /** Return all changed file IDs since startPageToken, paging through the entire
+   *  result set. Each fileId appears at most once (last change wins for the removed
+   *  flag). With drive.file scope, only files the app created are returned.
+   *
+   *  Returns:
+   *    fileIds       — deduplicated IDs (backward-compat; same as changes[].fileId)
+   *    changes       — per-file { fileId, removed } for the poller's deletion filter
+   *    nextPageToken — advance the stored watermark to this value on cycle success */
+  async changesList(startPageToken: string): Promise<{
+    fileIds: string[];
+    changes: Array<{ fileId: string; removed: boolean }>;
+    nextPageToken: string;
+  }> {
+    // Map preserves insertion order; last entry for a given fileId wins (removed flag).
+    const seen = new Map<string, boolean>();
     let pageToken = startPageToken;
 
     for (;;) {
@@ -187,14 +198,18 @@ export class DriveApiClient {
       });
 
       for (const change of res.data.changes ?? []) {
-        if (change.fileId) seen.add(change.fileId);
+        if (change.fileId) {
+          seen.set(change.fileId, change.removed ?? false);
+        }
       }
 
       if (res.data.nextPageToken) {
         pageToken = res.data.nextPageToken;
       } else {
+        const changes = [...seen.entries()].map(([fileId, removed]) => ({ fileId, removed }));
         return {
-          fileIds: [...seen],
+          fileIds: [...seen.keys()],
+          changes,
           nextPageToken: res.data.newStartPageToken ?? '',
         };
       }
