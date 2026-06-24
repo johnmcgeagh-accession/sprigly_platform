@@ -30,6 +30,7 @@ import {
 } from '@sprigly/destinations';
 import { Queue } from 'bullmq';
 import { pollAllClients } from './poller.js';
+import { DrivePoller } from './drive-poller.js';
 import { createConsumer } from './consumer.js';
 import { sendDigestsForAllClients } from './digest-sender.js';
 import { checkSentDraftsForAllClients } from './check-sent-drafts.js';
@@ -117,6 +118,16 @@ const ingestDeps: IngestDeps = {
 };
 
 const queue = new Queue('incoming-events', { connection: { url: env.REDIS_URL } });
+const calendarQueue = new Queue('calendar-events', { connection: { url: env.REDIS_URL } });
+
+const drivePoller = new DrivePoller(
+  db,
+  encProvider,
+  env.GOOGLE_CLIENT_ID,
+  env.GOOGLE_CLIENT_SECRET,
+  calendarQueue,
+  logger,
+);
 
 const consumer = createConsumer(
   db,
@@ -139,6 +150,7 @@ logger.info('BullMQ consumer started');
 
 const poll = async (): Promise<void> => {
   await pollAllClients(db, gmailPoller, queue, logger);
+  await drivePoller.pollAllChannels();
   await checkSentDraftsForAllClients(db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, ingestDeps, logger);
 };
 void poll();
@@ -158,6 +170,7 @@ const shutdown = async (): Promise<void> => {
   clearInterval(digestInterval);
   await consumer.close();
   await queue.close();
+  await calendarQueue.close();
   logger.info('Shutdown complete');
   process.exit(0);
 };
