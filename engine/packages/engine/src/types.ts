@@ -7,7 +7,8 @@ export type SourceType =
   | "form"
   | "voice"
   | "webhook"
-  | "schedule";
+  | "schedule"
+  | "drive";
 
 // Minimum shape needed for routing rule evaluation — no DB id, no reply context.
 // Use this before deciding whether to persist an incoming message.

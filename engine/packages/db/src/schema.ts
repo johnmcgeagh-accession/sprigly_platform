@@ -508,6 +508,7 @@ export const clientChannels = pgTable(
     channel:        text('channel').notNull(),          // 'instagram', 'linkedin', etc.
     inboundAddress: text('inbound_address'),            // optional sender-email guard
     driveFolderId:  text('drive_folder_id'),            // Google Drive folder ID
+    drivePageToken: text('drive_page_token'),           // changes-feed watermark; null = uninitialized
     status:         text('status').notNull().default('active'),
   },
   (t) => ({
