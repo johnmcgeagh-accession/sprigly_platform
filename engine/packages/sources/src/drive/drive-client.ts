@@ -145,6 +145,22 @@ export class DriveApiClient {
     await this.drive.files.delete({ fileId });
   }
 
+  /** Grant a user access to a file the app created.
+   *  Works under drive.file scope for app-owned files.
+   *  Throws if the file is not app-owned or scope is insufficient. */
+  async shareFile(
+    fileId: string,
+    email: string,
+    role: 'reader' | 'writer' | 'commenter' = 'writer',
+  ): Promise<void> {
+    await this.drive.permissions.create({
+      fileId,
+      requestBody: { role, type: 'user', emailAddress: email },
+      sendNotificationEmail: false,
+      fields: 'id',
+    });
+  }
+
   /** Return a page token representing the current head of the Drive changes feed.
    *  Capture this BEFORE making changes; pass it to changesList() to see only
    *  changes that occurred after this point. This is exactly Stage 3's poll anchor. */
