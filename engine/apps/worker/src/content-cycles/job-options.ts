@@ -10,10 +10,11 @@ export const REQUEST_EMAIL_JOB_OPTIONS: JobsOptions = {
   backoff:  { type: 'fixed', delay: 15_000 },
 };
 
+// BullMQ forbids colons in custom jobIds (Redis namespace separator). Use underscore as separator.
 export function igTrawlJobId(clientId: string, channel: string, dataMonth: string): string {
-  return `ig-trawl:${clientId}:${channel}:${dataMonth}`;
+  return `ig-trawl_${clientId}_${channel}_${dataMonth}`;
 }
 
 export function requestEmailJobId(clientId: string, channel: string, dataMonth: string): string {
-  return `request-email:${clientId}:${channel}:${dataMonth}`;
+  return `request-email_${clientId}_${channel}_${dataMonth}`;
 }
