@@ -97,7 +97,7 @@ function makeGmail(draftId: string | null = 'draft-xyz') {
 function makeDeps(overrides: {
   db?:                RequestEmailDeps['db'];
   config?:            Record<string, unknown>;
-  gmailDraftService?: { createDraft: ReturnType<typeof vi.fn> };
+  gmailDraftService?: RequestEmailDeps['gmailDraftService'];
   cycleMonth?:        string;
 } = {}): RequestEmailDeps {
   const config     = overrides.config ?? BASE_CONFIG;
@@ -105,7 +105,7 @@ function makeDeps(overrides: {
   return {
     db:                overrides.db    ?? makeDefaultDb({ cycleMonth }),
     drive:             makeDrive(config),
-    gmailDraftService: overrides.gmailDraftService ?? makeGmail(),
+    gmailDraftService: (overrides.gmailDraftService ?? makeGmail()) as unknown as RequestEmailDeps['gmailDraftService'],
     model:             {} as RequestEmailDeps['model'],
     logger:            { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as unknown as Logger,
   };
