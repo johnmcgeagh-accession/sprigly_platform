@@ -20,7 +20,7 @@ const data: SectorData = {
     "Shortlist summaries written in your voice, covering what the client actually wants to know.",
     "Progress updates drafted and ready to send while you're focused on the search.",
   ],
-  send: '“Three CVs attached for the Henley FD role. Client is BrightPay.”',
+  send: '"Three CVs attached for the Henley FD role. Client is BrightPay."',
   get: "Three formatted CVs in your template plus a shortlist summary email in your voice, ready to send.",
 }
 
