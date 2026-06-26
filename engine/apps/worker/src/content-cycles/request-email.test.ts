@@ -5,10 +5,10 @@ import type { RequestEmailDeps } from './request-email.js';
 // ── Module mocks ─────────────────────────────────────────────────────────────
 
 vi.mock('@sprigly/db', () => ({
-  db:            {},
-  clients:       Symbol('clients'),
+  db:             {},
+  clients:        Symbol('clients'),
   clientChannels: Symbol('clientChannels'),
-  contentCycles: Symbol('contentCycles'),
+  contentCycles:  Symbol('contentCycles'),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -55,11 +55,6 @@ const BASE_CYCLE = {
   priorStatus: null,
 };
 
-const BASE_CONFIG: Record<string, unknown> = {
-  contact_email: 'john.mcgeagh@gmail.com',
-  contact_name:  'Sally',
-};
-
 /** Sequential-result mock DB: each .limit() call pops the next batch. */
 function makeDb(queryResults: Array<unknown[]>): RequestEmailDeps['db'] {
   let idx = 0;
@@ -74,19 +69,33 @@ function makeDb(queryResults: Array<unknown[]>): RequestEmailDeps['db'] {
   return chain as unknown as RequestEmailDeps['db'];
 }
 
-function makeDefaultDb(overrides: { cycleStatus?: string; cycleMonth?: string } = {}) {
-  const { cycleStatus = 'scheduled', cycleMonth = '2026-05' } = overrides;
+function makeDefaultDb(overrides: {
+  cycleStatus?:    string;
+  cycleMonth?:     string;
+  contactEmail?:   string | null;
+  contactName?:    string | null;
+  extraQuestions?: string[] | null;
+} = {}) {
+  const {
+    cycleStatus    = 'scheduled',
+    cycleMonth     = '2026-05',
+    contactEmail   = 'john.mcgeagh@gmail.com',
+    contactName    = 'Sally',
+    extraQuestions = null,
+  } = overrides;
   return makeDb([
-    [{ ...BASE_CYCLE, cycleMonth, status: cycleStatus }],
-    [{ name: 'Ivy T' }],
-    [{ driveFolderId: FOLDER_ID }],
+    [{ ...BASE_CYCLE, cycleMonth, status: cycleStatus }],        // 1. cycle check
+    [{ name: 'Ivy T' }],                                          // 2. client name
+    [{ driveFolderId: FOLDER_ID, contactEmail, contactName, extraQuestions }], // 3. channel row
   ]);
 }
 
-function makeDrive(config: Record<string, unknown> = BASE_CONFIG): RequestEmailDeps['drive'] {
+// Drive is still injected (used by buildLeanLine for data files), but config
+// no longer comes from Drive — buildLeanLine is mocked so the drive mock is a no-op stub.
+function makeDrive(): RequestEmailDeps['drive'] {
   return {
-    listFiles:    vi.fn().mockResolvedValue([{ id: 'cfg-id', name: 'calendar-config.json' }]),
-    downloadFile: vi.fn().mockResolvedValue(Buffer.from(JSON.stringify(config))),
+    listFiles:    vi.fn().mockResolvedValue([]),
+    downloadFile: vi.fn(),
   } as unknown as RequestEmailDeps['drive'];
 }
 
@@ -96,15 +105,20 @@ function makeGmail(draftId: string | null = 'draft-xyz') {
 
 function makeDeps(overrides: {
   db?:                RequestEmailDeps['db'];
-  config?:            Record<string, unknown>;
+  contactEmail?:      string | null;
+  contactName?:       string | null;
+  extraQuestions?:    string[] | null;
   gmailDraftService?: RequestEmailDeps['gmailDraftService'];
   cycleMonth?:        string;
 } = {}): RequestEmailDeps {
-  const config     = overrides.config ?? BASE_CONFIG;
-  const cycleMonth = overrides.cycleMonth ?? '2026-05';
+  const dbOverrides: Parameters<typeof makeDefaultDb>[0] = {};
+  if (overrides.cycleMonth     !== undefined) dbOverrides.cycleMonth     = overrides.cycleMonth;
+  if (overrides.contactEmail   !== undefined) dbOverrides.contactEmail   = overrides.contactEmail;
+  if (overrides.contactName    !== undefined) dbOverrides.contactName    = overrides.contactName;
+  if (overrides.extraQuestions !== undefined) dbOverrides.extraQuestions = overrides.extraQuestions;
   return {
-    db:                overrides.db    ?? makeDefaultDb({ cycleMonth }),
-    drive:             makeDrive(config),
+    db: overrides.db ?? makeDefaultDb(dbOverrides),
+    drive:             makeDrive(),
     gmailDraftService: (overrides.gmailDraftService ?? makeGmail()) as unknown as RequestEmailDeps['gmailDraftService'],
     model:             {} as RequestEmailDeps['model'],
     logger:            { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as unknown as Logger,
@@ -176,7 +190,7 @@ describe('buildBody', () => {
       '\n' +
       SIGN_OFF,
     );
-    expect(body).not.toContain('\n\n\n'); // no triple blank lines
+    expect(body).not.toContain('\n\n\n');
   });
 });
 
@@ -224,17 +238,19 @@ describe('runRequestEmail', () => {
 
   // ── greeting ────────────────────────────────────────────────────────────────
 
-  it('greets with contact_name when present', async () => {
+  it('greets with contact_name from DB when present', async () => {
     const gmail = makeGmail();
     await runRequestEmail(CLIENT_ID, 'instagram', '2026-05', makeDeps({ gmailDraftService: gmail }));
     const { bodyText } = gmail.createDraft.mock.calls[0]![1] as { bodyText: string };
     expect(bodyText).toMatch(/^Hi Sally,\n/);
   });
 
-  it('uses neutral greeting when contact_name absent and contact is an email address', async () => {
-    const config = { contact_email: 'john.mcgeagh@gmail.com', contact: 'owner@brand.com' };
-    const gmail  = makeGmail();
-    await runRequestEmail(CLIENT_ID, 'instagram', '2026-05', makeDeps({ config, gmailDraftService: gmail }));
+  it('uses neutral greeting when contact_name is null in DB', async () => {
+    const gmail = makeGmail();
+    await runRequestEmail(
+      CLIENT_ID, 'instagram', '2026-05',
+      makeDeps({ contactName: null, gmailDraftService: gmail }),
+    );
     const { bodyText } = gmail.createDraft.mock.calls[0]![1] as { bodyText: string };
     expect(bodyText).toMatch(/^Hi there,\n/);
   });
@@ -245,12 +261,12 @@ describe('runRequestEmail', () => {
     const gmail = makeGmail();
     await runRequestEmail(CLIENT_ID, 'instagram', '2026-05', makeDeps({ gmailDraftService: gmail }));
     const { bodyText } = gmail.createDraft.mock.calls[0]![1] as { bodyText: string };
-    const greetingPos    = bodyText.indexOf('Hi Sally,');
-    const introPos       = bodyText.indexOf(GREETING_INTRO);
-    const leanPos        = bodyText.indexOf('The Megan dress');
-    const transitionPos  = bodyText.indexOf(QUESTION_TRANSITION);
-    const q1Pos          = bodyText.indexOf('1. ');
-    const signOffPos     = bodyText.indexOf('Thanks,');
+    const greetingPos   = bodyText.indexOf('Hi Sally,');
+    const introPos      = bodyText.indexOf(GREETING_INTRO);
+    const leanPos       = bodyText.indexOf('The Megan dress');
+    const transitionPos = bodyText.indexOf(QUESTION_TRANSITION);
+    const q1Pos         = bodyText.indexOf('1. ');
+    const signOffPos    = bodyText.indexOf('Thanks,');
     expect(greetingPos).toBeLessThan(introPos);
     expect(introPos).toBeLessThan(leanPos);
     expect(leanPos).toBeLessThan(transitionPos);
@@ -272,16 +288,18 @@ describe('runRequestEmail', () => {
 
   // ── questions ────────────────────────────────────────────────────────────────
 
-  it('appends extra_questions numbered continuously after base five', async () => {
-    const config = { ...BASE_CONFIG, extra_questions: ['Collab plans?', 'New colourways?'] };
-    const gmail  = makeGmail();
-    await runRequestEmail(CLIENT_ID, 'instagram', '2026-05', makeDeps({ config, gmailDraftService: gmail }));
+  it('appends extra_questions from DB numbered continuously after base five', async () => {
+    const gmail = makeGmail();
+    await runRequestEmail(
+      CLIENT_ID, 'instagram', '2026-05',
+      makeDeps({ extraQuestions: ['Collab plans?', 'New colourways?'], gmailDraftService: gmail }),
+    );
     const { bodyText } = gmail.createDraft.mock.calls[0]![1] as { bodyText: string };
     expect(bodyText).toContain(`${BASE_QUESTIONS.length + 1}. Collab plans?`);
     expect(bodyText).toContain(`${BASE_QUESTIONS.length + 2}. New colourways?`);
   });
 
-  it('base five questions only when extra_questions absent', async () => {
+  it('base five questions only when extra_questions is null in DB', async () => {
     const gmail = makeGmail();
     await runRequestEmail(CLIENT_ID, 'instagram', '2026-05', makeDeps({ gmailDraftService: gmail }));
     const { bodyText } = gmail.createDraft.mock.calls[0]![1] as { bodyText: string };
@@ -291,11 +309,13 @@ describe('runRequestEmail', () => {
 
   // ── error paths ──────────────────────────────────────────────────────────────
 
-  it('throws without drafting when contact_email is missing from config', async () => {
-    const config = { contact_name: 'Sally' }; // no contact_email
-    const gmail  = makeGmail();
+  it('throws without drafting when contact_email is null in DB', async () => {
+    const gmail = makeGmail();
     await expect(
-      runRequestEmail(CLIENT_ID, 'instagram', '2026-05', makeDeps({ config, gmailDraftService: gmail })),
+      runRequestEmail(
+        CLIENT_ID, 'instagram', '2026-05',
+        makeDeps({ contactEmail: null, gmailDraftService: gmail }),
+      ),
     ).rejects.toThrow('contact_email missing');
     expect(gmail.createDraft).not.toHaveBeenCalled();
     expect(transitionCycleMock).not.toHaveBeenCalled();

@@ -138,9 +138,14 @@ export async function runRequestEmail(
   const clientName = clientRows[0]?.name;
   if (!clientName) throw new Error(`request-email: client not found: ${clientId}`);
 
-  // ── 3. Drive folder ───────────────────────────────────────────────────────
+  // ── 3. Channel row: Drive folder + contact config ────────────────────────
   const channelRows = await db
-    .select({ driveFolderId: clientChannels.driveFolderId })
+    .select({
+      driveFolderId:  clientChannels.driveFolderId,
+      contactEmail:   clientChannels.contactEmail,
+      contactName:    clientChannels.contactName,
+      extraQuestions: clientChannels.extraQuestions,
+    })
     .from(clientChannels)
     .where(and(
       eq(clientChannels.clientId, clientId),
@@ -148,42 +153,22 @@ export async function runRequestEmail(
     ))
     .limit(1);
 
-  const driveFolderId = channelRows[0]?.driveFolderId;
+  const channelRow = channelRows[0];
+  const driveFolderId = channelRow?.driveFolderId;
   if (!driveFolderId) {
     throw new Error(`request-email: no driveFolderId for client=${clientId} channel=${channel}`);
   }
 
-  // ── 4. calendar-config.json: recipient, contact name, per-client extras ──
-  const folderFiles = await drive.listFiles(driveFolderId);
-  const configMeta  = folderFiles.find((f) => f.name === 'calendar-config.json');
-  if (!configMeta) {
-    throw new Error(
-      `request-email: calendar-config.json not found for client=${clientId} channel=${channel}`,
-    );
-  }
-  const configBuf = await drive.downloadFile(configMeta.id);
-  const config    = JSON.parse(configBuf.toString('utf-8')) as Record<string, unknown>;
-
-  const contactEmail = typeof config['contact_email'] === 'string'
-    ? config['contact_email']
-    : undefined;
+  const contactEmail = channelRow.contactEmail ?? undefined;
   if (!contactEmail) {
     throw new Error(
-      `request-email: contact_email missing from calendar-config.json for client=${clientId} channel=${channel}`,
+      `request-email: contact_email missing from client_channels for client=${clientId} channel=${channel}`,
     );
   }
 
-  // contact_name preferred; fall back to contact if it's a plain name (no @)
-  const contactName = (() => {
-    const name = config['contact_name'] as string | undefined;
-    if (name) return name;
-    const contact = config['contact'] as string | undefined;
-    if (contact && !contact.includes('@')) return contact;
-    return null;
-  })();
-
-  const extraQuestions = Array.isArray(config['extra_questions'])
-    ? (config['extra_questions'] as unknown[]).filter((q): q is string => typeof q === 'string')
+  const contactName    = channelRow.contactName ?? null;
+  const extraQuestions = Array.isArray(channelRow.extraQuestions)
+    ? (channelRow.extraQuestions as unknown[]).filter((q): q is string => typeof q === 'string')
     : [];
 
   // ── 5. Lean line — uses dataMonth for data lookups ────────────────────────

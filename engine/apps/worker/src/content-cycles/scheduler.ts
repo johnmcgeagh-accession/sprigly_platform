@@ -8,7 +8,7 @@
  *
  * runContentCycleTick:  called by the 'scheduler-tick' BullMQ repeatable job (05:00 Europe/London).
  *   - Queries clients WHERE content_cycle_enabled = true. Zero clients are enabled by default.
- *   - Reads calendar-config.json from each client's Drive folder for their trigger schedule.
+ *   - Reads content_cycle_schedule from client_channels (DB column, not Drive).
  *   - Skips clients not yet due this calendar month (today's London day < schedule.day).
  *   - Calls enqueueCycleForClient for each due client.
  *
@@ -18,8 +18,6 @@
 
 import { eq, and } from 'drizzle-orm';
 import { db as _db, clients, clientChannels, contentCycles } from '@sprigly/db';
-import { getTokens, storeTokens, type EncryptionProvider } from '@sprigly/oauth-tokens';
-import { DriveApiClient } from '@sprigly/sources';
 import type { Queue } from 'bullmq';
 import type { Logger } from 'pino';
 import { IG_TRAWL_JOB_OPTIONS, igTrawlJobId } from './job-options.js';
@@ -42,23 +40,6 @@ export interface CycleSchedule {
 }
 
 const DEFAULT_SCHEDULE: CycleSchedule = { day: 1, hour: 6 };
-
-export function parseCycleSchedule(
-  config: Record<string, unknown>,
-  logger: Logger,
-  logCtx: Record<string, unknown>,
-): CycleSchedule {
-  const raw = config['content_cycle_schedule'];
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    logger.info({ ...logCtx, schedule: DEFAULT_SCHEDULE },
-      'content-cycle-scheduler: content_cycle_schedule absent — using default');
-    return { ...DEFAULT_SCHEDULE };
-  }
-  const r = raw as Record<string, unknown>;
-  const day  = typeof r['day']  === 'number' ? Math.max(1, Math.min(28, r['day']))  : DEFAULT_SCHEDULE.day;
-  const hour = typeof r['hour'] === 'number' ? Math.max(0, Math.min(23, r['hour'])) : DEFAULT_SCHEDULE.hour;
-  return { day, hour };
-}
 
 export function getLondonToday(now: Date = new Date()): { year: number; month: number; day: number } {
   const fmt = new Intl.DateTimeFormat('en-GB', {
@@ -99,7 +80,6 @@ export async function enqueueCycleForClient(params: {
   const logCtx = { clientId, channel, dataMonth };
 
   // DB-level dedup: skip if the cycle is already active (real guarantee).
-  // This check is the authoritative gate; BullMQ jobId dedup is the cheap early-out.
   const existingRows = await db
     .select({ status: contentCycles.status })
     .from(contentCycles)
@@ -118,13 +98,12 @@ export async function enqueueCycleForClient(params: {
   }
 
   // Seed the cycle row so runRequestEmail (chained after ig-trawl) can find it.
-  // ON CONFLICT DO NOTHING handles re-runs where the row is already 'scheduled' or 'failed'.
   await db
     .insert(contentCycles)
     .values({ clientId, channel, cycleMonth: dataMonth, status: 'scheduled' })
     .onConflictDoNothing();
 
-  // Deterministic jobId — BullMQ deduplicates if the job is already pending in the queue.
+  // BullMQ forbids colons in custom jobIds (Redis namespace separator). Use underscore.
   const jobId = igTrawlJobId(clientId, channel, dataMonth);
   await queue.add(
     'ig-trawl',
@@ -137,15 +116,12 @@ export async function enqueueCycleForClient(params: {
 }
 
 export async function runContentCycleTick(params: {
-  db:                 Db;
-  queue:              Queue;
-  encProvider:        EncryptionProvider;
-  googleClientId:     string;
-  googleClientSecret: string;
-  logger:             Logger;
-  now?:               Date;  // injectable for tests; defaults to new Date()
+  db:     Db;
+  queue:  Queue;
+  logger: Logger;
+  now?:   Date;  // injectable for tests; defaults to new Date()
 }): Promise<void> {
-  const { db, queue, encProvider, googleClientId, googleClientSecret, logger } = params;
+  const { db, queue, logger } = params;
   const now = params.now ?? new Date();
 
   const today     = getLondonToday(now);
@@ -154,9 +130,9 @@ export async function runContentCycleTick(params: {
 
   const enabledRows = await db
     .select({
-      clientId:      clientChannels.clientId,
-      channel:       clientChannels.channel,
-      driveFolderId: clientChannels.driveFolderId,
+      clientId:             clientChannels.clientId,
+      channel:              clientChannels.channel,
+      contentCycleSchedule: clientChannels.contentCycleSchedule,
     })
     .from(clientChannels)
     .innerJoin(clients, eq(clientChannels.clientId, clients.id))
@@ -171,40 +147,14 @@ export async function runContentCycleTick(params: {
   let skipped  = 0;
 
   for (const row of enabledRows) {
-    const { clientId, channel, driveFolderId } = row;
+    const { clientId, channel, contentCycleSchedule } = row;
     const logCtx = { clientId, channel, dataMonth };
 
     try {
-      if (!driveFolderId) {
-        logger.warn({ ...logCtx }, 'content-cycle-scheduler: no driveFolderId — skipping client');
-        skipped++;
-        continue;
-      }
-
-      const tokens = await getTokens(db, encProvider, clientId, 'drive');
-      if (!tokens) {
-        logger.warn({ ...logCtx }, 'content-cycle-scheduler: no Drive tokens — skipping client');
-        skipped++;
-        continue;
-      }
-
-      const drive = new DriveApiClient(googleClientId, googleClientSecret, tokens, async (t) => {
-        try { await storeTokens(db, encProvider, clientId, 'drive', t); }
-        catch (err) { logger.warn({ ...logCtx, err }, 'content-cycle-scheduler: token refresh write-back failed'); }
-      });
-
-      const files = await drive.listFiles(driveFolderId);
-      const cfgMeta = (files as Array<{ id: string; name: string }>)
-        .find(f => f.name === 'calendar-config.json');
-
-      let schedule: CycleSchedule;
-      if (!cfgMeta) {
-        logger.info({ ...logCtx }, 'content-cycle-scheduler: no calendar-config.json — using default schedule');
-        schedule = { ...DEFAULT_SCHEDULE };
-      } else {
-        const buf = await drive.downloadFile(cfgMeta.id);
-        const cfg = JSON.parse((buf as Buffer).toString('utf-8')) as Record<string, unknown>;
-        schedule = parseCycleSchedule(cfg, logger, logCtx);
+      const schedule: CycleSchedule = contentCycleSchedule ?? DEFAULT_SCHEDULE;
+      if (!contentCycleSchedule) {
+        logger.info({ ...logCtx, schedule: DEFAULT_SCHEDULE },
+          'content-cycle-scheduler: content_cycle_schedule absent — using default');
       }
 
       if (!isDue(schedule, today)) {

@@ -41,6 +41,7 @@ export interface IgProducerParams {
   clientId:      string;
   channel:       string;
   month:         string;         // YYYY-MM
+  handle:        string | undefined;  // instagram_handle from client_channels DB column
   driveFolderId: string;
   drive:         DriveApiClient;
   apifyApiKey:   string | undefined;
@@ -72,7 +73,7 @@ function inTargetMonth(timestamp: string | undefined, month: string): boolean {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export async function trawlInstagramPosts(params: IgProducerParams): Promise<void> {
-  const { clientId, channel, month, driveFolderId, drive, apifyApiKey, logger } = params;
+  const { clientId, channel, month, handle, driveFolderId, drive, apifyApiKey, logger } = params;
   const logCtx = { clientId, channel, month };
 
   // ── Missing API key ───────────────────────────────────────────────────────
@@ -81,26 +82,9 @@ export async function trawlInstagramPosts(params: IgProducerParams): Promise<voi
     return;
   }
 
-  // ── Read Drive folder + calendar-config.json ──────────────────────────────
-  const folderFiles = await drive.listFiles(driveFolderId);
-
-  const configMeta = folderFiles.find((f) => f.name === 'calendar-config.json');
-  if (!configMeta) {
-    logger.info(logCtx, 'ig-trawl: calendar-config.json not found in Drive — skipping');
-    return;
-  }
-
-  const configBuf = await drive.downloadFile(configMeta.id);
-  let handle: string | undefined;
-  try {
-    const cfg = JSON.parse(configBuf.toString('utf-8')) as Record<string, unknown>;
-    handle = typeof cfg['instagram_handle'] === 'string' ? cfg['instagram_handle'] : undefined;
-  } catch {
-    logger.info(logCtx, 'ig-trawl: failed to parse calendar-config.json — skipping');
-    return;
-  }
+  // ── Missing handle (DB column absent) ────────────────────────────────────
   if (!handle) {
-    logger.info(logCtx, 'ig-trawl: no instagram_handle in calendar-config.json — skipping');
+    logger.info(logCtx, 'ig-trawl: no instagram_handle — skipping');
     return;
   }
 
@@ -164,7 +148,7 @@ export async function trawlInstagramPosts(params: IgProducerParams): Promise<voi
     const distinctOwners = [...new Set(rawPosts.map((p) => p.ownerUsername).filter(Boolean))];
     throw new Error(
       `ig-trawl: account mismatch — expected "${handle}", found owners: ${distinctOwners.join(', ')}. ` +
-      `Check instagram_handle in calendar-config.json.`,
+      `Check instagram_handle in client_channels for this client.`,
     );
   }
 
@@ -235,13 +219,11 @@ export async function trawlInstagramPosts(params: IgProducerParams): Promise<voi
     'ig-trawl: posts validated for month');
 
   // ── Idempotent Drive write ────────────────────────────────────────────────
-  // Use the folder listing from the start of the run — a second listFiles call
-  // would be marginally fresher but the race (two concurrent ig-trawl runs) is
-  // effectively impossible for a monthly CLI.
-  const filename = `instagram-posts-${month}.json`;
-  const content  = Buffer.from(JSON.stringify(validated, null, 2));
-  const mimeType = 'application/json';
-  const existing = folderFiles.find((f) => f.name.toLowerCase() === filename.toLowerCase());
+  const filename    = `instagram-posts-${month}.json`;
+  const content     = Buffer.from(JSON.stringify(validated, null, 2));
+  const mimeType    = 'application/json';
+  const folderFiles = await drive.listFiles(driveFolderId);
+  const existing    = folderFiles.find((f) => f.name.toLowerCase() === filename.toLowerCase());
 
   if (existing) {
     await drive.updateFile(existing.id, mimeType, content);
@@ -278,12 +260,16 @@ export async function runIgTrawlJob(
   if (!tokens) throw new Error(`ig-trawl: no Drive tokens for client ${clientId}`);
 
   const chanRows = await db
-    .select({ driveFolderId: clientChannels.driveFolderId })
+    .select({
+      driveFolderId:   clientChannels.driveFolderId,
+      instagramHandle: clientChannels.instagramHandle,
+    })
     .from(clientChannels)
     .where(and(eq(clientChannels.clientId, clientId), eq(clientChannels.channel, channel)))
     .limit(1);
 
-  const driveFolderId = chanRows[0]?.driveFolderId;
+  const chanRow = chanRows[0];
+  const driveFolderId = chanRow?.driveFolderId;
   if (!driveFolderId) {
     throw new Error(`ig-trawl: no driveFolderId for client=${clientId} channel=${channel}`);
   }
@@ -301,5 +287,9 @@ export async function runIgTrawlJob(
     },
   );
 
-  await trawlInstagramPosts({ clientId, channel, month: dataMonth, driveFolderId, drive, apifyApiKey, logger });
+  await trawlInstagramPosts({
+    clientId, channel, month: dataMonth,
+    handle: chanRow.instagramHandle ?? undefined,
+    driveFolderId, drive, apifyApiKey, logger,
+  });
 }

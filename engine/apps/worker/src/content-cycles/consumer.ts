@@ -127,9 +127,7 @@ export function createContentCycleConsumer(
 
         case 'scheduler-tick':
           logger.info(logCtx, 'content-cycles: starting scheduler-tick job');
-          await runContentCycleTick({
-            db, encProvider, googleClientId, googleClientSecret, queue, logger,
-          });
+          await runContentCycleTick({ db, queue, logger });
           break;
 
         default:
