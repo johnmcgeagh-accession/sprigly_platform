@@ -53,7 +53,7 @@ export const BASE_QUESTIONS = [
 
 export const GREETING_INTRO      = "we've taken a look at last month's numbers. Here's where the data's pointing.";
 export const QUESTION_TRANSITION  = "To shape next month's content, it'd help to hear your thinking on a few things:";
-export const SIGN_OFF             = 'Thanks,\nSprigly';
+export const SIGN_OFF             = 'Thanks,\nThe Sprigly Team';
 
 /** Advance YYYY-MM by one calendar month; handles December → January year rollover. */
 export function addOneMonth(month: string): string {
@@ -199,11 +199,11 @@ export async function runRequestEmail(
   const body = buildBody({ greeting, leanLine, questions: allQuestions });
 
   // ── 7. Create Gmail draft — never send ───────────────────────────────────
-  logger.info({ ...logCtx, subject: `${clientName} — content plan for ${monthLabel}`, bodyText: body },
+  logger.info({ ...logCtx, subject: `${clientName}: content plan for ${monthLabel}`, bodyText: body },
     'request-email: assembled draft body');
   const draftId = await gmailDraftService.createDraft(clientId, {
     to:       contactEmail,
-    subject:  `${clientName} — content plan for ${monthLabel}`,
+    subject:  `${clientName}: content plan for ${monthLabel}`,
     bodyText: body,
   });
 
