@@ -3,11 +3,12 @@ export const revalidate = 0;
 
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { db, clients, clientConfigs, oauthConnections, incomingEvents, routingRules, promptTemplates, workflowRuns } from '@sprigly/db';
+import { db, clients, clientConfigs, clientChannels, oauthConnections, incomingEvents, routingRules, promptTemplates, workflowRuns } from '@sprigly/db';
 import { eq, desc, and, isNull, sql } from 'drizzle-orm';
 import { workflowMeta, type WorkflowMeta } from '@sprigly/workflows';
 import { customisePrompt, approveQaDraft } from './actions';
 import { StepModelForm } from './StepModelForm';
+import { ContentCycleSettingsForm } from './ContentCycleSettingsForm';
 
 type PromptRow = { id: string; clientId: string | null; workflowId: string; stepName: string; version: number };
 
@@ -33,6 +34,20 @@ async function getClientConfig(clientId: string) {
     .where(eq(clientConfigs.clientId, clientId))
     .limit(1);
   return rows[0] ?? null;
+}
+
+async function getClientChannels(clientId: string) {
+  return db
+    .select({
+      channel:              clientChannels.channel,
+      instagramHandle:      clientChannels.instagramHandle,
+      contactEmail:         clientChannels.contactEmail,
+      contactName:          clientChannels.contactName,
+      contentCycleSchedule: clientChannels.contentCycleSchedule,
+      extraQuestions:       clientChannels.extraQuestions,
+    })
+    .from(clientChannels)
+    .where(eq(clientChannels.clientId, clientId));
 }
 
 async function getOAuthConnections(clientId: string) {
@@ -151,9 +166,10 @@ async function getPromptCoverage(clientId: string, workflowIds: string[]): Promi
 }
 
 export default async function ClientDetailPage({ params }: { params: { id: string } }) {
-  const [client, config, connections, events, clientRules, pendingQaDrafts] = await Promise.all([
+  const [client, config, channels, connections, events, clientRules, pendingQaDrafts] = await Promise.all([
     getClient(params.id),
     getClientConfig(params.id),
+    getClientChannels(params.id),
     getOAuthConnections(params.id),
     getRecentEvents(params.id),
     getClientRoutingRules(params.id),
@@ -193,6 +209,40 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
           </dl>
         ) : (
           <p className="text-sm text-gray-400">No config record.</p>
+        )}
+      </section>
+
+      {/* Content Cycle Settings */}
+      <section className="bg-white rounded-lg border border-gray-200 px-6 py-5">
+        <h2 className="text-base font-semibold text-gray-900 mb-1">Content Cycle Settings</h2>
+        <p className="text-xs text-gray-400 mb-4">
+          Per-channel config for the monthly content-request email pipeline.
+          Fields save automatically on blur.
+        </p>
+        {channels.length === 0 ? (
+          <p className="text-sm text-gray-400">No channel rows configured — add a client_channels record to enable.</p>
+        ) : (
+          <div className="space-y-8">
+            {channels.map((ch) => (
+              <div key={ch.channel}>
+                {channels.length > 1 && (
+                  <p className="text-xs font-mono text-gray-500 mb-3">{ch.channel}</p>
+                )}
+                <ContentCycleSettingsForm
+                  key={`${ch.channel}-${String(client.contentCycleEnabled)}`}
+                  clientId={params.id}
+                  clientName={client.name}
+                  channel={ch.channel}
+                  instagramHandle={ch.instagramHandle ?? null}
+                  contactEmail={ch.contactEmail ?? null}
+                  contactName={ch.contactName ?? null}
+                  contentCycleSchedule={ch.contentCycleSchedule ?? null}
+                  extraQuestions={ch.extraQuestions ?? null}
+                  contentCycleEnabled={client.contentCycleEnabled}
+                />
+              </div>
+            ))}
+          </div>
         )}
       </section>
 

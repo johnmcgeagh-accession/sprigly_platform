@@ -1,12 +1,69 @@
 'use server';
 
-import { db, promptTemplates, clientConfigs, workflowRuns } from '@sprigly/db';
+import { db, promptTemplates, clientConfigs, workflowRuns, clientChannels, clients } from '@sprigly/db';
 import { and, eq, isNull, desc, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createModelClientFromEnv } from '@sprigly/model-client';
 import { createEmbeddingClientFromEnv } from '@sprigly/embedding-client';
 import { ingestSource } from '@sprigly/knowledge';
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export async function updateContentCycleSettings(formData: FormData): Promise<void> {
+  const clientId = formData.get('clientId') as string;
+  const channel  = formData.get('channel')  as string;
+
+  const instagramHandle = (formData.get('instagramHandle') as string).trim() || null;
+  const contactName     = (formData.get('contactName')     as string).trim() || null;
+  const contactEmail    = (formData.get('contactEmail')    as string).trim() || null;
+
+  if (contactEmail && !EMAIL_RE.test(contactEmail)) {
+    throw new Error(`Invalid email address: "${contactEmail}"`);
+  }
+
+  const dayRaw  = (formData.get('scheduleDay')  as string).trim();
+  const hourRaw = (formData.get('scheduleHour') as string).trim();
+  let contentCycleSchedule: { day: number; hour: number } | null = null;
+  if (dayRaw && hourRaw) {
+    const day  = parseInt(dayRaw,  10);
+    const hour = parseInt(hourRaw, 10);
+    if (isNaN(day)  || day  < 1  || day  > 28) throw new Error(`Schedule day must be 1–28, got "${dayRaw}"`);
+    if (isNaN(hour) || hour < 0  || hour > 23) throw new Error(`Schedule hour must be 0–23, got "${hourRaw}"`);
+    contentCycleSchedule = { day, hour };
+  }
+
+  const extraQuestionsRaw = (formData.get('extraQuestions') as string) ?? '';
+  const extraQuestions = extraQuestionsRaw
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  await db
+    .update(clientChannels)
+    .set({
+      instagramHandle,
+      contactEmail,
+      contactName,
+      contentCycleSchedule,
+      extraQuestions: extraQuestions.length > 0 ? extraQuestions : null,
+    })
+    .where(and(eq(clientChannels.clientId, clientId), eq(clientChannels.channel, channel)));
+
+  revalidatePath(`/admin/clients/${clientId}`);
+}
+
+export async function updateContentCycleEnabled(formData: FormData): Promise<void> {
+  const clientId = formData.get('clientId') as string;
+  const enabled  = formData.get('enabled') === 'true';
+
+  await db
+    .update(clients)
+    .set({ contentCycleEnabled: enabled })
+    .where(eq(clients.id, clientId));
+
+  revalidatePath(`/admin/clients/${clientId}`);
+}
 
 export async function updateStepModel(formData: FormData): Promise<void> {
   const clientId = formData.get('clientId') as string;
