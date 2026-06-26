@@ -17,6 +17,7 @@
     "drive-upload": "sh -c 'set -a && . ../../.env.local && set +a && tsx src/drive-upload.ts \"$@\"' --",
     "reenqueue-voice": "sh -c 'set -a && . ../../.env.local && set +a && tsx src/reenqueue-voice.ts \"$@\"' --",
     "seed-voice": "sh -c 'set -a && . ../../.env.local && set +a && tsx src/seed-voice.ts \"$@\"' --",
+    "seed-cycle-config": "sh -c 'set -a && . ../../.env.local && set +a && tsx src/content-cycles/seed-cycle-config.ts \"$@\"' --",
     "merge-voice": "sh -c 'set -a && . ../../.env.local && set +a && tsx src/merge-voice.ts'",
     "revert-voice-merge": "sh -c 'set -a && . ../../.env.local && set +a && tsx src/revert-voice-merge.ts \"$@\"' --",
     "probe-lean-line": "sh -c 'set -a && . ../../.env.local && set +a && tsx src/probe-lean-line.ts'",

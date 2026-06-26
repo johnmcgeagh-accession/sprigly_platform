@@ -505,12 +505,17 @@ export const clientChannels = pgTable(
   'client_channels',
   {
     ...baseColumns,
-    clientId:       uuid('client_id').notNull().references(() => clients.id),
-    channel:        text('channel').notNull(),          // 'instagram', 'linkedin', etc.
-    inboundAddress: text('inbound_address'),            // optional sender-email guard
-    driveFolderId:  text('drive_folder_id'),            // Google Drive folder ID
-    drivePageToken: text('drive_page_token'),           // changes-feed watermark; null = uninitialized
-    status:         text('status').notNull().default('active'),
+    clientId:             uuid('client_id').notNull().references(() => clients.id),
+    channel:              text('channel').notNull(),          // 'instagram', 'linkedin', etc.
+    inboundAddress:       text('inbound_address'),            // optional sender-email guard
+    driveFolderId:        text('drive_folder_id'),            // Google Drive folder ID
+    drivePageToken:       text('drive_page_token'),           // changes-feed watermark; null = uninitialized
+    status:               text('status').notNull().default('active'),
+    instagramHandle:      text('instagram_handle'),
+    contactEmail:         text('contact_email'),
+    contactName:          text('contact_name'),
+    contentCycleSchedule: jsonb('content_cycle_schedule').$type<{ day: number; hour: number } | null>(),
+    extraQuestions:       jsonb('extra_questions').$type<string[] | null>(),
   },
   (t) => ({
     uniqClientChannel: uniqueIndex('client_channels_unique').on(t.clientId, t.channel),
