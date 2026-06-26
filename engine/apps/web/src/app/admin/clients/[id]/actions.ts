@@ -66,9 +66,19 @@ export async function triggerCycle(formData: FormData): Promise<ActionResult> {
 
   const queue = getCyclesQueue();
   try {
-    const jobId = igTrawlJobId(clientId, channel, dataMonth);
-    const slotResult = await prepareJobSlot(queue, jobId);
-    if (!slotResult.ok) return slotResult;
+    const trawlJobId = igTrawlJobId(clientId, channel, dataMonth);
+    const emailJobId = requestEmailJobId(clientId, channel, dataMonth);
+
+    // Check ig-trawl slot — if active/locked, surface that and stop.
+    const trawlSlot = await prepareJobSlot(queue, trawlJobId);
+    if (!trawlSlot.ok) return trawlSlot;
+
+    // Free any completed/failed request-email entry so the chain from ig-trawl
+    // can land. BullMQ deduplicates queue.add() silently against completed jobs —
+    // if we don't clear this, the chain is a no-op and no draft is ever created.
+    // (If request-email is active, prepareJobSlot returns ok:false which we
+    // intentionally ignore here — the email is already running, which is fine.)
+    await prepareJobSlot(queue, emailJobId);
 
     // Seed / reset cycle row only after confirming we can enqueue.
     await db.update(contentCycles)
@@ -78,7 +88,7 @@ export async function triggerCycle(formData: FormData): Promise<ActionResult> {
       .values({ clientId, channel, cycleMonth: dataMonth, status: 'scheduled' })
       .onConflictDoNothing();
 
-    await queue.add('ig-trawl', { type: 'ig-trawl', clientId, channel, dataMonth }, { ...IG_TRAWL_JOB_OPTIONS, jobId });
+    await queue.add('ig-trawl', { type: 'ig-trawl', clientId, channel, dataMonth }, { ...IG_TRAWL_JOB_OPTIONS, jobId: trawlJobId });
     revalidatePath(`/admin/clients/${clientId}`);
     return { ok: true };
   } catch (err) {
@@ -96,11 +106,16 @@ export async function triggerTrawl(formData: FormData): Promise<ActionResult> {
 
   const queue = getCyclesQueue();
   try {
-    const jobId = igTrawlJobId(clientId, channel, dataMonth);
-    const slotResult = await prepareJobSlot(queue, jobId);
-    if (!slotResult.ok) return slotResult;
+    const trawlJobId = igTrawlJobId(clientId, channel, dataMonth);
+    const emailJobId = requestEmailJobId(clientId, channel, dataMonth);
 
-    await queue.add('ig-trawl', { type: 'ig-trawl', clientId, channel, dataMonth }, { ...IG_TRAWL_JOB_OPTIONS, jobId });
+    const trawlSlot = await prepareJobSlot(queue, trawlJobId);
+    if (!trawlSlot.ok) return trawlSlot;
+
+    // Same as triggerCycle: free completed request-email entry so chain lands.
+    await prepareJobSlot(queue, emailJobId);
+
+    await queue.add('ig-trawl', { type: 'ig-trawl', clientId, channel, dataMonth }, { ...IG_TRAWL_JOB_OPTIONS, jobId: trawlJobId });
     revalidatePath(`/admin/clients/${clientId}`);
     return { ok: true };
   } catch (err) {
