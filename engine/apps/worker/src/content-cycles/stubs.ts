@@ -38,17 +38,23 @@ export async function requestEmailStub(
   const tokens = await getTokens(db, encProvider, clientId, 'drive');
   if (!tokens) throw new Error(`request-email: no Drive tokens for client ${clientId}`);
 
+  const logger = pino({ name: 'request-email' });
   const drive = new DriveApiClient(
     env.GOOGLE_CLIENT_ID,
     env.GOOGLE_CLIENT_SECRET,
     tokens,
-    async (t) => { await storeTokens(db, encProvider, clientId, 'drive', t); },
+    async (t) => {
+      try {
+        await storeTokens(db, encProvider, clientId, 'drive', t);
+      } catch (err) {
+        logger.warn({ clientId, err }, 'request-email: Drive token refresh write-back failed — will self-heal on next call');
+      }
+    },
   );
   const gmailDraftService = createGmailDraftService(
-    db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET,
+    db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, logger,
   );
-  const model  = createModelClientFromEnv();
-  const logger = pino({ name: 'request-email' });
+  const model = createModelClientFromEnv();
 
   await runRequestEmail(clientId, channel, cycleMonth, {
     db, drive, gmailDraftService, model, logger,

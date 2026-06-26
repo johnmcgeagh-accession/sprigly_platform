@@ -4,6 +4,7 @@ import type { EncryptionProvider } from '@sprigly/oauth-tokens';
 import { GmailApiClient } from './gmail-client.js';
 
 type Db = typeof _db;
+type WarnLogger = { warn(obj: Record<string, unknown>, msg: string): void };
 
 export interface GmailDraftParams {
   threadId?: string;
@@ -23,6 +24,7 @@ export function createGmailDraftService(
   encProvider: EncryptionProvider,
   googleClientId: string,
   googleClientSecret: string,
+  logger?: WarnLogger,
 ) {
   const buildClient = async (clientId: string): Promise<GmailApiClient | null> => {
     const tokens = await getTokens(db, encProvider, clientId, 'gmail');
@@ -32,7 +34,13 @@ export function createGmailDraftService(
       googleClientId,
       googleClientSecret,
       tokens,
-      async (refreshed) => storeTokens(db, encProvider, clientId, 'gmail', refreshed),
+      async (refreshed) => {
+        try {
+          await storeTokens(db, encProvider, clientId, 'gmail', refreshed);
+        } catch (err) {
+          logger?.warn({ clientId, err }, 'gmail: token refresh write-back failed — will self-heal on next call');
+        }
+      },
       async (err) => {
         try {
           await db.insert(gmailOperationErrors).values({
