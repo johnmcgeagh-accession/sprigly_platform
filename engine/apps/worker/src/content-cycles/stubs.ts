@@ -25,6 +25,7 @@ export async function requestEmailStub(
     { env },
     { runRequestEmail },
     { DbPromptResolver },
+    { createAuditLogger },
   ] = await Promise.all([
     import('@sprigly/db'),
     import('@sprigly/oauth-tokens'),
@@ -34,6 +35,7 @@ export async function requestEmailStub(
     import('../env.js'),
     import('./request-email.js'),
     import('@sprigly/prompts'),
+    import('@sprigly/audit'),
   ]);
 
   const encProvider = createEncryptionProvider();
@@ -41,6 +43,7 @@ export async function requestEmailStub(
   if (!tokens) throw new Error(`request-email: no Drive tokens for client ${clientId}`);
 
   const logger = pino({ name: 'request-email' });
+  const audit  = createAuditLogger(db);
   const drive = new DriveApiClient(
     env.GOOGLE_CLIENT_ID,
     env.GOOGLE_CLIENT_SECRET,
@@ -60,7 +63,7 @@ export async function requestEmailStub(
   const prompts = new DbPromptResolver(db);
 
   await runRequestEmail(clientId, channel, cycleMonth, {
-    db, drive, gmailDraftService, model, logger, prompts,
+    db, drive, gmailDraftService, model, audit, logger, prompts,
   });
 }
 

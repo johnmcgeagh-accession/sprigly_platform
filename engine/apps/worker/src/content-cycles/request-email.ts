@@ -22,6 +22,7 @@ import {
 } from '@sprigly/db';
 import type { DriveApiClient } from '@sprigly/sources';
 import type { ModelClient } from '@sprigly/model-client';
+import type { AuditLogger } from '@sprigly/audit';
 import type { Logger } from 'pino';
 import { buildLeanLine, type PromptResolver } from '../lean-line.js';
 import { transitionCycle } from './machine.js';
@@ -40,6 +41,7 @@ export interface RequestEmailDeps {
   drive:             DriveApiClient;
   gmailDraftService: GmailDraftService;
   model:             ModelClient;
+  audit:             AuditLogger;
   logger:            Logger;
   prompts:           PromptResolver;
 }
@@ -102,7 +104,7 @@ export async function runRequestEmail(
   month:    string,   // dataMonth (cycleMonth) — analysed by lean-line
   deps:     RequestEmailDeps,
 ): Promise<void> {
-  const { db, drive, gmailDraftService, model, logger, prompts } = deps;
+  const { db, drive, gmailDraftService, model, audit, logger, prompts } = deps;
   const logCtx = { clientId, channel, month };
 
   // ── 1. Idempotency guard ──────────────────────────────────────────────────
@@ -173,7 +175,7 @@ export async function runRequestEmail(
 
   // ── 5. Lean line — uses dataMonth for data lookups ────────────────────────
   const leanLine = await buildLeanLine({
-    clientId, clientName, channel, month, driveFolderId, drive, model, logger, prompts,
+    clientId, clientName, channel, month, driveFolderId, drive, model, audit, logger, prompts,
   });
 
   // ── 6. Build draft ────────────────────────────────────────────────────────

@@ -223,6 +223,7 @@ const BASE_PARAMS = {
   month:         '2026-05',
   driveFolderId: 'folder-xyz',
   prompts:       makePrompts(),
+  audit:         { logModelCall: vi.fn().mockResolvedValue(undefined) } as BuildLeanLineParams['audit'],
 };
 
 // ── Prompt resolver wiring ────────────────────────────────────────────────────

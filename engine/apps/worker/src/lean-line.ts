@@ -22,6 +22,7 @@
 import { z } from 'zod';
 import type { DriveApiClient } from '@sprigly/sources';
 import type { ModelClient } from '@sprigly/model-client';
+import type { AuditLogger } from '@sprigly/audit';
 import type { Logger } from 'pino';
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -48,6 +49,7 @@ export interface BuildLeanLineParams {
   driveFolderId: string;
   drive:         DriveApiClient;
   model:         ModelClient;
+  audit:         AuditLogger;
   logger:        Logger;
   prompts:       PromptResolver;
 }
@@ -352,7 +354,7 @@ function buildUserMessage(
  * lean section entirely when this returns null. Never render a blank intro.
  */
 export async function buildLeanLine(params: BuildLeanLineParams): Promise<string | null> {
-  const { clientId, clientName, channel, month, driveFolderId, drive, model, logger, prompts } = params;
+  const { clientId, clientName, channel, month, driveFolderId, drive, model, audit, logger, prompts } = params;
   const logCtx = { clientId, channel, month };
 
   const [sellers, posts] = await Promise.all([
@@ -375,6 +377,19 @@ export async function buildLeanLine(params: BuildLeanLineParams): Promise<string
     messages:  [{ role: 'user', content: userMessage }],
     maxTokens: 150,
   });
+
+  try {
+    await audit.logModelCall({
+      clientId,
+      modelId:      result.modelId,
+      inputTokens:  result.inputTokens,
+      outputTokens: result.outputTokens,
+      action:       'content-cycle:lean-line',
+      metadata:     { channel, month, sourceSales: !!sellers, sourceEngagement: !!posts },
+    });
+  } catch (auditErr) {
+    logger.warn({ ...logCtx, err: String(auditErr) }, 'lean-line: audit log failed — non-fatal');
+  }
 
   const leanLine = result.content.trim();
   if (!leanLine) {

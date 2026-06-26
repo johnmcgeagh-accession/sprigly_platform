@@ -16,6 +16,7 @@ import { db, clients, clientChannels } from '@sprigly/db';
 import { getTokens, createEncryptionProvider } from '@sprigly/oauth-tokens';
 import { DriveApiClient } from '@sprigly/sources';
 import { createModelClientFromEnv } from '@sprigly/model-client';
+import { createAuditLogger } from '@sprigly/audit';
 import { buildLeanLine } from './lean-line.js';
 import { DbPromptResolver } from '@sprigly/prompts';
 import { env } from './env.js';
@@ -133,6 +134,7 @@ const leanLine = await buildLeanLine({
   driveFolderId,
   drive,
   model,
+  audit:         createAuditLogger(db),
   logger,
   prompts,
 });
