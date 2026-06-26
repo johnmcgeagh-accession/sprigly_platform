@@ -54,6 +54,7 @@ export const clients = pgTable('clients', {
   status: text('status').notNull().default('active'),
   settings: jsonb('settings').$type<Record<string, unknown>>().default({}).notNull(),
   verifiedDomain: text('verified_domain'),
+  contentCycleEnabled: boolean('content_cycle_enabled').notNull().default(false),
 });
 
 export type Client = typeof clients.$inferSelect;

@@ -26,6 +26,10 @@ import type { Logger } from 'pino';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
+export interface PromptResolver {
+  resolve(clientId: string, workflowId: string, stepName: string): Promise<string>;
+}
+
 export interface TopSeller {
   product: string;
   units: number;
@@ -45,34 +49,15 @@ export interface BuildLeanLineParams {
   drive:         DriveApiClient;
   model:         ModelClient;
   logger:        Logger;
+  prompts:       PromptResolver;
 }
 
-// ── Prompt constants ──────────────────────────────────────────────────────────
-
-const LEAN_LINE_SYSTEM =
-  'You write brief, warm monthly content guidance for a social media agency\'s client email.\n' +
-  'Voice: founder-to-founder, observational, never pushy.\n' +
-  'Phrase as "leaning towards…" — never imperatives.\n' +
-  'Write in UK English throughout (colour, colourway, favour, honour, etc.) — never US spelling.\n' +
-  'Two sentences maximum — keep each one short and direct.\n' +
-  'Unit figures: you may quote a unit count exactly as it appears in the seller list to sharpen a point — ' +
-  'one well-placed figure beats several. Never compute, sum, or derive any number; copy it verbatim from ' +
-  'the data or omit it entirely. Never cite a number not present in the provided lists.\n' +
-  'Engagement data tells you WHICH posts performed — not WHY. ' +
-  'Do not assert themes, topics, or audience preferences as facts ("there\'s appetite for X", ' +
-  '"your audience responds to Y"). ' +
-  'You may note that a product both sold well AND had a strong-performing post — that overlap is ' +
-  'defensible from the data. You may NOT diagnose the reason it engaged.\n' +
-  'Caption text is given solely to identify which post and product each engagement figure refers to, ' +
-  'so you can match posts to sellers. Do NOT characterise, theme, or quote the caption. ' +
-  'Never describe what a post is "about" or infer an editorial style, voice, or audience preference from it. ' +
-  'Reference engagement posts only as "[product]\'s post, which had N engagement" — ' +
-  'never by their tone or subject.\n' +
-  'Avoid em dashes (—). Use a comma or full stop instead.\n' +
-  'Avoid AI-tell phrases: "clearly resonating", "feels like the natural next step", ' +
-  '"it\'s worth leaning into", "speaks to", "the data is telling us". ' +
-  'Write plain, direct sentences — state what the data shows, not why it feels meaningful.\n' +
-  'Output plain prose only — no bullets, no JSON, no preamble.';
+// ── Prompt ────────────────────────────────────────────────────────────────────
+// Resolved at runtime from the prompt store (workflow=content-cycle-request-email, step=lean-line).
+// Seeded by migration 0038_lean_line_prompt.sql. No in-source fallback — throw-on-missing like
+// the blog pipeline steps, so a missing row surfaces immediately rather than silently degrading.
+export const LEAN_LINE_WORKFLOW = 'content-cycle-request-email';
+export const LEAN_LINE_STEP     = 'lean-line';
 
 // ── CSV column matching ───────────────────────────────────────────────────────
 
@@ -367,7 +352,7 @@ function buildUserMessage(
  * lean section entirely when this returns null. Never render a blank intro.
  */
 export async function buildLeanLine(params: BuildLeanLineParams): Promise<string | null> {
-  const { clientId, clientName, channel, month, driveFolderId, drive, model, logger } = params;
+  const { clientId, clientName, channel, month, driveFolderId, drive, model, logger, prompts } = params;
   const logCtx = { clientId, channel, month };
 
   const [sellers, posts] = await Promise.all([
@@ -381,11 +366,12 @@ export async function buildLeanLine(params: BuildLeanLineParams): Promise<string
     return null;
   }
 
-  const userMessage = buildUserMessage(clientName, month, sellers, posts);
+  const systemPrompt = await prompts.resolve(clientId, LEAN_LINE_WORKFLOW, LEAN_LINE_STEP);
+  const userMessage  = buildUserMessage(clientName, month, sellers, posts);
 
   const result = await model.completeStreaming({
     model:     'haiku',
-    system:    LEAN_LINE_SYSTEM,
+    system:    systemPrompt,
     messages:  [{ role: 'user', content: userMessage }],
     maxTokens: 150,
   });

@@ -10,9 +10,14 @@
  */
 
 import { z } from 'zod';
-import type { DriveApiClient } from '@sprigly/sources';
+import { eq, and } from 'drizzle-orm';
+import { db as _db, clientChannels } from '@sprigly/db';
+import { DriveApiClient } from '@sprigly/sources';
+import { getTokens, storeTokens, type EncryptionProvider } from '@sprigly/oauth-tokens';
 import type { Logger } from 'pino';
 import { igPostSchema } from './lean-line.js';
+
+type Db = typeof _db;
 
 // Results limit — must exceed the number of posts the account publishes per month.
 // At 50, an account posting > 50 times per month will miss posts near the start of
@@ -247,4 +252,54 @@ export async function trawlInstagramPosts(params: IgProducerParams): Promise<voi
     logger.info({ ...logCtx, handle, filename, fileId, postCount: validated.length },
       'ig-trawl: created Drive file');
   }
+}
+
+// ── Job-level runner (called by BullMQ consumer and CLI wrapper) ──────────────
+
+export interface RunIgTrawlJobDeps {
+  db:                 Db;
+  encProvider:        EncryptionProvider;
+  googleClientId:     string;
+  googleClientSecret: string;
+  apifyApiKey:        string | undefined;
+  logger:             Logger;
+}
+
+export async function runIgTrawlJob(
+  clientId:  string,
+  channel:   string,
+  dataMonth: string,
+  deps:      RunIgTrawlJobDeps,
+): Promise<void> {
+  const { db, encProvider, googleClientId, googleClientSecret, apifyApiKey, logger } = deps;
+  const logCtx = { clientId, channel, dataMonth };
+
+  const tokens = await getTokens(db, encProvider, clientId, 'drive');
+  if (!tokens) throw new Error(`ig-trawl: no Drive tokens for client ${clientId}`);
+
+  const chanRows = await db
+    .select({ driveFolderId: clientChannels.driveFolderId })
+    .from(clientChannels)
+    .where(and(eq(clientChannels.clientId, clientId), eq(clientChannels.channel, channel)))
+    .limit(1);
+
+  const driveFolderId = chanRows[0]?.driveFolderId;
+  if (!driveFolderId) {
+    throw new Error(`ig-trawl: no driveFolderId for client=${clientId} channel=${channel}`);
+  }
+
+  const drive = new DriveApiClient(
+    googleClientId,
+    googleClientSecret,
+    tokens,
+    async (t) => {
+      try {
+        await storeTokens(db, encProvider, clientId, 'drive', t);
+      } catch (err) {
+        logger.warn({ ...logCtx, err }, 'ig-trawl: Drive token refresh write-back failed — will self-heal on next call');
+      }
+    },
+  );
+
+  await trawlInstagramPosts({ clientId, channel, month: dataMonth, driveFolderId, drive, apifyApiKey, logger });
 }

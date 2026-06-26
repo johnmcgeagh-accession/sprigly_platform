@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { parseSalesCsv, parseIgPostsJson, buildLeanLine } from './lean-line.js';
+import {
+  parseSalesCsv,
+  parseIgPostsJson,
+  buildLeanLine,
+  LEAN_LINE_WORKFLOW,
+  LEAN_LINE_STEP,
+} from './lean-line.js';
 import type { BuildLeanLineParams } from './lean-line.js';
 
 // ── parseSalesCsv ─────────────────────────────────────────────────────────────
@@ -206,13 +212,66 @@ function makeLogger(): BuildLeanLineParams['logger'] {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as BuildLeanLineParams['logger'];
 }
 
+function makePrompts(text = 'system prompt from store'): BuildLeanLineParams['prompts'] {
+  return { resolve: vi.fn().mockResolvedValue(text) };
+}
+
 const BASE_PARAMS = {
   clientId:      'client-1',
   clientName:    'Ivy-T',
   channel:       'instagram',
   month:         '2026-05',
   driveFolderId: 'folder-xyz',
+  prompts:       makePrompts(),
 };
+
+// ── Prompt resolver wiring ────────────────────────────────────────────────────
+
+describe('buildLeanLine — prompt resolver', () => {
+  it('uses the workflow and step constants that match the migration seed', () => {
+    expect(LEAN_LINE_WORKFLOW).toBe('content-cycle-request-email');
+    expect(LEAN_LINE_STEP).toBe('lean-line');
+  });
+
+  it('calls prompts.resolve with (clientId, workflow, step) when model is invoked', async () => {
+    const prompts = makePrompts();
+    const drive   = makeDrive({ 'sales-2026-05.csv': SALES_CSV });
+    await buildLeanLine({ ...BASE_PARAMS, drive, model: makeModel(), logger: makeLogger(), prompts });
+    expect(prompts.resolve).toHaveBeenCalledOnce();
+    expect(prompts.resolve).toHaveBeenCalledWith('client-1', LEAN_LINE_WORKFLOW, LEAN_LINE_STEP);
+  });
+
+  it('passes the resolved prompt text as system to model.completeStreaming', async () => {
+    const CUSTOM = 'Custom prompt text from DB';
+    const prompts = makePrompts(CUSTOM);
+    const model   = makeModel();
+    const drive   = makeDrive({ 'sales-2026-05.csv': SALES_CSV });
+    await buildLeanLine({ ...BASE_PARAMS, drive, model, logger: makeLogger(), prompts });
+    const call = (model.completeStreaming as ReturnType<typeof vi.fn>).mock.calls[0]![0];
+    expect(call.system).toBe(CUSTOM);
+  });
+
+  it('propagates resolver error (no silent fallback)', async () => {
+    const prompts = {
+      resolve: vi.fn().mockRejectedValue(
+        new Error('No prompt template found for workflow=content-cycle-request-email step=lean-line'),
+      ),
+    };
+    const drive = makeDrive({ 'sales-2026-05.csv': SALES_CSV });
+    await expect(
+      buildLeanLine({ ...BASE_PARAMS, drive, model: makeModel(), logger: makeLogger(), prompts }),
+    ).rejects.toThrow('No prompt template found');
+  });
+
+  it('does not call prompts.resolve when both sources are absent', async () => {
+    const prompts = makePrompts();
+    const result  = await buildLeanLine({ ...BASE_PARAMS, drive: makeDrive({}), model: makeModel(), logger: makeLogger(), prompts });
+    expect(result).toBeNull();
+    expect(prompts.resolve).not.toHaveBeenCalled();
+  });
+});
+
+// ── Degradation paths ─────────────────────────────────────────────────────────
 
 describe('buildLeanLine — degradation paths', () => {
   it('both sources present: calls model with both sections, returns lean line', async () => {

@@ -17,6 +17,7 @@ import { getTokens, createEncryptionProvider } from '@sprigly/oauth-tokens';
 import { DriveApiClient } from '@sprigly/sources';
 import { createModelClientFromEnv } from '@sprigly/model-client';
 import { buildLeanLine } from './lean-line.js';
+import { DbPromptResolver } from '@sprigly/prompts';
 import { env } from './env.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -122,6 +123,8 @@ if (!salesMeta && !igMeta) {
 console.log('calling buildLeanLine...');
 console.log('');
 
+const prompts = new DbPromptResolver(db);
+
 const leanLine = await buildLeanLine({
   clientId:      clientRow.id,
   clientName:    clientRow.name,
@@ -131,6 +134,7 @@ const leanLine = await buildLeanLine({
   drive,
   model,
   logger,
+  prompts,
 });
 
 // ── Print result ──────────────────────────────────────────────────────────────

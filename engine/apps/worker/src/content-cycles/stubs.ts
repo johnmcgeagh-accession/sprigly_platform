@@ -24,6 +24,7 @@ export async function requestEmailStub(
     { default: pino },
     { env },
     { runRequestEmail },
+    { DbPromptResolver },
   ] = await Promise.all([
     import('@sprigly/db'),
     import('@sprigly/oauth-tokens'),
@@ -32,6 +33,7 @@ export async function requestEmailStub(
     import('pino'),
     import('../env.js'),
     import('./request-email.js'),
+    import('@sprigly/prompts'),
   ]);
 
   const encProvider = createEncryptionProvider();
@@ -54,10 +56,11 @@ export async function requestEmailStub(
   const gmailDraftService = createGmailDraftService(
     db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, logger,
   );
-  const model = createModelClientFromEnv();
+  const model   = createModelClientFromEnv();
+  const prompts = new DbPromptResolver(db);
 
   await runRequestEmail(clientId, channel, cycleMonth, {
-    db, drive, gmailDraftService, model, logger,
+    db, drive, gmailDraftService, model, logger, prompts,
   });
 }
 

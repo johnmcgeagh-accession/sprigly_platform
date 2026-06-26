@@ -165,6 +165,26 @@ export const workflowMeta: WorkflowMeta[] = [
     ],
   },
   {
+    id: 'content-cycle-request-email',
+    name: 'Content Cycle: Request Email',
+    description: 'Monthly content-request pipeline: trawl Instagram posts then build and send the request-email draft.',
+    defaultDestinations: [],
+    steps: [
+      {
+        stepName: 'trawl',
+        stepDescription: 'Fetches last-month Instagram posts via Apify and writes instagram-posts-YYYY-MM.json to Drive.',
+        model: 'none' as LogicalModelName,
+        requiresPrompt: false,
+      },
+      {
+        stepName: 'lean-line',
+        stepDescription: 'Generates a 1–2 sentence content recommendation from top sellers and top posts.',
+        model: 'haiku',
+        requiresPrompt: true,
+      },
+    ],
+  },
+  {
     id: 'sprigly-calendar-build-workbook',
     name: 'Calendar Build Workbook',
     description: 'Deterministic: CSV + calendar-config.json → 3-tab xlsx via generate_calendar.py; delivered by email. Zero LLM calls.',

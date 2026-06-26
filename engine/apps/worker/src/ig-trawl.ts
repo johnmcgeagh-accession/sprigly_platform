@@ -1,9 +1,8 @@
 /**
- * ig-trawl.ts — CLI entry point for trawling Instagram posts for a client.
+ * ig-trawl.ts — CLI wrapper for the ig-trawl job.
  *
- * Fetches the previous (or specified) month's posts via Apify and writes
- * instagram-posts-YYYY-MM.json to the client's Drive folder, idempotently.
- * The file is then read by lean-line.ts on the next monthly email run.
+ * Resolves the client slug to a clientId then delegates to runIgTrawlJob,
+ * which is the same handler the BullMQ consumer uses.
  *
  * Usage:
  *   pnpm --filter @sprigly/worker ig-trawl <client-slug> <channel> <YYYY-MM>
@@ -12,12 +11,11 @@
  */
 
 import pino from 'pino';
-import { eq, and } from 'drizzle-orm';
-import { db, clients, clientChannels } from '@sprigly/db';
-import { getTokens, createEncryptionProvider } from '@sprigly/oauth-tokens';
-import { DriveApiClient } from '@sprigly/sources';
+import { eq } from 'drizzle-orm';
+import { db, clients } from '@sprigly/db';
+import { createEncryptionProvider } from '@sprigly/oauth-tokens';
 import { env } from './env.js';
-import { trawlInstagramPosts } from './ig-producer.js';
+import { runIgTrawlJob } from './ig-producer.js';
 
 const slug    = process.argv[2];
 const channel = process.argv[3];
@@ -31,8 +29,6 @@ if (!slug || !channel || !month || !/^\d{4}-\d{2}$/.test(month)) {
 
 const logger = pino({ name: 'ig-trawl', level: 'info' });
 
-// ── Resolve client ────────────────────────────────────────────────────────────
-
 const clientRows = await db
   .select({ id: clients.id })
   .from(clients)
@@ -42,41 +38,13 @@ const clientRows = await db
 const clientRow = clientRows[0];
 if (!clientRow) { console.error(`Client not found: ${slug}`); process.exit(1); }
 
-// ── Resolve channel / Drive folder ────────────────────────────────────────────
-
-const channelRows = await db
-  .select({ driveFolderId: clientChannels.driveFolderId })
-  .from(clientChannels)
-  .where(and(eq(clientChannels.clientId, clientRow.id), eq(clientChannels.channel, channel)))
-  .limit(1);
-
-const channelRow = channelRows[0];
-if (!channelRow?.driveFolderId) {
-  console.error(`No drive_folder_id for ${slug}/${channel}`);
-  process.exit(1);
-}
-
-// ── Drive client ──────────────────────────────────────────────────────────────
-
 const encProvider = createEncryptionProvider();
-const tokens      = await getTokens(db, encProvider, clientRow.id, 'drive');
-if (!tokens) { console.error(`No Drive tokens for ${slug}`); process.exit(1); }
 
-const drive = new DriveApiClient(
-  env.GOOGLE_CLIENT_ID,
-  env.GOOGLE_CLIENT_SECRET,
-  tokens,
-  async () => {},
-);
-
-// ── Run ───────────────────────────────────────────────────────────────────────
-
-await trawlInstagramPosts({
-  clientId:      clientRow.id,
-  channel,
-  month,
-  driveFolderId: channelRow.driveFolderId,
-  drive,
-  apifyApiKey:   process.env['APIFY_API_KEY'],
+await runIgTrawlJob(clientRow.id, channel, month, {
+  db,
+  encProvider,
+  googleClientId:     env.GOOGLE_CLIENT_ID,
+  googleClientSecret: env.GOOGLE_CLIENT_SECRET,
+  apifyApiKey:        env.APIFY_API_KEY,
   logger,
 });

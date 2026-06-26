@@ -8,4 +8,5 @@ export const env = z.object({
   TAVILY_API_KEY: z.string().min(1),
   APP_BASE_URL: z.string().url(),
   CAL_PYTHON_BIN: z.string().min(1).default('/opt/cal-venv/bin/python'),
+  APIFY_API_KEY: z.string().min(1).optional(),
 }).parse(process.env);

@@ -108,6 +108,7 @@ function makeDeps(overrides: {
     gmailDraftService: (overrides.gmailDraftService ?? makeGmail()) as unknown as RequestEmailDeps['gmailDraftService'],
     model:             {} as RequestEmailDeps['model'],
     logger:            { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as unknown as Logger,
+    prompts:           { resolve: vi.fn().mockResolvedValue('system-prompt') } as RequestEmailDeps['prompts'],
   };
 }
 

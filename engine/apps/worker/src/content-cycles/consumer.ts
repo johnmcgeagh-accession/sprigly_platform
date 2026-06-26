@@ -2,13 +2,32 @@
  * consumer.ts — BullMQ worker for the 'content-cycles' queue.
  *
  * Job types:
- *   extract-voice: runs extractVoiceDeltasForCycle (active → awaiting_voice_approval)
- *   apply-voice:   runs applyVoiceDeltasForCycle (approval → voice_merged → closed)
+ *   extract-voice:   runs extractVoiceDeltasForCycle (active → awaiting_voice_approval)
+ *   apply-voice:     runs applyVoiceDeltasForCycle (approval → voice_merged → closed)
+ *   ig-trawl:        runs runIgTrawlJob then CHAINS to request-email on success
+ *   request-email:   runs requestEmailStub (scheduled → requested)
+ *   scheduler-tick:  daily cron tick — queries enabled clients and enqueues ig-trawl for due ones
  *
- * Enqueue via contentCyclesQueue.add(type, { type, cycleId }, { jobId: ... }).
+ * Chaining: ig-trawl → request-email is triggered on job SUCCESS (no thrown error),
+ * regardless of whether a Drive file was written. A trawl that succeeds but produces
+ * no IG file (no APIFY_API_KEY, zero owned posts) is still success — request-email
+ * then degrades to sales-only via the existing null-engagement path in lean-line.ts.
+ * Only a thrown error stops the chain, causing BullMQ to retry the trawl.
+ *
+ * Retry policies (set as job options when enqueueing):
+ *   IG_TRAWL_JOB_OPTIONS      — aggressive: 5 attempts, exponential backoff (Apify is network-flaky)
+ *   REQUEST_EMAIL_JOB_OPTIONS — gentler:   3 attempts, fixed 15 s delay
+ *
+ * Idempotency across the chain:
+ *   trawl:         overwrites the Drive file on re-run (existing behaviour)
+ *   request-email: early-returns if cycle.status === 'requested' (existing guard in runRequestEmail)
+ *   chain re-run:  trawl refreshes the file, enqueues email with a deterministic jobId so
+ *                  BullMQ deduplicates pending jobs; if the email already ran, it no-ops.
+ *
+ * Enqueue via contentCyclesQueue.add(type, { type, ... }, { ...JOB_OPTIONS, jobId: ... }).
  */
 
-import { Worker } from 'bullmq';
+import { Worker, type Queue } from 'bullmq';
 import { db as _db } from '@sprigly/db';
 import type { EncryptionProvider } from '@sprigly/oauth-tokens';
 import { DbPromptResolver } from '@sprigly/prompts';
@@ -17,13 +36,29 @@ import type { AuditLogger } from '@sprigly/audit';
 import type { Logger } from 'pino';
 import { extractVoiceDeltasForCycle } from './extract.js';
 import { applyVoiceDeltasForCycle } from './apply.js';
+import { runIgTrawlJob } from '../ig-producer.js';
+import { requestEmailStub } from './stubs.js';
+import { runContentCycleTick } from './scheduler.js';
+import {
+  IG_TRAWL_JOB_OPTIONS,
+  REQUEST_EMAIL_JOB_OPTIONS,
+  igTrawlJobId,
+  requestEmailJobId,
+} from './job-options.js';
+
+// Re-export so callers that previously imported from consumer.ts continue to work.
+export { IG_TRAWL_JOB_OPTIONS, REQUEST_EMAIL_JOB_OPTIONS, igTrawlJobId, requestEmailJobId };
 
 type Db = typeof _db;
 
-interface ContentCycleJob {
-  type:    'extract-voice' | 'apply-voice';
-  cycleId: string;
-}
+// ── Job type union ────────────────────────────────────────────────────────────
+
+type ContentCycleJob =
+  | { type: 'extract-voice';   cycleId: string }
+  | { type: 'apply-voice';     cycleId: string }
+  | { type: 'ig-trawl';        clientId: string; channel: string; dataMonth: string }
+  | { type: 'request-email';   clientId: string; channel: string; dataMonth: string }
+  | { type: 'scheduler-tick' };
 
 export function createContentCycleConsumer(
   db:                 Db,
@@ -35,30 +70,66 @@ export function createContentCycleConsumer(
   audit:              AuditLogger,
   logger:             Logger,
   redisUrl:           string,
+  apifyApiKey:        string | undefined,
+  queue:              Queue,
 ): Worker {
   return new Worker(
     'content-cycles',
     async (job) => {
-      const { type, cycleId } = job.data as ContentCycleJob;
-      const logCtx = { type, cycleId, jobId: job.id };
+      const data   = job.data as ContentCycleJob;
+      const logCtx = { type: data.type, jobId: job.id };
 
-      switch (type) {
+      switch (data.type) {
         case 'extract-voice':
-          logger.info(logCtx, 'content-cycles: starting extract-voice job');
+          logger.info({ ...logCtx, cycleId: data.cycleId }, 'content-cycles: starting extract-voice job');
           await extractVoiceDeltasForCycle(
-            cycleId, db, encProvider,
+            data.cycleId, db, encProvider,
             googleClientId, googleClientSecret,
             model, prompts, audit, logger,
           );
           break;
 
         case 'apply-voice':
-          logger.info(logCtx, 'content-cycles: starting apply-voice job');
+          logger.info({ ...logCtx, cycleId: data.cycleId }, 'content-cycles: starting apply-voice job');
           await applyVoiceDeltasForCycle(
-            cycleId, db, encProvider,
+            data.cycleId, db, encProvider,
             googleClientId, googleClientSecret,
             audit, logger,
           );
+          break;
+
+        case 'ig-trawl': {
+          const { clientId, channel, dataMonth } = data;
+          logger.info({ ...logCtx, clientId, channel, dataMonth }, 'content-cycles: starting ig-trawl job');
+          await runIgTrawlJob(clientId, channel, dataMonth, {
+            db, encProvider, googleClientId, googleClientSecret, apifyApiKey, logger,
+          });
+          // Chain: enqueue request-email unconditionally on success.
+          // "No file written" (missing APIFY_API_KEY, zero owned posts, zero month posts) is
+          // NOT an error — runIgTrawlJob returns void. The email then degrades to sales-only.
+          // Only a thrown error above stops the chain.
+          const emailJobId = requestEmailJobId(clientId, channel, dataMonth);
+          await queue.add(
+            'request-email',
+            { type: 'request-email', clientId, channel, dataMonth },
+            { ...REQUEST_EMAIL_JOB_OPTIONS, jobId: emailJobId },
+          );
+          logger.info({ ...logCtx, clientId, channel, dataMonth, emailJobId },
+            'content-cycles: ig-trawl done — chained request-email job');
+          break;
+        }
+
+        case 'request-email':
+          logger.info({ ...logCtx, clientId: data.clientId, channel: data.channel, dataMonth: data.dataMonth },
+            'content-cycles: starting request-email job');
+          await requestEmailStub(data.clientId, data.channel, data.dataMonth);
+          break;
+
+        case 'scheduler-tick':
+          logger.info(logCtx, 'content-cycles: starting scheduler-tick job');
+          await runContentCycleTick({
+            db, encProvider, googleClientId, googleClientSecret, queue, logger,
+          });
           break;
 
         default:

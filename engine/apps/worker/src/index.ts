@@ -164,7 +164,19 @@ const contentCycleConsumer = createContentCycleConsumer(
   db, encProvider,
   env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET,
   model, prompts, audit, logger, env.REDIS_URL,
+  env.APIFY_API_KEY,
+  contentCyclesQueue,
 );
+
+// Register the daily content-cycle scheduler tick (05:00 Europe/London).
+// BullMQ deduplicates if the repeatable job is already registered from a prior startup.
+// Zero clients run until content_cycle_enabled is explicitly set true in the DB.
+void contentCyclesQueue.add(
+  'scheduler-tick',
+  { type: 'scheduler-tick' },
+  { repeat: { pattern: '0 5 * * *', tz: 'Europe/London' } },
+);
+logger.info('Content-cycle scheduler tick registered (daily 05:00 Europe/London)');
 
 const consumer = createConsumer(
   db,
