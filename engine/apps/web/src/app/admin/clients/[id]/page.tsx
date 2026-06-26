@@ -3,12 +3,15 @@ export const revalidate = 0;
 
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { db, clients, clientConfigs, clientChannels, oauthConnections, incomingEvents, routingRules, promptTemplates, workflowRuns } from '@sprigly/db';
-import { eq, desc, and, isNull, sql } from 'drizzle-orm';
+import { db, clients, clientConfigs, clientChannels, oauthConnections, incomingEvents, routingRules, promptTemplates, workflowRuns, contentCycles } from '@sprigly/db';
+import { eq, desc, and, isNull, sql, inArray } from 'drizzle-orm';
 import { workflowMeta, type WorkflowMeta } from '@sprigly/workflows';
+import { getTokens, storeTokens, createEncryptionProvider } from '@sprigly/oauth-tokens';
+import { DriveApiClient, type DriveFileMeta } from '@sprigly/sources';
 import { customisePrompt, approveQaDraft } from './actions';
 import { StepModelForm } from './StepModelForm';
 import { ContentCycleSettingsForm } from './ContentCycleSettingsForm';
+import { ContentCycleOpsPanel } from './ContentCycleOpsPanel';
 
 type PromptRow = { id: string; clientId: string | null; workflowId: string; stepName: string; version: number };
 
@@ -36,10 +39,29 @@ async function getClientConfig(clientId: string) {
   return rows[0] ?? null;
 }
 
+// ── dataMonth helpers (Europe/London, last completed month) ──────────────────
+function getLondonToday() {
+  const fmt = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit',
+  });
+  const parts = fmt.formatToParts(new Date());
+  return {
+    year:  parseInt(parts.find(p => p.type === 'year')?.value  ?? '2000', 10),
+    month: parseInt(parts.find(p => p.type === 'month')?.value ?? '1',    10),
+  };
+}
+function getDataMonth(): string {
+  const { year, month } = getLondonToday();
+  const y = month === 1 ? year - 1 : year;
+  const m = month === 1 ? 12       : month - 1;
+  return `${y}-${String(m).padStart(2, '0')}`;
+}
+
 async function getClientChannels(clientId: string) {
   return db
     .select({
       channel:              clientChannels.channel,
+      driveFolderId:        clientChannels.driveFolderId,
       instagramHandle:      clientChannels.instagramHandle,
       contactEmail:         clientChannels.contactEmail,
       contactName:          clientChannels.contactName,
@@ -48,6 +70,74 @@ async function getClientChannels(clientId: string) {
     })
     .from(clientChannels)
     .where(eq(clientChannels.clientId, clientId));
+}
+
+async function getCyclesByChannel(
+  clientId: string,
+  channelNames: string[],
+  dataMonth: string,
+): Promise<Map<string, { status: string; requestSentAt: string | null }>> {
+  if (channelNames.length === 0) return new Map();
+  const rows = await db
+    .select({
+      channel:       contentCycles.channel,
+      status:        contentCycles.status,
+      requestSentAt: contentCycles.requestSentAt,
+    })
+    .from(contentCycles)
+    .where(
+      and(
+        eq(contentCycles.clientId,   clientId),
+        eq(contentCycles.cycleMonth, dataMonth),
+        inArray(contentCycles.channel, channelNames),
+      ),
+    );
+  return new Map(rows.map(r => [r.channel, {
+    status:        r.status,
+    requestSentAt: r.requestSentAt ? r.requestSentAt.toISOString() : null,
+  }]));
+}
+
+async function getDriveFilesByChannel(
+  clientId: string,
+  channelFolders: { channel: string; driveFolderId: string | null }[],
+): Promise<Map<string, { files: DriveFileMeta[] | null; error: boolean }>> {
+  const result = new Map<string, { files: DriveFileMeta[] | null; error: boolean }>();
+  const foldersToFetch = channelFolders.filter(c => c.driveFolderId);
+  if (foldersToFetch.length === 0) {
+    channelFolders.forEach(c => result.set(c.channel, { files: null, error: false }));
+    return result;
+  }
+  try {
+    const encProvider = createEncryptionProvider();
+    const tokens = await getTokens(db, encProvider, clientId, 'drive');
+    if (!tokens) {
+      channelFolders.forEach(c => result.set(c.channel, { files: null, error: false }));
+      return result;
+    }
+    const drive = new DriveApiClient(
+      process.env.GOOGLE_CLIENT_ID  ?? '',
+      process.env.GOOGLE_CLIENT_SECRET ?? '',
+      tokens,
+      async (t) => {
+        try { await storeTokens(db, encProvider, clientId, 'drive', t); } catch { /* best-effort */ }
+      },
+    );
+    await Promise.all(
+      channelFolders.map(async ({ channel, driveFolderId }) => {
+        if (!driveFolderId) { result.set(channel, { files: null, error: false }); return; }
+        try {
+          const files = await drive.listFiles(driveFolderId);
+          result.set(channel, { files, error: false });
+        } catch {
+          result.set(channel, { files: null, error: true });
+        }
+      }),
+    );
+  } catch {
+    channelFolders.forEach(c => result.set(c.channel, { files: null, error: true }));
+  }
+  return result;
 }
 
 async function getOAuthConnections(clientId: string) {
@@ -166,6 +256,8 @@ async function getPromptCoverage(clientId: string, workflowIds: string[]): Promi
 }
 
 export default async function ClientDetailPage({ params }: { params: { id: string } }) {
+  const dataMonth = getDataMonth();
+
   const [client, config, channels, connections, events, clientRules, pendingQaDrafts] = await Promise.all([
     getClient(params.id),
     getClientConfig(params.id),
@@ -178,8 +270,12 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
 
   if (!client) notFound();
 
-  const workflowIds = clientRules.map((r) => r.workflowId);
-  const promptCoverage = await getPromptCoverage(params.id, workflowIds);
+  const channelNames = channels.map(c => c.channel);
+  const [promptCoverage, cyclesByChannel, driveByChannel] = await Promise.all([
+    getPromptCoverage(params.id, clientRules.map((r) => r.workflowId)),
+    getCyclesByChannel(params.id, channelNames, dataMonth),
+    getDriveFilesByChannel(params.id, channels.map(c => ({ channel: c.channel, driveFolderId: c.driveFolderId ?? null }))),
+  ]);
 
   return (
     <div className="space-y-8">
@@ -245,6 +341,41 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
           </div>
         )}
       </section>
+
+      {/* Content Cycle Operations */}
+      {channels.length > 0 && (
+        <section className="bg-white rounded-lg border border-gray-200 px-6 py-5">
+          <h2 className="text-base font-semibold text-gray-900 mb-1">Content Cycle Operations</h2>
+          <p className="text-xs text-gray-400 mb-5">
+            Readiness checks, Drive folder view, and manual triggers for the monthly content-request email pipeline.
+          </p>
+          <div className="space-y-10">
+            {channels.map((ch) => {
+              const cycle = cyclesByChannel.get(ch.channel) ?? null;
+              const driveResult = driveByChannel.get(ch.channel) ?? { files: null, error: false };
+              return (
+                <div key={ch.channel}>
+                  {channels.length > 1 && (
+                    <p className="text-xs font-mono text-gray-500 mb-4">{ch.channel}</p>
+                  )}
+                  <ContentCycleOpsPanel
+                    clientId={params.id}
+                    clientName={client.name}
+                    channel={ch.channel}
+                    dataMonth={dataMonth}
+                    instagramHandle={ch.instagramHandle ?? null}
+                    contactEmail={ch.contactEmail ?? null}
+                    contentCycleEnabled={client.contentCycleEnabled}
+                    cycle={cycle}
+                    driveFiles={driveResult.files}
+                    driveError={driveResult.error}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* Prompt Coverage */}
       <section className="bg-white rounded-lg border border-gray-200 px-6 py-5">

@@ -1,12 +1,114 @@
 'use server';
 
-import { db, promptTemplates, clientConfigs, workflowRuns, clientChannels, clients } from '@sprigly/db';
+import { db, promptTemplates, clientConfigs, workflowRuns, clientChannels, clients, contentCycles } from '@sprigly/db';
 import { and, eq, isNull, desc, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createModelClientFromEnv } from '@sprigly/model-client';
 import { createEmbeddingClientFromEnv } from '@sprigly/embedding-client';
 import { ingestSource } from '@sprigly/knowledge';
+import { Queue } from 'bullmq';
+
+// ── BullMQ job helpers (mirrored from apps/worker/src/content-cycles/job-options.ts) ──
+const IG_TRAWL_JOB_OPTIONS    = { attempts: 5, backoff: { type: 'exponential', delay: 5_000 } } as const;
+const REQUEST_EMAIL_JOB_OPTIONS = { attempts: 3, backoff: { type: 'fixed',       delay: 15_000 } } as const;
+function igTrawlJobId(clientId: string, channel: string, dataMonth: string)    { return `ig-trawl_${clientId}_${channel}_${dataMonth}`; }
+function requestEmailJobId(clientId: string, channel: string, dataMonth: string) { return `request-email_${clientId}_${channel}_${dataMonth}`; }
+
+// Statuses where a cycle is considered "already underway" — mirrors scheduler.ts ACTIVE_STATUSES.
+// 'scheduled' and 'failed' are intentionally absent: re-enqueue is safe for those.
+const ACTIVE_STATUSES: ReadonlyArray<string> = [
+  'requested', 'reply_received', 'awaiting_confirmation', 'intake_confirmed',
+  'planning', 'workbook_built', 'delivered', 'active', 'finalised',
+  'awaiting_voice_approval', 'voice_merged', 'closed',
+];
+
+function getCyclesQueue(): Queue {
+  const redisUrl = process.env.REDIS_URL;
+  if (!redisUrl) throw new Error('[content-cycles] REDIS_URL not set');
+  return new Queue('content-cycles', { connection: { url: redisUrl } });
+}
+
+export async function triggerCycle(formData: FormData): Promise<void> {
+  const clientId  = formData.get('clientId')  as string;
+  const channel   = formData.get('channel')   as string;
+  const dataMonth = formData.get('dataMonth') as string;
+
+  const existingRows = await db
+    .select({ status: contentCycles.status })
+    .from(contentCycles)
+    .where(and(eq(contentCycles.clientId, clientId), eq(contentCycles.channel, channel), eq(contentCycles.cycleMonth, dataMonth)))
+    .limit(1);
+
+  const existing = existingRows[0];
+  if (existing && ACTIVE_STATUSES.includes(existing.status)) {
+    await db.update(contentCycles)
+      .set({ status: 'scheduled', requestSentAt: null })
+      .where(and(eq(contentCycles.clientId, clientId), eq(contentCycles.channel, channel), eq(contentCycles.cycleMonth, dataMonth)));
+  }
+
+  await db.insert(contentCycles)
+    .values({ clientId, channel, cycleMonth: dataMonth, status: 'scheduled' })
+    .onConflictDoNothing();
+
+  const queue = getCyclesQueue();
+  try {
+    const jobId = igTrawlJobId(clientId, channel, dataMonth);
+    // Remove any completed job with the same id so the dedup key is free
+    const old = await queue.getJob(jobId);
+    if (old) await old.remove();
+    await queue.add('ig-trawl', { type: 'ig-trawl', clientId, channel, dataMonth }, { ...IG_TRAWL_JOB_OPTIONS, jobId });
+  } finally {
+    await queue.close();
+  }
+  revalidatePath(`/admin/clients/${clientId}`);
+}
+
+export async function triggerTrawl(formData: FormData): Promise<void> {
+  const clientId  = formData.get('clientId')  as string;
+  const channel   = formData.get('channel')   as string;
+  const dataMonth = formData.get('dataMonth') as string;
+
+  const queue = getCyclesQueue();
+  try {
+    const jobId = igTrawlJobId(clientId, channel, dataMonth);
+    const old = await queue.getJob(jobId);
+    if (old) await old.remove();
+    await queue.add('ig-trawl', { type: 'ig-trawl', clientId, channel, dataMonth }, { ...IG_TRAWL_JOB_OPTIONS, jobId });
+  } finally {
+    await queue.close();
+  }
+  revalidatePath(`/admin/clients/${clientId}`);
+}
+
+export async function triggerEmail(formData: FormData): Promise<void> {
+  const clientId  = formData.get('clientId')  as string;
+  const channel   = formData.get('channel')   as string;
+  const dataMonth = formData.get('dataMonth') as string;
+
+  const queue = getCyclesQueue();
+  try {
+    const jobId = requestEmailJobId(clientId, channel, dataMonth);
+    const old = await queue.getJob(jobId);
+    if (old) await old.remove();
+    await queue.add('request-email', { type: 'request-email', clientId, channel, dataMonth }, { ...REQUEST_EMAIL_JOB_OPTIONS, jobId });
+  } finally {
+    await queue.close();
+  }
+  revalidatePath(`/admin/clients/${clientId}`);
+}
+
+export async function resetCycle(formData: FormData): Promise<void> {
+  const clientId  = formData.get('clientId')  as string;
+  const channel   = formData.get('channel')   as string;
+  const dataMonth = formData.get('dataMonth') as string;
+
+  await db.update(contentCycles)
+    .set({ status: 'scheduled', requestSentAt: null })
+    .where(and(eq(contentCycles.clientId, clientId), eq(contentCycles.channel, channel), eq(contentCycles.cycleMonth, dataMonth)));
+
+  revalidatePath(`/admin/clients/${clientId}`);
+}
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
