@@ -109,6 +109,20 @@ export function createContentCycleConsumer(
           // NOT an error — runIgTrawlJob returns void. The email then degrades to sales-only.
           // Only a thrown error above stops the chain.
           const emailJobId = requestEmailJobId(clientId, channel, dataMonth);
+
+          // BullMQ silently deduplicates queue.add() against jobs already in the
+          // completed set — queue.add() returns without error and without enqueuing.
+          // Clear any completed/failed entry before chaining so the email actually runs.
+          // This protects both the scheduler path and the UI-trigger path.
+          // active/waiting entries are left in place — they're already running or pending.
+          const existingEmail = await queue.getJob(emailJobId);
+          if (existingEmail) {
+            const emailState = await existingEmail.getState();
+            if (emailState === 'completed' || emailState === 'failed' || emailState === 'unknown') {
+              try { await existingEmail.remove(); } catch { /* best-effort */ }
+            }
+          }
+
           await queue.add(
             'request-email',
             { type: 'request-email', clientId, channel, dataMonth },
