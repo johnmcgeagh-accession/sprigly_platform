@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useTransition } from 'react';
 import {
   triggerCycle,
   triggerTrawl,
   triggerEmail,
   resetCycle,
+  type ActionResult,
 } from './actions';
 
 interface DriveFileMeta {
@@ -75,8 +76,10 @@ export function ContentCycleOpsPanel({
   driveFiles,
   driveError,
 }: Props) {
-  const [showResetConfirm,  setShowResetConfirm]  = useState(false);
+  const [showResetConfirm,   setShowResetConfirm]   = useState(false);
   const [showTriggerConfirm, setShowTriggerConfirm] = useState(false);
+  const [actionError,        setActionError]         = useState<string | null>(null);
+  const [isPending,          startTransition]        = useTransition();
 
   const salesFile = `sales-${dataMonth}.csv`;
   const postsFile = `instagram-posts-${dataMonth}.json`;
@@ -84,11 +87,23 @@ export function ContentCycleOpsPanel({
   const hasSalesFile = driveFiles?.some(f => f.name.toLowerCase() === salesFile.toLowerCase()) ?? false;
   const hasPostsFile = driveFiles?.some(f => f.name.toLowerCase() === postsFile.toLowerCase()) ?? false;
 
-  const cycleIsActive = cycle !== null && cycle.status !== 'scheduled';
+  const cycleIsActive    = cycle !== null && cycle.status !== 'scheduled';
   const cycleIsRequested = cycle?.status === 'requested';
 
-  function handleTriggerClick() {
-    setShowTriggerConfirm(true);
+  function callTrigger(
+    action: (fd: FormData) => Promise<ActionResult>,
+    extraFields?: Record<string, string>,
+  ) {
+    setActionError(null);
+    startTransition(async () => {
+      const fd = new FormData();
+      fd.set('clientId',  clientId);
+      fd.set('channel',   channel);
+      fd.set('dataMonth', dataMonth);
+      if (extraFields) Object.entries(extraFields).forEach(([k, v]) => fd.set(k, v));
+      const result = await action(fd);
+      if (!result.ok) setActionError(result.message ?? 'An error occurred.');
+    });
   }
 
   return (
@@ -237,54 +252,63 @@ export function ContentCycleOpsPanel({
         <div className="flex items-start gap-3 flex-wrap">
 
           {/* PRIMARY: Run cycle now */}
-          <form id={`trigger-form-${clientId}`} action={triggerCycle}>
-            <input type="hidden" name="clientId"  value={clientId} />
-            <input type="hidden" name="channel"   value={channel} />
-            <input type="hidden" name="dataMonth" value={dataMonth} />
-            <button
-              type={cycleIsActive ? 'button' : 'submit'}
-              onClick={cycleIsActive ? handleTriggerClick : undefined}
-              className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Run cycle now
-            </button>
-          </form>
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => cycleIsActive ? setShowTriggerConfirm(true) : callTrigger(triggerCycle)}
+            className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isPending ? 'Running…' : 'Run cycle now'}
+          </button>
 
           {/* POWER TOOLS — visually subordinate */}
           <div className="flex items-center gap-3 ml-2 pl-3 border-l border-gray-200">
             <span className="text-xs text-gray-400">Power tools:</span>
 
-            <form action={triggerTrawl}>
-              <input type="hidden" name="clientId"  value={clientId} />
-              <input type="hidden" name="channel"   value={channel} />
-              <input type="hidden" name="dataMonth" value={dataMonth} />
-              <button
-                type="submit"
-                className="text-xs text-gray-500 underline hover:text-gray-700"
-              >
-                Run trawl only
-              </button>
-            </form>
+            <button
+              type="button"
+              disabled={isPending}
+              onClick={() => callTrigger(triggerTrawl)}
+              className="text-xs text-gray-500 underline hover:text-gray-700 disabled:opacity-50"
+            >
+              Run trawl only
+            </button>
 
             <TriggerEmailButton
-              clientId={clientId}
-              channel={channel}
-              dataMonth={dataMonth}
               hasPostsFile={hasPostsFile}
+              isPending={isPending}
+              onTrigger={() => callTrigger(triggerEmail)}
             />
 
             <button
               type="button"
-              onClick={() => setShowResetConfirm(true)}
-              className="text-xs text-red-400 underline hover:text-red-600"
+              disabled={isPending}
+              onClick={() => { setActionError(null); setShowResetConfirm(true); }}
+              className="text-xs text-red-400 underline hover:text-red-600 disabled:opacity-50"
             >
               Reset cycle
             </button>
           </div>
         </div>
 
+        {/* Inline action error */}
+        {actionError && (
+          <div className="mt-3 flex items-start gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
+            <span className="shrink-0 font-bold">!</span>
+            <span>{actionError}</span>
+            <button
+              type="button"
+              onClick={() => setActionError(null)}
+              className="ml-auto shrink-0 text-red-400 hover:text-red-600 text-xs"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* Cycle-active state note */}
-        {cycleIsActive && (
+        {cycleIsActive && !actionError && (
           <p className="mt-2 text-xs text-amber-600">
             Cycle is already <strong>{cycle?.status}</strong> for {dataMonth}.
             {cycleIsRequested && ' A draft may already exist.'}
@@ -313,17 +337,13 @@ export function ContentCycleOpsPanel({
               >
                 Cancel
               </button>
-              <form action={triggerCycle} onSubmit={() => setShowTriggerConfirm(false)}>
-                <input type="hidden" name="clientId"  value={clientId} />
-                <input type="hidden" name="channel"   value={channel} />
-                <input type="hidden" name="dataMonth" value={dataMonth} />
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                >
-                  Run anyway
-                </button>
-              </form>
+              <button
+                type="button"
+                onClick={() => { setShowTriggerConfirm(false); callTrigger(triggerCycle); }}
+                className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Run anyway
+              </button>
             </div>
           </div>
         </div>
@@ -372,18 +392,16 @@ export function ContentCycleOpsPanel({
   );
 }
 
-// ── TriggerEmailButton (extracted for warning state) ──────────────────────────
+// ── TriggerEmailButton (inline warning state) ─────────────────────────────────
 
 function TriggerEmailButton({
-  clientId,
-  channel,
-  dataMonth,
   hasPostsFile,
+  isPending,
+  onTrigger,
 }: {
-  clientId:     string;
-  channel:      string;
-  dataMonth:    string;
   hasPostsFile: boolean;
+  isPending:    boolean;
+  onTrigger:    () => void;
 }) {
   const [showWarn, setShowWarn] = useState(false);
 
@@ -391,8 +409,9 @@ function TriggerEmailButton({
     return (
       <button
         type="button"
+        disabled={isPending}
         onClick={() => setShowWarn(true)}
-        className="text-xs text-gray-500 underline hover:text-gray-700"
+        className="text-xs text-gray-500 underline hover:text-gray-700 disabled:opacity-50"
       >
         Run email only
       </button>
@@ -403,29 +422,34 @@ function TriggerEmailButton({
     return (
       <span className="text-xs text-gray-500">
         No IG data — email will be sales-only.{' '}
-        <form action={triggerEmail} className="inline">
-          <input type="hidden" name="clientId"  value={clientId} />
-          <input type="hidden" name="channel"   value={channel} />
-          <input type="hidden" name="dataMonth" value={dataMonth} />
-          <button type="submit" className="underline hover:text-gray-700">Proceed</button>
-        </form>
-        {' '}/<button
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={() => { setShowWarn(false); onTrigger(); }}
+          className="underline hover:text-gray-700 disabled:opacity-50"
+        >
+          Proceed
+        </button>
+        {' '}/{' '}
+        <button
           type="button"
           onClick={() => setShowWarn(false)}
           className="underline hover:text-gray-700"
-        >Cancel</button>
+        >
+          Cancel
+        </button>
       </span>
     );
   }
 
   return (
-    <form action={triggerEmail}>
-      <input type="hidden" name="clientId"  value={clientId} />
-      <input type="hidden" name="channel"   value={channel} />
-      <input type="hidden" name="dataMonth" value={dataMonth} />
-      <button type="submit" className="text-xs text-gray-500 underline hover:text-gray-700">
-        Run email only
-      </button>
-    </form>
+    <button
+      type="button"
+      disabled={isPending}
+      onClick={onTrigger}
+      className="text-xs text-gray-500 underline hover:text-gray-700 disabled:opacity-50"
+    >
+      Run email only
+    </button>
   );
 }

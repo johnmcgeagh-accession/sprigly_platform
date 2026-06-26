@@ -29,42 +29,67 @@ function getCyclesQueue(): Queue {
   return new Queue('content-cycles', { connection: { url: redisUrl } });
 }
 
-export async function triggerCycle(formData: FormData): Promise<void> {
+// Check the existing job's state before touching it.
+// - active   → job is locked by a worker; cannot remove, must wait.
+// - completed/failed/unknown → remove so the dedup key is freed, then caller re-adds.
+// - waiting/delayed/prioritized/waiting-children → job is already pending; re-adding
+//   with the same jobId is a BullMQ no-op, so skip the remove and let the add proceed.
+async function prepareJobSlot(
+  queue: Queue,
+  jobId: string,
+): Promise<{ ok: boolean; message?: string }> {
+  const existing = await queue.getJob(jobId);
+  if (!existing) return { ok: true };
+
+  const state = await existing.getState();
+
+  if (state === 'active') {
+    return {
+      ok: false,
+      message: 'A job is already running for this month — wait for it to finish before re-triggering.',
+    };
+  }
+
+  if (state === 'completed' || state === 'failed' || state === 'unknown') {
+    try { await existing.remove(); } catch { /* best-effort; proceed either way */ }
+  }
+  // waiting/delayed/prioritized/waiting-children: leave in place; BullMQ dedup handles it.
+  return { ok: true };
+}
+
+export type ActionResult = { ok: boolean; message?: string };
+
+export async function triggerCycle(formData: FormData): Promise<ActionResult> {
   const clientId  = formData.get('clientId')  as string;
   const channel   = formData.get('channel')   as string;
   const dataMonth = formData.get('dataMonth') as string;
 
-  const existingRows = await db
-    .select({ status: contentCycles.status })
-    .from(contentCycles)
-    .where(and(eq(contentCycles.clientId, clientId), eq(contentCycles.channel, channel), eq(contentCycles.cycleMonth, dataMonth)))
-    .limit(1);
+  const queue = getCyclesQueue();
+  try {
+    const jobId = igTrawlJobId(clientId, channel, dataMonth);
+    const slotResult = await prepareJobSlot(queue, jobId);
+    if (!slotResult.ok) return slotResult;
 
-  const existing = existingRows[0];
-  if (existing && ACTIVE_STATUSES.includes(existing.status)) {
+    // Seed / reset cycle row only after confirming we can enqueue.
     await db.update(contentCycles)
       .set({ status: 'scheduled', requestSentAt: null })
       .where(and(eq(contentCycles.clientId, clientId), eq(contentCycles.channel, channel), eq(contentCycles.cycleMonth, dataMonth)));
-  }
+    await db.insert(contentCycles)
+      .values({ clientId, channel, cycleMonth: dataMonth, status: 'scheduled' })
+      .onConflictDoNothing();
 
-  await db.insert(contentCycles)
-    .values({ clientId, channel, cycleMonth: dataMonth, status: 'scheduled' })
-    .onConflictDoNothing();
-
-  const queue = getCyclesQueue();
-  try {
-    const jobId = igTrawlJobId(clientId, channel, dataMonth);
-    // Remove any completed job with the same id so the dedup key is free
-    const old = await queue.getJob(jobId);
-    if (old) await old.remove();
     await queue.add('ig-trawl', { type: 'ig-trawl', clientId, channel, dataMonth }, { ...IG_TRAWL_JOB_OPTIONS, jobId });
+    revalidatePath(`/admin/clients/${clientId}`);
+    return { ok: true };
+  } catch (err) {
+    console.error('[triggerCycle]', err);
+    return { ok: false, message: err instanceof Error ? err.message : 'Failed to enqueue cycle.' };
   } finally {
     await queue.close();
   }
-  revalidatePath(`/admin/clients/${clientId}`);
 }
 
-export async function triggerTrawl(formData: FormData): Promise<void> {
+export async function triggerTrawl(formData: FormData): Promise<ActionResult> {
   const clientId  = formData.get('clientId')  as string;
   const channel   = formData.get('channel')   as string;
   const dataMonth = formData.get('dataMonth') as string;
@@ -72,16 +97,21 @@ export async function triggerTrawl(formData: FormData): Promise<void> {
   const queue = getCyclesQueue();
   try {
     const jobId = igTrawlJobId(clientId, channel, dataMonth);
-    const old = await queue.getJob(jobId);
-    if (old) await old.remove();
+    const slotResult = await prepareJobSlot(queue, jobId);
+    if (!slotResult.ok) return slotResult;
+
     await queue.add('ig-trawl', { type: 'ig-trawl', clientId, channel, dataMonth }, { ...IG_TRAWL_JOB_OPTIONS, jobId });
+    revalidatePath(`/admin/clients/${clientId}`);
+    return { ok: true };
+  } catch (err) {
+    console.error('[triggerTrawl]', err);
+    return { ok: false, message: err instanceof Error ? err.message : 'Failed to enqueue trawl.' };
   } finally {
     await queue.close();
   }
-  revalidatePath(`/admin/clients/${clientId}`);
 }
 
-export async function triggerEmail(formData: FormData): Promise<void> {
+export async function triggerEmail(formData: FormData): Promise<ActionResult> {
   const clientId  = formData.get('clientId')  as string;
   const channel   = formData.get('channel')   as string;
   const dataMonth = formData.get('dataMonth') as string;
@@ -89,13 +119,18 @@ export async function triggerEmail(formData: FormData): Promise<void> {
   const queue = getCyclesQueue();
   try {
     const jobId = requestEmailJobId(clientId, channel, dataMonth);
-    const old = await queue.getJob(jobId);
-    if (old) await old.remove();
+    const slotResult = await prepareJobSlot(queue, jobId);
+    if (!slotResult.ok) return slotResult;
+
     await queue.add('request-email', { type: 'request-email', clientId, channel, dataMonth }, { ...REQUEST_EMAIL_JOB_OPTIONS, jobId });
+    revalidatePath(`/admin/clients/${clientId}`);
+    return { ok: true };
+  } catch (err) {
+    console.error('[triggerEmail]', err);
+    return { ok: false, message: err instanceof Error ? err.message : 'Failed to enqueue email.' };
   } finally {
     await queue.close();
   }
-  revalidatePath(`/admin/clients/${clientId}`);
 }
 
 export async function resetCycle(formData: FormData): Promise<void> {
