@@ -33,11 +33,13 @@
 import {
   db as _db,
   clientChannels,
+  contentCycles,
   incomingEvents,
   oauthConnections,
   processedExternalIds,
 } from '@sprigly/db';
 import { eq, and, isNotNull } from 'drizzle-orm';
+import { transitionCycle } from './content-cycles/machine.js';
 import { getTokens, storeTokens } from '@sprigly/oauth-tokens';
 import type { EncryptionProvider } from '@sprigly/oauth-tokens';
 import { DriveApiClient } from '@sprigly/sources';
@@ -45,6 +47,24 @@ import { Queue } from 'bullmq';
 import type { Logger } from 'pino';
 
 type Db = typeof _db;
+
+// Parse "Month Year" from workbook filename → "YYYY-MM".
+// Filename format: "{name} — Content calendar - {Month} {Year}.xlsx"
+// Returns null if the filename does not match — never guesses.
+const WORKBOOK_MONTH_RE = / - ([A-Za-z]+) (\d{4})\.xlsx$/;
+const MONTH_NAME_TO_NUM: Readonly<Record<string, string>> = {
+  January: '01', February: '02', March: '03',  April:    '04',
+  May:     '05', June:     '06', July:  '07',  August:   '08',
+  September: '09', October: '10', November: '11', December: '12',
+};
+
+function parseWorkbookMonth(filename: string): string | null {
+  const match = WORKBOOK_MONTH_RE.exec(filename);
+  if (!match) return null;
+  const monthNum = MONTH_NAME_TO_NUM[match[1] ?? ''];
+  if (!monthNum) return null;
+  return `${match[2]}-${monthNum}`;
+}
 
 type ChannelRow = {
   id: string;
@@ -189,18 +209,52 @@ export class DrivePoller {
       if (existing[0] !== undefined) continue;
 
       const lname = meta.name.toLowerCase();
-      const isXlsx =
-        lname.endsWith('.xlsx') ||
-        meta.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      // Only match the canonical workbook name written by build-workbook:
+      // "{client} — Content calendar - {Month} {Year}.xlsx"
+      // Other xlsx files in the folder (e.g. gate3 test files) are ignored.
+      const WORKBOOK_RE = /^.+ — Content calendar - [A-Za-z]+ \d{4}\.xlsx$/;
+      const isWorkbook = WORKBOOK_RE.test(meta.name);
       const isCsv = lname.endsWith('.csv') || meta.mimeType === 'text/csv';
 
-      if (isXlsx) {
-        // Enqueue xlsx edit detection.
+      if (isWorkbook) {
+        // Self-write suppression via ledger:
+        // build-workbook records fileId:modifiedTime into processed_external_ids with
+        // source='drive-self-write' at write time. The poller checks that ledger here.
+        // This is change-bound (tied to the exact modifiedTime build-workbook produced),
+        // unlike checking lastModifyingUser.me which reads current file state and is racy.
+        // A later client edit produces a new modifiedTime → new externalId → NOT in ledger.
+        const selfWriteRow = await this.db
+          .select({ id: processedExternalIds.id })
+          .from(processedExternalIds)
+          .where(
+            and(
+              eq(processedExternalIds.clientId, clientId),
+              eq(processedExternalIds.source, 'drive-self-write'),
+              eq(processedExternalIds.externalId, externalId),
+            ),
+          )
+          .limit(1);
+
+        if (selfWriteRow[0] !== undefined) {
+          await this.db.insert(processedExternalIds).values({
+            clientId,
+            source:      'drive',
+            externalId,
+            processedAt: new Date(),
+          });
+          this.logger.info(
+            { clientId, channel: channelName, fileId: change.fileId, name: meta.name },
+            'drive: xlsx self-write suppressed — build-workbook ledger match',
+          );
+          continue;
+        }
+
+        // Not in self-write ledger → genuine client edit: enqueue detect-edits.
         // BullMQ forbids colons in custom jobIds (Redis namespace separator).
         // Encode them as underscores for the jobId; the DB externalId is unchanged.
         await this.calendarQueue.add(
           'calendar:detect-edits',
-          { clientId, channel: channelName, fileId: change.fileId },
+          { clientId, channel: channelName, fileId: change.fileId, driveFolderId },
           { jobId: `detect-edits_${externalId.replace(/:/g, '_')}` },
         );
 
@@ -214,8 +268,50 @@ export class DrivePoller {
         count++;
         this.logger.info(
           { clientId, channel: channelName, fileId: change.fileId, name: meta.name },
-          'drive: xlsx change detected — enqueued calendar:detect-edits',
+          'drive: xlsx client edit detected — enqueued calendar:detect-edits',
         );
+
+        // Advance planning cycle to workbook_built.
+        // Parse month from filename: "Name — Content calendar - Month Year.xlsx" → "YYYY-MM".
+        // Defensive: if parse fails, log and skip — never guess which cycle to advance.
+        const cycleMonth = parseWorkbookMonth(meta.name);
+        if (cycleMonth !== null) {
+          try {
+            const cycleRows = await this.db
+              .select()
+              .from(contentCycles)
+              .where(and(
+                eq(contentCycles.clientId,   clientId),
+                eq(contentCycles.channel,    channelName),
+                eq(contentCycles.cycleMonth, cycleMonth),
+                eq(contentCycles.status,     'planning'),
+              ))
+              .limit(1);
+
+            const cycle = cycleRows[0];
+            if (cycle) {
+              await transitionCycle(
+                this.db, cycle.id, 'workbook_built',
+                { workbookRef: change.fileId },
+                this.logger,
+              );
+              this.logger.info(
+                { clientId, channel: channelName, cycleMonth, cycleId: cycle.id },
+                'drive: planning → workbook_built',
+              );
+            }
+          } catch (err) {
+            this.logger.warn(
+              { clientId, channel: channelName, cycleMonth, err: String(err) },
+              'drive: could not advance planning cycle to workbook_built — non-fatal',
+            );
+          }
+        } else {
+          this.logger.warn(
+            { clientId, channel: channelName, filename: meta.name },
+            'drive: workbook filename did not match expected pattern — planning cycle not advanced',
+          );
+        }
       } else if (isCsv) {
         // CSV detected — trigger the calendar:build-workbook workflow via the
         // standard incoming-events queue. Look up the contact email from

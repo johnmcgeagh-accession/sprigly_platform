@@ -41,6 +41,10 @@ export function createCalendarBuildWorkbookWorkflow(
   googleClientSecret: string,
   calScriptPath: string,
   pythonBin: string,
+  /** Called after every Drive write with `fileId:modifiedTime` so the caller can
+   *  record a self-write ledger entry. The drive-poller checks this ledger to
+   *  suppress detect-edits for Sprigly's own workbook writes. */
+  onSelfWrite?: (clientId: string, externalId: string) => Promise<void>,
 ): Workflow<SpriglyCalendarBuildWorkbookInput, SpriglyCalendarBuildWorkbookOutput> {
   return {
     id: 'sprigly-calendar-build-workbook',
@@ -54,11 +58,9 @@ export function createCalendarBuildWorkbookWorkflow(
           to: { mode: 'sender' },
           subjectTemplate: 'Content calendar ready — {{month}} {{year}}',
           bodyTemplate:
-            "Hi,\n\nYour Sprigly content calendar for {{month}} {{year}} is attached.\n\nPlease open it, fill in any notes or amended captions, and save — Sprigly will pick up your edits automatically.\n\nBest,\nSprigly",
+            "Hi,\n\nYour Sprigly content calendar for {{month}} {{year}} is ready.\n\nOpen and edit it here:\n{{driveUrl}}\n\nOnce you've made any changes, just save — Sprigly will pick up your edits automatically.\n\nBest,\nSprigly",
           attachmentFilenameTemplate: '{{filename}}',
-          attachmentMimeType:
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          attachmentDataKey: 'xlsx',
+          noAttachment: true,
         },
       },
     ],
@@ -92,12 +94,17 @@ export function createCalendarBuildWorkbookWorkflow(
 
         // ── 2. Download calendar-config.json if present ───────────────────────
         let configPath: string | undefined;
+        let contactEmail: string | undefined;
         const folderFiles = await drive.listFiles(input.driveFolderId);
         const configMeta  = folderFiles.find((f) => f.name === 'calendar-config.json');
         if (configMeta) {
           const configBuf = await drive.downloadFile(configMeta.id);
           configPath = join(tmpDir, 'calendar-config.json');
           writeFileSync(configPath, configBuf);
+          try {
+            const cfg = JSON.parse(configBuf.toString('utf-8')) as Record<string, unknown>;
+            contactEmail = cfg['contact'] as string | undefined;
+          } catch { /* config parse failure is non-fatal */ }
         }
 
         // ── 3. Run generate_calendar.py ───────────────────────────────────────
@@ -123,13 +130,35 @@ export function createCalendarBuildWorkbookWorkflow(
         // ── 5. Upload to Drive (update existing workbook or create new) ───────
         const xlsxMime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
         const existing = folderFiles.find((f) => f.name === filename);
+        let fileId: string;
         if (existing) {
           await drive.updateFile(existing.id, xlsxMime, xlsxBuffer);
+          fileId = existing.id;
         } else {
-          await drive.createFile(input.driveFolderId, filename, xlsxMime, xlsxBuffer);
+          fileId = await drive.createFile(input.driveFolderId, filename, xlsxMime, xlsxBuffer);
         }
 
-        return { xlsx: xlsxBuffer, filename, month, year };
+        // ── 6. Share with contact so the Drive link works for them ────────────
+        if (contactEmail) {
+          try {
+            await drive.shareFile(fileId, contactEmail, 'writer');
+          } catch { /* non-fatal — link still included in email */ }
+        }
+
+        // ── 7. Record self-write ledger entry ─────────────────────────────────
+        // Fetch the file's modifiedTime AFTER the write so the ledger key matches
+        // what the drive-poller will compute: `${fileId}:${modifiedTime}`.
+        // The poller uses this to suppress detect-edits for this specific write.
+        // A later client edit produces a new modifiedTime → different key → fires.
+        if (onSelfWrite) {
+          try {
+            const updatedMeta = await drive.getFileMeta(fileId);
+            await onSelfWrite(input.clientId, `${fileId}:${updatedMeta.modifiedTime}`);
+          } catch { /* non-fatal — worst case: detect-edits fires and finds no changes */ }
+        }
+
+        const driveUrl = `https://drive.google.com/file/d/${fileId}/edit`;
+        return { filename, month, year, driveUrl };
       } finally {
         rmSync(tmpDir, { recursive: true, force: true });
       }

@@ -1,6 +1,6 @@
 import { env } from './env.js';
 import pino from 'pino';
-import { db } from '@sprigly/db';
+import { db, processedExternalIds } from '@sprigly/db';
 import { createModelClientFromEnv } from '@sprigly/model-client';
 import { createEmbeddingClientFromEnv } from '@sprigly/embedding-client';
 import { ZodError } from 'zod';
@@ -15,6 +15,9 @@ import {
 } from '@sprigly/engine';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { createCalendarConsumer } from './calendar-consumer.js';
+import { createContentCycleConsumer } from './content-cycles/consumer.js';
+import { runVoiceBatchMerge } from './voice-batch-merge.js';
 import {
   spriglyBlogPostWorkflow,
   spriglyProspectResearchWorkflow,
@@ -24,9 +27,10 @@ import {
   createCalendarBuildWorkbookWorkflow,
 } from '@sprigly/workflows';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname  = dirname(__filename);
-const calScriptPath = join(__dirname, '../scripts/calendar/generate_calendar.py');
+const __filename       = fileURLToPath(import.meta.url);
+const __dirname        = dirname(__filename);
+const calScriptPath    = join(__dirname, '../scripts/calendar/generate_calendar.py');
+const extractScriptPath = join(__dirname, '../scripts/calendar/extract_edits.py');
 import { TavilyProvider } from '@sprigly/web-search';
 import { GmailPoller, createGmailReadStateService, createGmailDraftService } from '@sprigly/sources';
 import {
@@ -85,6 +89,12 @@ registry.register(createCalendarBuildWorkbookWorkflow(
   db, encProvider,
   env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET,
   calScriptPath, env.CAL_PYTHON_BIN,
+  async (clientId, externalId) => {
+    await db.insert(processedExternalIds).values({
+      clientId, source: 'drive-self-write', externalId, processedAt: new Date(),
+    });
+    logger.debug({ clientId, externalId }, 'drive: self-write ledger entry recorded');
+  },
 ));
 logger.info(
   { workflows: ['sprigly-blog-post', 'sprigly-prospect-research', 'sprigly-inbox-noop', 'sprigly-inbox-triage', 'sprigly-question-answerer', 'sprigly-calendar-build-workbook'] },
@@ -129,8 +139,9 @@ const ingestDeps: IngestDeps = {
   labelModel: 'haiku',
 };
 
-const queue = new Queue('incoming-events', { connection: { url: env.REDIS_URL } });
-const calendarQueue = new Queue('calendar-events', { connection: { url: env.REDIS_URL } });
+const queue              = new Queue('incoming-events', { connection: { url: env.REDIS_URL } });
+const calendarQueue      = new Queue('calendar-events', { connection: { url: env.REDIS_URL } });
+const contentCyclesQueue = new Queue('content-cycles',  { connection: { url: env.REDIS_URL } });
 
 const drivePoller = new DrivePoller(
   db,
@@ -140,6 +151,19 @@ const drivePoller = new DrivePoller(
   calendarQueue,
   queue,          // incoming-events queue — for CSV build-workbook jobs
   logger,
+);
+
+const calendarConsumer = createCalendarConsumer(
+  db, encProvider,
+  env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET,
+  extractScriptPath, env.CAL_PYTHON_BIN,
+  logger, env.REDIS_URL,
+);
+
+const contentCycleConsumer = createContentCycleConsumer(
+  db, encProvider,
+  env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET,
+  model, prompts, audit, logger, env.REDIS_URL,
 );
 
 const consumer = createConsumer(
@@ -177,13 +201,23 @@ void sendDigests();
 const digestInterval = setInterval(() => { void sendDigests(); }, DIGEST_CHECK_INTERVAL_MS);
 logger.info({ intervalMs: DIGEST_CHECK_INTERVAL_MS }, 'Digest sender started');
 
+const VOICE_MERGE_INTERVAL_MS = 24 * 60 * 60 * 1000; // once per day
+const voiceMerge = (): Promise<void> =>
+  runVoiceBatchMerge(db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, model, prompts, audit, logger);
+const voiceMergeInterval = setInterval(() => { void voiceMerge(); }, VOICE_MERGE_INTERVAL_MS);
+logger.info({ intervalMs: VOICE_MERGE_INTERVAL_MS }, 'Voice batch merge scheduled');
+
 const shutdown = async (): Promise<void> => {
   logger.info('Shutting down...');
   clearInterval(interval);
   clearInterval(digestInterval);
+  clearInterval(voiceMergeInterval);
   await consumer.close();
+  await calendarConsumer.close();
+  await contentCycleConsumer.close();
   await queue.close();
   await calendarQueue.close();
+  await contentCyclesQueue.close();
   logger.info('Shutdown complete');
   process.exit(0);
 };

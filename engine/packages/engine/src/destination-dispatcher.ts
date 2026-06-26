@@ -53,10 +53,15 @@ export class DestinationDispatcher {
       }
 
       try {
-        await destination.deliver(output, event, config, deliveryCtx);
+        const result = await destination.deliver(output, event, config, deliveryCtx);
+        if (!result.success) {
+          console.error(
+            `[engine] DestinationDispatcher: delivery failed for destination=${config.destinationId}: ${result.error ?? 'unknown'}`,
+          );
+        }
       } catch (err) {
         console.error(
-          `[engine] DestinationDispatcher: delivery failed for destination=${config.destinationId}: ${String(err)}`,
+          `[engine] DestinationDispatcher: delivery threw for destination=${config.destinationId}: ${String(err)}`,
         );
       }
     }

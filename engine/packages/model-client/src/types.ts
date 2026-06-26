@@ -28,4 +28,5 @@ export interface ModelCompleteResult {
 
 export interface ModelClient {
   complete(params: ModelCompleteParams): Promise<ModelCompleteResult>;
+  completeStreaming(params: ModelCompleteParams): Promise<ModelCompleteResult>;
 }

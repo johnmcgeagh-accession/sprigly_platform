@@ -105,4 +105,9 @@ export class AnthropicClient implements ModelClient {
       ...(turnsUsed > 1 && { toolTurns: turnsUsed }),
     };
   }
+
+  async completeStreaming(params: ModelCompleteParams): Promise<ModelCompleteResult> {
+    // Anthropic SDK has no 180s socket issue; delegate to complete() for local dev.
+    return this.complete(params);
+  }
 }

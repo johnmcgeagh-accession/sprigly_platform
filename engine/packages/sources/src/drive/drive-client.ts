@@ -10,6 +10,10 @@ export interface DriveFileMeta {
   modifiedTime: string;
   size?: string;
   parents?: string[];  // parent folder IDs; used by the poller to filter by channel folder
+  /** Populated by getFileMeta; true iff the last modifier is the currently-authenticated
+   *  Drive account (i.e. the Sprigly service account). Used by the poller to suppress
+   *  self-writes from build-workbook so detect-edits only fires on genuine client edits. */
+  lastModifyingUser?: { me: boolean };
 }
 
 export class DriveApiClient {
@@ -77,7 +81,7 @@ export class DriveApiClient {
   async getFileMetadata(fileId: string): Promise<DriveFileMeta> {
     const res = await this.drive.files.get({
       fileId,
-      fields: 'id,name,mimeType,modifiedTime,size,parents',
+      fields: 'id,name,mimeType,modifiedTime,size,parents,lastModifyingUser(me)',
     });
     return {
       id: res.data.id ?? '',
@@ -86,6 +90,9 @@ export class DriveApiClient {
       modifiedTime: res.data.modifiedTime ?? '',
       ...(res.data.size !== undefined && res.data.size !== null && { size: res.data.size }),
       ...(res.data.parents !== undefined && res.data.parents !== null && { parents: res.data.parents }),
+      ...(res.data.lastModifyingUser != null && {
+        lastModifyingUser: { me: res.data.lastModifyingUser.me === true },
+      }),
     };
   }
 

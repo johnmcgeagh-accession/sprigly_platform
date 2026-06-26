@@ -23,6 +23,9 @@ export interface GmailReplyWithAttachmentSettings {
    *  Defaults to 'pdf' so all existing callers are unaffected.
    *  Set to 'xlsx' for content-calendar delivery. */
   attachmentDataKey?: string;
+  /** When true, send a plain-text email with no attachment.
+   *  The body template can include a {{driveUrl}} link instead. */
+  noAttachment?: boolean;
 }
 
 /** Resolve the attachment buffer from a workflow output object by key.
@@ -34,6 +37,31 @@ export function resolveAttachmentBuffer(
 ): Buffer | null {
   const val = output[key];
   return Buffer.isBuffer(val) ? val : null;
+}
+
+function encodeMimeHeaderValue(value: string): string {
+  if (/^[\x00-\x7F]*$/.test(value)) return value;
+  return `=?UTF-8?B?${Buffer.from(value, 'utf-8').toString('base64')}?=`;
+}
+
+export function composeMimePlainEmail(params: {
+  toEmail: string;
+  fromEmail: string;
+  subject: string;
+  bodyText: string;
+  bodyMimeType: 'text/html' | 'text/plain';
+}): string {
+  const { toEmail, fromEmail, subject, bodyText, bodyMimeType } = params;
+  return [
+    `To: ${toEmail}`,
+    `From: ${fromEmail}`,
+    `Subject: ${encodeMimeHeaderValue(subject)}`,
+    `MIME-Version: 1.0`,
+    `Content-Type: ${bodyMimeType}; charset=utf-8`,
+    `Content-Transfer-Encoding: 7bit`,
+    '',
+    bodyText,
+  ].join('\r\n');
 }
 
 export function composeMimeWithAttachment(params: {
@@ -53,7 +81,7 @@ export function composeMimeWithAttachment(params: {
   return [
     `To: ${toEmail}`,
     `From: ${fromEmail}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodeMimeHeaderValue(subject)}`,
     `MIME-Version: 1.0`,
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
     '',
@@ -164,22 +192,14 @@ export class GmailReplyWithAttachment implements Destination<unknown> {
     try {
       const o = output as Record<string, unknown>;
       const settings = config.settings as unknown as GmailReplyWithAttachmentSettings;
-      const attachmentKey = settings.attachmentDataKey ?? 'pdf';
-      const attachmentBuf = resolveAttachmentBuffer(o, attachmentKey);
-      if (!attachmentBuf) {
-        return { success: false, error: `Output missing buffer at key '${attachmentKey}'` };
-      }
 
       const toEmail = await resolveRecipient(settings, event, this.db);
       if (!toEmail) {
         return { success: false, error: 'Could not resolve recipient address' };
       }
 
-      const subject = substituteTemplate(settings.subjectTemplate, o);
+      const subject  = substituteTemplate(settings.subjectTemplate, o);
       const bodyText = substituteTemplate(settings.bodyTemplate, o).replace(/\r?\n/g, '\r\n');
-      const rawFilename = substituteTemplate(settings.attachmentFilenameTemplate, o);
-      const attachmentFilename = rawFilename.replace(/[^a-zA-Z0-9._-]/g, '-');
-      const attachmentMimeType = settings.attachmentMimeType ?? 'application/pdf';
       const bodyMimeType = settings.bodyMimeType ?? 'text/plain';
 
       const tokens = await getTokens(this.db, this.encProvider, event.clientId, 'gmail');
@@ -217,18 +237,25 @@ export class GmailReplyWithAttachment implements Destination<unknown> {
       const gmail = google.gmail({ version: 'v1', auth });
       const fromEmail = tokens.emailAddress ?? toEmail;
 
-      const raw = composeMimeWithAttachment({
-        toEmail,
-        fromEmail,
-        subject,
-        bodyText,
-        attachmentData: attachmentBuf,
-        attachmentFilename,
-        attachmentMimeType,
-        bodyMimeType,
-      });
-      const encodedMessage = Buffer.from(raw).toString('base64url');
+      let raw: string;
+      if (settings.noAttachment) {
+        raw = composeMimePlainEmail({ toEmail, fromEmail, subject, bodyText, bodyMimeType });
+      } else {
+        const attachmentKey = settings.attachmentDataKey ?? 'pdf';
+        const attachmentBuf = resolveAttachmentBuffer(o, attachmentKey);
+        if (!attachmentBuf) {
+          return { success: false, error: `Output missing buffer at key '${attachmentKey}'` };
+        }
+        const rawFilename       = substituteTemplate(settings.attachmentFilenameTemplate, o);
+        const attachmentFilename = rawFilename.replace(/[^a-zA-Z0-9._-]/g, '-');
+        const attachmentMimeType = settings.attachmentMimeType ?? 'application/pdf';
+        raw = composeMimeWithAttachment({
+          toEmail, fromEmail, subject, bodyText,
+          attachmentData: attachmentBuf, attachmentFilename, attachmentMimeType, bodyMimeType,
+        });
+      }
 
+      const encodedMessage = Buffer.from(raw).toString('base64url');
       await gmail.users.messages.send({ userId: 'me', requestBody: { raw: encodedMessage } });
 
       return { success: true, metadata: { toEmail } };

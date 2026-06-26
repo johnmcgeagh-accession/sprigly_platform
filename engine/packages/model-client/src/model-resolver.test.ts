@@ -17,6 +17,10 @@ function makeInner(): ModelClient & { lastModel: string } {
       inner.lastModel = params.model;
       return { ...STUB_RESULT, modelId: params.model };
     }),
+    completeStreaming: vi.fn(async (params: ModelCompleteParams): Promise<ModelCompleteResult> => {
+      inner.lastModel = params.model;
+      return { ...STUB_RESULT, modelId: params.model };
+    }),
   };
   return inner;
 }

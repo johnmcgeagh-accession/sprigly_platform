@@ -577,7 +577,10 @@ export const voiceEdits = pgTable(
     spriglyDraft:   text('sprigly_draft'),
     contactAmended: text('contact_amended'),         // null = approved draft as-is
     notes:          text('notes'),
-    ingestionRunId: uuid('ingestion_run_id').notNull().references(() => voiceIngestionRuns.id),
+    // null until consumed by the daily batch merge; then set to the merge run's id.
+    ingestionRunId: uuid('ingestion_run_id').references(() => voiceIngestionRuns.id),
+    // null = PENDING (not yet consumed); set by batch merge to mark ingestion time.
+    ingestedAt:     timestamp('ingested_at'),
   },
   (t) => ({
     idxClientChannelMonth: index('voice_edits_client_channel_month').on(
@@ -588,3 +591,59 @@ export const voiceEdits = pgTable(
 
 export type VoiceEdit = typeof voiceEdits.$inferSelect;
 export type NewVoiceEdit = typeof voiceEdits.$inferInsert;
+
+// ─── content_cycles ───────────────────────────────────────────────────────────
+// One row per (client, channel, month) orchestration cycle.
+// Status is text (not a PG enum) to match the convention used throughout this schema.
+// prior_status: set on → failed; read on retry to resume at the correct step.
+// pending_deltas_json: RuleDelta[] gate buffer between extract and apply phases.
+
+export type CycleStatus =
+  | 'scheduled'
+  | 'requested'
+  | 'reply_received'
+  | 'awaiting_confirmation'
+  | 'intake_confirmed'
+  | 'planning'
+  | 'workbook_built'
+  | 'delivered'
+  | 'active'
+  | 'finalised'
+  | 'awaiting_voice_approval'
+  | 'voice_merged'
+  | 'closed'
+  | 'failed';
+
+export const contentCycles = pgTable(
+  'content_cycles',
+  {
+    ...baseColumns,
+    clientId:          uuid('client_id').notNull().references(() => clients.id),
+    channel:           text('channel').notNull(),
+    cycleMonth:        text('cycle_month').notNull(),           // YYYY-MM
+    status:            text('status').notNull().default('scheduled'),
+    priorStatus:       text('prior_status'),                    // set on →failed; cleared on retry
+    intakeSource:      text('intake_source'),                   // 'reply' | 'confirmed' | 'fallback'
+    intakeJson:        jsonb('intake_json').$type<unknown>(),
+    leanLine:          text('lean_line'),
+    draftCsvRef:       text('draft_csv_ref'),                   // Drive file ID
+    workbookRef:       text('workbook_ref'),                    // Drive file ID
+    pendingDeltasJson: jsonb('pending_deltas_json').$type<unknown>(), // RuleDelta[] gate buffer
+    requestSentAt:     timestamp('request_sent_at'),
+    remindedAt:        timestamp('reminded_at'),
+    replyReceivedAt:   timestamp('reply_received_at'),
+    deliveredAt:       timestamp('delivered_at'),
+    finalisedAt:       timestamp('finalised_at'),
+    voiceMergedAt:     timestamp('voice_merged_at'),
+    closedAt:          timestamp('closed_at'),
+    failedStep:        text('failed_step'),
+  },
+  (t) => ({
+    uniqClientChannelMonth: uniqueIndex('content_cycles_unique').on(
+      t.clientId, t.channel, t.cycleMonth,
+    ),
+  }),
+);
+
+export type ContentCycle    = typeof contentCycles.$inferSelect;
+export type NewContentCycle = typeof contentCycles.$inferInsert;

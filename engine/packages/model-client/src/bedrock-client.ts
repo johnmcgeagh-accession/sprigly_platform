@@ -1,7 +1,9 @@
 import {
   BedrockRuntimeClient,
   ConverseCommand,
+  ConverseStreamCommand,
   type ConverseCommandOutput,
+  type ConverseStreamOutput,
   type Message,
   type ContentBlock,
   type Tool,
@@ -10,10 +12,11 @@ import {
 } from '@aws-sdk/client-bedrock-runtime';
 import type { ModelClient, ModelCompleteParams, ModelCompleteResult, AnthropicTool } from './types.js';
 
-const MAX_TOOL_TURNS    = 20;
-const THROTTLE_RETRIES  = 3;
+const MAX_TOOL_TURNS      = 20;
+const THROTTLE_RETRIES    = 3;
 const THROTTLE_BASE_DELAY = 1_000; // 1s, doubles each attempt
 const DEFAULT_TIMEOUT_MS  = 180_000;
+const STREAM_IDLE_MS      = 30_000; // abort stream if no chunk arrives for 30s
 
 function isThrottlingError(err: unknown): boolean {
   if (err == null || typeof err !== 'object') return false;
@@ -24,6 +27,39 @@ function isThrottlingError(err: unknown): boolean {
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Wraps an AsyncIterable and rejects if no item arrives within idleMs.
+// Uses explicit iter.next() + Promise.race so a mid-stream stall cannot hold the
+// call open indefinitely — the watchdog fires exactly once per idle window,
+// calls iter.return() to signal the underlying stream, and rethrows.
+async function* idleTimeoutIterator<T>(
+  iterable: AsyncIterable<T>,
+  idleMs: number,
+): AsyncGenerator<T> {
+  const iter = iterable[Symbol.asyncIterator]();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    while (true) {
+      const next = await Promise.race([
+        iter.next(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`Bedrock stream stalled: no chunk for ${idleMs / 1000}s`)),
+            idleMs,
+          );
+        }),
+      ]);
+      clearTimeout(timer); // chunk arrived — cancel the pending watchdog
+      if (next.done) break;
+      yield next.value;
+    }
+  } catch (err) {
+    await iter.return?.(); // signal to the underlying stream that we are done
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function buildToolConfig(tools?: unknown[]): ToolConfiguration | undefined {
@@ -60,6 +96,30 @@ export class BedrockClient implements ModelClient {
       ...(credentials !== undefined && { credentials }),
     });
     this.timeoutMs = timeoutMs;
+  }
+
+  // Retry wraps only stream initiation — ThrottlingException (HTTP 429) manifests
+  // before any bytes arrive, so retrying is safe. Mid-stream errors cannot be retried.
+  private async sendStreamWithRetry(
+    command: ConverseStreamCommand,
+  ): Promise<AsyncIterable<ConverseStreamOutput>> {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= THROTTLE_RETRIES; attempt++) {
+      if (attempt > 0) {
+        const delay = THROTTLE_BASE_DELAY * Math.pow(2, attempt - 1);
+        console.warn(`[bedrock] ThrottlingException (stream) — retrying in ${delay}ms (attempt ${attempt}/${THROTTLE_RETRIES})`);
+        await sleep(delay);
+      }
+      try {
+        const response = await this.client.send(command);
+        if (!response.stream) throw new Error('Bedrock stream was undefined');
+        return response.stream;
+      } catch (err) {
+        if (isThrottlingError(err) && attempt < THROTTLE_RETRIES) { lastErr = err; continue; }
+        throw err;
+      }
+    }
+    throw lastErr;
   }
 
   private async sendWithRetry(command: ConverseCommand): Promise<ConverseCommandOutput> {
@@ -233,5 +293,37 @@ export class BedrockClient implements ModelClient {
       stopReason: finalStopReason,
       ...(turnsUsed > 1 && { toolTurns: turnsUsed }),
     };
+  }
+
+  async completeStreaming(params: ModelCompleteParams): Promise<ModelCompleteResult> {
+    const command = new ConverseStreamCommand({
+      modelId: params.model,
+      messages: params.messages.map((m) => ({
+        role: m.role,
+        content: [{ text: m.content }],
+      })),
+      ...(params.system !== undefined && { system: [{ text: params.system }] }),
+      inferenceConfig: { maxTokens: params.maxTokens ?? 4096 },
+    });
+
+    const rawStream = await this.sendStreamWithRetry(command);
+    const stream    = idleTimeoutIterator(rawStream, STREAM_IDLE_MS);
+
+    let text = '', inputTokens = 0, outputTokens = 0, stopReason = 'end_turn';
+
+    for await (const event of stream) {
+      if (event.contentBlockDelta?.delta?.text) text += event.contentBlockDelta.delta.text;
+      if (event.messageStop?.stopReason)         stopReason = event.messageStop.stopReason;
+      if (event.metadata?.usage) {
+        inputTokens  = event.metadata.usage.inputTokens  ?? 0;
+        outputTokens = event.metadata.usage.outputTokens ?? 0;
+      }
+    }
+
+    console.info(
+      `[bedrock] stream model=${params.model} inputTokens=${inputTokens} ` +
+      `outputTokens=${outputTokens} stopReason=${stopReason} contentLength=${text.length}`,
+    );
+    return { content: text, inputTokens, outputTokens, modelId: params.model, stopReason };
   }
 }

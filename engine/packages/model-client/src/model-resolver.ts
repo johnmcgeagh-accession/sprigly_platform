@@ -23,19 +23,24 @@ export class ResolvedModelClient implements ModelClient {
     private map: Partial<Record<LogicalModelName, string>>,
   ) {}
 
-  async complete(params: ModelCompleteParams): Promise<ModelCompleteResult> {
-    if (LOGICAL_NAMES.has(params.model)) {
-      const physicalId = this.map[params.model as LogicalModelName];
-      if (physicalId === undefined) {
-        throw new Error(
-          `Logical model name "${params.model}" is not mapped to a physical ID. ` +
-          `Check BEDROCK_MODEL_ID_${params.model.toUpperCase()} / ANTHROPIC_MODEL_ID_${params.model.toUpperCase()} env vars.`,
-        );
-      }
-      return this.inner.complete({ ...params, model: physicalId });
+  private resolve(params: ModelCompleteParams): ModelCompleteParams {
+    if (!LOGICAL_NAMES.has(params.model)) return params; // physical ID — forward as-is
+    const physicalId = this.map[params.model as LogicalModelName];
+    if (physicalId === undefined) {
+      throw new Error(
+        `Logical model name "${params.model}" is not mapped to a physical ID. ` +
+        `Check BEDROCK_MODEL_ID_${params.model.toUpperCase()} / ANTHROPIC_MODEL_ID_${params.model.toUpperCase()} env vars.`,
+      );
     }
-    // Physical ID passed directly — forward as-is (backwards compat)
-    return this.inner.complete(params);
+    return { ...params, model: physicalId };
+  }
+
+  async complete(params: ModelCompleteParams): Promise<ModelCompleteResult> {
+    return this.inner.complete(this.resolve(params));
+  }
+
+  async completeStreaming(params: ModelCompleteParams): Promise<ModelCompleteResult> {
+    return this.inner.completeStreaming(this.resolve(params));
   }
 }
 
