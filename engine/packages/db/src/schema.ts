@@ -657,9 +657,10 @@ export type NewContentCycle = typeof contentCycles.$inferInsert;
 // ─── client_planning_config ───────────────────────────────────────────────────
 // Per-(client, channel) content planning configuration for the planning phase
 // of the content-cycle. All JSONB columns have typed shapes defined in
-// packages/engine/src/types.ts (Pillar, FormatTargets, Cadence, RecurringSeries,
-// PostingTimes). The categories column is authoritative: the planning worker
-// must only use values from this list.
+// packages/engine/src/types.ts (Pillar, Cadence, RecurringSeries, PostingTimes).
+// format_targets and pillar % shares are intentionally absent — the planning
+// agent reasons both from competitor analysis at plan time, not from fixed config.
+// categories is authoritative: planning worker must only use values from this list.
 
 export const clientPlanningConfig = pgTable(
   'client_planning_config',
@@ -669,7 +670,6 @@ export const clientPlanningConfig = pgTable(
     channel:         text('channel').notNull(),
     pillars:         jsonb('pillars').$type<Array<Record<string, unknown>>>().notNull().default([]),
     competitors:     jsonb('competitors').$type<string[]>().notNull().default([]),
-    formatTargets:   jsonb('format_targets').$type<Record<string, number>>().notNull().default({}),
     cadence:         jsonb('cadence').$type<Record<string, number>>().notNull().default({}),
     recurringSeries: jsonb('recurring_series').$type<Array<Record<string, unknown>>>().notNull().default([]),
     postingTimes:    jsonb('posting_times').$type<Record<string, string>>().notNull().default({}),

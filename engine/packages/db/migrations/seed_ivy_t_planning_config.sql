@@ -1,19 +1,14 @@
 -- Seed: IVY-t instagram planning config
 -- Sources:
---   Pillars:         clients/ivy-t/memory/ivy-t-content-strategy.md
---   Target shares:   sprigly-content-plan skill, Step 6b
---   Competitors:     clients/ivy-t/memory/ivy-t-content-strategy.md (confirmed by Sally 2026-06-17)
---   Format targets:  skill Step 6c
---   Cadence:         skill Step 6a
---   Recurring series: skill Step 6e
---   Posting times:   skill Step 7
---   Categories:      extracted from june + july plan outputs (authoritative)
+--   pillars          — clients/ivy-t/memory/ivy-t-content-strategy.md (all 7 pillars)
+--   competitors      — ivy-t-content-strategy.md (confirmed Sally 2026-06-17; @colorfulstandard added 2026-06-23)
+--   cadence          — sprigly-content-plan skill, Step 6a
+--   recurring_series — skill Step 6e
+--   posting_times    — skill Step 7
+--   categories       — extracted from June + July 2026 plan outputs (authoritative starting set)
 --
--- NOTE — 7th pillar (A Supportive Friend, Always By Your Side):
---   Appears in content-strategy.md but NOT in the skill's Step 6b target-share table.
---   The 6-pillar table sums to 90% (6×10–25%), leaving ~10% unclaimed.
---   Seeded with 5–10% as a working value. Confirm with John whether this pillar
---   has a target share or should be merged into Personal Relationships.
+-- format_targets intentionally absent: agent reasons format balance from competitor analysis.
+-- Pillar target shares intentionally absent: agent reasons pillar balance at plan time.
 --
 -- Apply: psql "<DATABASE_URL>" -f seed_ivy_t_planning_config.sql
 
@@ -31,7 +26,6 @@ BEGIN
     channel,
     pillars,
     competitors,
-    format_targets,
     cadence,
     recurring_series,
     posting_times,
@@ -41,8 +35,9 @@ BEGIN
     'instagram',
 
     -- ── pillars ──────────────────────────────────────────────────────────────
-    -- 7 pillars from content-strategy.md. Target shares from skill Step 6b.
-    -- Pillar 7 target share is a working estimate — flag for confirmation.
+    -- All 7 pillars from ivy-t-content-strategy.md.
+    -- Each: name, tagline (the italic line), keyMessages (bullet points),
+    --        contentIdeas (the "Content ideas:" line, split to array).
     '[
       {
         "name": "Simplify Your Morning",
@@ -52,8 +47,12 @@ BEGIN
           "Effortless coordination",
           "Streamlined wardrobe decisions"
         ],
-        "targetShareMin": 20,
-        "targetShareMax": 25
+        "contentIdeas": [
+          "morning routine",
+          "outfit repeating",
+          "capsule wardrobe",
+          "decision fatigue"
+        ]
       },
       {
         "name": "Born From Real Need",
@@ -63,8 +62,12 @@ BEGIN
           "Industry insider knowledge",
           "Personal experience driving innovation"
         ],
-        "targetShareMin": 15,
-        "targetShareMax": 20
+        "contentIdeas": [
+          "founder story",
+          "behind the scenes",
+          "why Ivy exists",
+          "Sally''s perspective"
+        ]
       },
       {
         "name": "Stable Foundations",
@@ -74,8 +77,12 @@ BEGIN
           "65% customer return rate",
           "Investment pieces that last"
         ],
-        "targetShareMin": 15,
-        "targetShareMax": 20
+        "contentIdeas": [
+          "styling multiple ways",
+          "cost-per-wear",
+          "quality longevity",
+          "wardrobe building"
+        ]
       },
       {
         "name": "Ethical Without Compromise",
@@ -85,8 +92,12 @@ BEGIN
           "Portuguese factory partnership (Sedex-approved, fair wages, solar power)",
           "Quality that honours your investment"
         ],
-        "targetShareMin": 10,
-        "targetShareMax": 15
+        "contentIdeas": [
+          "factory stories",
+          "sustainability facts",
+          "organic cotton benefits",
+          "slow fashion"
+        ]
       },
       {
         "name": "Understands Real Women",
@@ -96,8 +107,12 @@ BEGIN
           "Move seamlessly through your day",
           "Each piece named after women in Sally''s life"
         ],
-        "targetShareMin": 20,
-        "targetShareMax": 25
+        "contentIdeas": [
+          "customer stories",
+          "real body celebration",
+          "life stages",
+          "relatable moments"
+        ]
       },
       {
         "name": "Personal Relationships",
@@ -107,8 +122,12 @@ BEGIN
           "Generous customer service",
           "Building lasting relationships"
         ],
-        "targetShareMin": 10,
-        "targetShareMax": 15
+        "contentIdeas": [
+          "customer testimonials",
+          "Sally responding personally",
+          "sizing help",
+          "community"
+        ]
       },
       {
         "name": "A Supportive Friend, Always By Your Side",
@@ -118,27 +137,26 @@ BEGIN
           "Feel special in every interaction",
           "Learn to make the most of your unique body and style"
         ],
-        "targetShareMin": 5,
-        "targetShareMax": 10
+        "contentIdeas": [
+          "sizing guides",
+          "styling advice",
+          "personal shopping",
+          "outfit help"
+        ]
       }
     ]'::jsonb,
 
     -- ── competitors ──────────────────────────────────────────────────────────
-    -- 9 handles from content-strategy.md. No @ prefix. LinkedIn TBC (separate channel row).
-    -- Confirmed by Sally 2026-06-17; @colorfulstandard added 2026-06-23.
+    -- 9 Instagram handles. No @ prefix. Order matches content-strategy.md.
     '["organicbasics", "withnothingunderneath", "_beyond_nine", "lucyandyak", "theslowlove", "notbasics", "navygrey.co", "elevenloves.co.uk", "colorfulstandard"]'::jsonb,
 
-    -- ── format_targets ───────────────────────────────────────────────────────
-    -- Skill Step 6c. Reels anchor high-ceiling moments. All values are integer %.
-    '{"reelMin": 30, "reelMax": 40, "carouselMin": 40, "carouselMax": 50, "staticMin": 15, "staticMax": 20}'::jsonb,
-
     -- ── cadence ──────────────────────────────────────────────────────────────
-    -- Skill Step 6a. 16–20/month, approx 4/week, max 5/week, min 3/week.
+    -- Skill Step 6a. 16–20/month, ~4/week default, max 5, min 3.
     '{"postsPerMonthMin": 16, "postsPerMonthMax": 20, "maxPerWeek": 5, "minPerWeek": 3}'::jsonb,
 
     -- ── recurring_series ─────────────────────────────────────────────────────
-    -- Skill Step 6e. Four established series.
-    -- format null = Sally owns the format; no Sprigly brief.
+    -- Skill Step 6e. Four established series carried forward each month.
+    -- format null = Sally owns format; no Sprigly brief for that field.
     '[
       {
         "name": "Sunday Style",
@@ -171,18 +189,17 @@ BEGIN
     ]'::jsonb,
 
     -- ── posting_times ────────────────────────────────────────────────────────
-    -- Skill Step 7. Standard time slots per post type.
+    -- Skill Step 7. Standard slot labels used in the plan CSV.
     '{"launch": "6am", "morning": "7am", "evening": "7pm", "wsg": "6pm", "sundayStyle": "8pm"}'::jsonb,
 
     -- ── categories ───────────────────────────────────────────────────────────
-    -- Authoritative list extracted from June + July 2026 plan outputs.
-    -- Planning worker must only use values from this list.
+    -- Authoritative vocabulary for the Category column. Extracted from June and
+    -- July 2026 plan outputs. Planning worker must only use values from this list.
     '["Styling", "WSG & Sunday Style", "Brand", "Educational", "Product launch or offer related", "POV", "Testimonials", "Regular feature", "No Post/Sally"]'::jsonb
   )
   ON CONFLICT (client_id, channel) DO UPDATE SET
     pillars          = EXCLUDED.pillars,
     competitors      = EXCLUDED.competitors,
-    format_targets   = EXCLUDED.format_targets,
     cadence          = EXCLUDED.cadence,
     recurring_series = EXCLUDED.recurring_series,
     posting_times    = EXCLUDED.posting_times,

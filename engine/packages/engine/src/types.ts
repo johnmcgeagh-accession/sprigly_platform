@@ -93,25 +93,17 @@ export interface TriageConfig {
 
 // ─── client_planning_config JSONB shapes ──────────────────────────────────────
 // Per-(client, channel) content planning configuration for the content-cycle
-// planning phase. All fields are optional at the TypeScript level to allow
-// partial saves; the planning worker should treat missing fields as "not yet
-// configured" and surface a readiness error rather than silently defaulting.
+// planning phase. The planning worker treats missing/empty fields as "not yet
+// configured" and surfaces a readiness error rather than silently defaulting.
+//
+// format_targets and pillar % target shares are intentionally absent:
+// the planning agent reasons both from competitor analysis at plan time.
 
 export interface Pillar {
   name: string;
   tagline: string;
   keyMessages: string[];
-  targetShareMin: number;  // integer percentage, e.g. 20
-  targetShareMax: number;  // integer percentage, e.g. 25
-}
-
-export interface FormatTargets {
-  reelMin: number;       // integer percentage
-  reelMax: number;
-  carouselMin: number;
-  carouselMax: number;
-  staticMin: number;
-  staticMax: number;
+  contentIdeas: string[];
 }
 
 export interface Cadence {
@@ -132,7 +124,7 @@ export type SeriesWhoPosts = 'Sprigly' | 'Sally posting' | 'Sally only';
 export interface RecurringSeries {
   name: string;
   dayOfWeek: SeriesDayOfWeek;
-  time: string;              // e.g. '8pm', 'monthly' (when dayOfWeek = 'monthly')
+  time: string;              // e.g. '8pm'; 'monthly' when dayOfWeek = 'monthly'
   format: SeriesFormat;      // null when Sally owns the format entirely
   whoPosts: SeriesWhoPosts;
 }
@@ -148,7 +140,6 @@ export interface PostingTimes {
 export interface PlanningConfig {
   pillars: Pillar[];
   competitors: string[];
-  formatTargets: FormatTargets;
   cadence: Cadence;
   recurringSeries: RecurringSeries[];
   postingTimes: PostingTimes;
