@@ -10,7 +10,8 @@ const navItems = [
   { href: '/admin/approvals', label: 'Approvals' },
   { href: '/admin/audit', label: 'Audit Log' },
   { href: '/admin/mailboxes',      label: 'Mailboxes' },
-  { href: '/admin/triage-config', label: 'Triage Config' },
+  { href: '/admin/triage-config',    label: 'Triage Config' },
+  { href: '/admin/planning-config', label: 'Planning Config' },
   { href: '/admin/gmail-errors',  label: 'Gmail Errors' },
 ];
 

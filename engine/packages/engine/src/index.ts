@@ -27,6 +27,14 @@ export type {
   TriageStore,
   EmbeddingClient,
   KnowledgeTopicSummary,
+  Pillar,
+  Cadence,
+  RecurringSeries,
+  PostingTimes,
+  PlanningConfig,
+  SeriesDayOfWeek,
+  SeriesFormat,
+  SeriesWhoPosts,
 } from './types.js';
 export { recordResolution } from './resolution.js';
 export type { RecordResolutionParams } from './resolution.js';
