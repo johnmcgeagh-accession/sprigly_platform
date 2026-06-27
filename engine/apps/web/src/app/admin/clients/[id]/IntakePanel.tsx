@@ -5,8 +5,20 @@ import { saveIntake, confirmIntake, type IntakeActionResult } from './intake-act
 import type { IntakeJson, BusinessContextNote } from '@sprigly/engine';
 
 // tsconfig lib:["ES2022"] has no DOM — access element value via this cast.
+// Also guards against null currentTarget when hydration errors leave events broken.
 function val(e: { currentTarget: unknown }): string {
-  return (e.currentTarget as unknown as { value: string }).value;
+  const target = e.currentTarget as { value?: string } | null;
+  return target?.value ?? '';
+}
+
+function defaultIntake(): IntakeJson {
+  return {
+    planContent:     { answers: {}, freeNotes: '' },
+    businessContext: [],
+    otherChannel:    {},
+    source:          'manual',
+    capturedAt:      '',
+  };
 }
 
 interface Props {
@@ -24,21 +36,23 @@ export function IntakePanel({
   cycleId, cycleMonth, cycleStatus, clientId, channel,
   baseQuestions, extraQuestions, existingIntake,
 }: Props) {
+  // Normalise to a fully-formed object so all downstream accesses are non-optional.
+  const intake     = existingIntake ?? defaultIntake();
   const allQuestions = [...baseQuestions, ...extraQuestions];
 
   const [answers, setAnswers] = useState<Record<string, string>>(
-    existingIntake?.planContent.answers ?? {},
+    intake.planContent.answers,
   );
-  const [freeNotes, setFreeNotes]     = useState(existingIntake?.planContent.freeNotes ?? '');
+  const [freeNotes, setFreeNotes]         = useState<string>(intake.planContent.freeNotes);
   const [businessContext, setBusinessContext] = useState<BusinessContextNote[]>(
-    existingIntake?.businessContext ?? [],
+    intake.businessContext,
   );
-  const [newContextNote, setNewContextNote] = useState('');
-  const [otherChannel, setOtherChannel]     = useState(
-    existingIntake?.otherChannel?.['general']?.[0] ?? '',
+  const [newContextNote, setNewContextNote] = useState<string>('');
+  const [otherChannel, setOtherChannel]     = useState<string>(
+    intake.otherChannel['general']?.[0] ?? '',
   );
 
-  const [isSaving,    startSaveTransition]    = useTransition();
+  const [isSaving,     startSaveTransition]    = useTransition();
   const [isConfirming, startConfirmTransition] = useTransition();
   const [saveResult,    setSaveResult]    = useState<IntakeActionResult | null>(null);
   const [confirmResult, setConfirmResult] = useState<IntakeActionResult | null>(null);
@@ -46,7 +60,7 @@ export function IntakePanel({
   const isConfirmed = cycleStatus === 'intake_confirmed';
   const isReadOnly  = isConfirmed;
 
-  function buildFormData() {
+  function buildFormData(): FormData {
     const fd = new FormData();
     fd.set('cycleId',         cycleId);
     fd.set('clientId',        clientId);
@@ -70,7 +84,7 @@ export function IntakePanel({
     startConfirmTransition(async () => {
       const saveRes = await saveIntake(buildFormData());
       if (!saveRes.ok) {
-        setConfirmResult({ ok: false, message: `Save failed: ${saveRes.message}` });
+        setConfirmResult({ ok: false, message: `Save failed: ${saveRes.message ?? 'unknown error'}` });
         return;
       }
       const result = await confirmIntake(buildFormData());
@@ -78,7 +92,7 @@ export function IntakePanel({
     });
   }
 
-  function addContextNote() {
+  function handleAddContextNote() {
     const trimmed = newContextNote.trim();
     if (!trimmed) return;
     setBusinessContext((prev) => [
@@ -88,9 +102,16 @@ export function IntakePanel({
     setNewContextNote('');
   }
 
-  const textareaClass = `w-full text-sm border rounded px-3 py-2 text-gray-800 resize-y focus:outline-none focus:border-blue-400 disabled:bg-gray-50 disabled:text-gray-400 ${
-    isReadOnly ? 'border-gray-100 bg-gray-50' : 'border-gray-200'
-  }`;
+  function handleRemoveContextNote(idx: number) {
+    setBusinessContext((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  const fieldCls = [
+    'w-full text-sm border rounded px-3 py-2 text-gray-800 resize-y',
+    'focus:outline-none focus:border-blue-400',
+    'disabled:bg-gray-50 disabled:text-gray-400 disabled:resize-none',
+    isReadOnly ? 'border-gray-100 bg-gray-50' : 'border-gray-200',
+  ].join(' ');
 
   return (
     <div className="space-y-6">
@@ -117,16 +138,16 @@ export function IntakePanel({
         </h4>
         <div className="space-y-4">
           {allQuestions.map((q, i) => (
-            <div key={q}>
+            <div key={i}>
               <label className="block text-xs text-gray-600 mb-1">
                 {i + 1}. {q}
               </label>
               <textarea
                 value={answers[q] ?? ''}
-                onChange={(e) => setAnswers((prev) => ({ ...prev, [q]: val(e) }))}
+                onChange={(e) => { const v = val(e); setAnswers((prev) => ({ ...prev, [q]: v })); }}
                 rows={2}
                 disabled={isReadOnly}
-                className={textareaClass}
+                className={fieldCls}
                 placeholder="Leave blank to skip…"
               />
             </div>
@@ -139,7 +160,7 @@ export function IntakePanel({
               onChange={(e) => setFreeNotes(val(e))}
               rows={3}
               disabled={isReadOnly}
-              className={textareaClass}
+              className={fieldCls}
               placeholder="Anything else worth noting for this month's plan…"
             />
           </div>
@@ -150,7 +171,7 @@ export function IntakePanel({
       <div>
         <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
           Business context
-          <span className="ml-1 normal-case font-normal text-gray-400">— durable facts about this client</span>
+          <span className="ml-1 normal-case font-normal text-gray-400">— durable client facts</span>
         </h4>
         <p className="text-xs text-gray-400 mb-3">
           These accumulate over time and are passed to the planning worker on every cycle.
@@ -164,7 +185,7 @@ export function IntakePanel({
                 {!isReadOnly && (
                   <button
                     type="button"
-                    onClick={() => setBusinessContext((prev) => prev.filter((_, idx) => idx !== i))}
+                    onClick={() => handleRemoveContextNote(i)}
                     className="shrink-0 text-gray-300 hover:text-gray-500 text-xs leading-none mt-0.5"
                     aria-label="Remove note"
                   >
@@ -182,13 +203,16 @@ export function IntakePanel({
               type="text"
               value={newContextNote}
               onChange={(e) => setNewContextNote(val(e))}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addContextNote(); } }}
+              onKeyDown={(e) => {
+                const key = (e as unknown as { key: string }).key;
+                if (key === 'Enter') { e.preventDefault(); handleAddContextNote(); }
+              }}
               className="flex-1 text-sm border border-gray-200 rounded px-3 py-2 text-gray-800 focus:outline-none focus:border-blue-400"
               placeholder="Add a durable fact about this client…"
             />
             <button
               type="button"
-              onClick={addContextNote}
+              onClick={handleAddContextNote}
               className="px-3 py-2 text-xs font-medium text-blue-600 border border-blue-200 rounded hover:bg-blue-50"
             >
               Add
@@ -204,14 +228,14 @@ export function IntakePanel({
           <span className="ml-1 normal-case font-normal text-gray-400">— optional</span>
         </h4>
         <p className="text-xs text-gray-400 mb-2">
-          Notes about channels not being planned this cycle — parked for future use.
+          Notes about other channels mentioned during intake — parked for future use.
         </p>
         <textarea
           value={otherChannel}
           onChange={(e) => setOtherChannel(val(e))}
           rows={2}
           disabled={isReadOnly}
-          className={textareaClass}
+          className={fieldCls}
           placeholder="e.g. Sally mentioned wanting to launch LinkedIn in Q3…"
         />
       </div>
@@ -238,26 +262,17 @@ export function IntakePanel({
             </button>
           </div>
 
-          {saveResult?.ok && !confirmResult && (
+          {saveResult?.ok === true && confirmResult === null && (
             <p className="text-xs text-green-600">Draft saved.</p>
           )}
-          {saveResult && !saveResult.ok && (
-            <p className="text-xs text-red-600">{saveResult.message}</p>
+          {saveResult !== null && saveResult.ok === false && (
+            <p className="text-xs text-red-600">{saveResult.message ?? 'Save failed.'}</p>
           )}
-          {confirmResult && !confirmResult.ok && (
-            <p className="text-xs text-red-600">{confirmResult.message}</p>
+          {confirmResult !== null && confirmResult.ok === false && (
+            <p className="text-xs text-red-600">{confirmResult.message ?? 'Confirm failed.'}</p>
           )}
         </div>
       )}
-
-      {/* Integration note for future writers (dev-only) */}
-      <p className="text-xs text-gray-300 italic">
-        Future writers: email-reply capture and voice-note ingest will write to the same{' '}
-        <span className="font-mono">intake_json</span> shape with{' '}
-        <span className="font-mono">source: &apos;email&apos;</span> or{' '}
-        <span className="font-mono">&apos;voice&apos;</span>. Manual entry is{' '}
-        <span className="font-mono">source: &apos;manual&apos;</span>.
-      </p>
     </div>
   );
 }
