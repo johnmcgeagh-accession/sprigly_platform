@@ -91,6 +91,70 @@ export interface TriageConfig {
   additionalInstructions?: string;
 }
 
+// ─── client_planning_config JSONB shapes ──────────────────────────────────────
+// Per-(client, channel) content planning configuration for the content-cycle
+// planning phase. All fields are optional at the TypeScript level to allow
+// partial saves; the planning worker should treat missing fields as "not yet
+// configured" and surface a readiness error rather than silently defaulting.
+
+export interface Pillar {
+  name: string;
+  tagline: string;
+  keyMessages: string[];
+  targetShareMin: number;  // integer percentage, e.g. 20
+  targetShareMax: number;  // integer percentage, e.g. 25
+}
+
+export interface FormatTargets {
+  reelMin: number;       // integer percentage
+  reelMax: number;
+  carouselMin: number;
+  carouselMax: number;
+  staticMin: number;
+  staticMax: number;
+}
+
+export interface Cadence {
+  postsPerMonthMin: number;
+  postsPerMonthMax: number;
+  maxPerWeek: number;
+  minPerWeek: number;
+}
+
+export type SeriesDayOfWeek =
+  | 'Sunday' | 'Monday' | 'Tuesday' | 'Wednesday'
+  | 'Thursday' | 'Friday' | 'Saturday'
+  | 'monthly';
+
+export type SeriesFormat = 'Reel' | 'Carousel' | 'Static' | 'Reel or Carousel' | null;
+export type SeriesWhoPosts = 'Sprigly' | 'Sally posting' | 'Sally only';
+
+export interface RecurringSeries {
+  name: string;
+  dayOfWeek: SeriesDayOfWeek;
+  time: string;              // e.g. '8pm', 'monthly' (when dayOfWeek = 'monthly')
+  format: SeriesFormat;      // null when Sally owns the format entirely
+  whoPosts: SeriesWhoPosts;
+}
+
+export interface PostingTimes {
+  launch: string;      // e.g. '6am'
+  morning: string;     // e.g. '7am'
+  evening: string;     // e.g. '7pm'
+  wsg: string;         // e.g. '6pm'
+  sundayStyle: string; // e.g. '8pm'
+}
+
+export interface PlanningConfig {
+  pillars: Pillar[];
+  competitors: string[];
+  formatTargets: FormatTargets;
+  cadence: Cadence;
+  recurringSeries: RecurringSeries[];
+  postingTimes: PostingTimes;
+  categories: string[];
+}
+
 export interface TriageStore {
   writeSeenMessage(params: {
     clientId: string;
