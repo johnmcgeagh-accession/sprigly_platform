@@ -12,6 +12,9 @@ import { customisePrompt, approveQaDraft } from './actions';
 import { StepModelForm } from './StepModelForm';
 import { ContentCycleSettingsForm } from './ContentCycleSettingsForm';
 import { ContentCycleOpsPanel } from './ContentCycleOpsPanel';
+import { IntakePanel } from './IntakePanel';
+import { BASE_QUESTIONS } from '@sprigly/engine';
+import type { IntakeJson } from '@sprigly/engine';
 
 type PromptRow = { id: string; clientId: string | null; workflowId: string; stepName: string; version: number };
 
@@ -72,17 +75,26 @@ async function getClientChannels(clientId: string) {
     .where(eq(clientChannels.clientId, clientId));
 }
 
+type CycleInfo = {
+  id:            string;
+  status:        string;
+  requestSentAt: string | null;
+  intakeJson:    IntakeJson | null;
+};
+
 async function getCyclesByChannel(
   clientId: string,
   channelNames: string[],
   dataMonth: string,
-): Promise<Map<string, { status: string; requestSentAt: string | null }>> {
+): Promise<Map<string, CycleInfo>> {
   if (channelNames.length === 0) return new Map();
   const rows = await db
     .select({
       channel:       contentCycles.channel,
+      id:            contentCycles.id,
       status:        contentCycles.status,
       requestSentAt: contentCycles.requestSentAt,
+      intakeJson:    contentCycles.intakeJson,
     })
     .from(contentCycles)
     .where(
@@ -93,8 +105,10 @@ async function getCyclesByChannel(
       ),
     );
   return new Map(rows.map(r => [r.channel, {
+    id:            r.id,
     status:        r.status,
     requestSentAt: r.requestSentAt ? r.requestSentAt.toISOString() : null,
+    intakeJson:    (r.intakeJson as IntakeJson | null) ?? null,
   }]));
 }
 
@@ -369,6 +383,48 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                     cycle={cycle}
                     driveFiles={driveResult.files}
                     driveError={driveResult.error}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Content Cycle Intake — visible once cycle reaches requested state */}
+      {channels.length > 0 && channels.some((ch) => {
+        const s = cyclesByChannel.get(ch.channel)?.status;
+        return s === 'requested' || s === 'reply_received' || s === 'awaiting_confirmation' || s === 'intake_confirmed';
+      }) && (
+        <section className="bg-white rounded-lg border border-gray-200 px-6 py-5">
+          <h2 className="text-base font-semibold text-gray-900 mb-1">Content Cycle Intake</h2>
+          <p className="text-xs text-gray-400 mb-5">
+            Capture the client&apos;s planning input for this month. Three writers feed the same store:
+            manual entry (here), email-reply capture (auto), voice note (magic link).
+          </p>
+          <div className="space-y-10">
+            {channels.map((ch) => {
+              const cycle = cyclesByChannel.get(ch.channel);
+              const intakeStatuses = ['requested', 'reply_received', 'awaiting_confirmation', 'intake_confirmed'];
+              if (!cycle || !intakeStatuses.includes(cycle.status)) return null;
+              return (
+                <div key={ch.channel}>
+                  {channels.length > 1 && (
+                    <p className="text-xs font-mono text-gray-500 mb-4">{ch.channel}</p>
+                  )}
+                  <IntakePanel
+                    cycleId={cycle.id}
+                    cycleMonth={dataMonth}
+                    cycleStatus={cycle.status}
+                    clientId={params.id}
+                    channel={ch.channel}
+                    baseQuestions={BASE_QUESTIONS}
+                    extraQuestions={
+                      Array.isArray(ch.extraQuestions)
+                        ? (ch.extraQuestions as unknown[]).filter((q): q is string => typeof q === 'string')
+                        : []
+                    }
+                    existingIntake={cycle.intakeJson}
                   />
                 </div>
               );

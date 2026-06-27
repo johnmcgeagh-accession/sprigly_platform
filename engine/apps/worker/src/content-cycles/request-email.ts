@@ -26,6 +26,9 @@ import type { AuditLogger } from '@sprigly/audit';
 import type { Logger } from 'pino';
 import { buildLeanLine, type PromptResolver } from '../lean-line.js';
 import { transitionCycle } from './machine.js';
+import { BASE_QUESTIONS } from '@sprigly/engine';
+
+export { BASE_QUESTIONS };
 
 type Db = typeof _db;
 
@@ -45,14 +48,6 @@ export interface RequestEmailDeps {
   logger:            Logger;
   prompts:           PromptResolver;
 }
-
-export const BASE_QUESTIONS = [
-  'Any key dates next month? Launches, events, deadlines.',
-  "Anything new or returning to feature, or anything you'd rather we held back?",
-  'Any specific looks, themes, or formats you want this month?',
-  "Any stories worth telling? A behind-the-scenes moment, a customer story, something you're proud of.",
-  'Anything specific you need driven this month?',
-] as const;
 
 export const GREETING_INTRO      = "we've taken a look at last month's numbers. Here's where the data's pointing.";
 export const QUESTION_TRANSITION  = "To shape next month's content, it'd help to hear your thinking on a few things:";

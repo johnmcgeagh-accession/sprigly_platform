@@ -215,6 +215,33 @@ export interface CompetitorGatherData {
   gatheredAt: string;   // ISO date of the most recent gather run
 }
 
+// ─── intake_json shape ───────────────────────────────────────────────────────
+// Source-agnostic planning input store. Three future writers all produce this
+// shape: manual entry (now), email-reply capture (later), voice note (later).
+// 'source' distinguishes the writer; everything else is identical.
+//
+// planContent    → this month's planning answers; consumed by the planning worker
+// businessContext → durable client facts captured during intake; accumulates over time
+// otherChannel   → notes about channels other than the one being planned; parked for future writers
+
+export interface PlanContentAnswers {
+  answers:   Record<string, string>;  // questionText → answer
+  freeNotes: string;
+}
+
+export interface BusinessContextNote {
+  note:       string;
+  capturedAt: string;  // ISO date
+}
+
+export interface IntakeJson {
+  planContent:     PlanContentAnswers;
+  businessContext: BusinessContextNote[];
+  otherChannel:    Record<string, string[]>;  // channel-name → notes array
+  source:          'manual' | 'email' | 'voice';
+  capturedAt:      string;  // ISO date
+}
+
 export interface TriageStore {
   writeSeenMessage(params: {
     clientId: string;

@@ -1,3 +1,6 @@
+export { BASE_QUESTIONS } from './base-questions.js';
+export type { BaseQuestion } from './base-questions.js';
+
 export type {
   IncomingEventDraft,
   IncomingEvent,
@@ -42,6 +45,9 @@ export type {
   CompetitorAccountCache,
   CompetitorBenchmarkRow,
   CompetitorGatherData,
+  PlanContentAnswers,
+  BusinessContextNote,
+  IntakeJson,
 } from './types.js';
 export { recordResolution } from './resolution.js';
 export type { RecordResolutionParams } from './resolution.js';
