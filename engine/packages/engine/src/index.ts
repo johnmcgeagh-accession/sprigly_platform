@@ -35,6 +35,13 @@ export type {
   SeriesDayOfWeek,
   SeriesFormat,
   SeriesWhoPosts,
+  ScoredIgPost,
+  CompetitorFormatBreakdown,
+  CompetitorTop5Post,
+  CompetitorAccountStats,
+  CompetitorAccountCache,
+  CompetitorBenchmarkRow,
+  CompetitorGatherData,
 } from './types.js';
 export { recordResolution } from './resolution.js';
 export type { RecordResolutionParams } from './resolution.js';

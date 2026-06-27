@@ -146,6 +146,75 @@ export interface PlanningConfig {
   categories: string[];
 }
 
+// ─── competitor_gather_cache JSONB shapes ──────────────────────────────────────
+// Structured output of the deterministic gather phase (competitor-gather.ts).
+// Stored in competitor_gather_cache.raw_data. Consumed by the LLM analysis
+// worker (Stage 2) to produce strategic findings and the planning agent summary.
+//
+// Per-handle fetchedAt enables staleness checks at the individual handle level
+// so re-runs only re-fetch handles that are > 30 days old.
+
+export interface ScoredIgPost {
+  timestamp:       string;
+  type:            string;    // 'Reel' | 'Carousel' | 'Static'
+  likes:           number;
+  comments:        number;
+  views:           number;
+  caption?:        string;
+  engagementScore: number;    // likes + comments*3
+  wordCount:       number;
+  hasQuestion:     boolean;
+  hasCta:          boolean;
+  emojiCount:      number;
+  hashtagCount:    number;
+}
+
+export interface CompetitorFormatBreakdown {
+  type:          string;
+  count:         number;
+  avgEngagement: number;
+  topScore:      number;
+}
+
+export interface CompetitorTop5Post {
+  timestamp:       string;
+  type:            string;
+  engagementScore: number;
+  captionSnippet:  string;
+}
+
+export interface CompetitorAccountStats {
+  handle:          string;
+  postCount:       number;
+  avgEngagement:   number;
+  topPostScore:    number;
+  postsPerWeek:    number;
+  dateRange:       { oldest: string; newest: string };
+  formatBreakdown: CompetitorFormatBreakdown[];
+  top5Posts:       CompetitorTop5Post[];
+}
+
+export interface CompetitorAccountCache {
+  handle:    string;
+  fetchedAt: string;   // ISO date — used for per-handle staleness (30-day rule)
+  posts:     ScoredIgPost[];
+  stats:     CompetitorAccountStats;
+}
+
+export interface CompetitorBenchmarkRow {
+  handle:        string;
+  avgEngagement: number;
+  topPostScore:  number;
+  bestType:      string;
+  postsPerWeek:  number;
+}
+
+export interface CompetitorGatherData {
+  accounts:   CompetitorAccountCache[];
+  benchmark:  CompetitorBenchmarkRow[];
+  gatheredAt: string;   // ISO date of the most recent gather run
+}
+
 export interface TriageStore {
   writeSeenMessage(params: {
     clientId: string;

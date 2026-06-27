@@ -682,3 +682,31 @@ export const clientPlanningConfig = pgTable(
 
 export type ClientPlanningConfig    = typeof clientPlanningConfig.$inferSelect;
 export type NewClientPlanningConfig = typeof clientPlanningConfig.$inferInsert;
+
+// ─── competitor_gather_cache ──────────────────────────────────────────────────
+// Stores the deterministic gather output (scraped + scored posts) for all
+// competitor handles. One row per (client_id, channel). Latest-wins upsert.
+//
+// raw_data shape: CompetitorGatherData (engine/packages/engine/src/types.ts).
+// gatheredAt mirrors the gatheredAt field inside raw_data but is a proper
+// column so it can be queried for staleness checks and UI display without
+// parsing the JSON blob.
+//
+// Consumed by the LLM analysis worker (Stage 2) to produce strategic findings.
+
+export const competitorGatherCache = pgTable(
+  'competitor_gather_cache',
+  {
+    ...baseColumns,
+    clientId:   uuid('client_id').notNull().references(() => clients.id),
+    channel:    text('channel').notNull(),
+    gatheredAt: timestamp('gathered_at').notNull(),
+    rawData:    jsonb('raw_data').$type<Record<string, unknown>>().notNull().default({}),
+  },
+  (t) => ({
+    uniqClientChannel: uniqueIndex('competitor_gather_cache_unique').on(t.clientId, t.channel),
+  }),
+);
+
+export type CompetitorGatherCacheRow    = typeof competitorGatherCache.$inferSelect;
+export type NewCompetitorGatherCacheRow = typeof competitorGatherCache.$inferInsert;

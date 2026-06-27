@@ -22,6 +22,7 @@
     "revert-voice-merge": "sh -c 'set -a && . ../../.env.local && set +a && tsx src/revert-voice-merge.ts \"$@\"' --",
     "probe-lean-line": "sh -c 'set -a && . ../../.env.local && set +a && tsx src/probe-lean-line.ts'",
     "ig-trawl": "sh -c 'set -a && . ../../.env.local && set +a && tsx src/ig-trawl.ts \"$@\"' --",
+    "competitor-gather": "sh -c 'set -a && . ../../.env.local && set +a && tsx src/competitor-gather-cli.ts \"$@\"' --",
     "patch-calendar-config": "sh -c 'set -a && . ../../.env.local && set +a && tsx src/patch-calendar-config.ts \"$@\"' --",
     "send-request-email": "sh -c 'set -a && . ../../.env.local && set +a && tsx src/send-request-email.ts \"$@\"' --",
     "reset-cycle": "sh -c 'set -a && . ../../.env.local && set +a && tsx src/reset-cycle.ts \"$@\"' --",

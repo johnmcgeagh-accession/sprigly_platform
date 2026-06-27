@@ -7,6 +7,9 @@
  *
  * APIFY_API_KEY is read by the CLI entry point (ig-trawl.ts) and passed in.
  * It is absent from the main worker env intentionally — the worker never calls Apify.
+ *
+ * Apify call is delegated to the shared fetchApifyPostsForHandle helper in
+ * apify-ig-fetch.ts, which is also used by the competitor gather worker.
  */
 
 import { z } from 'zod';
@@ -16,6 +19,7 @@ import { DriveApiClient } from '@sprigly/sources';
 import { getTokens, storeTokens, type EncryptionProvider } from '@sprigly/oauth-tokens';
 import type { Logger } from 'pino';
 import { igPostSchema } from './lean-line.js';
+import { fetchApifyPostsForHandle } from './apify-ig-fetch.js';
 
 type Db = typeof _db;
 
@@ -24,23 +28,12 @@ type Db = typeof _db;
 // the window. Raise if the coverage check shows oldestTimestamp > monthStart.
 const APIFY_RESULTS_LIMIT = 50;
 
-// Apify run-sync-get-dataset-items blocks up to ~300 s. Abort at 120 s.
-const APIFY_TIMEOUT_MS = 120_000;
-
 const igPostsArraySchema = z.array(igPostSchema);
-
-interface RawApifyPost {
-  caption?:       string;
-  timestamp?:     string;
-  likesCount?:    number | null;
-  commentsCount?: number | null;
-  ownerUsername?: string;
-}
 
 export interface IgProducerParams {
   clientId:      string;
   channel:       string;
-  month:         string;         // YYYY-MM
+  month:         string;              // YYYY-MM
   handle:        string | undefined;  // instagram_handle from client_channels DB column
   driveFolderId: string;
   drive:         DriveApiClient;
@@ -88,66 +81,29 @@ export async function trawlInstagramPosts(params: IgProducerParams): Promise<voi
     return;
   }
 
-  // ── Fetch from Apify ──────────────────────────────────────────────────────
+  // ── Fetch from Apify (shared helper) ─────────────────────────────────────
   logger.info({ ...logCtx, handle, resultsLimit: APIFY_RESULTS_LIMIT }, 'ig-trawl: calling Apify');
 
-  const controller = new AbortController();
-  const abortTimer = setTimeout(() => controller.abort(), APIFY_TIMEOUT_MS);
-
-  let rawPosts: RawApifyPost[];
-  try {
-    const res = await fetch(
-      `https://api.apify.com/v2/acts/apify~instagram-scraper/run-sync-get-dataset-items?token=${apifyApiKey}`,
-      {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          directUrls:    [`https://www.instagram.com/${handle}/`],
-          resultsType:   'posts',
-          resultsLimit:  APIFY_RESULTS_LIMIT,
-          addParentData: false,
-        }),
-        signal: controller.signal,
-      },
-    );
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-    }
-    const body = await res.json() as unknown;
-    if (!Array.isArray(body)) throw new Error('Apify response is not an array');
-    rawPosts = body as RawApifyPost[];
-    logger.info({
-      ...logCtx,
-      handle,
-      rawCount:   rawPosts.length,
-      firstOwner: rawPosts[0]?.ownerUsername,
-      firstUrl:   (rawPosts[0] as Record<string, unknown>)?.['url'],
-    }, 'ig-trawl: raw Apify response (pre-guard)');
-  } catch (err) {
-    const label = (err as { name?: string }).name === 'AbortError'
-      ? `timed out after ${APIFY_TIMEOUT_MS / 1000}s`
-      : String(err);
-    throw new Error(`ig-trawl: Apify call failed for handle "${handle}": ${label}`);
-  } finally {
-    clearTimeout(abortTimer);
-  }
+  const {
+    rawCount,
+    ownedPosts,
+    posts:        countOk,
+    droppedForeignCount,
+    skippedHiddenCount,
+    distinctOtherOwners,
+  } = await fetchApifyPostsForHandle(handle, APIFY_RESULTS_LIMIT, apifyApiKey, logger, logCtx);
 
   // ── Account guard ─────────────────────────────────────────────────────────
   // The actor returns a mix: the account's own posts plus posts that tag/mention
   // the handle. Keep only owned posts; drop the rest as expected noise.
   // Throw only when ZERO posts match — that's a genuinely wrong handle.
-  const ownedPosts = rawPosts.filter(
-    (p) => p.ownerUsername === undefined || p.ownerUsername.toLowerCase() === handle.toLowerCase(),
-  );
-  const droppedCount = rawPosts.length - ownedPosts.length;
-  if (droppedCount > 0) {
-    logger.info({ ...logCtx, handle, droppedCount },
+  if (droppedForeignCount > 0) {
+    logger.info({ ...logCtx, handle, droppedCount: droppedForeignCount },
       'ig-trawl: dropped tagged/mention posts (foreign owner) — normal actor behaviour');
   }
   if (ownedPosts.length === 0) {
-    const distinctOwners = [...new Set(rawPosts.map((p) => p.ownerUsername).filter(Boolean))];
     throw new Error(
-      `ig-trawl: account mismatch — expected "${handle}", found owners: ${distinctOwners.join(', ')}. ` +
+      `ig-trawl: account mismatch — expected "${handle}", found owners: ${distinctOtherOwners.join(', ')}. ` +
       `Check instagram_handle in client_channels for this client.`,
     );
   }
@@ -161,25 +117,16 @@ export async function trawlInstagramPosts(params: IgProducerParams): Promise<voi
   logger.info({
     ...logCtx,
     handle,
-    rawCount:        rawPosts.length,
+    rawCount,
     ownedCount:      ownedPosts.length,
     oldestTimestamp: sortedTs[0] ?? '(none)',
     monthStart:      `${month}-01`,
     resultsLimit:    APIFY_RESULTS_LIMIT,
   }, 'ig-trawl: coverage check — if oldestTimestamp > monthStart, raise APIFY_RESULTS_LIMIT');
 
-  // ── Filter hidden / negative counts ──────────────────────────────────────
-  // Apify returns likesCount = -1 or null when the account hides like counts.
-  // Skip these posts rather than failing the file or coercing to 0.
-  let skippedHidden = 0;
-  const countOk = ownedPosts.filter((p) => {
-    const likesOk    = typeof p.likesCount    === 'number' && p.likesCount    >= 0;
-    const commentsOk = typeof p.commentsCount === 'number' && p.commentsCount >= 0;
-    if (!likesOk || !commentsOk) { skippedHidden++; return false; }
-    return true;
-  });
-  if (skippedHidden > 0) {
-    logger.info({ ...logCtx, handle, skipped: skippedHidden },
+  // ── Log hidden skips (done in helper; log here for ig-trawl context) ─────
+  if (skippedHiddenCount > 0) {
+    logger.info({ ...logCtx, handle, skipped: skippedHiddenCount },
       'ig-trawl: skipped posts with hidden or negative like/comment counts');
   }
 
@@ -187,7 +134,7 @@ export async function trawlInstagramPosts(params: IgProducerParams): Promise<voi
   const monthPosts = countOk.filter((p) => inTargetMonth(p.timestamp, month));
 
   if (monthPosts.length === 0) {
-    logger.warn({ ...logCtx, handle, rawCount: rawPosts.length, ownedCount: ownedPosts.length, skippedHidden },
+    logger.warn({ ...logCtx, handle, rawCount, ownedCount: ownedPosts.length, skippedHidden: skippedHiddenCount },
       'ig-trawl: no posts for target month after filtering — not writing file');
     return;
   }
