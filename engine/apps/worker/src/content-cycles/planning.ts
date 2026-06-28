@@ -1,25 +1,29 @@
 /**
  * planning.ts — content-cycle planning worker (intake_confirmed → planning).
  *
- * STAGE 1 (current): WIRING PROOF. Assembles the four planning inputs, logs what
- * it found, then emits a TRIVIAL placeholder plan CSV (3 posts) with the exact
- * 13-column contract the build-workbook pipeline consumes, uploads it to the
- * client's Drive folder, records draft_csv_ref, and transitions to 'planning'.
+ * Ports the sprigly-content-plan skill's reasoning (steps 5-8) as a SINGLE
+ * pre-assembled Bedrock call (NOT a tool loop — all inputs are gathered first
+ * and passed in the prompt). The model returns structured JSON post rows; the
+ * worker serialises them to the exact 13-column CSV the build-workbook pipeline
+ * consumes, uploads it to the client's Drive folder, records draft_csv_ref, and
+ * transitions to 'planning'.
  *
  * The CSV upload is the handoff — this worker's responsibility ENDS at "CSV in
  * Drive". The existing pipeline takes over:
  *   CSV in Drive → DrivePoller (.csv branch) → sprigly-calendar-build-workbook
  *     → .xlsx in Drive → DrivePoller (.xlsx branch) → planning → workbook_built.
  *
- * STAGE 2 (next): replace buildPlaceholderPlanCsv() with the single Bedrock call
- * (skill steps 5-8) over the SAME assembled inputs. Everything else is unchanged —
- * the wiring proven here is the load-bearing part.
- *
  * Inputs assembled (all degrade gracefully when absent, per the "never block" rule):
- *   - intakeJson.planContent  — on the content_cycles row (primary planning signal)
+ *   - intakeJson.planContent  — on the content_cycles row (PRIMARY planning signal)
  *   - client_planning_config  — pillars / competitors / cadence / series / times / categories
- *   - competitor_gather_cache — Stage 1 deterministic gather (Stage 2 analysis does NOT exist)
- *   - voice.md                — read from the client's Drive folder
+ *   - competitor_gather_cache — Stage 1 deterministic gather (Stage 2 analysis does NOT exist).
+ *                               Absent for most clients → plan balances pillars-only and the
+ *                               Competitor Insight column says "no competitor data", never fabricated.
+ *   - voice.md                — read from the client's Drive folder; applied to every caption
+ *
+ * The prompt lives in the store (workflowId='planning', stepName='generate-plan'),
+ * UI-editable like lean-line. The call logs to the audit/cost ledger
+ * (action 'content-cycle:planning') — the biggest model call in the platform.
  *
  * On error: → failed, failed_step='planning' (CSV not guaranteed; safe to retry).
  */
@@ -33,6 +37,7 @@ import {
   clientChannels,
   clients,
 } from '@sprigly/db';
+import type { ClientPlanningConfig } from '@sprigly/db';
 import { getTokens, storeTokens } from '@sprigly/oauth-tokens';
 import type { EncryptionProvider } from '@sprigly/oauth-tokens';
 import { DriveApiClient } from '@sprigly/sources';
@@ -50,20 +55,24 @@ export interface PlanningDeps {
   encProvider:        EncryptionProvider;
   googleClientId:     string;
   googleClientSecret: string;
-  // model / prompts / audit are unused in STAGE 1 — wired now so the consumer
-  // call site is final and STAGE 2 is a body-only change.
   model:              ModelClient;
   prompts:            DbPromptResolver;
   audit:              AuditLogger;
   logger:             Logger;
 }
 
-// ── CSV emission (QUOTE_ALL, matching the skill's csv.DictWriter contract) ─────
+// Prompt store coordinates — resolved at runtime, UI-editable like lean-line.
+// Seeded by migration 0043_planning_prompt.sql. Throw-on-missing (no in-source
+// fallback) so a missing row surfaces immediately rather than silently degrading.
+export const PLANNING_WORKFLOW = 'planning';
+export const PLANNING_STEP     = 'generate-plan';
 
-const MONTH_ABBR = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-];
+// The logical model for the plan generation call. Sonnet: this is the platform's
+// largest single reasoning call (a full month of briefed posts + captions).
+const PLANNING_MODEL = 'sonnet';
+const PLANNING_MAX_TOKENS = 16_000;
+
+// ── CSV emission (QUOTE_ALL, matching the skill's csv.DictWriter contract) ─────
 
 /** Quote every field and double internal quotes — equivalent to Python's
  *  csv.writer(quoting=csv.QUOTE_ALL). Uses \r\n line endings to match csv default. */
@@ -98,49 +107,116 @@ function planCsvHeader(contact: string): string[] {
   ];
 }
 
-/** STAGE 1 placeholder plan: 3 valid rows proving the column contract + pipeline.
- *  Dates use the "D Mon" form that generate_calendar.py's parse_day() accepts. */
-function buildPlaceholderPlanCsv(contact: string, cycleMonth: string): string {
-  const monthNum = Number(cycleMonth.split('-')[1]);
-  const abbr     = MONTH_ABBR[monthNum - 1] ?? 'Jan';
+// ── Model output contract ───────────────────────────────────────────────────────
 
-  const samples: Array<Record<string, string>> = [
-    {
-      Date: `5 ${abbr}`, Day: 'Mon', title: 'STAGE 1 placeholder — pillar post',
-      category: 'Educational', pillar: 'Placeholder Pillar', format: 'Static', time: '7pm',
-      who: 'Sprigly',
-      insight: 'Placeholder insight — real competitor reasoning lands in Stage 2.',
-      caption: 'Placeholder caption one. Replaced by the real planning agent in Stage 2.',
-      notes: 'Stage 1 wiring proof — not a real post.',
-    },
-    {
-      Date: `14 ${abbr}`, Day: 'Wed', title: 'STAGE 1 placeholder — engagement post',
-      category: 'Community', pillar: 'Placeholder Pillar', format: 'Reel', time: '6pm',
-      who: 'Sprigly',
-      insight: 'Placeholder insight — real competitor reasoning lands in Stage 2.',
-      caption: 'Placeholder caption two. Replaced by the real planning agent in Stage 2.',
-      notes: 'Stage 1 wiring proof — not a real post.',
-    },
-    {
-      Date: `23 ${abbr}`, Day: 'Fri', title: 'STAGE 1 placeholder — product post',
-      category: 'Product', pillar: 'Placeholder Pillar', format: 'Carousel', time: '12pm',
-      who: 'Sprigly',
-      insight: 'Placeholder insight — real competitor reasoning lands in Stage 2.',
-      caption: 'Placeholder caption three. Replaced by the real planning agent in Stage 2.',
-      notes: 'Stage 1 wiring proof — not a real post.',
-    },
-  ];
+/** One post row as emitted by the model (JSON). Worker maps these to the 13 CSV
+ *  columns; the two {contact} edit columns are added blank by the worker, never
+ *  the model. All fields are coerced to strings on serialise (missing → ''). */
+interface PlanPostRow {
+  date?:             string;
+  day?:              string;
+  title?:            string;
+  category?:         string;
+  pillar?:           string;
+  format?:           string;
+  postingTime?:      string;
+  whoPosts?:         string;
+  competitorInsight?: string;
+  draftCaption?:     string;
+  notes?:            string;
+}
 
-  const rows: string[][] = [planCsvHeader(contact)];
-  for (const s of samples) {
-    rows.push([
-      s.Date!, s.Day!, s.title!, s.category!, s.pillar!, s.format!, s.time!, s.who!,
-      s.insight!, s.caption!, s.notes!,
+const s = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
+
+/** Extract a JSON object from a model response, tolerating ```json fences and
+ *  surrounding prose (mirrors sprigly-blog-post's extractJson). Throws on
+ *  unparseable output so the cycle fails loudly and retries rather than shipping
+ *  a malformed plan. */
+function parsePlanResponse(text: string): PlanPostRow[] {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  let raw = (fenced?.[1] ?? text).trim();
+  // If still wrapped in prose, slice to the outermost JSON object.
+  if (!raw.startsWith('{') && !raw.startsWith('[')) {
+    const start = raw.indexOf('{');
+    const end   = raw.lastIndexOf('}');
+    if (start !== -1 && end > start) raw = raw.slice(start, end + 1);
+  }
+  const parsed = JSON.parse(raw) as unknown;
+  const posts = Array.isArray(parsed)
+    ? parsed
+    : (parsed as { posts?: unknown }).posts;
+  if (!Array.isArray(posts) || posts.length === 0) {
+    throw new Error('planning: model response had no "posts" array');
+  }
+  return posts as PlanPostRow[];
+}
+
+/** Serialise model rows to the 13-column QUOTE_ALL CSV. Columns 1-10 from the
+ *  row (exact header keys), 11 = Sprigly notes, 12-13 always blank. */
+function planRowsToCsv(rows: PlanPostRow[], contact: string): string {
+  const out: string[][] = [planCsvHeader(contact)];
+  for (const r of rows) {
+    out.push([
+      s(r.date), s(r.day), s(r.title), s(r.category), s(r.pillar), s(r.format),
+      s(r.postingTime), s(r.whoPosts), s(r.competitorInsight), s(r.draftCaption), s(r.notes),
       '',  // {contact}'s Amended Caption — always blank
       '',  // {contact}'s Notes / Questions — always blank
     ]);
   }
-  return csvQuoteAll(rows);
+  return csvQuoteAll(out);
+}
+
+// ── Prompt assembly ──────────────────────────────────────────────────────────────
+
+interface PlanningInputs {
+  clientName: string;
+  cycleMonth: string;            // YYYY-MM
+  answers:    Record<string, string>;
+  freeNotes:  string;
+  planConfig: ClientPlanningConfig | undefined;
+  gather:     CompetitorGatherData | null;
+  voiceMd:    string | null;
+}
+
+/** Build the single user message: every assembled input, clearly sectioned, for
+ *  the system prompt (skill steps 5-8) to reason over in one call. */
+function buildPlanningUserMessage(inp: PlanningInputs): string {
+  const [yearStr, monStr] = inp.cycleMonth.split('-');
+  const monthLabel = new Date(Number(yearStr), Number(monStr) - 1, 1)
+    .toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'Europe/London' });
+
+  const answerLines = Object.entries(inp.answers)
+    .filter(([, v]) => v.trim().length > 0)
+    .map(([q, a]) => `- ${q}\n  ${a.trim()}`)
+    .join('\n');
+
+  const cfg = inp.planConfig;
+  const competitorSection = inp.gather
+    ? `COMPETITOR DATA (deterministic gather — cite specific accounts and numbers):\n${JSON.stringify(inp.gather, null, 2)}`
+    : 'COMPETITOR DATA: none available this cycle. Balance pillars only. In every Competitor Insight write "No competitor data this cycle." plus a short pillar/format rationale. Do NOT invent competitor names, numbers, or multipliers.';
+
+  return [
+    `CLIENT: ${inp.clientName}`,
+    `PLAN MONTH: ${monthLabel} (${inp.cycleMonth})`,
+    '',
+    'INTAKE — this month\'s planning answers (your PRIMARY signal; plan the month around this):',
+    answerLines || '(no structured answers provided)',
+    inp.freeNotes ? `\nFREE NOTES:\n${inp.freeNotes}` : '',
+    '',
+    'PLANNING CONFIG:',
+    `Pillars (use these names verbatim; assign exactly one per post):\n${JSON.stringify(cfg?.pillars ?? [], null, 2)}`,
+    `Cadence: ${JSON.stringify(cfg?.cadence ?? {})}`,
+    `Recurring series (schedule each on its day/time/format/whoPosts):\n${JSON.stringify(cfg?.recurringSeries ?? [], null, 2)}`,
+    `Posting times (use these labels): ${JSON.stringify(cfg?.postingTimes ?? {})}`,
+    `Categories (AUTHORITATIVE — use ONLY these values for the category field): ${JSON.stringify(cfg?.categories ?? [])}`,
+    '',
+    competitorSection,
+    '',
+    'VOICE (voice.md — apply to every caption):',
+    inp.voiceMd ?? '(voice.md not available — apply the hard caption rules in the system prompt and keep captions plain and on-brand.)',
+    '',
+    'Produce the plan now as the JSON object specified. Output JSON only.',
+  ].filter((l) => l !== '').join('\n');
 }
 
 // ── Worker ─────────────────────────────────────────────────────────────────────
@@ -203,7 +279,8 @@ export async function runPlanningForCycle(
       .from(clients)
       .where(eq(clients.id, clientId))
       .limit(1);
-    const slug = clientRow?.slug ?? 'client';
+    const slug       = clientRow?.slug ?? 'client';
+    const clientName = clientRow?.name ?? slug;
 
     const [channelRow] = await db
       .select({ driveFolderId: clientChannels.driveFolderId, contactName: clientChannels.contactName })
@@ -268,9 +345,56 @@ export async function runPlanningForCycle(
       'content-cycles: planning inputs assembled',
     );
 
-    // ── Emit the plan CSV (STAGE 1: placeholder) ──────────────────────────────
+    // ── Generate the plan: single pre-assembled Bedrock call ──────────────────
+    const systemPrompt = await deps.prompts.resolve(clientId, PLANNING_WORKFLOW, PLANNING_STEP);
+    const userMessage  = buildPlanningUserMessage({
+      clientName, cycleMonth, answers, freeNotes,
+      planConfig: planConfigRow, gather, voiceMd,
+    });
+
+    const result = await deps.model.complete({
+      model:     PLANNING_MODEL,
+      system:    systemPrompt,
+      messages:  [{ role: 'user', content: userMessage }],
+      maxTokens: PLANNING_MAX_TOKENS,
+    });
+
+    // Audit the platform's biggest model call — non-fatal (plan is already generated).
+    try {
+      await deps.audit.logModelCall({
+        clientId,
+        modelId:      result.modelId,
+        inputTokens:  result.inputTokens,
+        outputTokens: result.outputTokens,
+        action:       'content-cycle:planning',
+        metadata:     { channel, cycleMonth, gatherPresent: gather !== null, voicePresent: voiceMd !== null },
+      });
+    } catch (auditErr) {
+      logger.warn({ ...logCtx, err: String(auditErr) }, 'content-cycles: planning audit log failed — non-fatal');
+    }
+
+    const planRows = parsePlanResponse(result.content);
+
+    // Soft category check: build-workbook still renders unknown categories (auto-colour),
+    // so warn rather than fail — but surface drift from the authoritative list.
+    const allowedCategories = new Set(planConfigRow?.categories ?? []);
+    if (allowedCategories.size > 0) {
+      const offList = [...new Set(planRows
+        .map((r) => (r.category ?? '').trim())
+        .filter((c) => c.length > 0 && !allowedCategories.has(c)))];
+      if (offList.length > 0) {
+        logger.warn({ ...logCtx, offList }, 'content-cycles: planning produced categories outside the authoritative list');
+      }
+    }
+
+    logger.info(
+      { ...logCtx, posts: planRows.length, inputTokens: result.inputTokens, outputTokens: result.outputTokens, modelId: result.modelId },
+      'content-cycles: plan generated',
+    );
+
+    // ── Serialise to the 13-column CSV ────────────────────────────────────────
     const filename = `${cycleMonth}_${slug}-instagram-plan.csv`;
-    const csv      = buildPlaceholderPlanCsv(contact, cycleMonth);
+    const csv      = planRowsToCsv(planRows, contact);
     const csvBuf   = Buffer.from(csv, 'utf-8');
 
     // Idempotent upload: overwrite an existing same-named CSV rather than create a duplicate.
