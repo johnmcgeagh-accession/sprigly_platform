@@ -36,6 +36,7 @@ import type { AuditLogger } from '@sprigly/audit';
 import type { Logger } from 'pino';
 import { extractVoiceDeltasForCycle } from './extract.js';
 import { applyVoiceDeltasForCycle } from './apply.js';
+import { runPlanningForCycle } from './planning.js';
 import { runIgTrawlJob } from '../ig-producer.js';
 import { requestEmailStub } from './stubs.js';
 import { runContentCycleTick } from './scheduler.js';
@@ -56,6 +57,7 @@ type Db = typeof _db;
 type ContentCycleJob =
   | { type: 'extract-voice';   cycleId: string }
   | { type: 'apply-voice';     cycleId: string }
+  | { type: 'planning';        cycleId: string }
   | { type: 'ig-trawl';        clientId: string; channel: string; dataMonth: string }
   | { type: 'request-email';   clientId: string; channel: string; dataMonth: string }
   | { type: 'scheduler-tick' };
@@ -96,6 +98,14 @@ export function createContentCycleConsumer(
             googleClientId, googleClientSecret,
             audit, logger,
           );
+          break;
+
+        case 'planning':
+          logger.info({ ...logCtx, cycleId: data.cycleId }, 'content-cycles: starting planning job');
+          await runPlanningForCycle(data.cycleId, {
+            db, encProvider, googleClientId, googleClientSecret,
+            model, prompts, audit, logger,
+          });
           break;
 
         case 'ig-trawl': {

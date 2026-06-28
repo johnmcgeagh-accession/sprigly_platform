@@ -1,6 +1,8 @@
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+import { formatDateTimeShort } from '@/lib/format-date';
+
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { db, clients, clientConfigs, clientChannels, oauthConnections, incomingEvents, routingRules, promptTemplates, workflowRuns, contentCycles } from '@sprigly/db';
@@ -593,7 +595,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                       <p className="font-medium text-gray-800">{draft.cleanQuestion}</p>
                     )}
                     <p className="text-gray-400 text-xs mt-0.5">
-                      {draft.startedAt.toLocaleString('en-GB')} · run {draft.id.slice(0, 8)}
+                      {formatDateTimeShort(draft.startedAt)} · run {draft.id.slice(0, 8)}
                     </p>
                   </div>
                 </div>
@@ -635,7 +637,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                 <tr key={ev.id} className="border-b border-gray-50">
                   <td className="py-2 pr-4 font-mono text-xs">{ev.source}</td>
                   <td className="py-2 pr-4 text-gray-600">{ev.status}</td>
-                  <td className="py-2 text-gray-500">{ev.receivedAt.toLocaleString('en-GB')}</td>
+                  <td className="py-2 text-gray-500">{formatDateTimeShort(ev.receivedAt)}</td>
                 </tr>
               ))}
             </tbody>

@@ -45,6 +45,18 @@ export function createCalendarBuildWorkbookWorkflow(
    *  record a self-write ledger entry. The drive-poller checks this ledger to
    *  suppress detect-edits for Sprigly's own workbook writes. */
   onSelfWrite?: (clientId: string, externalId: string) => Promise<void>,
+  /** Called after the workbook is uploaded so the caller can advance the content
+   *  cycle planning → workbook_built. build-workbook owns this transition because
+   *  its own xlsx write is self-write-suppressed in the drive-poller — the poller
+   *  would otherwise only advance the cycle on a LATER client edit. cycleMonth is
+   *  "YYYY-MM" (derived from the plan CSV filename). Injected by the worker, which
+   *  owns @sprigly/db + the cycle state machine. */
+  onWorkbookBuilt?: (
+    clientId: string,
+    channel: string,
+    cycleMonth: string,
+    workbookFileId: string,
+  ) => Promise<void>,
 ): Workflow<SpriglyCalendarBuildWorkbookInput, SpriglyCalendarBuildWorkbookOutput> {
   return {
     id: 'sprigly-calendar-build-workbook',
@@ -53,9 +65,17 @@ export function createCalendarBuildWorkbookWorkflow(
         destinationId: 'gmail-reply-with-attachment',
         requireApproval: false,
         settings: {
+          // ⚠️⚠️⚠️ TEMPORARY — STAGE 1 LIVE STUB-RUN SAFEGUARD — REVERT AFTER THE RUN ⚠️⚠️⚠️
+          // Pinned to John's test address so the trivial stub plan CANNOT reach a real
+          // client. Delivery normally reads the recipient from the STALE Drive
+          // calendar-config.json (sourceMetadata.from), NOT client_channels.contact_email,
+          // so the DB being correct does not make the Drive-sourced recipient safe.
+          // Pinning to mode:'address' removes that dependency entirely for this run.
+          // REVERT to `to: { mode: 'sender' }` once workbook_built is proven live.
+          to: { mode: 'address', address: 'john.mcgeagh@gmail.com' },
+          // ── original (restore on revert): to: { mode: 'sender' } ──
           // 'sender' mode reads event.reply.data['from'], which equals sourceMetadata.from —
           // the contact email extracted from calendar-config.json by the drive poller.
-          to: { mode: 'sender' },
           subjectTemplate: 'Content calendar ready — {{month}} {{year}}',
           bodyTemplate:
             "Hi,\n\nYour Sprigly content calendar for {{month}} {{year}} is ready.\n\nOpen and edit it here:\n{{driveUrl}}\n\nOnce you've made any changes, just save — Sprigly will pick up your edits automatically.\n\nBest,\nSprigly",
@@ -155,6 +175,24 @@ export function createCalendarBuildWorkbookWorkflow(
             const updatedMeta = await drive.getFileMeta(fileId);
             await onSelfWrite(input.clientId, `${fileId}:${updatedMeta.modifiedTime}`);
           } catch { /* non-fatal — worst case: detect-edits fires and finds no changes */ }
+        }
+
+        // ── 8. Advance the content cycle planning → workbook_built ────────────
+        // build-workbook owns this transition: it just built the workbook, and
+        // the drive-poller self-suppresses this very write (so it can't advance
+        // the cycle until a later client edit). cycleMonth comes from the plan
+        // CSV filename prefix "YYYY-MM_", which the planning worker guarantees.
+        // Non-fatal: the workbook is built + delivered regardless of cycle-state
+        // bookkeeping, and the drive-poller stays a fallback for the 'planning'
+        // case if this callback is absent or fails.
+        if (onWorkbookBuilt) {
+          const mm = /^(\d{4})-(\d{2})_/.exec(input.csvName);
+          if (mm) {
+            const cycleMonth = `${mm[1]}-${mm[2]}`;
+            try {
+              await onWorkbookBuilt(input.clientId, input.channel, cycleMonth, fileId);
+            } catch { /* non-fatal — see note above */ }
+          }
         }
 
         const driveUrl = `https://drive.google.com/file/d/${fileId}/edit`;

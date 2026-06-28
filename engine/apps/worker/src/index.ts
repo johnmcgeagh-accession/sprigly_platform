@@ -1,6 +1,8 @@
 import { env } from './env.js';
 import pino from 'pino';
-import { db, processedExternalIds } from '@sprigly/db';
+import { db, processedExternalIds, contentCycles } from '@sprigly/db';
+import { and, eq } from 'drizzle-orm';
+import { transitionCycle } from './content-cycles/machine.js';
 import { createModelClientFromEnv } from '@sprigly/model-client';
 import { createEmbeddingClientFromEnv } from '@sprigly/embedding-client';
 import { ZodError } from 'zod';
@@ -94,6 +96,32 @@ registry.register(createCalendarBuildWorkbookWorkflow(
       clientId, source: 'drive-self-write', externalId, processedAt: new Date(),
     });
     logger.debug({ clientId, externalId }, 'drive: self-write ledger entry recorded');
+  },
+  // onWorkbookBuilt: advance the cycle planning → workbook_built. Guarded by
+  // status='planning' (idempotent; mirrors the drive-poller's own lookup), so a
+  // cycle already past planning is a safe no-op. transitionCycle enforces legality.
+  async (clientId, channel, cycleMonth, workbookFileId) => {
+    try {
+      const cycleRows = await db
+        .select({ id: contentCycles.id })
+        .from(contentCycles)
+        .where(and(
+          eq(contentCycles.clientId,   clientId),
+          eq(contentCycles.channel,    channel),
+          eq(contentCycles.cycleMonth, cycleMonth),
+          eq(contentCycles.status,     'planning'),
+        ))
+        .limit(1);
+      const cycle = cycleRows[0];
+      if (!cycle) {
+        logger.info({ clientId, channel, cycleMonth }, 'build-workbook: no planning cycle to advance — skipping workbook_built');
+        return;
+      }
+      await transitionCycle(db, cycle.id, 'workbook_built', { workbookRef: workbookFileId }, logger);
+      logger.info({ clientId, channel, cycleMonth, cycleId: cycle.id }, 'build-workbook: planning → workbook_built');
+    } catch (err) {
+      logger.warn({ clientId, channel, cycleMonth, err: String(err) }, 'build-workbook: could not advance cycle to workbook_built — non-fatal');
+    }
   },
 ));
 logger.info(

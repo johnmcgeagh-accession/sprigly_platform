@@ -1,6 +1,8 @@
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+import { formatDateTimeShort } from '@/lib/format-date';
+
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { db, routingRules, clients } from '@sprigly/db';
@@ -178,7 +180,7 @@ export default async function RoutingRuleDetailPage({ params }: { params: { id: 
       </section>
 
       <div className="text-xs text-gray-400">
-        Created: {rule.createdAt.toLocaleString('en-GB')}
+        Created: {formatDateTimeShort(rule.createdAt)}
         {rule.clientConfigId && (
           <span className="ml-4">Config ID: <span className="font-mono">{rule.clientConfigId}</span></span>
         )}

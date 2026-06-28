@@ -95,15 +95,8 @@ export async function intakeConfirmationEmailStub(
   throw new Error('NOT_IMPLEMENTED: intake-confirmation-email worker');
 }
 
-// TODO: implement planning worker (intake_confirmed → planning): lean-line + draft CSV
-export async function planningWorkerStub(
-  _clientId:   string,
-  _channel:    string,
-  _cycleMonth: string,
-  _intakeJson: Record<string, unknown>,
-): Promise<{ leanLine: string; draftCsvRef: string }> {
-  throw new Error('NOT_IMPLEMENTED: planning worker');
-}
+// Planning worker (intake_confirmed → planning) is IMPLEMENTED in ./planning.ts
+// (runPlanningForCycle) and invoked directly by the consumer — no stub needed.
 
 // TODO: implement workbook delivery worker (workbook_built → delivered): share + email
 export async function deliveryWorkerStub(

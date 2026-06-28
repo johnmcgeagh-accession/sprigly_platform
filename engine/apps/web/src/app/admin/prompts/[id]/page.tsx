@@ -1,6 +1,8 @@
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+import { formatDateTimeShort, formatDateShort } from '@/lib/format-date';
+
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { db, promptTemplates, clients } from '@sprigly/db';
@@ -83,7 +85,7 @@ export default async function PromptDetailPage({ params }: { params: { id: strin
             </div>
             <p className="text-sm text-gray-500 mt-1">
               Client: {template.clientName ?? 'global'} · Created:{' '}
-              {template.createdAt.toLocaleString('en-GB')}
+              {formatDateTimeShort(template.createdAt)}
             </p>
           </div>
 
@@ -138,7 +140,7 @@ export default async function PromptDetailPage({ params }: { params: { id: strin
                     >
                       <span>v{v.version}</span>
                       <span className="text-xs text-gray-400">
-                        {v.createdAt.toLocaleDateString('en-GB')}
+                        {formatDateShort(v.createdAt)}
                       </span>
                     </Link>
                   </li>

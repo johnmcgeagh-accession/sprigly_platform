@@ -1,6 +1,8 @@
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+import { formatDateTimeShort } from '@/lib/format-date';
+
 import { db, auditLog, clients } from '@sprigly/db';
 import { eq, desc } from 'drizzle-orm';
 
@@ -65,7 +67,7 @@ export default async function AuditPage() {
                 </td>
                 <td className="px-6 py-3 text-gray-600">{entry.clientName}</td>
                 <td className="px-6 py-3 text-gray-400 text-xs">
-                  {entry.createdAt.toLocaleString('en-GB')}
+                  {formatDateTimeShort(entry.createdAt)}
                 </td>
               </tr>
             ))}

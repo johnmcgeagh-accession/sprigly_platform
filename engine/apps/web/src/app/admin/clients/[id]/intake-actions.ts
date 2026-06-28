@@ -4,8 +4,34 @@ import { db, contentCycles } from '@sprigly/db';
 import { eq } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import type { IntakeJson } from '@sprigly/engine';
+import { Queue } from 'bullmq';
 
 export type IntakeActionResult = { ok: boolean; message?: string };
+
+// ── BullMQ planning enqueue (mirrors apps/worker/src/content-cycles/job-options.ts) ──
+const PLANNING_JOB_OPTIONS = { attempts: 3, backoff: { type: 'fixed' as const, delay: 15_000 } };
+function planningJobId(cycleId: string): string { return `planning_${cycleId}`; }
+
+/** Enqueue the planning job (intake_confirmed → planning). Non-fatal: a missing
+ *  Redis URL or enqueue error is logged but does not fail the confirmation —
+ *  the cycle is already intake_confirmed and the job can be re-triggered. */
+async function enqueuePlanning(cycleId: string): Promise<void> {
+  const redisUrl = process.env.REDIS_URL;
+  if (!redisUrl) {
+    console.error('[confirmIntake] REDIS_URL not set — planning job not enqueued');
+    return;
+  }
+  const queue = new Queue('content-cycles', { connection: { url: redisUrl } });
+  try {
+    await queue.add(
+      'planning',
+      { type: 'planning', cycleId },
+      { ...PLANNING_JOB_OPTIONS, jobId: planningJobId(cycleId) },
+    );
+  } finally {
+    await queue.close();
+  }
+}
 
 // Statuses from which a manual intake confirmation is allowed.
 const INTAKE_CONFIRMABLE = new Set(['requested', 'reply_received', 'awaiting_confirmation']);
@@ -81,6 +107,11 @@ export async function confirmIntake(formData: FormData): Promise<IntakeActionRes
       .update(contentCycles)
       .set({ status: 'intake_confirmed', intakeSource: 'manual', updatedAt: new Date() })
       .where(eq(contentCycles.id, cycleId));
+
+    // Kick off the planning phase. Only reached on the transition INTO
+    // intake_confirmed (the idempotent guard above returns early if already
+    // confirmed), so planning enqueues exactly once per confirmation.
+    await enqueuePlanning(cycleId);
 
     revalidatePath(`/admin/clients/${clientId}`);
     return { ok: true };

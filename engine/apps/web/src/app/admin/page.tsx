@@ -1,6 +1,8 @@
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+import { formatDateTimeShort } from '@/lib/format-date';
+
 import { db, clients, incomingEvents, workflowRuns, approvals, gmailOperationErrors } from '@sprigly/db';
 import { eq, gt, and, desc, sql } from 'drizzle-orm';
 
@@ -88,7 +90,7 @@ export default async function DashboardPage() {
                   <StatusBadge status={run.status} />
                 </td>
                 <td className="px-6 py-3 text-gray-500">
-                  {run.startedAt.toLocaleString('en-GB')}
+                  {formatDateTimeShort(run.startedAt)}
                 </td>
               </tr>
             ))}

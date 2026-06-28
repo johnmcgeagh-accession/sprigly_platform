@@ -1,6 +1,8 @@
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+import { formatDateTimeShort } from '@/lib/format-date';
+
 import { db, gmailOperationErrors, clients } from '@sprigly/db';
 import { eq, and, desc, gt, sql } from 'drizzle-orm';
 import { resolveError } from './actions';
@@ -144,7 +146,7 @@ export default async function GmailErrorsPage({
             {errors.map((row) => (
               <tr key={row.id} className="border-b border-gray-50 hover:bg-gray-50">
                 <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
-                  {row.createdAt.toLocaleString('en-GB')}
+                  {formatDateTimeShort(row.createdAt)}
                 </td>
                 <td className="px-4 py-3 text-gray-900">{row.clientName}</td>
                 <td className="px-4 py-3">

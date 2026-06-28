@@ -8,6 +8,7 @@ import {
   resetCycle,
   type ActionResult,
 } from './actions';
+import { formatDateTime, formatDateTimeShort } from '@/lib/format-date';
 
 interface DriveFileMeta {
   id:           string;
@@ -36,15 +37,9 @@ interface Props {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-function fmtDate(iso: string | null): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
-}
-
-function fmtModified(iso: string): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' });
-}
+// Deterministic, hydration-safe formatters (see @/lib/format-date).
+const fmtDate = formatDateTime;
+const fmtModified = formatDateTimeShort;
 
 function StatusBadge({ status }: { status: string }) {
   const colours: Record<string, string> = {

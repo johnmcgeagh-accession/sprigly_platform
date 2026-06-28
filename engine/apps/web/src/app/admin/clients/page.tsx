@@ -1,6 +1,8 @@
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+import { formatDateShort } from '@/lib/format-date';
+
 import Link from 'next/link';
 import { db, clients } from '@sprigly/db';
 
@@ -51,7 +53,7 @@ export default async function ClientsPage() {
                   </span>
                 </td>
                 <td className="px-6 py-3 text-gray-500">
-                  {client.createdAt.toLocaleDateString('en-GB')}
+                  {formatDateShort(client.createdAt)}
                 </td>
                 <td className="px-6 py-3 text-right">
                   <Link

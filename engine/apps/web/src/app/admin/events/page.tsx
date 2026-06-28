@@ -1,6 +1,8 @@
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+import { formatDateTimeShort } from '@/lib/format-date';
+
 import Link from 'next/link';
 import { db, incomingEvents, clients } from '@sprigly/db';
 import { eq, desc } from 'drizzle-orm';
@@ -62,7 +64,7 @@ export default async function EventsPage() {
                     </span>
                   </td>
                   <td className="px-6 py-3 text-gray-500">
-                    {ev.receivedAt.toLocaleString('en-GB')}
+                    {formatDateTimeShort(ev.receivedAt)}
                   </td>
                   <td className="px-6 py-3 text-right">
                     <Link

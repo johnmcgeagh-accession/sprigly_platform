@@ -1,6 +1,8 @@
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+import { formatDateTimeShort } from '@/lib/format-date';
+
 import { db, approvals, workflowRuns, clients } from '@sprigly/db';
 import { eq, desc } from 'drizzle-orm';
 import { approveRun, rejectRun } from './actions';
@@ -51,7 +53,7 @@ export default async function ApprovalsPage() {
                     </span>
                   </div>
                   <p className="text-xs text-gray-400 mb-3">
-                    Received {row.createdAt.toLocaleString('en-GB')}
+                    Received {formatDateTimeShort(row.createdAt)}
                   </p>
                   <pre className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded p-3 overflow-auto max-h-32 whitespace-pre-wrap font-mono leading-relaxed">
                     {JSON.stringify(row.outputSnapshot, null, 2)}

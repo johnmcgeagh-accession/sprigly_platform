@@ -1,6 +1,8 @@
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+import { formatDateTimeShort } from '@/lib/format-date';
+
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { db, incomingEvents, workflowRuns, clients } from '@sprigly/db';
@@ -70,7 +72,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
         <p className="text-sm text-gray-500 mt-1">
           Client: <span className="font-medium text-gray-700">{event.clientName}</span>
           {' · '}
-          Received: {event.receivedAt.toLocaleString('en-GB')}
+          Received: {formatDateTimeShort(event.receivedAt)}
           {event.externalId && (
             <span className="ml-4 font-mono text-xs">{event.externalId}</span>
           )}
@@ -120,10 +122,10 @@ export default async function EventDetailPage({ params }: { params: { id: string
                       </span>
                     </td>
                     <td className="py-2 pr-6 text-gray-500 text-xs">
-                      {run.startedAt.toLocaleString('en-GB')}
+                      {formatDateTimeShort(run.startedAt)}
                     </td>
                     <td className="py-2 text-gray-500 text-xs">
-                      {run.endedAt ? run.endedAt.toLocaleString('en-GB') : '—'}
+                      {run.endedAt ? formatDateTimeShort(run.endedAt) : '—'}
                     </td>
                   </tr>
                 );
