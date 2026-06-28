@@ -8,6 +8,8 @@ import { createModelClientFromEnv } from '@sprigly/model-client';
 import { createEmbeddingClientFromEnv } from '@sprigly/embedding-client';
 import { ingestSource } from '@sprigly/knowledge';
 import { Queue } from 'bullmq';
+import type { IntakeJson } from '@sprigly/engine';
+import { enqueuePlanning } from './planning-enqueue';
 
 // ── BullMQ job helpers (mirrored from apps/worker/src/content-cycles/job-options.ts) ──
 const IG_TRAWL_JOB_OPTIONS    = { attempts: 5, backoff: { type: 'exponential', delay: 5_000 } } as const;
@@ -145,6 +147,65 @@ export async function triggerEmail(formData: FormData): Promise<ActionResult> {
     return { ok: false, message: err instanceof Error ? err.message : 'Failed to enqueue email.' };
   } finally {
     await queue.close();
+  }
+}
+
+/**
+ * "Run planning now" — fire the planning job directly for this month's cycle,
+ * skipping the reset→run→confirm-intake dance. Generates NEXT month's plan (the
+ * worker targets cycle_month + 1) → validation loop → CSV → build-workbook → xlsx
+ * → delivery to the (pinned) test inbox. Re-runnable: re-pressing on a
+ * workbook_built cycle re-enters planning cleanly.
+ *
+ * Precondition: planContent must be present (planning reads the intake answers).
+ * Reuses the shared enqueuePlanning path; cycle state is normalised to
+ * intake_confirmed only once the job slot is confirmed free.
+ */
+export async function triggerPlanning(formData: FormData): Promise<ActionResult> {
+  const clientId  = formData.get('clientId')  as string;
+  const channel   = formData.get('channel')   as string;
+  const dataMonth = formData.get('dataMonth') as string;
+
+  try {
+    const rows = await db
+      .select({ id: contentCycles.id, status: contentCycles.status, intakeJson: contentCycles.intakeJson })
+      .from(contentCycles)
+      .where(and(
+        eq(contentCycles.clientId,   clientId),
+        eq(contentCycles.channel,    channel),
+        eq(contentCycles.cycleMonth, dataMonth),
+      ))
+      .limit(1);
+
+    const cycle = rows[0];
+    if (!cycle) return { ok: false, message: `No cycle for ${dataMonth} yet — run the cycle or enter intake first.` };
+
+    // Intake precondition: planning needs this month's planContent answers.
+    const intake    = cycle.intakeJson as IntakeJson | null;
+    const answers   = intake?.planContent?.answers ?? {};
+    const freeNotes = (intake?.planContent?.freeNotes ?? '').trim();
+    const hasIntake = freeNotes.length > 0 || Object.values(answers).some((v) => v.trim().length > 0);
+    if (!hasIntake) {
+      return { ok: false, message: 'Enter intake first — planning needs this month\'s answers.' };
+    }
+
+    // Normalise to intake_confirmed (the worker's planning entry state) ONLY once
+    // the slot is free — handles first-run-from-unconfirmed AND re-fire from
+    // workbook_built, reusing the existing intake_confirmed → planning transition.
+    const result = await enqueuePlanning(cycle.id, async () => {
+      if (cycle.status !== 'intake_confirmed') {
+        await db.update(contentCycles)
+          .set({ status: 'intake_confirmed', intakeSource: 'manual', updatedAt: new Date() })
+          .where(eq(contentCycles.id, cycle.id));
+      }
+    });
+    if (!result.ok) return result;
+
+    revalidatePath(`/admin/clients/${clientId}`);
+    return { ok: true };
+  } catch (err) {
+    console.error('[triggerPlanning]', err);
+    return { ok: false, message: err instanceof Error ? err.message : 'Failed to enqueue planning.' };
   }
 }
 

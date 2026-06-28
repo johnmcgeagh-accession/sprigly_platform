@@ -97,30 +97,30 @@ registry.register(createCalendarBuildWorkbookWorkflow(
     });
     logger.debug({ clientId, externalId }, 'drive: self-write ledger entry recorded');
   },
-  // onWorkbookBuilt: advance the cycle planning → workbook_built. Guarded by
-  // status='planning' (idempotent; mirrors the drive-poller's own lookup), so a
-  // cycle already past planning is a safe no-op. transitionCycle enforces legality.
-  async (clientId, channel, cycleMonth, workbookFileId) => {
+  // onWorkbookBuilt: advance the cycle planning → workbook_built. Matched by
+  // draft_csv_ref = csvFileId (the exact CSV the cycle produced), NOT by month —
+  // the plan/workbook month is the cycle's data month + 1, so month matching would
+  // miss. Guarded by status='planning' (idempotent; safe no-op once past planning).
+  async (clientId, channel, csvFileId, workbookFileId) => {
     try {
       const cycleRows = await db
         .select({ id: contentCycles.id })
         .from(contentCycles)
         .where(and(
-          eq(contentCycles.clientId,   clientId),
-          eq(contentCycles.channel,    channel),
-          eq(contentCycles.cycleMonth, cycleMonth),
-          eq(contentCycles.status,     'planning'),
+          eq(contentCycles.clientId,    clientId),
+          eq(contentCycles.draftCsvRef, csvFileId),
+          eq(contentCycles.status,      'planning'),
         ))
         .limit(1);
       const cycle = cycleRows[0];
       if (!cycle) {
-        logger.info({ clientId, channel, cycleMonth }, 'build-workbook: no planning cycle to advance — skipping workbook_built');
+        logger.info({ clientId, channel, csvFileId }, 'build-workbook: no planning cycle for this CSV — skipping workbook_built');
         return;
       }
       await transitionCycle(db, cycle.id, 'workbook_built', { workbookRef: workbookFileId }, logger);
-      logger.info({ clientId, channel, cycleMonth, cycleId: cycle.id }, 'build-workbook: planning → workbook_built');
+      logger.info({ clientId, channel, csvFileId, cycleId: cycle.id }, 'build-workbook: planning → workbook_built');
     } catch (err) {
-      logger.warn({ clientId, channel, cycleMonth, err: String(err) }, 'build-workbook: could not advance cycle to workbook_built — non-fatal');
+      logger.warn({ clientId, channel, csvFileId, err: String(err) }, 'build-workbook: could not advance cycle to workbook_built — non-fatal');
     }
   },
 ));

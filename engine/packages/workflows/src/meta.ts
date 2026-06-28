@@ -204,4 +204,24 @@ export const workflowMeta: WorkflowMeta[] = [
     ],
     steps: [],
   },
+  {
+    id: 'planning',
+    name: 'Content Cycle: Planning',
+    description: 'Monthly content-plan generation: a single Bedrock call produces the briefed plan, then a per-post LLM critic validates voice/sign-off/pillar consistency against the client\'s own voice.md and historic posts.',
+    defaultDestinations: [],
+    steps: [
+      {
+        stepName: 'generate-plan',
+        stepDescription: 'Generates the full month of briefed posts (captions, pillars, formats, competitor insight) as structured rows, in the client\'s voice.',
+        model: 'sonnet',
+        requiresPrompt: true,
+      },
+      {
+        stepName: 'validate-plan',
+        stepDescription: 'Per-post critic: judges voice/tone, sign-off discipline and pillar-voice consistency against the client\'s voice.md + config + historic posts. Fails regenerate.',
+        model: 'sonnet',
+        requiresPrompt: true,
+      },
+    ],
+  },
 ];

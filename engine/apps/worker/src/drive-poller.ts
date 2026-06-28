@@ -66,6 +66,15 @@ function parseWorkbookMonth(filename: string): string | null {
   return `${match[2]}-${monthNum}`;
 }
 
+// "YYYY-MM" → previous month's "YYYY-MM" (rolls the year at January).
+// A workbook is named for the PLAN month; the owning cycle's cycle_month is the
+// DATA month, one earlier (planning targets cycle_month + 1).
+export function prevMonth(yyyymm: string): string {
+  const [y, m] = yyyymm.split('-').map(Number);
+  const d = new Date(Date.UTC(y!, (m! - 2), 1)); // m is 1-based; m-2 == previous month index
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
 type ChannelRow = {
   id: string;
   clientId: string;
@@ -271,10 +280,12 @@ export class DrivePoller {
           'drive: xlsx client edit detected — enqueued calendar:detect-edits',
         );
 
-        // Advance planning cycle to workbook_built.
-        // Parse month from filename: "Name — Content calendar - Month Year.xlsx" → "YYYY-MM".
-        // Defensive: if parse fails, log and skip — never guess which cycle to advance.
-        const cycleMonth = parseWorkbookMonth(meta.name);
+        // Advance planning cycle to workbook_built (fallback path; the primary
+        // transition is build-workbook's own onWorkbookBuilt, matched by csvFileId).
+        // The workbook is named for the PLAN month; the owning cycle's cycle_month
+        // is the DATA month, one earlier (plan = data month + 1).
+        const planMonth = parseWorkbookMonth(meta.name);
+        const cycleMonth = planMonth !== null ? prevMonth(planMonth) : null;
         if (cycleMonth !== null) {
           try {
             const cycleRows = await this.db

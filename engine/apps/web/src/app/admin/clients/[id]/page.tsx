@@ -369,6 +369,11 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
             {channels.map((ch) => {
               const cycle = cyclesByChannel.get(ch.channel) ?? null;
               const driveResult = driveByChannel.get(ch.channel) ?? { files: null, error: false };
+              const pc = cycle?.intakeJson?.planContent;
+              const intakePresent = !!pc && (
+                (pc.freeNotes ?? '').trim().length > 0 ||
+                Object.values(pc.answers ?? {}).some((v) => (v ?? '').trim().length > 0)
+              );
               return (
                 <div key={ch.channel}>
                   {channels.length > 1 && (
@@ -383,6 +388,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                     contactEmail={ch.contactEmail ?? null}
                     contentCycleEnabled={client.contentCycleEnabled}
                     cycle={cycle}
+                    intakePresent={intakePresent}
                     driveFiles={driveResult.files}
                     driveError={driveResult.error}
                   />

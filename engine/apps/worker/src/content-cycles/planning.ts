@@ -160,9 +160,23 @@ function planRowsToCsv(rows: PlanPostRow[], contact: string): string {
 
 // ── Prompt assembly ──────────────────────────────────────────────────────────────
 
+/** "YYYY-MM" → the following month's "YYYY-MM" (rolls the year at December). */
+export function nextMonth(yyyymm: string): string {
+  const [y, m] = yyyymm.split('-').map(Number);
+  const d = new Date(Date.UTC(y!, m!, 1)); // m is 1-based, so index m == the next month
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function monthLabelOf(yyyymm: string): string {
+  const [y, m] = yyyymm.split('-');
+  return new Date(Number(y), Number(m) - 1, 1)
+    .toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'Europe/London' });
+}
+
 interface PlanningInputs {
   clientName: string;
-  cycleMonth: string;            // YYYY-MM
+  dataMonth:  string;            // YYYY-MM — the cycle's data month (sales / IG scrape / intake captured)
+  targetMonth: string;          // YYYY-MM — the month being PLANNED (dataMonth + 1)
   answers:    Record<string, string>;
   freeNotes:  string;
   planConfig: ClientPlanningConfig | undefined;
@@ -171,12 +185,9 @@ interface PlanningInputs {
 }
 
 /** Build the single user message: every assembled input, clearly sectioned, for
- *  the system prompt (skill steps 5-8) to reason over in one call. */
+ *  the system prompt (skill steps 5-8) to reason over in one call. The plan is
+ *  for targetMonth (one month AHEAD), built from dataMonth's intake and data. */
 function buildPlanningUserMessage(inp: PlanningInputs): string {
-  const [yearStr, monStr] = inp.cycleMonth.split('-');
-  const monthLabel = new Date(Number(yearStr), Number(monStr) - 1, 1)
-    .toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'Europe/London' });
-
   const answerLines = Object.entries(inp.answers)
     .filter(([, v]) => v.trim().length > 0)
     .map(([q, a]) => `- ${q}\n  ${a.trim()}`)
@@ -189,9 +200,10 @@ function buildPlanningUserMessage(inp: PlanningInputs): string {
 
   return [
     `CLIENT: ${inp.clientName}`,
-    `PLAN MONTH: ${monthLabel} (${inp.cycleMonth})`,
+    `PLAN MONTH (plan FOR this month; every date must fall in it): ${monthLabelOf(inp.targetMonth)} (${inp.targetMonth})`,
+    `DATA MONTH (the current month the intake and any data are from; you are planning the month AFTER it): ${monthLabelOf(inp.dataMonth)} (${inp.dataMonth})`,
     '',
-    'INTAKE — this month\'s planning answers (your PRIMARY signal; plan the month around this):',
+    'INTAKE — the client\'s planning answers for the PLAN MONTH (your PRIMARY signal; plan that month around this):',
     answerLines || '(no structured answers provided)',
     inp.freeNotes ? `\nFREE NOTES:\n${inp.freeNotes}` : '',
     '',
@@ -207,7 +219,7 @@ function buildPlanningUserMessage(inp: PlanningInputs): string {
     'VOICE (voice.md — apply to every caption):',
     inp.voiceMd ?? '(voice.md not available — apply the hard caption rules in the system prompt and keep captions plain and on-brand.)',
     '',
-    'Produce the plan now as the JSON object specified. Output JSON only.',
+    `Produce the plan for ${monthLabelOf(inp.targetMonth)} now. Every "date" field must be a real date IN ${monthLabelOf(inp.targetMonth)}. Output the JSON object specified, JSON only.`,
   ].filter((l) => l !== '').join('\n');
 }
 
@@ -312,7 +324,11 @@ export async function runPlanningForCycle(
   if (!cycle) throw new Error(`runPlanningForCycle: cycle ${cycleId} not found`);
 
   const { clientId, channel, cycleMonth, status } = cycle;
-  const logCtx = { cycleId, clientId, channel, cycleMonth };
+  // You plan the month AHEAD: the cycle's data month (cycleMonth) drives NEXT
+  // month's plan. cycleMonth stays the data month (Option a — no migration);
+  // the plan, its dates, and the CSV/xlsx filename all target cycleMonth + 1.
+  const targetMonth = nextMonth(cycleMonth);
+  const logCtx = { cycleId, clientId, channel, dataMonth: cycleMonth, targetMonth };
 
   if (status !== 'intake_confirmed') {
     logger.info({ ...logCtx, status }, 'content-cycles: planning skipped — cycle not in intake_confirmed');
@@ -418,7 +434,7 @@ export async function runPlanningForCycle(
     // ── Generate the plan: single pre-assembled Bedrock call ──────────────────
     const systemPrompt = await deps.prompts.resolve(clientId, PLANNING_WORKFLOW, PLANNING_STEP);
     const userMessage  = buildPlanningUserMessage({
-      clientName, cycleMonth, answers, freeNotes,
+      clientName, dataMonth: cycleMonth, targetMonth, answers, freeNotes,
       planConfig: planConfigRow, gather, voiceMd,
     });
 
@@ -437,7 +453,7 @@ export async function runPlanningForCycle(
         inputTokens:  result.inputTokens,
         outputTokens: result.outputTokens,
         action:       'content-cycle:planning',
-        metadata:     { channel, cycleMonth, gatherPresent: gather !== null, voicePresent: voiceMd !== null },
+        metadata:     { channel, dataMonth: cycleMonth, targetMonth, gatherPresent: gather !== null, voicePresent: voiceMd !== null },
       });
     } catch (auditErr) {
       logger.warn({ ...logCtx, err: String(auditErr) }, 'content-cycles: planning audit log failed — non-fatal');
@@ -493,7 +509,9 @@ export async function runPlanningForCycle(
     const planRows = critic.rows;
 
     // ── Serialise to the 13-column CSV ────────────────────────────────────────
-    const filename = `${cycleMonth}_${slug}-instagram-plan.csv`;
+    // Filename targets the PLAN month (cycleMonth + 1), so build-workbook names
+    // the xlsx for that month and the whole downstream chain stays consistent.
+    const filename = `${targetMonth}_${slug}-instagram-plan.csv`;
     const csv      = planRowsToCsv(planRows, contact);
     const csvBuf   = Buffer.from(csv, 'utf-8');
 

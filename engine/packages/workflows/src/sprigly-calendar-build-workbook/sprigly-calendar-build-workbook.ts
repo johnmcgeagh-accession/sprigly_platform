@@ -48,13 +48,15 @@ export function createCalendarBuildWorkbookWorkflow(
   /** Called after the workbook is uploaded so the caller can advance the content
    *  cycle planning → workbook_built. build-workbook owns this transition because
    *  its own xlsx write is self-write-suppressed in the drive-poller — the poller
-   *  would otherwise only advance the cycle on a LATER client edit. cycleMonth is
-   *  "YYYY-MM" (derived from the plan CSV filename). Injected by the worker, which
+   *  would otherwise only advance the cycle on a LATER client edit. The cycle is
+   *  matched by csvFileId (the plan CSV's Drive id, stored as the cycle's
+   *  draft_csv_ref) — NOT by month, because the plan/workbook month is the cycle's
+   *  data month + 1 and would not match cycle_month. Injected by the worker, which
    *  owns @sprigly/db + the cycle state machine. */
   onWorkbookBuilt?: (
     clientId: string,
     channel: string,
-    cycleMonth: string,
+    csvFileId: string,
     workbookFileId: string,
   ) => Promise<void>,
 ): Workflow<SpriglyCalendarBuildWorkbookInput, SpriglyCalendarBuildWorkbookOutput> {
@@ -186,13 +188,9 @@ export function createCalendarBuildWorkbookWorkflow(
         // bookkeeping, and the drive-poller stays a fallback for the 'planning'
         // case if this callback is absent or fails.
         if (onWorkbookBuilt) {
-          const mm = /^(\d{4})-(\d{2})_/.exec(input.csvName);
-          if (mm) {
-            const cycleMonth = `${mm[1]}-${mm[2]}`;
-            try {
-              await onWorkbookBuilt(input.clientId, input.channel, cycleMonth, fileId);
-            } catch { /* non-fatal — see note above */ }
-          }
+          try {
+            await onWorkbookBuilt(input.clientId, input.channel, input.csvFileId, fileId);
+          } catch { /* non-fatal — see note above */ }
         }
 
         const driveUrl = `https://drive.google.com/file/d/${fileId}/edit`;

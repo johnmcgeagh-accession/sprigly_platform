@@ -5,6 +5,7 @@ import {
   triggerCycle,
   triggerTrawl,
   triggerEmail,
+  triggerPlanning,
   resetCycle,
   type ActionResult,
 } from './actions';
@@ -31,6 +32,7 @@ interface Props {
   contactEmail:        string | null;
   contentCycleEnabled: boolean;
   cycle:               CycleInfo | null;
+  intakePresent:       boolean;  // planContent answers/freeNotes present → planning can run
   driveFiles:          DriveFileMeta[] | null;  // null = fetch failed / no tokens
   driveError:          boolean;
 }
@@ -68,6 +70,7 @@ export function ContentCycleOpsPanel({
   contactEmail,
   contentCycleEnabled,
   cycle,
+  intakePresent,
   driveFiles,
   driveError,
 }: Props) {
@@ -274,6 +277,20 @@ export function ContentCycleOpsPanel({
               isPending={isPending}
               onTrigger={() => callTrigger(triggerEmail)}
             />
+
+            <button
+              type="button"
+              disabled={isPending || !intakePresent}
+              onClick={() => callTrigger(triggerPlanning)}
+              title={
+                intakePresent
+                  ? 'Generate next month\'s plan now → build workbook → email the (pinned) test inbox. Re-runnable.'
+                  : 'Enter intake first — planning needs this month\'s answers.'
+              }
+              className="text-xs text-gray-500 underline hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
+            >
+              Run planning now
+            </button>
 
             <button
               type="button"
