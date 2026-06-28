@@ -20,7 +20,7 @@ const data: SectorData = {
     "Management accounts commentary covering what moved, why, and what to watch, drafted from the numbers and ready for partner review.",
     "Records chasing sent on schedule until the client sends what's needed, without it landing back in your inbox.",
   ],
-  send: ''March management accounts attached for Orchard Joinery.'',
+  send: "'March management accounts attached for Orchard Joinery.'",
   get: "A commentary draft in your format covering what moved, why and what to watch, ready for partner review.",
 }
 

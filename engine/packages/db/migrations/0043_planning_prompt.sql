@@ -66,6 +66,7 @@ CAPTION RULES (apply VOICE plus these hard rules):
     - Product, launch, educational, testimonial, WSG and Sunday Style posts get NO sign-off. They close on a CTA, a question, outfit credits, or a brand line.
     Follow voice.md's sign-off table exactly. Do NOT default to no-sign-off everywhere, and do NOT sign off everything.
 - UK spelling and the pound sign throughout.
+- VOICE PER POST TYPE: this client writes different kinds of post in different voices. Some are the founder's first-person voice ("I", "my"), others are the brand's "we"/"our" voice. Match how THIS client actually writes that kind of post, following voice.md and the client's own past posts. Do NOT assume a pillar maps to a fixed voice, and do NOT force a topic (for example a sustainability or behind-the-scenes post) into the founder's voice just because it feels personal. Informational and product posts are usually the brand "we" voice even when the pillar is about ethics or origin; reserve the founder's "I" voice for genuine founder-story and personal posts. When unsure, follow voice.md.
 - DEPTH: write complete, developed captions. Match the depth, rhythm and specificity of the WORKED EXAMPLES below, not a thin summary.
 
 WORKED EXAMPLES (these show the target depth, voice and sign-off discipline. Do not copy them — match their quality for this client and month):
@@ -92,8 +93,10 @@ Thank you for being here, and for trusting us with something as everyday and as 
 Much love, Sally x
 
 OUTPUT. Return ONE JSON object and nothing else, in this exact shape:
-{"posts": [ {"date": "", "day": "", "title": "", "category": "", "pillar": "", "format": "", "postingTime": "", "whoPosts": "", "competitorInsight": "", "draftCaption": "", "notes": ""} ] }
-Use only those field names. Do NOT output CSV, markdown, or any commentary. Do NOT include the client's amendment columns — those are added blank later. Fill EVERY field for every post, including a full draftCaption for founder-voice posts such as "Notes from the Founder" (write Sally's note in her voice WITH her sign-off, at the depth of Example C). Leave draftCaption blank ONLY where voice.md explicitly states Sally writes that post herself with no Sprigly draft, and in that one case say so in notes.$PROMPT$,
+{"posts": [ {"date": "", "day": "", "title": "", "category": "", "pillar": "", "format": "", "postingTime": "", "whoPosts": "", "competitorInsight": "", "draftCaption": "", "notes": "", "clientWritesOwn": false} ] }
+Use only those field names. Do NOT output CSV, markdown, or any commentary. Do NOT include the client's amendment columns — those are added blank later.
+Fill EVERY field for every post, including a full draftCaption for founder-voice posts such as "Notes from the Founder" (write the founder's note in their voice WITH the sign-off, at the depth of Example C). Set "clientWritesOwn" to false on every post you draft.
+ONLY where this client's voice.md explicitly states the client writes a specific post themselves with no Sprigly draft (a genuine no-brief post): set "draftCaption" to "" AND set "clientWritesOwn" to true, and say in notes that the client writes this one. Never leave a caption blank without setting clientWritesOwn to true.$PROMPT$,
   1,
   now(),
   now()

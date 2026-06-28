@@ -28,7 +28,7 @@
  * On error: → failed, failed_step='planning' (CSV not guaranteed; safe to retry).
  */
 
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc, isNotNull } from 'drizzle-orm';
 import {
   db as _db,
   contentCycles,
@@ -36,6 +36,7 @@ import {
   competitorGatherCache,
   clientChannels,
   clients,
+  voiceEdits,
 } from '@sprigly/db';
 import type { ClientPlanningConfig } from '@sprigly/db';
 import { getTokens, storeTokens } from '@sprigly/oauth-tokens';
@@ -47,6 +48,9 @@ import type { DbPromptResolver } from '@sprigly/prompts';
 import type { IntakeJson, CompetitorGatherData } from '@sprigly/engine';
 import type { Logger } from 'pino';
 import { transitionCycle } from './machine.js';
+import { applyCodeGate, applyCritic } from './plan-validation.js';
+import type { PlanPostRow, HistoricPost, VoiceEditExample, PlanRepairContext } from './plan-validation.js';
+import type { DriveFileMeta } from '@sprigly/sources';
 
 type Db = typeof _db;
 
@@ -64,8 +68,9 @@ export interface PlanningDeps {
 // Prompt store coordinates — resolved at runtime, UI-editable like lean-line.
 // Seeded by migration 0043_planning_prompt.sql. Throw-on-missing (no in-source
 // fallback) so a missing row surfaces immediately rather than silently degrading.
-export const PLANNING_WORKFLOW = 'planning';
-export const PLANNING_STEP     = 'generate-plan';
+export const PLANNING_WORKFLOW    = 'planning';
+export const PLANNING_STEP        = 'generate-plan';
+export const PLANNING_CRITIC_STEP = 'validate-plan';
 
 // The logical model for the plan generation call. Sonnet: this is the platform's
 // largest single reasoning call (a full month of briefed posts + captions).
@@ -109,22 +114,9 @@ function planCsvHeader(contact: string): string[] {
 
 // ── Model output contract ───────────────────────────────────────────────────────
 
-/** One post row as emitted by the model (JSON). Worker maps these to the 13 CSV
- *  columns; the two {contact} edit columns are added blank by the worker, never
- *  the model. All fields are coerced to strings on serialise (missing → ''). */
-interface PlanPostRow {
-  date?:             string;
-  day?:              string;
-  title?:            string;
-  category?:         string;
-  pillar?:           string;
-  format?:           string;
-  postingTime?:      string;
-  whoPosts?:         string;
-  competitorInsight?: string;
-  draftCaption?:     string;
-  notes?:            string;
-}
+// PlanPostRow (the model's per-post JSON shape) is defined in ./plan-validation.ts
+// and shared with the code gate. The two {contact} edit columns are added blank by
+// the worker, never the model. All fields are coerced to strings on serialise.
 
 const s = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
 
@@ -217,6 +209,84 @@ function buildPlanningUserMessage(inp: PlanningInputs): string {
     '',
     'Produce the plan now as the JSON object specified. Output JSON only.',
   ].filter((l) => l !== '').join('\n');
+}
+
+// ── Critic reference loaders (per-client, both optional → degrade gracefully) ──
+
+/** Parse an IG-scrape JSON array. Strict first; falls back to a tolerant pass for
+ *  raw Apify exports that contain literal newlines inside caption strings. */
+function parseScrapeJson(text: string): Array<Record<string, unknown>> {
+  try {
+    const j = JSON.parse(text) as unknown;
+    if (Array.isArray(j)) return j as Array<Record<string, unknown>>;
+  } catch { /* fall through to tolerant parse */ }
+  let out = ''; let inStr = false; let esc = false;
+  for (const ch of text) {
+    if (esc) { out += ch; esc = false; }
+    else if (ch === '\\' && inStr) { out += ch; esc = true; }
+    else if (ch === '"') { out += ch; inStr = !inStr; }
+    else if (inStr && ch === '\n') out += '\\n';
+    else if (inStr && ch === '\r') out += '\\r';
+    else if (inStr && ch === '\t') out += '\\t';
+    else out += ch;
+  }
+  const j = JSON.parse(out) as unknown;
+  return Array.isArray(j) ? (j as Array<Record<string, unknown>>) : [];
+}
+
+/** Load this client's historic published posts (IG scrape) from Drive as the
+ *  critic's voice reference. Absent file → []. Never throws. */
+async function loadHistoricPosts(
+  drive:       DriveApiClient,
+  folderFiles: DriveFileMeta[],
+  logger:      Logger,
+  logCtx:      Record<string, unknown>,
+): Promise<HistoricPost[]> {
+  const scrapeFiles = folderFiles
+    .filter((f) => /^instagram-posts-.*\.json$/i.test(f.name))
+    .sort((a, b) => b.name.localeCompare(a.name))   // most-recent month first
+    .slice(0, 2);
+  const posts: HistoricPost[] = [];
+  for (const meta of scrapeFiles) {
+    try {
+      const arr = parseScrapeJson((await drive.downloadFile(meta.id)).toString('utf-8'));
+      for (const p of arr) {
+        const caption = typeof p['caption'] === 'string' ? (p['caption'] as string).trim() : '';
+        if (!caption) continue;
+        posts.push({ caption, engagement: (Number(p['likesCount']) || 0) + (Number(p['commentsCount']) || 0) });
+      }
+    } catch (err) {
+      logger.warn({ ...logCtx, file: meta.name, err: String(err) }, 'critic: could not read IG scrape — skipping');
+    }
+  }
+  return posts.slice(0, 60);
+}
+
+/** Load this client's substantive caption corrections from voice_edits:
+ *  contact_amended present, > 30 chars, actually different from the draft; deduped. */
+async function loadVoiceEdits(db: Db, clientId: string, channel: string): Promise<VoiceEditExample[]> {
+  const rows = await db
+    .select({ sprigly: voiceEdits.spriglyDraft, amended: voiceEdits.contactAmended })
+    .from(voiceEdits)
+    .where(and(
+      eq(voiceEdits.clientId, clientId),
+      eq(voiceEdits.channel, channel),
+      isNotNull(voiceEdits.contactAmended),
+    ))
+    .orderBy(desc(voiceEdits.updatedAt))
+    .limit(40);
+
+  const seen = new Set<string>();
+  const out: VoiceEditExample[] = [];
+  for (const r of rows) {
+    const amended = (r.amended ?? '').trim();
+    const sprigly = (r.sprigly ?? '').trim();
+    if (amended.length <= 30 || amended === sprigly || seen.has(amended)) continue;
+    seen.add(amended);
+    out.push({ sprigly, amended });
+    if (out.length >= 6) break;
+  }
+  return out;
 }
 
 // ── Worker ─────────────────────────────────────────────────────────────────────
@@ -373,24 +443,54 @@ export async function runPlanningForCycle(
       logger.warn({ ...logCtx, err: String(auditErr) }, 'content-cycles: planning audit log failed — non-fatal');
     }
 
-    const planRows = parsePlanResponse(result.content);
-
-    // Soft category check: build-workbook still renders unknown categories (auto-colour),
-    // so warn rather than fail — but surface drift from the authoritative list.
-    const allowedCategories = new Set(planConfigRow?.categories ?? []);
-    if (allowedCategories.size > 0) {
-      const offList = [...new Set(planRows
-        .map((r) => (r.category ?? '').trim())
-        .filter((c) => c.length > 0 && !allowedCategories.has(c)))];
-      if (offList.length > 0) {
-        logger.warn({ ...logCtx, offList }, 'content-cycles: planning produced categories outside the authoritative list');
-      }
-    }
+    const generatedRows = parsePlanResponse(result.content);
 
     logger.info(
-      { ...logCtx, posts: planRows.length, inputTokens: result.inputTokens, outputTokens: result.outputTokens, modelId: result.modelId },
+      { ...logCtx, posts: generatedRows.length, inputTokens: result.inputTokens, outputTokens: result.outputTokens, modelId: result.modelId },
       'content-cycles: plan generated',
     );
+
+    // ── Validation loop ───────────────────────────────────────────────────────
+    const vocab = {
+      categories: planConfigRow?.categories ?? [],
+      pillars:    (planConfigRow?.pillars ?? [])
+        .map((p) => (p as { name?: unknown }).name)
+        .filter((n): n is string => typeof n === 'string' && n.length > 0),
+    };
+    const repairCtx: PlanRepairContext = {
+      vocab, model: deps.model, modelName: PLANNING_MODEL, audit: deps.audit,
+      systemPrompt, userMessage, clientId, logger, logMeta: logCtx,
+    };
+
+    // STAGE 1 — code gate (universal mechanical, per-post): instruction-leak /
+    // em-dash / empty / invalid category-pillar. Regenerates failures, max 3.
+    const gate = await applyCodeGate(generatedRows, repairCtx);
+    logger.info(
+      { ...logCtx, checked: gate.checked, repaired: gate.repaired, acceptedWithWarning: gate.acceptedWithWarning.length },
+      'content-cycles: code gate complete',
+    );
+
+    // STAGE 2 — LLM critic (client-specific): judges voice/sign-off/pillar-voice
+    // and the clientWritesOwn flag against THIS client's voice.md + config +
+    // historic posts + corrections. Runs only on gate-passing posts.
+    const criticPrompt  = await deps.prompts.resolve(clientId, PLANNING_WORKFLOW, PLANNING_CRITIC_STEP);
+    const historicPosts = await loadHistoricPosts(drive, folderFiles, logger, logCtx);
+    const voiceEditEx    = await loadVoiceEdits(db, clientId, channel);
+    if (historicPosts.length === 0) {
+      logger.info(logCtx, 'critic: no historic reference — critic on voice.md only');
+    }
+    const critic = await applyCritic(gate.rows, {
+      criticPrompt, voiceMd,
+      planConfig:    { pillars: planConfigRow?.pillars ?? [], categories: planConfigRow?.categories ?? [] },
+      historicPosts, voiceEdits: voiceEditEx,
+      model: deps.model, modelName: PLANNING_MODEL, audit: deps.audit,
+      clientId, logger, logMeta: logCtx, exampleCount: 4,
+    }, repairCtx);
+    logger.info(
+      { ...logCtx, checked: critic.checked, regenerated: critic.regenerated, acceptedWithWarning: critic.acceptedWithWarning.length },
+      'content-cycles: critic complete',
+    );
+    const planRows = critic.rows;
 
     // ── Serialise to the 13-column CSV ────────────────────────────────────────
     const filename = `${cycleMonth}_${slug}-instagram-plan.csv`;
