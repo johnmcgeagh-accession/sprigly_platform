@@ -438,7 +438,11 @@ export async function runPlanningForCycle(
       planConfig: planConfigRow, gather, voiceMd,
     });
 
-    const result = await deps.model.complete({
+    // Streaming, NOT complete(): this is the platform's largest call (rich voice.md
+    // + full-month plan, up to 16k output tokens). complete() has a hard 180s
+    // wall-clock abort that this call exceeds; completeStreaming() aborts only on a
+    // 30s idle gap, so a long generation finishes as long as tokens keep flowing.
+    const result = await deps.model.completeStreaming({
       model:     PLANNING_MODEL,
       system:    systemPrompt,
       messages:  [{ role: 'user', content: userMessage }],
