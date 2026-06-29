@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  codeGateCheck, selectHistoricExamples, parseCriticVerdict,
+  codeGateCheck, selectHistoricExamples, parseCriticVerdict, normaliseDashes,
   type PlanPostRow, type CodeGateVocab, type HistoricPost,
 } from './plan-validation.js';
 
@@ -154,5 +154,56 @@ describe('parseCriticVerdict', () => {
   it('coerces non-string issues defensively', () => {
     expect(parseCriticVerdict('{"pass": false, "issues": [1, "x"], "suggested_fix": null}').issues)
       .toEqual(['1', 'x']);
+  });
+});
+
+describe('normaliseDashes — deterministic em/en dash strip', () => {
+  it('is a no-op when there is no em/en dash (returns input unchanged)', () => {
+    const s = 'A clean caption, with commas. And a hyphenated co-pilot. Sizes 10-12.';
+    expect(normaliseDashes(s)).toBe(s);
+  });
+
+  it('replaces a spaced em dash with a comma', () => {
+    expect(normaliseDashes("She's here — for everyone")).toBe("She's here, for everyone");
+  });
+
+  it('matches what the LLM repair produced on the traced posts', () => {
+    // Verified against planning_trace (cycle c702fac2): these are real BEFORE strings
+    // whose LLM repair removed the dash. The deterministic strip reproduces the swap.
+    expect(normaliseDashes('black, navy and navy stripe — £15 off for two weeks'))
+      .toBe('black, navy and navy stripe, £15 off for two weeks');
+    expect(normaliseDashes('It takes a few minutes — not half an hour'))
+      .toBe('It takes a few minutes, not half an hour');
+    expect(normaliseDashes('is GOTS-certified — that means 91% less water'))
+      .toBe('is GOTS-certified, that means 91% less water');
+    expect(normaliseDashes('found us for the very first time — welcome, I\'m so glad'))
+      .toBe('found us for the very first time, welcome, I\'m so glad');
+  });
+
+  it('keeps a number range as a HYPHEN, never a comma', () => {
+    expect(normaliseDashes('available in sizes 10–12')).toBe('available in sizes 10-12');
+    expect(normaliseDashes('sizes 8 – 10 in stock')).toBe('sizes 8-10 in stock');
+  });
+
+  it('handles an em dash with no surrounding spaces', () => {
+    expect(normaliseDashes('live now—come and see')).toBe('live now, come and see');
+  });
+
+  it('does not leave a doubled mark when the dash sat next to punctuation', () => {
+    expect(normaliseDashes('the one you live in —. Come see')).toBe('the one you live in. Come see');
+  });
+
+  it('strips a leading comma if a dash opened the text', () => {
+    expect(normaliseDashes('— welcome back')).toBe('welcome back');
+  });
+
+  it('leaves a plain hyphen and the outfit-credit brackets untouched', () => {
+    const credit = '[ I am wearing our organic cotton Mabel in size 12 - I am a 12/14 ]';
+    expect(normaliseDashes(credit)).toBe(credit);
+  });
+
+  it('the gate no longer flags a normalised caption (safety-net check passes)', () => {
+    const stripped = normaliseDashes("She's here — for everyone, all week");
+    expect(codeGateCheck({ ...base, draftCaption: stripped }, VOCAB)).toEqual([]);
   });
 });

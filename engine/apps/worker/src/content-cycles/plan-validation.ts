@@ -86,6 +86,41 @@ function detectInstructionLeak(caption: string): string | null {
 
 const DASH_RE = /[—–]/;
 
+/**
+ * Deterministically remove em (—) and en (–) dashes from caption text, per
+ * voice.md ("No em dashes anywhere. Use a comma or full stop instead.").
+ *
+ * This is the GUARANTEE that the em-dash gate (DASH_RE) almost never has to fire.
+ * The trace proved the LLM regeneration was doing nothing but this substitution on
+ * 21/21 gate repairs (e.g. "She's here — for everyone" → "She's here, for
+ * everyone"), at ~£0.04 a post — so we do it for free, deterministically, and the
+ * gate becomes a pure safety net. Applied after generation AND after every repair
+ * (the trace showed repairs themselves re-introduce dashes).
+ *
+ * Substitution rules, in order:
+ *   1. Number ranges ("size 10–12", "8 – 10")     → hyphen ("10-12").
+ *   2. Any remaining em/en dash (space-padded or not) → comma + space (voice.md's
+ *      lead suggestion; matches what the LLM repair did on the traced posts).
+ *   3. Tidy the artefacts the substitution can create (", .", " ,", leading ", ").
+ * A plain hyphen ("-") is never touched — it is valid (ranges, hyphenated words,
+ * the outfit-credit brackets), and the gate never flagged it.
+ */
+export function normaliseDashes(text: string): string {
+  if (!text || !DASH_RE.test(text)) return text;
+  return text
+    // 1. Numeric range → hyphen (never a comma: "size 10, 12" would be wrong).
+    .replace(/(\d)\s*[—–]\s*(\d)/g, '$1-$2')
+    // 2. Remaining em/en dash, with any surrounding spaces, → ", ".
+    .replace(/\s*[—–]\s*/g, ', ')
+    // 3a. Comma now butting a sentence/clause mark ("now, . head" never occurs, but
+    //     ", ." / ", ," / ", ;" can): drop the comma, keep the stronger mark.
+    .replace(/,\s*([.!?,;:])/g, '$1')
+    // 3b. Space before a comma ("word , next") → tight comma.
+    .replace(/\s+,/g, ',')
+    // 3c. A leading ", " (dash opened the line) → strip.
+    .replace(/^\s*,\s*/, '');
+}
+
 /** Pure, deterministic per-post check. No LLM, no client-specific voice rules. */
 export function codeGateCheck(post: PlanPostRow, vocab: CodeGateVocab): PostIssue[] {
   const issues: PostIssue[] = [];
@@ -195,6 +230,12 @@ async function regeneratePost(
   }
 
   const after = parseSinglePost(result.content);
+
+  // Deterministic em-dash strip BEFORE the caller re-gates. The trace showed repairs
+  // re-introduce dashes (a critic fix that adds a "—" then fails the em-dash gate and
+  // triggers ANOTHER repair). Normalising here short-circuits that churn loop so a
+  // repair is never undone by a mechanical dash the model happened to re-add.
+  if (after.draftCaption) after.draftCaption = normaliseDashes(after.draftCaption);
 
   // Diagnostic trace: the caption before → after, what triggered the repair, and cost.
   if (ctx.tracer && trace) {

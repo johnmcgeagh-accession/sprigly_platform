@@ -51,7 +51,7 @@ import type { DbPromptResolver } from '@sprigly/prompts';
 import type { IntakeJson, CompetitorGatherData } from '@sprigly/engine';
 import type { Logger } from 'pino';
 import { transitionCycle } from './machine.js';
-import { applyCodeGate, applyCritic } from './plan-validation.js';
+import { applyCodeGate, applyCritic, normaliseDashes } from './plan-validation.js';
 import type { PlanPostRow, HistoricPost, VoiceEditExample, PlanRepairContext } from './plan-validation.js';
 import { PlanningTracer } from './planning-trace.js';
 import type { DriveFileMeta } from '@sprigly/sources';
@@ -486,8 +486,19 @@ export async function runPlanningForCycle(
 
     const generatedRows = parsePlanResponse(result.content);
 
+    // Deterministic em-dash strip BEFORE the gate. The trace showed 21/21 gate
+    // repairs were em-dash-only LLM regenerations doing nothing but this swap
+    // (~£0.84/run of marginal churn). Doing it here for free means the em-dash gate
+    // should now almost never fire. Caption only (the only field the gate checks).
+    let dashStripped = 0;
+    for (const r of generatedRows) {
+      if (!r.draftCaption) continue;
+      const fixed = normaliseDashes(r.draftCaption);
+      if (fixed !== r.draftCaption) { r.draftCaption = fixed; dashStripped++; }
+    }
+
     logger.info(
-      { ...logCtx, posts: generatedRows.length, inputTokens: result.inputTokens, outputTokens: result.outputTokens, modelId: result.modelId },
+      { ...logCtx, posts: generatedRows.length, dashStripped, inputTokens: result.inputTokens, outputTokens: result.outputTokens, modelId: result.modelId },
       'content-cycles: plan generated',
     );
 
