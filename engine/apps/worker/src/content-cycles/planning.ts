@@ -52,6 +52,7 @@ import type { IntakeJson, CompetitorGatherData } from '@sprigly/engine';
 import type { Logger } from 'pino';
 import { transitionCycle } from './machine.js';
 import { applyCodeGate, applyCritic, normaliseDashes } from './plan-validation.js';
+import type { RegisterMap } from './plan-validation.js';
 import type { PlanPostRow, HistoricPost, VoiceEditExample, PlanRepairContext } from './plan-validation.js';
 import { PlanningTracer } from './planning-trace.js';
 import type { DriveFileMeta } from '@sprigly/sources';
@@ -539,7 +540,11 @@ export async function runPlanningForCycle(
     }
     const critic = await applyCritic(gate.rows, {
       criticPrompt, voiceMd,
-      planConfig:    { pillars: planConfigRow?.pillars ?? [], categories: planConfigRow?.categories ?? [] },
+      planConfig:    {
+        pillars:     planConfigRow?.pillars ?? [],
+        categories:  planConfigRow?.categories ?? [],
+        registerMap: (planConfigRow?.registerMap ?? {}) as RegisterMap,
+      },
       historicPosts, voiceEdits: voiceEditEx,
       model: deps.model, modelName: PLANNING_MODEL, audit: deps.audit,
       clientId, logger, logMeta: logCtx, exampleCount: 4, tracer,

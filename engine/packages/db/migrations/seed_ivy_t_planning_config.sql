@@ -29,7 +29,8 @@ BEGIN
     cadence,
     recurring_series,
     posting_times,
-    categories
+    categories,
+    register_map
   ) VALUES (
     v_client_id,
     'instagram',
@@ -195,7 +196,17 @@ BEGIN
     -- ── categories ───────────────────────────────────────────────────────────
     -- Authoritative vocabulary for the Category column. Extracted from June and
     -- July 2026 plan outputs. Planning worker must only use values from this list.
-    '["Styling", "WSG & Sunday Style", "Brand", "Educational", "Product launch or offer related", "POV", "Testimonials", "Regular feature", "No Post/Sally"]'::jsonb
+    -- "WSG & Sunday Style" was split into "WSG" (founder "I") and "Sunday Style"
+    -- (brand "we") in migration 0048 — they carry opposite registers.
+    '["Styling", "WSG", "Sunday Style", "Brand", "Educational", "Product launch or offer related", "POV", "Testimonials", "Regular feature", "No Post/Sally"]'::jsonb,
+
+    -- ── register_map ─────────────────────────────────────────────────────────
+    -- Authoritative per-category register (first-person founder "I" vs brand
+    -- "we/our"), consumed by the planning critic (plan-validation.ts
+    -- resolveRegister). Categories NOT listed fall back to historic inference —
+    -- e.g. the register-mixed "Brand" category is intentionally unmapped (see the
+    -- "Brand de-overloading" follow-up). No blanket default by design.
+    '{"WSG": "I", "Sunday Style": "we", "Educational": "we", "Testimonials": "we", "Styling": "we", "Product launch or offer related": "we", "POV": "I"}'::jsonb
   )
   ON CONFLICT (client_id, channel) DO UPDATE SET
     pillars          = EXCLUDED.pillars,
@@ -204,6 +215,7 @@ BEGIN
     recurring_series = EXCLUDED.recurring_series,
     posting_times    = EXCLUDED.posting_times,
     categories       = EXCLUDED.categories,
+    register_map     = EXCLUDED.register_map,
     updated_at       = now();
 
   RAISE NOTICE 'IVY-t instagram planning config seeded for client_id %', v_client_id;

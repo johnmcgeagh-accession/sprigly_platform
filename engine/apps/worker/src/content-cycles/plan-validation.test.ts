@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  codeGateCheck, selectHistoricExamples, parseCriticVerdict, normaliseDashes,
-  type PlanPostRow, type CodeGateVocab, type HistoricPost,
+  codeGateCheck, selectHistoricExamples, parseCriticVerdict, normaliseDashes, resolveRegister,
+  type PlanPostRow, type CodeGateVocab, type HistoricPost, type RegisterMap,
 } from './plan-validation.js';
 
 const VOCAB: CodeGateVocab = {
@@ -17,6 +17,40 @@ const base: PlanPostRow = {
   notes: 'Shoot flat.',
 };
 const codes = (p: PlanPostRow) => codeGateCheck(p, VOCAB).map((i) => i.code).sort();
+
+describe('resolveRegister — authoritative per-category register lookup', () => {
+  // IVY-t's Option 2 map: only register-homogeneous categories mapped; no default.
+  const MAP: RegisterMap = {
+    WSG: 'I', 'Sunday Style': 'we', Educational: 'we', Testimonials: 'we',
+    Styling: 'we', 'Product launch or offer related': 'we', POV: 'I',
+  };
+  const at = (category: string) => resolveRegister({ ...base, category }, MAP);
+
+  it('resolves the three previously-oscillating categories to a stable register', () => {
+    expect(at('Sunday Style')).toEqual({ register: 'we', category: 'Sunday Style' }); // #4
+    expect(at('Educational')).toEqual({ register: 'we', category: 'Educational' });   // #7
+    expect(at('Testimonials')).toEqual({ register: 'we', category: 'Testimonials' }); // #24
+  });
+
+  it('maps WSG and POV to founder "I"', () => {
+    expect(at('WSG')?.register).toBe('I');
+    expect(at('POV')?.register).toBe('I');
+  });
+
+  it('returns null for unmapped categories so the critic falls back to historic (no regression)', () => {
+    // "Brand" is register-mixed and deliberately left unmapped → historic inference.
+    expect(at('Brand')).toBeNull();
+    expect(at('No Post/Sally')).toBeNull();
+    expect(at('Regular feature')).toBeNull();
+  });
+
+  it('is defensive against missing/empty/invalid maps and categories', () => {
+    expect(resolveRegister({ ...base, category: 'WSG' }, {})).toBeNull();
+    expect(resolveRegister({ ...base, category: 'WSG' }, null)).toBeNull();
+    expect(resolveRegister({ ...base, category: '' }, MAP)).toBeNull();
+    expect(resolveRegister({ ...base, category: 'WSG' }, { WSG: 'sideways' } as RegisterMap)).toBeNull();
+  });
+});
 
 describe('codeGateCheck — universal mechanical gate', () => {
   it('passes a clean valid post', () => {

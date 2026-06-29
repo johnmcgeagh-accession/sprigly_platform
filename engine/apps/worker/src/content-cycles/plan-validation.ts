@@ -333,7 +333,7 @@ export interface CriticVerdict { pass: boolean; issues: string[]; suggested_fix:
 export interface CriticContext {
   criticPrompt: string;
   voiceMd:      string | null;
-  planConfig:   { pillars: Array<Record<string, unknown>>; categories: string[] };
+  planConfig:   { pillars: Array<Record<string, unknown>>; categories: string[]; registerMap?: RegisterMap };
   historicPosts: HistoricPost[];
   voiceEdits:   VoiceEditExample[];
   model:        ModelClient;
@@ -407,6 +407,53 @@ export function selectHistoricExamples(
   return picked;
 }
 
+// ── Authoritative per-category REGISTER map ──────────────────────────────────
+// Register (first-person founder "I" vs brand "we/our") is NOT inferred from the
+// historic sample — for several post types this client's real feed is register-
+// MIXED (e.g. a "Testimonials" or "Educational" topic carries both Sally's "I"
+// posts and brand "we" posts), which made the critic oscillate (one verdict
+// "use I", the next "use we" on the same post). Register is therefore GROUND
+// TRUTH, defined per CATEGORY in client_planning_config.register_map and resolved
+// here by a plain category lookup. The critic is told the required register and
+// judges against it; for any category NOT in the map it falls back to inferring
+// register from historic posts (current behaviour — so register-mixed categories
+// such as "Brand" are deliberately left unmapped rather than forced to one voice).
+//
+// Shape (per-client, self-serve — a client labels each of their categories I/we):
+//   { "Sunday Style": "we", "WSG": "I", "Educational": "we", ... }
+// A category present here is authoritative; a category absent → null → historic
+// fallback. There is intentionally NO blanket default (a default "we" would
+// regress I-voice posts filed under a register-mixed category). Adding a safe
+// default is the "Brand de-overloading" follow-up: it requires the generator to
+// assign register-homogeneous categories first.
+export type RegisterMap = Record<string, unknown>;   // { [category: string]: 'I' | 'we' }
+export interface ResolvedRegister { register: 'I' | 'we'; category: string; }
+
+/** Resolve the authoritative register for a post by looking up its CATEGORY in
+ *  this client's register_map. Returns null when the category is absent/unmapped
+ *  — the caller then lets the critic infer register from historic posts (no
+ *  regression for register-mixed categories). Defensive: register_map is untyped
+ *  JSONB, so the looked-up value is validated before use. */
+export function resolveRegister(post: PlanPostRow, registerMap: RegisterMap | null | undefined): ResolvedRegister | null {
+  if (!registerMap || typeof registerMap !== 'object') return null;
+  const category = post.category ?? '';
+  if (!category) return null;
+  const r = (registerMap as Record<string, unknown>)[category];
+  if (r === 'I' || r === 'we') return { register: r, category };
+  return null;
+}
+
+/** Human-readable instruction handed to the critic for an authoritative register. */
+function requiredRegisterInstruction(r: ResolvedRegister): string {
+  const voice = r.register === 'I'
+    ? 'the first-person founder "I/my" voice (the founder\'s own voice)'
+    : 'the brand "we/our" voice';
+  return [
+    'REQUIRED REGISTER (authoritative — overrides any inference from the historic posts below):',
+    `This post's category is "${r.category}", which this client writes in ${voice}. Judge register (criterion 3 and DECISIVE rule (a)) against THIS rule, NOT against whatever mix the historic posts happen to show. A caption in the opposite voice is a FAIL; a caption in this voice PASSES the register check. The historic posts below are reference for rhythm, vocabulary, structure and sign-off only — do not re-derive register from them.`,
+  ].join('\n');
+}
+
 /** Tolerant parse of the critic's JSON verdict. On unparseable output, degrade to
  *  PASS (don't block the plan on a critic glitch — the code gate already ran). */
 export function parseCriticVerdict(text: string, logger?: Logger, logMeta?: Record<string, unknown>): CriticVerdict {
@@ -444,6 +491,7 @@ export function buildCriticUserMessage(post: PlanPostRow, ctx: CriticContext, ex
   const editsBlock = ctx.voiceEdits.length > 0
     ? ctx.voiceEdits.map((e, i) => `${i + 1}. DRAFT: ${truncate(e.sprigly, 300)}\n   CLIENT'S AMENDED VERSION: ${truncate(e.amended, 300)}`).join('\n\n')
     : null;
+  const resolved = resolveRegister(post, ctx.planConfig.registerMap);
 
   return [
     'THE POST TO JUDGE (JSON):',
@@ -455,6 +503,7 @@ export function buildCriticUserMessage(post: PlanPostRow, ctx: CriticContext, ex
     'CONFIG:',
     `Pillars: ${pillarNames.join(' | ')}`,
     `Categories: ${(ctx.planConfig.categories ?? []).join(', ')}`,
+    ...(resolved ? ['', requiredRegisterInstruction(resolved)] : []),
     '',
     'HISTORIC POSTS BY THIS CLIENT (how they ACTUALLY write; same pillar/topic preferred):',
     examplesBlock,

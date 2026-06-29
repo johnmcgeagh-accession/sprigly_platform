@@ -674,6 +674,11 @@ export const clientPlanningConfig = pgTable(
     recurringSeries: jsonb('recurring_series').$type<Array<Record<string, unknown>>>().notNull().default([]),
     postingTimes:    jsonb('posting_times').$type<Record<string, string>>().notNull().default({}),
     categories:      jsonb('categories').$type<string[]>().notNull().default([]),
+    // Authoritative per-post-type register map (first-person "I" vs brand "we").
+    // Shape: { rules: Array<{ type, categoryAny?, titleRegex?, register }>, default }.
+    // Consumed by the planning critic (plan-validation.ts resolveRegister) as the
+    // ground truth for register — replaces inferring register from historic posts.
+    registerMap:     jsonb('register_map').$type<Record<string, unknown>>().notNull().default({}),
   },
   (t) => ({
     uniqClientChannel: uniqueIndex('client_planning_config_unique').on(t.clientId, t.channel),
