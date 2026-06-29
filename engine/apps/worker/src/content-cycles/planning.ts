@@ -37,8 +37,11 @@ import {
   clientChannels,
   clients,
   voiceEdits,
+  clientProductCatalogue,
 } from '@sprigly/db';
 import type { ClientPlanningConfig } from '@sprigly/db';
+import type { Catalogue } from '../catalogue/parse-catalogue.js';
+import { indexCatalogue, applyCatalogueValidation, buildCatalogueGroundingBlock } from '../catalogue/validate-catalogue.js';
 import { getTokens, storeTokens } from '@sprigly/oauth-tokens';
 import type { EncryptionProvider } from '@sprigly/oauth-tokens';
 import { DriveApiClient } from '@sprigly/sources';
@@ -182,6 +185,7 @@ interface PlanningInputs {
   planConfig: ClientPlanningConfig | undefined;
   gather:     CompetitorGatherData | null;
   voiceMd:    string | null;
+  catalogueGrounding: string;   // SOFT grounding: real products + colourways (may be '')
 }
 
 /** Build the single user message: every assembled input, clearly sectioned, for
@@ -215,6 +219,10 @@ function buildPlanningUserMessage(inp: PlanningInputs): string {
     `Categories (AUTHORITATIVE — use ONLY these values for the category field): ${JSON.stringify(cfg?.categories ?? [])}`,
     '',
     competitorSection,
+    '',
+    inp.catalogueGrounding
+      ? `PRODUCTS — this client's REAL products and their ACTUAL colourways. Use ONLY products and colourways from this list. NEVER invent a product name or a colourway, and NEVER pair a product with a colourway not listed under it. If the intake needs a product not here, describe it generically without naming a colourway.\n${inp.catalogueGrounding}`
+      : 'PRODUCTS: no catalogue available — refer to products only as the intake names them; do not invent product names or colourways.',
     '',
     'VOICE (voice.md — apply to every caption):',
     inp.voiceMd ?? '(voice.md not available — apply the hard caption rules in the system prompt and keep captions plain and on-brand.)',
@@ -360,6 +368,18 @@ export async function runPlanningForCycle(
       .limit(1);
     const gather = (gatherRow?.rawData as CompetitorGatherData | undefined) ?? null;
 
+    const [catRow] = await db
+      .select({ catalogue: clientProductCatalogue.catalogue })
+      .from(clientProductCatalogue)
+      .where(and(
+        eq(clientProductCatalogue.clientId, clientId),
+        eq(clientProductCatalogue.channel,  channel),
+      ))
+      .limit(1);
+    const catalogue = (catRow?.catalogue as Catalogue | undefined) ?? null;
+    const intakeText = [freeNotes, ...Object.values(answers)].join('\n');
+    const catalogueGrounding = catalogue ? buildCatalogueGroundingBlock(catalogue, intakeText) : '';
+
     const [clientRow] = await db
       .select({ name: clients.name, slug: clients.slug })
       .from(clients)
@@ -435,7 +455,7 @@ export async function runPlanningForCycle(
     const systemPrompt = await deps.prompts.resolve(clientId, PLANNING_WORKFLOW, PLANNING_STEP);
     const userMessage  = buildPlanningUserMessage({
       clientName, dataMonth: cycleMonth, targetMonth, answers, freeNotes,
-      planConfig: planConfigRow, gather, voiceMd,
+      planConfig: planConfigRow, gather, voiceMd, catalogueGrounding,
     });
 
     // Streaming, NOT complete(): this is the platform's largest call (rich voice.md
@@ -510,7 +530,30 @@ export async function runPlanningForCycle(
       { ...logCtx, checked: critic.checked, regenerated: critic.regenerated, acceptedWithWarning: critic.acceptedWithWarning.length },
       'content-cycles: critic complete',
     );
-    const planRows = critic.rows;
+    // ── Validation: HARD catalogue grounding (deterministic, runs LAST) ────────
+    // Rewrite any product+colourway pairing that doesn't exist in the catalogue to
+    // a neutral "[confirm colourway]" placeholder + a Sprigly Note (kills the
+    // "Elle in dark olive" fabrication). Runs after the critic so the placeholder
+    // isn't re-flagged by the code gate. Skipped when no catalogue is cached.
+    let planRows = critic.rows;
+    if (catalogue) {
+      const idx = indexCatalogue(catalogue);
+      let totalViolations = 0;
+      planRows = critic.rows.map((p) => {
+        const { caption, notes, violations } = applyCatalogueValidation(p.draftCaption ?? '', p.notes ?? '', idx);
+        if (violations.length === 0) return p;
+        totalViolations += violations.length;
+        return { ...p, draftCaption: caption, notes: notes.join(' ') };
+      });
+      logger.info(
+        { ...logCtx, catalogueViolations: totalViolations },
+        totalViolations > 0
+          ? 'content-cycles: catalogue validation rewrote invalid product/colourway pairings'
+          : 'content-cycles: catalogue validation passed — all pairings valid',
+      );
+    } else {
+      logger.info({ ...logCtx }, 'content-cycles: no product catalogue cached — hard validation skipped (soft grounding only)');
+    }
 
     // ── Serialise to the 13-column CSV ────────────────────────────────────────
     // Filename targets the PLAN month (cycleMonth + 1), so build-workbook names

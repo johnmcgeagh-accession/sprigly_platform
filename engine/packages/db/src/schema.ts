@@ -710,3 +710,31 @@ export const competitorGatherCache = pgTable(
 
 export type CompetitorGatherCacheRow    = typeof competitorGatherCache.$inferSelect;
 export type NewCompetitorGatherCacheRow = typeof competitorGatherCache.$inferInsert;
+
+// ─── client_product_catalogue ─────────────────────────────────────────────────
+// The authoritative product catalogue (families → colourway variants) parsed from
+// the client's monthly sales export. One row per (client, channel); latest-wins
+// upsert, refreshed from each month's export. The planner SELECTS from it (soft
+// grounding in the prompt) and is VALIDATED against it (hard post-generation check)
+// so an invented product/colourway pairing (e.g. "Elle in dark olive") is caught.
+//
+// catalogue shape: { families: ProductFamily[], excluded: ParsedProduct[] }
+//   (apps/worker/src/catalogue/parse-catalogue.ts)
+
+export const clientProductCatalogue = pgTable(
+  'client_product_catalogue',
+  {
+    ...baseColumns,
+    clientId:    uuid('client_id').notNull().references(() => clients.id),
+    channel:     text('channel').notNull(),
+    sourceMonth: text('source_month'),         // YYYY-MM of the sales export
+    catalogue:   jsonb('catalogue').$type<Record<string, unknown>>().notNull().default({}),
+    refreshedAt: timestamp('refreshed_at').notNull(),
+  },
+  (t) => ({
+    uniqClientChannel: uniqueIndex('client_product_catalogue_unique').on(t.clientId, t.channel),
+  }),
+);
+
+export type ClientProductCatalogueRow    = typeof clientProductCatalogue.$inferSelect;
+export type NewClientProductCatalogueRow = typeof clientProductCatalogue.$inferInsert;

@@ -8,6 +8,7 @@
     "dev": "sh -c 'set -a && . ../../.env.local && set +a && tsx watch src/index.ts'",
     "start": "node dist/index.js",
     "type-check": "tsc --noEmit",
+    "catalogue-refresh": "sh -c 'set -a && . ../../.env.local && set +a && tsx src/catalogue/catalogue-refresh-cli.ts \"$@\"' --",
     "setup-gmail": "tsx --env-file ../../.env.local src/setup-gmail-oauth.ts",
     "setup-drive": "tsx --env-file ../../.env.local src/setup-drive-oauth.ts",
     "verify-drive": "sh -c 'set -a && . ../../.env.local && set +a && tsx src/verify-drive-token.ts \"$@\"' --",
