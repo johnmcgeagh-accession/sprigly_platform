@@ -53,6 +53,7 @@ import type { Logger } from 'pino';
 import { transitionCycle } from './machine.js';
 import { applyCodeGate, applyCritic } from './plan-validation.js';
 import type { PlanPostRow, HistoricPost, VoiceEditExample, PlanRepairContext } from './plan-validation.js';
+import { PlanningTracer } from './planning-trace.js';
 import type { DriveFileMeta } from '@sprigly/sources';
 
 type Db = typeof _db;
@@ -497,9 +498,15 @@ export async function runPlanningForCycle(
         .map((p) => (p as { name?: unknown }).name)
         .filter((n): n is string => typeof n === 'string' && n.length > 0),
     };
+    // Diagnostic trace: records every gate/critic/repair/catalogue step (caption
+    // before→after, trigger, token cost) so a run can be judged after the fact.
+    // Purely observational — buffered in memory, flushed once at the end, and a
+    // trace-write failure never fails the run.
+    const tracer = new PlanningTracer(cycleId, targetMonth, logger, logCtx);
+
     const repairCtx: PlanRepairContext = {
       vocab, model: deps.model, modelName: PLANNING_MODEL, audit: deps.audit,
-      systemPrompt, userMessage, clientId, logger, logMeta: logCtx,
+      systemPrompt, userMessage, clientId, logger, logMeta: logCtx, tracer,
     };
 
     // STAGE 1 — code gate (universal mechanical, per-post): instruction-leak /
@@ -524,7 +531,7 @@ export async function runPlanningForCycle(
       planConfig:    { pillars: planConfigRow?.pillars ?? [], categories: planConfigRow?.categories ?? [] },
       historicPosts, voiceEdits: voiceEditEx,
       model: deps.model, modelName: PLANNING_MODEL, audit: deps.audit,
-      clientId, logger, logMeta: logCtx, exampleCount: 4,
+      clientId, logger, logMeta: logCtx, exampleCount: 4, tracer,
     }, repairCtx);
     logger.info(
       { ...logCtx, checked: critic.checked, regenerated: critic.regenerated, acceptedWithWarning: critic.acceptedWithWarning.length },
@@ -539,10 +546,12 @@ export async function runPlanningForCycle(
     if (catalogue) {
       const idx = indexCatalogue(catalogue);
       let totalViolations = 0;
-      planRows = critic.rows.map((p) => {
-        const { caption, notes, violations } = applyCatalogueValidation(p.draftCaption ?? '', p.notes ?? '', idx);
+      planRows = critic.rows.map((p, index) => {
+        const before = p.draftCaption ?? '';
+        const { caption, notes, violations } = applyCatalogueValidation(before, p.notes ?? '', idx);
         if (violations.length === 0) return p;
         totalViolations += violations.length;
+        tracer.catalogue(index, p.title, before, caption, violations.map((v) => `${v.name} in ${v.colourway}`));
         return { ...p, draftCaption: caption, notes: notes.join(' ') };
       });
       logger.info(
@@ -554,6 +563,11 @@ export async function runPlanningForCycle(
     } else {
       logger.info({ ...logCtx }, 'content-cycles: no product catalogue cached — hard validation skipped (soft grounding only)');
     }
+
+    // ── Persist the diagnostic trace (best-effort; never fails the run) ────────
+    // All loop phases are done — flush the buffered gate/critic/repair/catalogue
+    // steps in one insert. Read back with `pnpm --filter @sprigly/worker planning-trace <cycleId>`.
+    await tracer.flush(db);
 
     // ── Serialise to the 13-column CSV ────────────────────────────────────────
     // Filename targets the PLAN month (cycleMonth + 1), so build-workbook names

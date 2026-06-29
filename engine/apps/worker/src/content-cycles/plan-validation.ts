@@ -25,6 +25,7 @@
 import type { ModelClient } from '@sprigly/model-client';
 import type { AuditLogger } from '@sprigly/audit';
 import type { Logger } from 'pino';
+import type { PlanningTracer } from './planning-trace.js';
 
 /** One post row as emitted by the model (JSON). Shared with planning.ts. The two
  *  {contact} edit columns are added blank by the worker, never the model. */
@@ -134,6 +135,7 @@ export interface PlanRepairContext {
   clientId:     string;
   logger:       Logger;
   logMeta:      Record<string, unknown>;  // channel, cycleMonth, cycleId for logs/audit
+  tracer?:      PlanningTracer;            // optional diagnostic trace (never affects behaviour)
 }
 
 /** Extract a single post object from a model response (fence/prose tolerant). */
@@ -155,6 +157,7 @@ async function regeneratePost(
   post:     PlanPostRow,
   feedback: string,
   ctx:      PlanRepairContext,
+  trace?:   { index: number; attempt: number; triggeredBy: 'gate' | 'critic' },
 ): Promise<PlanPostRow> {
   const fixMessage = [
     ctx.userMessage,
@@ -191,7 +194,25 @@ async function regeneratePost(
     ctx.logger.warn({ ...ctx.logMeta, err: String(auditErr) }, 'code-gate: repair audit log failed — non-fatal');
   }
 
-  return parseSinglePost(result.content);
+  const after = parseSinglePost(result.content);
+
+  // Diagnostic trace: the caption before → after, what triggered the repair, and cost.
+  if (ctx.tracer && trace) {
+    ctx.tracer.repair({
+      index:        trace.index,
+      title:        post.title,
+      attempt:      trace.attempt,
+      triggeredBy:  trace.triggeredBy,
+      trigger:      feedback,
+      before:       post.draftCaption ?? '',
+      after:        after.draftCaption ?? '',
+      inputTokens:  result.inputTokens,
+      outputTokens: result.outputTokens,
+      modelId:      result.modelId,
+    });
+  }
+
+  return after;
 }
 
 export interface CodeGateResult {
@@ -217,6 +238,7 @@ export async function applyCodeGate(
     let post   = rows[index]!;
     let issues = codeGateCheck(post, ctx.vocab);
     let didRepair = false;
+    ctx.tracer?.gate(index, post.title, 0, issues);   // initial check (attempt 0)
 
     for (let attempt = 1; attempt <= MAX_PLAN_RETRIES && issues.length > 0; attempt++) {
       const feedback = issues.map((i) => `- ${i.code}: ${i.detail}`).join('\n');
@@ -225,13 +247,14 @@ export async function applyCodeGate(
         'code-gate: post failed — regenerating',
       );
       try {
-        post = await regeneratePost(post, feedback, ctx);
+        post = await regeneratePost(post, feedback, ctx, { index, attempt, triggeredBy: 'gate' });
         didRepair = true;
       } catch (err) {
         ctx.logger.warn({ ...ctx.logMeta, index, err: String(err) }, 'code-gate: regeneration failed — keeping previous version');
         break;
       }
       issues = codeGateCheck(post, ctx.vocab);
+      ctx.tracer?.gate(index, post.title, attempt, issues);   // re-check after this repair
     }
 
     if (issues.length > 0) {
@@ -279,6 +302,7 @@ export interface CriticContext {
   logger:       Logger;
   logMeta:      Record<string, unknown>;
   exampleCount: number;
+  tracer?:      PlanningTracer;            // optional diagnostic trace (never affects behaviour)
 }
 
 const STOPWORDS = new Set([
@@ -399,7 +423,10 @@ export function buildCriticUserMessage(post: PlanPostRow, ctx: CriticContext, ex
   ].join('\n');
 }
 
-async function critiquePost(post: PlanPostRow, ctx: CriticContext, examples: HistoricExample[]): Promise<CriticVerdict> {
+async function critiquePost(
+  post: PlanPostRow, ctx: CriticContext, examples: HistoricExample[],
+  trace?: { index: number; attempt: number },
+): Promise<CriticVerdict> {
   const userMessage = buildCriticUserMessage(post, ctx, examples);
   const result = await ctx.model.complete({
     model:     ctx.modelName,
@@ -419,7 +446,13 @@ async function critiquePost(post: PlanPostRow, ctx: CriticContext, examples: His
   } catch (auditErr) {
     ctx.logger.warn({ ...ctx.logMeta, err: String(auditErr) }, 'critic: audit log failed — non-fatal');
   }
-  return parseCriticVerdict(result.content, ctx.logger, ctx.logMeta);
+  const verdict = parseCriticVerdict(result.content, ctx.logger, ctx.logMeta);
+  if (ctx.tracer && trace) {
+    ctx.tracer.critic(trace.index, post.title, trace.attempt, verdict, {
+      inputTokens: result.inputTokens, outputTokens: result.outputTokens, modelId: result.modelId,
+    });
+  }
+  return verdict;
 }
 
 export interface CriticResult {
@@ -445,13 +478,13 @@ export async function applyCritic(
   for (let index = 0; index < rows.length; index++) {
     let post     = rows[index]!;
     let examples = selectHistoricExamples(ctx.historicPosts, post, ctx.planConfig, ctx.exampleCount);
-    let verdict  = await critiquePost(post, ctx, examples);
+    let verdict  = await critiquePost(post, ctx, examples, { index, attempt: 0 });
 
     for (let attempt = 1; attempt <= MAX_PLAN_RETRIES && !verdict.pass; attempt++) {
       const feedback = [...verdict.issues, verdict.suggested_fix].filter(Boolean).join('\n- ');
       ctx.logger.info({ ...ctx.logMeta, index, attempt, issues: verdict.issues }, 'critic: post failed — regenerating');
       try {
-        post = await regeneratePost(post, `Voice / consistency problems to fix:\n- ${feedback}`, repairCtx);
+        post = await regeneratePost(post, `Voice / consistency problems to fix:\n- ${feedback}`, repairCtx, { index, attempt, triggeredBy: 'critic' });
         regenerated++;
       } catch (err) {
         ctx.logger.warn({ ...ctx.logMeta, index, err: String(err) }, 'critic: regeneration failed — keeping previous version');
@@ -459,12 +492,13 @@ export async function applyCritic(
       }
       // Mechanical re-check first — never accept a regen that broke the code gate.
       const gateIssues = codeGateCheck(post, repairCtx.vocab);
+      ctx.tracer?.gate(index, post.title, attempt, gateIssues);   // post-repair mechanical re-check
       if (gateIssues.length > 0) {
         verdict = { pass: false, issues: gateIssues.map((i) => `${i.code}: ${i.detail}`), suggested_fix: '' };
         continue;
       }
       examples = selectHistoricExamples(ctx.historicPosts, post, ctx.planConfig, ctx.exampleCount);
-      verdict  = await critiquePost(post, ctx, examples);
+      verdict  = await critiquePost(post, ctx, examples, { index, attempt });
     }
 
     if (!verdict.pass) {

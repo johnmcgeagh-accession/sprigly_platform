@@ -738,3 +738,43 @@ export const clientProductCatalogue = pgTable(
 
 export type ClientProductCatalogueRow    = typeof clientProductCatalogue.$inferSelect;
 export type NewClientProductCatalogueRow = typeof clientProductCatalogue.$inferInsert;
+
+// ─── planning_trace ───────────────────────────────────────────────────────────
+// Diagnostic, per-step record of the planning validation loop (gate / critic /
+// repair / catalogue) for ONE cycle. Captures what every repair actually changed
+// (caption before → after), what triggered it, and the token cost per call — the
+// before/after states the audit ledger does NOT keep. Purely observational: written
+// best-effort during the loop (a write failure never fails the planning run) and
+// read back with `pnpm --filter @sprigly/worker planning-trace <cycleId>`.
+//
+// One row per loop STEP. `seq` is a monotonic per-run ordinal so the interleaved
+// gate→repair→critic sequence (and oscillation) reconstructs exactly, even when
+// timestamps collide. Not on the hot path; never read by the runtime.
+
+export const planningTrace = pgTable(
+  'planning_trace',
+  {
+    ...baseColumns,
+    cycleId:      uuid('cycle_id').notNull().references(() => contentCycles.id),
+    seq:          integer('seq').notNull(),                 // per-run monotonic ordinal
+    postIndex:    integer('post_index').notNull(),          // index within the generated plan
+    postTitle:    text('post_title'),
+    targetMonth:  text('target_month'),                     // YYYY-MM being planned
+    phase:        text('phase').notNull(),                  // gate | critic | repair | catalogue
+    attempt:      integer('attempt'),                       // retry count for this post within the phase
+    pass:         boolean('pass'),                          // gate/critic outcome (null for repair/catalogue)
+    issues:       jsonb('issues').$type<unknown>(),         // gate issue codes/details OR critic issues[]
+    detail:       jsonb('detail').$type<Record<string, unknown>>(), // verdict / triggeredBy / suggested_fix / violations
+    captionBefore: text('caption_before'),                  // repair/catalogue: caption before the change
+    captionAfter:  text('caption_after'),                   // repair/catalogue: caption after the change
+    inputTokens:  integer('input_tokens'),                  // LLM call cost (critic / repair)
+    outputTokens: integer('output_tokens'),
+    modelId:      text('model_id'),
+  },
+  (t) => ({
+    cycleIdx: index('planning_trace_cycle_idx').on(t.cycleId, t.seq),
+  }),
+);
+
+export type PlanningTraceRow    = typeof planningTrace.$inferSelect;
+export type NewPlanningTraceRow = typeof planningTrace.$inferInsert;
