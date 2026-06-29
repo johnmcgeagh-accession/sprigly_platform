@@ -242,16 +242,23 @@ const digestInterval = setInterval(() => { void sendDigests(); }, DIGEST_CHECK_I
 logger.info({ intervalMs: DIGEST_CHECK_INTERVAL_MS }, 'Digest sender started');
 
 const VOICE_MERGE_INTERVAL_MS = 24 * 60 * 60 * 1000; // once per day
-const voiceMerge = (): Promise<void> =>
-  runVoiceBatchMerge(db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, model, prompts, audit, logger);
-const voiceMergeInterval = setInterval(() => { void voiceMerge(); }, VOICE_MERGE_INTERVAL_MS);
-logger.info({ intervalMs: VOICE_MERGE_INTERVAL_MS }, 'Voice batch merge scheduled');
+// Kill switch: VOICE_MERGE_ENABLED=false pauses the daily merge (it is known to
+// erode curated voice.md content). Default enabled, so other clients are unaffected.
+let voiceMergeInterval: ReturnType<typeof setInterval> | undefined;
+if (env.VOICE_MERGE_ENABLED) {
+  const voiceMerge = (): Promise<void> =>
+    runVoiceBatchMerge(db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, model, prompts, audit, logger);
+  voiceMergeInterval = setInterval(() => { void voiceMerge(); }, VOICE_MERGE_INTERVAL_MS);
+  logger.info({ intervalMs: VOICE_MERGE_INTERVAL_MS }, 'Voice batch merge scheduled');
+} else {
+  logger.warn('Voice batch merge DISABLED (VOICE_MERGE_ENABLED=false) — daily merge will not run');
+}
 
 const shutdown = async (): Promise<void> => {
   logger.info('Shutting down...');
   clearInterval(interval);
   clearInterval(digestInterval);
-  clearInterval(voiceMergeInterval);
+  if (voiceMergeInterval) clearInterval(voiceMergeInterval);
   await consumer.close();
   await calendarConsumer.close();
   await contentCycleConsumer.close();
