@@ -52,6 +52,7 @@ import type { IntakeJson, CompetitorGatherData } from '@sprigly/engine';
 import type { Logger } from 'pino';
 import { transitionCycle } from './machine.js';
 import { applyCodeGate, applyCritic, normaliseDashes } from './plan-validation.js';
+import { parsePlanResponse } from './parse-plan.js';
 import type { RegisterMap } from './plan-validation.js';
 import type { PlanPostRow, HistoricPost, VoiceEditExample, PlanRepairContext } from './plan-validation.js';
 import { PlanningTracer } from './planning-trace.js';
@@ -125,28 +126,8 @@ function planCsvHeader(contact: string): string[] {
 
 const s = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
 
-/** Extract a JSON object from a model response, tolerating ```json fences and
- *  surrounding prose (mirrors sprigly-blog-post's extractJson). Throws on
- *  unparseable output so the cycle fails loudly and retries rather than shipping
- *  a malformed plan. */
-function parsePlanResponse(text: string): PlanPostRow[] {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  let raw = (fenced?.[1] ?? text).trim();
-  // If still wrapped in prose, slice to the outermost JSON object.
-  if (!raw.startsWith('{') && !raw.startsWith('[')) {
-    const start = raw.indexOf('{');
-    const end   = raw.lastIndexOf('}');
-    if (start !== -1 && end > start) raw = raw.slice(start, end + 1);
-  }
-  const parsed = JSON.parse(raw) as unknown;
-  const posts = Array.isArray(parsed)
-    ? parsed
-    : (parsed as { posts?: unknown }).posts;
-  if (!Array.isArray(posts) || posts.length === 0) {
-    throw new Error('planning: model response had no "posts" array');
-  }
-  return posts as PlanPostRow[];
-}
+// parsePlanResponse (tolerant generation-JSON parse + one repair pass) lives in
+// ./parse-plan.ts so it is unit-testable without this module's DB/Drive/model graph.
 
 /** Serialise model rows to the 13-column QUOTE_ALL CSV. Columns 1-10 from the
  *  row (exact header keys), 11 = Sprigly notes, 12-13 always blank. */
@@ -473,28 +454,58 @@ export async function runPlanningForCycle(
     // + full-month plan, up to 16k output tokens). complete() has a hard 180s
     // wall-clock abort that this call exceeds; completeStreaming() aborts only on a
     // 30s idle gap, so a long generation finishes as long as tokens keep flowing.
-    const result = await deps.model.completeStreaming({
-      model:     PLANNING_MODEL,
-      system:    systemPrompt,
-      messages:  [{ role: 'user', content: userMessage }],
-      maxTokens: PLANNING_MAX_TOKENS,
-    });
-
-    // Audit the platform's biggest model call — non-fatal (plan is already generated).
-    try {
-      await deps.audit.logModelCall({
-        clientId,
-        modelId:      result.modelId,
-        inputTokens:  result.inputTokens,
-        outputTokens: result.outputTokens,
-        action:       'content-cycle:planning',
-        metadata:     { channel, dataMonth: cycleMonth, targetMonth, gatherPresent: gather !== null, voicePresent: voiceMd !== null },
+    //
+    // ONE re-ask on unparseable output. The plan JSON is ~10k+ tokens; a single
+    // stray char occasionally makes it unparseable (parsePlanResponse already
+    // repairs the common cases). Generation is non-deterministic, so re-asking
+    // once almost always yields clean JSON — far better than failing a whole cycle
+    // on one bad character. Only after BOTH attempts fail does the cycle fail.
+    const MAX_GEN_ATTEMPTS = 2;
+    let generatedRows: PlanPostRow[] | null = null;
+    let genMeta: { inputTokens: number; outputTokens: number; modelId: string } | null = null;
+    let lastParseErr: unknown = null;
+    for (let attempt = 1; attempt <= MAX_GEN_ATTEMPTS; attempt++) {
+      const result = await deps.model.completeStreaming({
+        model:     PLANNING_MODEL,
+        system:    systemPrompt,
+        messages:  [{ role: 'user', content: userMessage }],
+        maxTokens: PLANNING_MAX_TOKENS,
       });
-    } catch (auditErr) {
-      logger.warn({ ...logCtx, err: String(auditErr) }, 'content-cycles: planning audit log failed — non-fatal');
-    }
 
-    const generatedRows = parsePlanResponse(result.content);
+      // Audit each call — non-fatal (a re-ask is a second billable call, hence attempt).
+      try {
+        await deps.audit.logModelCall({
+          clientId,
+          modelId:      result.modelId,
+          inputTokens:  result.inputTokens,
+          outputTokens: result.outputTokens,
+          action:       'content-cycle:planning',
+          metadata:     { channel, dataMonth: cycleMonth, targetMonth, gatherPresent: gather !== null, voicePresent: voiceMd !== null, attempt },
+        });
+      } catch (auditErr) {
+        logger.warn({ ...logCtx, err: String(auditErr) }, 'content-cycles: planning audit log failed — non-fatal');
+      }
+
+      try {
+        generatedRows = parsePlanResponse(result.content);
+        genMeta = { inputTokens: result.inputTokens, outputTokens: result.outputTokens, modelId: result.modelId };
+        if (attempt > 1) {
+          logger.info({ ...logCtx, attempt }, 'content-cycles: planning generation parsed on re-ask — recovered from unparseable output');
+        }
+        break;
+      } catch (parseErr) {
+        lastParseErr = parseErr;
+        logger.warn(
+          { ...logCtx, attempt, outputTokens: result.outputTokens, err: String(parseErr) },
+          attempt < MAX_GEN_ATTEMPTS
+            ? 'content-cycles: planning generation output unparseable (after repair) — re-asking the model once'
+            : 'content-cycles: planning generation output unparseable after re-ask — failing the cycle',
+        );
+      }
+    }
+    if (!generatedRows) {
+      throw lastParseErr instanceof Error ? lastParseErr : new Error('planning: generation output unparseable after re-ask');
+    }
 
     // Deterministic em-dash strip BEFORE the gate. The trace showed 21/21 gate
     // repairs were em-dash-only LLM regenerations doing nothing but this swap
@@ -508,7 +519,7 @@ export async function runPlanningForCycle(
     }
 
     logger.info(
-      { ...logCtx, posts: generatedRows.length, dashStripped, inputTokens: result.inputTokens, outputTokens: result.outputTokens, modelId: result.modelId },
+      { ...logCtx, posts: generatedRows.length, dashStripped, inputTokens: genMeta?.inputTokens, outputTokens: genMeta?.outputTokens, modelId: genMeta?.modelId },
       'content-cycles: plan generated',
     );
 
