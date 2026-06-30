@@ -1,5 +1,0 @@
-packages:
-  - "engine"
-  - "admin"
-  - "app"        # placeholder for the client app build (added later)
-  - "packages/*"

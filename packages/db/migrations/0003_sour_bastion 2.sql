@@ -1,1 +1,0 @@
-ALTER TABLE "routing_rules" ADD COLUMN "is_fallback" boolean DEFAULT false NOT NULL;
