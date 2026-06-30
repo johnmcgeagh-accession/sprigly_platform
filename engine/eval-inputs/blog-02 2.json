@@ -1,0 +1,13 @@
+{
+  "id": "blog-02",
+  "workflowId": "sprigly-blog-post",
+  "input": { "topic": "Why founder-led firms struggle with proposals and what to do about it" },
+  "assertions": {
+    "lengthMin": 2000,
+    "lengthMax": 6000,
+    "mustContain": ["proposal"],
+    "mustNotContain": ["seamlessly", "unlock", "empower", "in today's", "it's worth noting", "—", "delve", "leverage", "game-changer"],
+    "requiredSections": ["faq"],
+    "isValidJson": false
+  }
+}
