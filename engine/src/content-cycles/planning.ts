@@ -38,7 +38,10 @@ import {
   clients,
   voiceEdits,
   clientProductCatalogue,
+  contentCyclePosts,
 } from '@sprigly/db';
+import type { NewContentCyclePostRow } from '@sprigly/db';
+import { mapFormat, isoDateInMonth } from './post-mapping.js';
 import type { ClientPlanningConfig } from '@sprigly/db';
 import type { Catalogue } from '../catalogue/parse-catalogue.js';
 import { indexCatalogue, applyCatalogueValidation, buildCatalogueGroundingBlock } from '../catalogue/validate-catalogue.js';
@@ -604,6 +607,46 @@ export async function runPlanningForCycle(
     // All loop phases are done — flush the buffered gate/critic/repair/catalogue
     // steps in one insert. Read back with `pnpm --filter @sprigly/worker planning-trace <cycleId>`.
     await tracer.flush(db);
+
+    // ── Dual-write content_cycle_posts (additive; never fails the run) ─────────
+    // The structured backbone the client app reads/edits, written ALONGSIDE the
+    // CSV → xlsx → Drive path (which stays the live delivery + safety net). The
+    // plan is fully regenerated each run, so replace the cycle's rows wholesale.
+    // A failure here is logged and swallowed — the CSV path is unaffected.
+    try {
+      const postRows: NewContentCyclePostRow[] = [];
+      for (let i = 0; i < planRows.length; i++) {
+        const p  = planRows[i]!;
+        const iso = isoDateInMonth(p.date, targetMonth);
+        if (!iso) continue;   // undated row (shouldn't happen) — skip rather than guess
+        postRows.push({
+          cycleId, clientId, channel,
+          scheduledDate: iso,
+          format:        mapFormat(p.format),
+          pillar:        p.pillar ?? null,
+          caption:       p.draftCaption ?? null,
+          status:        'planned',
+          position:      i,
+          sourceMeta: {
+            title:             p.title ?? '',
+            category:          p.category ?? '',
+            postingTime:       p.postingTime ?? '',
+            whoPosts:          p.whoPosts ?? '',
+            competitorInsight: p.competitorInsight ?? '',
+            notes:             p.notes ?? '',
+            clientWritesOwn:   p.clientWritesOwn === true,
+            day:               p.day ?? '',
+          },
+        });
+      }
+      await db.transaction(async (tx) => {
+        await tx.delete(contentCyclePosts).where(eq(contentCyclePosts.cycleId, cycleId));
+        if (postRows.length > 0) await tx.insert(contentCyclePosts).values(postRows);
+      });
+      logger.info({ ...logCtx, posts: postRows.length }, 'content-cycles: dual-wrote content_cycle_posts');
+    } catch (err) {
+      logger.warn({ ...logCtx, err: String(err) }, 'content-cycles: content_cycle_posts dual-write failed — non-fatal (CSV path unaffected)');
+    }
 
     // ── Serialise to the 13-column CSV ────────────────────────────────────────
     // Filename targets the PLAN month (cycleMonth + 1), so build-workbook names

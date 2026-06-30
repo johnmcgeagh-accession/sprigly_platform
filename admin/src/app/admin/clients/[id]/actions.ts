@@ -1,6 +1,7 @@
 'use server';
 
-import { db, promptTemplates, clientConfigs, workflowRuns, clientChannels, clients, contentCycles } from '@sprigly/db';
+import { randomBytes } from 'node:crypto';
+import { db, promptTemplates, clientConfigs, workflowRuns, clientChannels, clients, contentCycles, appMagicLinkTokens } from '@sprigly/db';
 import { and, eq, isNull, desc, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
@@ -29,6 +30,32 @@ function getCyclesQueue(): Queue {
   const redisUrl = process.env.REDIS_URL;
   if (!redisUrl) throw new Error('[content-cycles] REDIS_URL not set');
   return new Queue('content-cycles', { connection: { url: redisUrl } });
+}
+
+// ── Copy client link ──────────────────────────────────────────────────────────
+// Mint a revocable magic link to the client app (app.sprigly.co.uk) for THIS
+// cycle. Inserts an app_magic_link_tokens row directly (admin can't import app/'s
+// signLink, but it's the same table). 30-day expiry; revocable via revoked_at.
+export async function copyClientLink(formData: FormData): Promise<{ ok: boolean; url?: string; message?: string }> {
+  const clientId  = String(formData.get('clientId')  ?? '');
+  const channel   = String(formData.get('channel')   ?? '');
+  const dataMonth = String(formData.get('dataMonth') ?? '');
+  if (!clientId || !channel || !dataMonth) return { ok: false, message: 'Missing cycle context.' };
+
+  const [cycle] = await db
+    .select({ id: contentCycles.id })
+    .from(contentCycles)
+    .where(and(eq(contentCycles.clientId, clientId), eq(contentCycles.channel, channel), eq(contentCycles.cycleMonth, dataMonth)))
+    .limit(1);
+  if (!cycle) return { ok: false, message: 'No cycle for this month yet — run the cycle first.' };
+
+  const token = randomBytes(32).toString('base64url');
+  await db.insert(appMagicLinkTokens).values({
+    clientId, cycleId: cycle.id, token,
+    expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30),
+  });
+  const base = (process.env.APP_BASE_URL ?? 'https://app.sprigly.co.uk').replace(/\/$/, '');
+  return { ok: true, url: `${base}/p/${token}` };
 }
 
 // Check the existing job's state before touching it.

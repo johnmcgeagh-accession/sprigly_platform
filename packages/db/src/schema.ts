@@ -4,6 +4,7 @@ import {
   uuid,
   text,
   timestamp,
+  date,
   boolean,
   integer,
   numeric,
@@ -783,3 +784,64 @@ export const planningTrace = pgTable(
 
 export type PlanningTraceRow    = typeof planningTrace.$inferSelect;
 export type NewPlanningTraceRow = typeof planningTrace.$inferInsert;
+
+// ─── content_cycle_posts ──────────────────────────────────────────────────────
+// Structured, per-post representation of a generated plan — the backbone the
+// client app (app.sprigly.co.uk / @sprigly/app) reads and (from Phase 2) edits.
+// Written by the planning worker as an ADDITIVE dual-write alongside the existing
+// CSV → xlsx → Drive path (the CSV stays the live delivery + safety net), and
+// backfilled once from the current workbook. source_meta keeps every CSV column
+// losslessly so the workbook pipeline is unaffected. No unique on (cycle_id,
+// position): batch reorders need transient collisions to be fine — position is an
+// unconstrained sort key. updated_at bumps on every write via a trigger (0050).
+
+export const contentCyclePosts = pgTable(
+  'content_cycle_posts',
+  {
+    ...baseColumns,
+    cycleId:       uuid('cycle_id').notNull().references(() => contentCycles.id),
+    clientId:      uuid('client_id').notNull().references(() => clients.id),
+    channel:       text('channel').notNull(),                          // 'instagram' | 'email'
+    scheduledDate: date('scheduled_date', { mode: 'string' }).notNull(), // 'YYYY-MM-DD'
+    format:        text('format').notNull(),                           // 'reel'|'carousel'|'single'|'email'
+    pillar:        text('pillar'),
+    caption:       text('caption'),
+    status:        text('status').notNull().default('planned'),        // 'planned'|'edited'|'new'
+    script:        text('script'),                                     // reel script — null until generated
+    overlay:       text('overlay'),                                    // null until generated
+    position:      integer('position').notNull().default(0),           // explicit order within the cycle
+    sourceMeta:    jsonb('source_meta').$type<Record<string, unknown>>(), // lossless CSV columns
+  },
+  (t) => ({
+    cycleDateIdx: index('content_cycle_posts_cycle_date_idx').on(t.cycleId, t.scheduledDate),
+  }),
+);
+
+export type ContentCyclePostRow    = typeof contentCyclePosts.$inferSelect;
+export type NewContentCyclePostRow = typeof contentCyclePosts.$inferInsert;
+
+// ─── app_magic_link_tokens ────────────────────────────────────────────────────
+// Password-less client access to app/. Modelled on triage_digest_tokens but
+// scoped to client+cycle and REVOCABLE (revoked_at) with last_used_at tracking —
+// revocability is what retires the bearer-token-in-an-inbox risk. The
+// signLink/verifyLink contract sits over this (stateless HMAC stays a later swap).
+
+export const appMagicLinkTokens = pgTable(
+  'app_magic_link_tokens',
+  {
+    id:         uuid('id').primaryKey().defaultRandom(),
+    clientId:   uuid('client_id').notNull().references(() => clients.id),
+    cycleId:    uuid('cycle_id').notNull().references(() => contentCycles.id),
+    token:      text('token').notNull().unique(),
+    expiresAt:  timestamp('expires_at').notNull(),
+    lastUsedAt: timestamp('last_used_at'),
+    revokedAt:  timestamp('revoked_at'),
+    createdAt:  timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    clientCycleIdx: index('app_magic_link_tokens_client_cycle_idx').on(t.clientId, t.cycleId),
+  }),
+);
+
+export type AppMagicLinkToken    = typeof appMagicLinkTokens.$inferSelect;
+export type NewAppMagicLinkToken = typeof appMagicLinkTokens.$inferInsert;

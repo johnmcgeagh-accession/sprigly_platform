@@ -7,6 +7,7 @@ import {
   triggerEmail,
   triggerPlanning,
   resetCycle,
+  copyClientLink,
   type ActionResult,
 } from './actions';
 import { formatDateTime, formatDateTimeShort } from '@/lib/format-date';
@@ -77,7 +78,27 @@ export function ContentCycleOpsPanel({
   const [showResetConfirm,   setShowResetConfirm]   = useState(false);
   const [showTriggerConfirm, setShowTriggerConfirm] = useState(false);
   const [actionError,        setActionError]         = useState<string | null>(null);
+  const [clientLink,         setClientLink]          = useState<string | null>(null);
+  const [linkCopied,         setLinkCopied]          = useState(false);
   const [isPending,          startTransition]        = useTransition();
+
+  function copyLink() {
+    setActionError(null);
+    setLinkCopied(false);
+    startTransition(async () => {
+      const fd = new FormData();
+      fd.set('clientId', clientId);
+      fd.set('channel', channel);
+      fd.set('dataMonth', dataMonth);
+      const r = await copyClientLink(fd);
+      if (!r.ok || !r.url) { setActionError(r.message ?? 'Could not create a client link.'); return; }
+      setClientLink(r.url);
+      // Best-effort clipboard via a typed globalThis cast (admin's tsconfig has no DOM lib);
+      // the URL is also shown in the UI so it can be copied manually if this is unavailable.
+      const nav = (globalThis as unknown as { navigator?: { clipboard?: { writeText(s: string): Promise<void> } } }).navigator;
+      try { if (nav?.clipboard) { await nav.clipboard.writeText(r.url); setLinkCopied(true); } } catch { /* manual copy */ }
+    });
+  }
 
   const salesFile = `sales-${dataMonth}.csv`;
   const postsFile = `instagram-posts-${dataMonth}.json`;
@@ -294,6 +315,16 @@ export function ContentCycleOpsPanel({
 
             <button
               type="button"
+              disabled={isPending || !cycleIsActive}
+              onClick={copyLink}
+              title={cycleIsActive ? 'Mint a revocable magic link to the client app (app.sprigly.co.uk) for this cycle and copy it.' : 'No cycle yet — run the cycle first.'}
+              className="text-xs text-gray-500 underline hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
+            >
+              Copy client link
+            </button>
+
+            <button
+              type="button"
               disabled={isPending}
               onClick={() => { setActionError(null); setShowResetConfirm(true); }}
               className="text-xs text-red-400 underline hover:text-red-600 disabled:opacity-50"
@@ -301,6 +332,22 @@ export function ContentCycleOpsPanel({
               Reset cycle
             </button>
           </div>
+
+          {/* Minted client link */}
+          {clientLink && (
+            <div className="mt-3 flex items-start gap-2 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5">
+              <span className="shrink-0 font-medium">{linkCopied ? 'Copied' : 'Link'}:</span>
+              <code className="break-all text-xs text-gray-600">{clientLink}</code>
+              <button
+                type="button"
+                onClick={() => setClientLink(null)}
+                className="ml-auto shrink-0 text-gray-400 hover:text-gray-600 text-xs"
+                aria-label="Dismiss"
+              >
+                ✕
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Inline action error */}

@@ -1,0 +1,16 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body { background: #F8F9FB; color: #1E2A4A; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
+
+.sprigRow:hover .sprigCard { background: #FFFFFF; }
+.chip-cal:hover { filter: brightness(0.98); }
+input::placeholder { color: #98A0AE; }
+button:focus-visible, input:focus-visible { outline: 2px solid #FF6F62; outline-offset: 2px; }
+.toast { animation: rise .26s ease; }
+.sheet { animation: slideUp .28s cubic-bezier(.22,.61,.36,1); }
+@keyframes rise { from { opacity:0; transform: translate(-50%,8px);} to { opacity:1; transform: translate(-50%,0);} }
+@keyframes slideUp { from { transform: translateY(100%);} to { transform: translateY(0);} }
+@media (max-width:560px){ .planLabel{ display:none;} .planChips{ display:none !important;} }
+@media (prefers-reduced-motion: reduce){ *, .toast,.sheet{ animation:none !important; transition:none !important;} }

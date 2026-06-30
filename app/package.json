@@ -1,0 +1,26 @@
+{
+  "name": "@sprigly/app",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "sh -c 'set -a && . ../.env.local && set +a && next dev --port 3200'",
+    "build": "next build",
+    "start": "next start --port 3200",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "^14.2.25",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "lucide-react": "^0.400.0",
+    "drizzle-orm": "^0.30.0",
+    "@sprigly/db": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "*",
+    "@types/node": "*",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0"
+  }
+}
