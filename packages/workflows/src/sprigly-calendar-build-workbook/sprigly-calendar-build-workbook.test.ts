@@ -66,7 +66,9 @@ describe('createCalendarBuildWorkbookWorkflow', () => {
       'client-id', 'client-secret', '/path/to/script.py', 'python3',
     );
     expect(wf.defaultDestinations[0]?.destinationId).toBe('gmail-reply-with-attachment');
-    expect((wf.defaultDestinations[0]?.settings as Record<string, unknown>)?.['attachmentDataKey']).toBe('xlsx');
+    // Delivery is link-based (email links to the Drive workbook / app, not an
+    // attachment) — noAttachment is set and the body is composed per-run.
+    expect((wf.defaultDestinations[0]?.settings as Record<string, unknown>)?.['noAttachment']).toBe(true);
   });
 
   it('parses valid Drive event', () => {

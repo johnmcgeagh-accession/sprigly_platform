@@ -517,6 +517,7 @@ export const clientChannels = pgTable(
     contactName:          text('contact_name'),
     contentCycleSchedule: jsonb('content_cycle_schedule').$type<{ day: number; hour: number } | null>(),
     extraQuestions:       jsonb('extra_questions').$type<string[] | null>(),
+    deliverySurface:      text('delivery_surface').notNull().default('both'),  // 'app' | 'sheet' | 'both' (Phase 2)
   },
   (t) => ({
     uniqClientChannel: uniqueIndex('client_channels_unique').on(t.clientId, t.channel),
@@ -811,6 +812,7 @@ export const contentCyclePosts = pgTable(
     overlay:       text('overlay'),                                    // null until generated
     position:      integer('position').notNull().default(0),           // explicit order within the cycle
     sourceMeta:    jsonb('source_meta').$type<Record<string, unknown>>(), // lossless CSV columns
+    deletedAt:     timestamp('deleted_at'),                            // soft-delete (Phase 2) — null = live
   },
   (t) => ({
     cycleDateIdx: index('content_cycle_posts_cycle_date_idx').on(t.cycleId, t.scheduledDate),

@@ -8,6 +8,7 @@ import {
   triggerPlanning,
   resetCycle,
   copyClientLink,
+  setDeliverySurface,
   type ActionResult,
 } from './actions';
 import { formatDateTime, formatDateTimeShort } from '@/lib/format-date';
@@ -33,6 +34,7 @@ interface Props {
   contactEmail:        string | null;
   contentCycleEnabled: boolean;
   cycle:               CycleInfo | null;
+  deliverySurface:     'app' | 'sheet' | 'both';  // what the delivery email links to
   intakePresent:       boolean;  // planContent answers/freeNotes present → planning can run
   driveFiles:          DriveFileMeta[] | null;  // null = fetch failed / no tokens
   driveError:          boolean;
@@ -71,6 +73,7 @@ export function ContentCycleOpsPanel({
   contactEmail,
   contentCycleEnabled,
   cycle,
+  deliverySurface,
   intakePresent,
   driveFiles,
   driveError,
@@ -348,6 +351,21 @@ export function ContentCycleOpsPanel({
               </button>
             </div>
           )}
+
+          {/* Delivery surface preference */}
+          <div className="mt-3 flex items-center gap-2 text-xs text-gray-600">
+            <span className="font-medium">Delivery email links to:</span>
+            <select
+              defaultValue={deliverySurface}
+              disabled={isPending}
+              onChange={(e) => callTrigger(setDeliverySurface, { surface: (e.target as unknown as { value: string }).value })}
+              className="border border-gray-300 rounded px-2 py-1 text-xs disabled:opacity-50"
+            >
+              <option value="both">App + workbook (both)</option>
+              <option value="app">App only</option>
+              <option value="sheet">Workbook only</option>
+            </select>
+          </div>
         </div>
 
         {/* Inline action error */}

@@ -15,4 +15,10 @@ export interface SpriglyCalendarBuildWorkbookOutput {
   year: string;
   /** Drive URL for the uploaded xlsx — included in the delivery email as the edit link. */
   driveUrl: string;
+  /** App magic link (app.sprigly.co.uk) when the client's delivery surface includes
+   *  'app'; null otherwise. */
+  appUrl: string | null;
+  /** Fully-composed email body, branched on the client's delivery_surface
+   *  ('app' | 'sheet' | 'both'). The destination's bodyTemplate is just "{{body}}". */
+  body: string;
 }

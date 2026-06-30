@@ -34,6 +34,31 @@ function runPython(bin: string, args: string[], timeoutMs = 120_000): Promise<st
   });
 }
 
+export type DeliverySurface = 'app' | 'sheet' | 'both';
+
+/** Compose the delivery email body, branched on the client's delivery surface.
+ *  'sheet' → workbook link only (the original behaviour); 'app' → app link only
+ *  (falls back to the workbook link if no app link could be minted); 'both' → both. */
+export function buildDeliveryBody(
+  surface: DeliverySurface,
+  driveUrl: string,
+  appUrl: string | null,
+  month: string,
+  year: string,
+): string {
+  const sheetBlock = `Open and edit it here:\n${driveUrl}\n\nOnce you've made any changes, just save — Sprigly will pick up your edits automatically.`;
+  const appBlock = appUrl
+    ? `Open and shape it here:\n${appUrl}\n\nMove posts, edit captions and add ideas — your changes save as you go.`
+    : null;
+
+  let middle: string;
+  if (surface === 'app')        middle = appBlock ?? sheetBlock;     // app pref, but never leave them no link
+  else if (surface === 'sheet') middle = sheetBlock;
+  else                          middle = appBlock ? `${appBlock}\n\nPrefer a spreadsheet? You can also open it here:\n${driveUrl}` : sheetBlock;
+
+  return `Hi,\n\nYour Sprigly content calendar for ${month} ${year} is ready.\n\n${middle}\n\nBest,\nSprigly`;
+}
+
 export function createCalendarBuildWorkbookWorkflow(
   db: AnyDb,
   encProvider: EncryptionProvider,
@@ -59,6 +84,12 @@ export function createCalendarBuildWorkbookWorkflow(
     csvFileId: string,
     workbookFileId: string,
   ) => Promise<void>,
+  /** Returns the client/channel's delivery surface preference. Injected by the
+   *  worker (which owns @sprigly/db); absent → 'both'. */
+  deliverySurfaceFor?: (clientId: string, channel: string) => Promise<DeliverySurface>,
+  /** Mints a revocable app magic link for the cycle being delivered (matched by
+   *  csvFileId = draft_csv_ref). Injected by the worker; absent → no app link. */
+  mintAppLink?: (clientId: string, channel: string, csvFileId: string) => Promise<string | null>,
 ): Workflow<SpriglyCalendarBuildWorkbookInput, SpriglyCalendarBuildWorkbookOutput> {
   return {
     id: 'sprigly-calendar-build-workbook',
@@ -79,8 +110,9 @@ export function createCalendarBuildWorkbookWorkflow(
           // 'sender' mode reads event.reply.data['from'], which equals sourceMetadata.from —
           // the contact email extracted from calendar-config.json by the drive poller.
           subjectTemplate: 'Content calendar ready — {{month}} {{year}}',
-          bodyTemplate:
-            "Hi,\n\nYour Sprigly content calendar for {{month}} {{year}} is ready.\n\nOpen and edit it here:\n{{driveUrl}}\n\nOnce you've made any changes, just save — Sprigly will pick up your edits automatically.\n\nBest,\nSprigly",
+          // The body is composed per-run in run() (branched on delivery_surface) and
+          // returned as `body`; this template just substitutes it.
+          bodyTemplate: '{{body}}',
           attachmentFilenameTemplate: '{{filename}}',
           noAttachment: true,
         },
@@ -194,7 +226,18 @@ export function createCalendarBuildWorkbookWorkflow(
         }
 
         const driveUrl = `https://drive.google.com/file/d/${fileId}/edit`;
-        return { filename, month, year, driveUrl };
+
+        // ── 9. Delivery surface: branch the email body (app / sheet / both) ───
+        const surface: DeliverySurface = deliverySurfaceFor
+          ? await deliverySurfaceFor(input.clientId, input.channel).catch(() => 'both' as DeliverySurface)
+          : 'both';
+        let appUrl: string | null = null;
+        if ((surface === 'app' || surface === 'both') && mintAppLink) {
+          appUrl = await mintAppLink(input.clientId, input.channel, input.csvFileId).catch(() => null);
+        }
+        const body = buildDeliveryBody(surface, driveUrl, appUrl, month, year);
+
+        return { filename, month, year, driveUrl, appUrl, body };
       } finally {
         rmSync(tmpDir, { recursive: true, force: true });
       }

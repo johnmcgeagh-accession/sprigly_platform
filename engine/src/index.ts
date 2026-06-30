@@ -1,6 +1,7 @@
 import { env } from './env.js';
 import pino from 'pino';
-import { db, processedExternalIds, contentCycles } from '@sprigly/db';
+import { randomBytes } from 'node:crypto';
+import { db, processedExternalIds, contentCycles, clientChannels, appMagicLinkTokens } from '@sprigly/db';
 import { and, eq } from 'drizzle-orm';
 import { transitionCycle } from './content-cycles/machine.js';
 import { createModelClientFromEnv } from '@sprigly/model-client';
@@ -122,6 +123,37 @@ registry.register(createCalendarBuildWorkbookWorkflow(
     } catch (err) {
       logger.warn({ clientId, channel, csvFileId, err: String(err) }, 'build-workbook: could not advance cycle to workbook_built — non-fatal');
     }
+  },
+  // deliverySurfaceFor: per-channel delivery preference (default 'both').
+  async (clientId, channel) => {
+    try {
+      const [row] = await db
+        .select({ s: clientChannels.deliverySurface })
+        .from(clientChannels)
+        .where(and(eq(clientChannels.clientId, clientId), eq(clientChannels.channel, channel)))
+        .limit(1);
+      const s = row?.s;
+      return s === 'app' || s === 'sheet' || s === 'both' ? s : 'both';
+    } catch { return 'both'; }
+  },
+  // mintAppLink: revocable app magic link for the cycle being delivered (matched by
+  // draft_csv_ref = csvFileId). Mirrors admin's copyClientLink / app's signLink.
+  async (clientId, channel, csvFileId) => {
+    try {
+      const [cycle] = await db
+        .select({ id: contentCycles.id })
+        .from(contentCycles)
+        .where(and(eq(contentCycles.clientId, clientId), eq(contentCycles.draftCsvRef, csvFileId)))
+        .limit(1);
+      if (!cycle) return null;
+      const token = randomBytes(32).toString('base64url');
+      await db.insert(appMagicLinkTokens).values({
+        clientId, cycleId: cycle.id, token,
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30),
+      });
+      const base = (process.env.APP_BASE_URL ?? 'https://app.sprigly.co.uk').replace(/\/$/, '');
+      return `${base}/p/${token}`;
+    } catch { return null; }
   },
 ));
 logger.info(

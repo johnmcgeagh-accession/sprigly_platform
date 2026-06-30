@@ -72,6 +72,7 @@ async function getClientChannels(clientId: string) {
       contactName:          clientChannels.contactName,
       contentCycleSchedule: clientChannels.contentCycleSchedule,
       extraQuestions:       clientChannels.extraQuestions,
+      deliverySurface:      clientChannels.deliverySurface,
     })
     .from(clientChannels)
     .where(eq(clientChannels.clientId, clientId));
@@ -388,6 +389,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                     contactEmail={ch.contactEmail ?? null}
                     contentCycleEnabled={client.contentCycleEnabled}
                     cycle={cycle}
+                    deliverySurface={(ch.deliverySurface as 'app' | 'sheet' | 'both') ?? 'both'}
                     intakePresent={intakePresent}
                     driveFiles={driveResult.files}
                     driveError={driveResult.error}

@@ -3,7 +3,7 @@
  * them to the PlanPost contract. All access is scoped by the caller's session
  * (clientId + cycleId), never by client-supplied ids.
  */
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 import { db, contentCyclePosts } from '@sprigly/db';
 import type { PlanPost, PostChannel, PostFormat, PostStatus } from './types.js';
 
@@ -16,7 +16,11 @@ export async function loadPlanPosts(clientId: string, cycleId: string): Promise<
   const rows = await db
     .select()
     .from(contentCyclePosts)
-    .where(and(eq(contentCyclePosts.cycleId, cycleId), eq(contentCyclePosts.clientId, clientId)))
+    .where(and(
+      eq(contentCyclePosts.cycleId, cycleId),
+      eq(contentCyclePosts.clientId, clientId),
+      isNull(contentCyclePosts.deletedAt),                 // exclude soft-deleted
+    ))
     .orderBy(asc(contentCyclePosts.position), asc(contentCyclePosts.scheduledDate));
 
   return rows.map((r) => ({

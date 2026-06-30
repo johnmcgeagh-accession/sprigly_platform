@@ -115,6 +115,14 @@ for (let i = 1; i < grid.length; i++) {
       notes:             at(r, iNotes),
       day:               at(r, iDay),
       clientWritesOwn:   at(r, iCaption) === '',
+      // Original as-generated values, so the app's "revert" can restore them.
+      original: {
+        caption:       at(r, iCaption),
+        format:        mapFormat(at(r, iFormat)),
+        pillar:        at(r, iPillar),
+        scheduledDate: iso,
+        position:      i - 1,
+      },
     },
   });
 }

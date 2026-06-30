@@ -58,6 +58,23 @@ export async function copyClientLink(formData: FormData): Promise<{ ok: boolean;
   return { ok: true, url: `${base}/p/${token}` };
 }
 
+// ── Delivery surface preference ───────────────────────────────────────────────
+// Per-channel control for what the cycle delivery email links to: 'app' (app link
+// only), 'sheet' (workbook only), 'both' (default). Stored on client_channels.
+export async function setDeliverySurface(formData: FormData): Promise<ActionResult> {
+  const clientId = String(formData.get('clientId') ?? '');
+  const channel  = String(formData.get('channel')  ?? '');
+  const surface  = String(formData.get('surface')  ?? '');
+  if (!clientId || !channel) return { ok: false, message: 'Missing client/channel.' };
+  if (surface !== 'app' && surface !== 'sheet' && surface !== 'both') return { ok: false, message: 'Invalid surface.' };
+
+  await db.update(clientChannels)
+    .set({ deliverySurface: surface })
+    .where(and(eq(clientChannels.clientId, clientId), eq(clientChannels.channel, channel)));
+  revalidatePath(`/admin/clients/${clientId}`);
+  return { ok: true };
+}
+
 // Check the existing job's state before touching it.
 // - active   → job is locked by a worker; cannot remove, must wait.
 // - completed/failed/unknown → remove so the dedup key is freed, then caller re-adds.

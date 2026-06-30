@@ -636,6 +636,14 @@ export async function runPlanningForCycle(
             notes:             p.notes ?? '',
             clientWritesOwn:   p.clientWritesOwn === true,
             day:               p.day ?? '',
+            // Original as-generated values, so the app's "revert" can restore them.
+            original: {
+              caption:       p.draftCaption ?? '',
+              format:        mapFormat(p.format),
+              pillar:        p.pillar ?? '',
+              scheduledDate: iso,
+              position:      i,
+            },
           },
         });
       }

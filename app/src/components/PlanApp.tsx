@@ -1,13 +1,15 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { Film, Images, Image as ImageIcon, Mail, CalendarDays, List, Sparkles, Lock } from 'lucide-react';
-import type { PlanPost, PostFormat, PostStatus } from '@/lib/types';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Film, Images, Image as ImageIcon, Mail, CalendarDays, List, Sparkles, Plus, Undo2, Trash2, CornerDownLeft, Lock } from 'lucide-react';
+import type { PlanPost, PostFormat, PostStatus, ShapeResult } from '@/lib/types';
 
 /* ------------------------------------------------------------------ *
- * Sprigly — client plan surface (app.sprigly.co.uk). Phase 1: read-only
- * render of the real cycle. Ported from sprigly-client-app.jsx; shaping
- * (edits / talk-to-your-plan) is disabled here and lands in Phase 2+.
+ * Sprigly — client plan surface (app.sprigly.co.uk). Phase 2: a real
+ * shaping surface. Structural edits (move / reorder / add / delete /
+ * revert / caption) are live via /api/posts*; instructed regen ("make
+ * it softer") and voice stay stubbed (Phase 3/5). Ported from
+ * sprigly-client-app.jsx.
  * ------------------------------------------------------------------ */
 
 const C = {
@@ -30,6 +32,7 @@ const FORMAT_META: Record<PostFormat, { Icon: typeof Film; label: string }> = {
   single: { Icon: ImageIcon, label: 'Single image' },
   email: { Icon: Mail, label: 'Email' },
 };
+const FORMAT_CYCLE: PostFormat[] = ['reel', 'carousel', 'single'];
 
 function group(pillar: string) {
   const p = (pillar || '').toLowerCase();
@@ -41,46 +44,89 @@ function group(pillar: string) {
 }
 const shortPillar = (pillar: string) => (pillar || 'Post').split(/\s+/)[0];
 
-/** Parse 'YYYY-MM-DD' as a LOCAL date (avoid the UTC-midnight day-shift). */
+/** 'YYYY-MM-DD' → local Date (avoid UTC day-shift). */
 function parseISO(d: string): Date {
   const [y, m, day] = d.split('-').map(Number);
   return new Date(y || 2026, (m || 1) - 1, day || 1);
 }
+const iso = (y: number, mZero: number, day: number) => `${y}-${String(mZero + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
 interface VPost {
   id: string; date: Date; format: PostFormat; pillar: string;
   caption: string; status: PostStatus; script: string | null;
 }
 
-export default function PlanApp({ clientName, posts }: { clientName: string; posts: PlanPost[] }) {
+export default function PlanApp({ clientName, posts: initial }: { clientName: string; posts: PlanPost[] }) {
+  const [posts, setPosts] = useState<PlanPost[]>(initial);
+  const [selId, setSelId] = useState<string | null>(initial[0]?.id ?? null);
+  const [view, setView] = useState<'calendar' | 'list'>('calendar');
+  const [toast, setToast] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [narrow, setNarrow] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const f = () => setNarrow(window.innerWidth < 900);
+    f(); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f);
+  }, []);
+
+  const flash = (m: string) => {
+    setToast(m);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 3200);
+  };
+
+  /** Call a structural endpoint; on success swap in the returned post set. */
+  async function call(url: string, method: string, payload?: unknown): Promise<void> {
+    setBusy(true);
+    try {
+      const init: RequestInit = { method };
+      if (payload !== undefined) {
+        init.headers = { 'content-type': 'application/json' };
+        init.body = JSON.stringify(payload);
+      }
+      const res = await fetch(url, init);
+      if (!res.ok) { flash('Something went wrong — please try again.'); return; }
+      const r = (await res.json()) as ShapeResult;
+      if (r.mode === 'applied') {
+        setPosts(r.posts);
+        if (r.changedPostIds[0]) setSelId((cur) => (r.posts.some((p) => p.id === cur) ? cur : r.changedPostIds[0]!));
+        flash(r.summary);
+      }
+    } catch {
+      flash('Network error — please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const vposts = useMemo<VPost[]>(
-    () =>
-      [...posts]
-        .map((p) => ({ id: p.id, date: parseISO(p.date), format: p.format, pillar: p.pillar, caption: p.caption, status: p.status, script: p.script ?? null }))
-        .sort((a, b) => a.date.getTime() - b.date.getTime()),
+    () => [...posts]
+      .map((p) => ({ id: p.id, date: parseISO(p.date), format: p.format, pillar: p.pillar, caption: p.caption, status: p.status, script: p.script ?? null }))
+      .sort((a, b) => a.date.getTime() - b.date.getTime()),
     [posts],
   );
 
-  // Calendar month derived from the plan itself (all posts fall in the plan month).
   const anchor = vposts[0]?.date ?? new Date();
   const YEAR = anchor.getFullYear();
   const MONTH = anchor.getMonth();
   const MDAYS = new Date(YEAR, MONTH + 1, 0).getDate();
 
-  const [selId, setSelId] = useState<string | null>(vposts[0]?.id ?? null);
-  const [view, setView] = useState<'calendar' | 'list'>('calendar');
-  const [narrow, setNarrow] = useState(false);
-  const [sheetOpen, setSheetOpen] = useState(false);
-
-  useEffect(() => {
-    const f = () => setNarrow(window.innerWidth < 900);
-    f();
-    window.addEventListener('resize', f);
-    return () => window.removeEventListener('resize', f);
-  }, []);
-
   const sel = vposts.find((p) => p.id === selId) ?? vposts[0] ?? null;
   const select = (id: string) => { setSelId(id); if (narrow) setSheetOpen(true); };
+
+  // ── actions ────────────────────────────────────────────────────────────────
+  const reschedule = (id: string, day: number) => call(`/api/posts/${id}`, 'PATCH', { date: iso(YEAR, MONTH, day) });
+  const setFormat   = (id: string, format: PostFormat) => call(`/api/posts/${id}`, 'PATCH', { format });
+  const saveCaption = (id: string, caption: string) => call(`/api/posts/${id}`, 'PATCH', { caption });
+  const remove      = (id: string) => call(`/api/posts/${id}`, 'DELETE');
+  const revert      = (id: string) => call(`/api/posts/${id}/revert`, 'POST');
+  const addDraft    = () => {
+    const base = sel ? Math.min(MDAYS, sel.date.getDate() + 2) : Math.min(28, 15);
+    call('/api/posts', 'POST', { date: iso(YEAR, MONTH, base) });
+  };
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg, color: C.navy, fontFamily: body }}>
@@ -100,18 +146,21 @@ export default function PlanApp({ clientName, posts }: { clientName: string; pos
         <section style={{ flex: narrow ? 'unset' : '0 0 52%', padding: narrow ? '20px 14px 132px' : '28px 28px 132px', borderRight: narrow ? 'none' : `1px solid ${C.line}` }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
             <Kicker>Your plan</Kicker>
-            <div style={{ display: 'inline-flex', background: C.surface, border: `1px solid ${C.line}`, borderRadius: 11, padding: 3 }}>
-              <Toggle active={view === 'calendar'} onClick={() => setView('calendar')} icon={CalendarDays} label="Calendar" />
-              <Toggle active={view === 'list'} onClick={() => setView('list')} icon={List} label="List" />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button onClick={addDraft} disabled={busy} style={{ ...ghostBtn, padding: '7px 12px', opacity: busy ? 0.5 : 1 }}><Plus size={14} /> Add a post</button>
+              <div style={{ display: 'inline-flex', background: C.surface, border: `1px solid ${C.line}`, borderRadius: 11, padding: 3 }}>
+                <Toggle active={view === 'calendar'} onClick={() => setView('calendar')} icon={CalendarDays} label="Calendar" />
+                <Toggle active={view === 'list'} onClick={() => setView('list')} icon={List} label="List" />
+              </div>
             </div>
           </div>
 
           {vposts.length === 0 ? (
             <div style={{ padding: '40px 16px', textAlign: 'center', color: C.faint, fontSize: 14, border: `1.5px dashed ${C.line}`, borderRadius: 14 }}>
-              Your plan for this month isn&rsquo;t ready to view here yet.
+              No posts yet — use <strong>Add a post</strong> to start, or your plan will appear here once it&rsquo;s generated.
             </div>
           ) : view === 'calendar' ? (
-            <CalendarView posts={vposts} selId={sel?.id ?? null} onSelect={select} year={YEAR} month={MONTH} mdays={MDAYS} />
+            <CalendarView posts={vposts} selId={sel?.id ?? null} onSelect={select} onReschedule={reschedule} year={YEAR} month={MONTH} mdays={MDAYS} dragId={dragId} setDragId={setDragId} />
           ) : (
             <ListView posts={vposts} selId={sel?.id ?? null} onSelect={select} />
           )}
@@ -121,7 +170,7 @@ export default function PlanApp({ clientName, posts }: { clientName: string; pos
 
         {!narrow && (
           <section style={{ flex: 1, padding: '28px 30px 132px' }}>
-            <Detail post={sel} />
+            <Detail post={sel} busy={busy} onSetFormat={setFormat} onSaveCaption={saveCaption} onRemove={remove} onRevert={revert} />
           </section>
         )}
       </div>
@@ -132,19 +181,29 @@ export default function PlanApp({ clientName, posts }: { clientName: string; pos
             <div style={{ display: 'flex', justifyContent: 'center', padding: '2px 0 12px' }}>
               <div style={{ width: 40, height: 4, borderRadius: 4, background: C.line }} />
             </div>
-            <Detail post={sel} />
+            <Detail post={sel} busy={busy} onSetFormat={setFormat} onSaveCaption={saveCaption} onRemove={remove} onRevert={revert} />
           </div>
         </div>
       )}
 
       <ComingSoonBar />
+
+      {toast && (
+        <div className="toast" role="status" style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 84, zIndex: 60, background: C.navy, color: '#fff', padding: '11px 16px', borderRadius: 12, fontSize: 13.5, maxWidth: 'min(520px,92vw)', boxShadow: '0 12px 32px rgba(30,42,74,.26)', display: 'flex', alignItems: 'center', gap: 9 }}>
+          <Sparkles size={15} color={C.coral} /> <span>{toast}</span>
+        </div>
+      )}
     </div>
   );
 }
 
 /* ---------------- views ---------------- */
 
-function CalendarView({ posts, selId, onSelect, year, month, mdays }: { posts: VPost[]; selId: string | null; onSelect: (id: string) => void; year: number; month: number; mdays: number }) {
+function CalendarView({ posts, selId, onSelect, onReschedule, year, month, mdays, dragId, setDragId }: {
+  posts: VPost[]; selId: string | null; onSelect: (id: string) => void; onReschedule: (id: string, day: number) => void;
+  year: number; month: number; mdays: number; dragId: string | null; setDragId: (id: string | null) => void;
+}) {
+  const [over, setOver] = useState<number | null>(null);
   const byDay: Record<number, VPost[]> = {};
   posts.forEach((p) => { if (p.date.getMonth() === month) (byDay[p.date.getDate()] = byDay[p.date.getDate()] || []).push(p); });
 
@@ -159,26 +218,28 @@ function CalendarView({ posts, selId, onSelect, year, month, mdays }: { posts: V
     <div style={{ overflowX: 'auto' }}>
       <div style={{ minWidth: 600 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 7, marginBottom: 9 }}>
-          {WK_MON.map((d) => (
-            <div key={d} style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: C.faint, textAlign: 'center' }}>{d}</div>
-          ))}
+          {WK_MON.map((d) => (<div key={d} style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: C.faint, textAlign: 'center' }}>{d}</div>))}
         </div>
         {weeks.map((week, wi) => (
           <div key={wi} style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 7, marginBottom: 7 }}>
             {week.map((day, di) => {
               const dayPosts = day ? byDay[day] || [] : [];
+              const isOver = over === day && dragId != null;
               const weekend = di >= 5;
               return (
-                <div key={di} style={{ minHeight: 94, background: day ? C.card : 'transparent', border: `1px solid ${day ? C.line : 'transparent'}`, borderRadius: 10, padding: 6, boxShadow: day ? softShadow : 'none' }}>
+                <div key={di}
+                  onDragOver={(e) => { if (day && dragId != null) { e.preventDefault(); setOver(day); } }}
+                  onDragLeave={() => setOver((o) => (o === day ? null : o))}
+                  onDrop={(e) => { e.preventDefault(); if (day && dragId != null) onReschedule(dragId, day); setOver(null); setDragId(null); }}
+                  style={{ minHeight: 94, background: day ? (isOver ? C.coralLt : C.card) : 'transparent', border: `1px solid ${isOver ? C.coral : day ? C.line : 'transparent'}`, borderRadius: 10, padding: 6, boxShadow: day ? softShadow : 'none', transition: 'background .12s, border-color .12s' }}>
                   {day && <div style={{ fontSize: 11.5, fontWeight: 700, color: weekend ? C.coral : C.faint, marginBottom: 5, paddingLeft: 2 }}>{day}</div>}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {dayPosts.map((p) => {
-                      const g = group(p.pillar);
-                      const Icon = FORMAT_META[p.format].Icon;
-                      const isSel = p.id === selId;
+                      const g = group(p.pillar); const Icon = FORMAT_META[p.format].Icon; const isSel = p.id === selId;
                       return (
-                        <button key={p.id} onClick={() => onSelect(p.id)} className="chip-cal"
-                          style={{ display: 'flex', alignItems: 'center', gap: 5, width: '100%', textAlign: 'left', cursor: 'pointer', background: isSel ? g.fg : g.bg, color: isSel ? '#fff' : g.fg, border: `1px solid ${isSel ? g.fg : 'transparent'}`, borderLeft: `3px solid ${g.fg}`, borderRadius: 6, padding: '4px 6px', font: 'inherit', fontSize: 11, fontWeight: 600, lineHeight: 1.1 }}>
+                        <button key={p.id} draggable onDragStart={() => setDragId(p.id)} onDragEnd={() => { setDragId(null); setOver(null); }}
+                          onClick={() => onSelect(p.id)} className="chip-cal"
+                          style={{ display: 'flex', alignItems: 'center', gap: 5, width: '100%', textAlign: 'left', cursor: 'grab', background: isSel ? g.fg : g.bg, color: isSel ? '#fff' : g.fg, border: `1px solid ${isSel ? g.fg : 'transparent'}`, borderLeft: `3px solid ${g.fg}`, borderRadius: 6, padding: '4px 6px', font: 'inherit', fontSize: 11, fontWeight: 600, lineHeight: 1.1, opacity: dragId === p.id ? 0.4 : 1 }}>
                           <Icon size={11} style={{ flexShrink: 0 }} />
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortPillar(p.pillar)}</span>
                           {p.status === 'new' && <span style={{ marginLeft: 'auto', fontSize: 8.5, fontWeight: 800 }}>NEW</span>}
@@ -192,6 +253,7 @@ function CalendarView({ posts, selId, onSelect, year, month, mdays }: { posts: V
             })}
           </div>
         ))}
+        <p style={{ fontSize: 12, color: C.faint, marginTop: 10 }}>Drag any post to another day to reschedule it.</p>
       </div>
     </div>
   );
@@ -200,16 +262,13 @@ function CalendarView({ posts, selId, onSelect, year, month, mdays }: { posts: V
 function ListView({ posts, selId, onSelect }: { posts: VPost[]; selId: string | null; onSelect: (id: string) => void }) {
   return (
     <div style={{ position: 'relative' }}>
-      {posts.map((p, i, a) => (
-        <SprigRow key={p.id} post={p} first={i === 0} last={i === a.length - 1} selected={p.id === selId} onClick={() => onSelect(p.id)} />
-      ))}
+      {posts.map((p, i, a) => (<SprigRow key={p.id} post={p} first={i === 0} last={i === a.length - 1} selected={p.id === selId} onClick={() => onSelect(p.id)} />))}
     </div>
   );
 }
 
 function SprigRow({ post, first, last, selected, onClick }: { post: VPost; first: boolean; last: boolean; selected: boolean; onClick: () => void }) {
-  const Icon = FORMAT_META[post.format].Icon;
-  const g = group(post.pillar);
+  const Icon = FORMAT_META[post.format].Icon; const g = group(post.pillar);
   const filled = selected || post.status === 'new';
   const nodeFill = filled ? C.coral : C.card;
   const nodeBorder = filled ? C.coral : post.status === 'edited' ? C.coral : C.nodeLine;
@@ -235,47 +294,60 @@ function SprigRow({ post, first, last, selected, onClick }: { post: VPost; first
   );
 }
 
-/* ---------------- detail ---------------- */
+/* ---------------- detail (editable) ---------------- */
 
-function Detail({ post }: { post: VPost | null }) {
+function Detail({ post, busy, onSetFormat, onSaveCaption, onRemove, onRevert }: {
+  post: VPost | null; busy: boolean;
+  onSetFormat: (id: string, f: PostFormat) => void; onSaveCaption: (id: string, c: string) => void;
+  onRemove: (id: string) => void; onRevert: (id: string) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  useEffect(() => { setDraft(post?.caption ?? ''); }, [post?.id, post?.caption]);
   if (!post) return null;
-  const Icon = FORMAT_META[post.format].Icon;
-  const g = group(post.pillar);
+  const Icon = FORMAT_META[post.format].Icon; const g = group(post.pillar);
+  const dirty = draft !== post.caption;
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: g.bg, color: g.fg, padding: '5px 11px', borderRadius: 9, fontSize: 12.5, fontWeight: 600 }}><Icon size={14} /> {FORMAT_META[post.format].label}</span>
+        <button onClick={() => onSetFormat(post.id, nextFormat(post.format))} disabled={busy} title="Tap to change format"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: g.bg, color: g.fg, padding: '5px 11px', borderRadius: 9, fontSize: 12.5, fontWeight: 600, border: 'none', cursor: 'pointer' }}>
+          <Icon size={14} /> {FORMAT_META[post.format].label}
+        </button>
         <span style={{ fontSize: 12.5, color: C.muted }}>{post.pillar}</span>
         <span style={{ color: C.line }}>·</span>
         <span style={{ fontFamily: display, fontSize: 16, color: C.navy }}>{`${WK[post.date.getDay()]} ${MONTHS[post.date.getMonth()]} ${post.date.getDate()}`}</span>
         <StatusTag status={post.status} />
+        {post.status !== 'planned' && <button onClick={() => onRevert(post.id)} disabled={busy} style={{ marginLeft: 'auto', ...textBtn }}><Undo2 size={13} /> Revert</button>}
       </div>
 
-      <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, padding: '18px 20px', whiteSpace: 'pre-wrap', fontSize: 15, lineHeight: 1.62, color: C.navy, boxShadow: softShadow }}>{post.caption}</div>
-
-      <div style={{ marginTop: 16, display: 'grid', gap: 12 }}>
-        {post.script && (
-          <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: '14px 16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
-              <Film size={14} color={C.coralDeep} />
-              <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: C.coralDeep }}>Reel script</span>
-            </div>
-            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontFamily: body, fontSize: 13.5, lineHeight: 1.6, color: C.navy }}>{post.script}</pre>
-          </div>
-        )}
-        <div style={{ border: `1.5px dashed ${C.line}`, borderRadius: 14, padding: '18px 16px', textAlign: 'center', color: C.faint, fontSize: 13 }}>
-          Video preview — coming soon. The slot&rsquo;s here so it&rsquo;s ready when the capability lands.
-        </div>
+      <Kicker>Caption</Kicker>
+      <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={9}
+        style={{ width: '100%', marginTop: 9, background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, padding: '16px 18px', fontFamily: body, fontSize: 15, lineHeight: 1.62, color: C.navy, boxShadow: softShadow, resize: 'vertical', outline: 'none' }} />
+      <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
+        <button onClick={() => onSaveCaption(post.id, draft)} disabled={busy || !dirty} style={{ ...primaryBtn, padding: '0 16px', height: 38, opacity: busy || !dirty ? 0.45 : 1 }}>
+          <CornerDownLeft size={16} /> Save caption
+        </button>
+        {dirty && <button onClick={() => setDraft(post.caption)} style={textBtn}>Discard</button>}
+        <button onClick={() => onRemove(post.id)} disabled={busy} style={{ ...textBtn, marginLeft: 'auto', color: C.coralDeep }}><Trash2 size={14} /> Remove post</button>
       </div>
 
-      <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 8, color: C.faint, fontSize: 12.5 }}>
-        <Lock size={13} /> Shaping this post &mdash; editing, tone, dates &mdash; arrives next.
+      <div style={{ marginTop: 18, border: `1.5px dashed ${C.line}`, borderRadius: 14, padding: '16px', textAlign: 'center', color: C.faint, fontSize: 13 }}>
+        Video preview — coming soon.
+      </div>
+      <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8, color: C.faint, fontSize: 12.5 }}>
+        <Lock size={13} /> Instructed rewrites (&ldquo;make it softer&rdquo;) and voice arrive next — for now, edit the caption directly above.
       </div>
     </div>
   );
 }
+function nextFormat(f: PostFormat): PostFormat {
+  if (f === 'email') return 'email';
+  const i = FORMAT_CYCLE.indexOf(f);
+  return FORMAT_CYCLE[(i + 1) % FORMAT_CYCLE.length]!;
+}
 
-/* ---------------- bottom bar (disabled in Phase 1) ---------------- */
+/* ---------------- bottom bar (regen stub) ---------------- */
 
 function ComingSoonBar() {
   return (
@@ -283,7 +355,7 @@ function ComingSoonBar() {
       <div style={{ maxWidth: 960, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 9, color: 'rgba(255,255,255,.82)', fontSize: 13.5 }}>
         <Sparkles size={15} color={C.coral} />
         <span className="planLabel" style={{ fontFamily: display, fontSize: 14, color: '#fff' }}>Talk to your plan</span>
-        <span style={{ color: 'rgba(255,255,255,.6)' }}>— arrives next. You&rsquo;ll shape your plan by text or voice, right here.</span>
+        <span style={{ color: 'rgba(255,255,255,.6)' }}>— arrives next. For now, move, add, edit and revert posts directly.</span>
       </div>
     </div>
   );
@@ -313,11 +385,11 @@ function Legend() {
   const items: [string, string][] = [['Product', C.coral], ['Origin & education', C.slate], ['Style & personal', C.navy]];
   return (
     <div style={{ display: 'flex', gap: 16, marginTop: 18, flexWrap: 'wrap' }}>
-      {items.map(([l, c]) => (
-        <span key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.muted }}>
-          <span style={{ width: 9, height: 9, borderRadius: 3, background: c }} /> {l}
-        </span>
-      ))}
+      {items.map(([l, c]) => (<span key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.muted }}><span style={{ width: 9, height: 9, borderRadius: 3, background: c }} /> {l}</span>))}
     </div>
   );
 }
+
+const primaryBtn = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: C.coral, color: '#fff', border: 'none', borderRadius: 11, cursor: 'pointer', fontFamily: body, fontSize: 14, fontWeight: 600 } as const;
+const ghostBtn = { display: 'inline-flex', alignItems: 'center', gap: 7, background: C.card, color: C.coralDeep, border: `1px solid ${C.line}`, borderRadius: 11, cursor: 'pointer', fontFamily: body, fontSize: 13, fontWeight: 600 } as const;
+const textBtn = { display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', color: C.muted, cursor: 'pointer', fontFamily: body, fontSize: 12.5, fontWeight: 600 } as const;
