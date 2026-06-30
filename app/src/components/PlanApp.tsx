@@ -131,7 +131,10 @@ export default function PlanApp({ clientName, posts: initial }: { clientName: st
   return (
     <div style={{ minHeight: '100vh', background: C.bg, color: C.navy, fontFamily: body }}>
       <header style={{ background: C.card, borderBottom: `1px solid ${C.line}`, padding: narrow ? '15px 18px' : '18px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-        <span style={{ fontFamily: display, fontSize: narrow ? 18 : 22, color: C.coral }}>Sprigly</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
+          <SprigMark size={narrow ? 22 : 26} />
+          <span style={{ fontFamily: display, fontSize: narrow ? 18 : 22, color: C.coral }}>Sprigly</span>
+        </span>
         <div style={{ textAlign: 'right', lineHeight: 1.25 }}>
           <div style={{ fontFamily: display, fontSize: narrow ? 17 : 20, color: C.navy }}>
             {clientName} · <span style={{ fontStyle: 'italic', color: C.coral }}>{MONTHS[MONTH]}</span> plan
@@ -362,6 +365,17 @@ function ComingSoonBar() {
 }
 
 /* ---------------- small pieces ---------------- */
+
+/** The Sprigly sprout mark (studio/svg_logos/sprigly-mark-coral.svg), inlined. */
+function SprigMark({ size }: { size: number }) {
+  return (
+    <svg width={(size * 100) / 110} height={size} viewBox="0 0 100 110" fill={C.coral} aria-label="Sprigly" role="img">
+      <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z" />
+      <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity="0.78" />
+      <line x1="50" y1="76" x2="50" y2="98" stroke={C.coral} strokeWidth="2.5" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 function Kicker({ children }: { children: React.ReactNode }) {
   return <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '.16em', textTransform: 'uppercase', color: C.coral }}>{children}</span>;
