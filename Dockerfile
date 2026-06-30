@@ -2,7 +2,7 @@ FROM node:22-slim
 
 # ── Python runtime for content-calendar scripts ──────────────────────────────
 # Isolated in /opt/cal-venv so pip packages never collide with system packages.
-# Worker invokes scripts via: /opt/cal-venv/bin/python3 /app/apps/worker/scripts/calendar/<script>.py
+# Worker invokes scripts via: /opt/cal-venv/bin/python3 /app/engine/scripts/calendar/<script>.py
 # Only openpyxl is required — neither generate_calendar.py nor extract_edits.py uses pandas.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 \

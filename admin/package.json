@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "next build",
-    "dev": "sh -c 'set -a && . ../../.env.local && set +a && next dev --port 3100'",
+    "dev": "sh -c 'set -a && . ../.env.local && set +a && next dev --port 3100'",
     "start": "next start --port 3100",
     "lint": "next lint",
     "type-check": "tsc --noEmit"

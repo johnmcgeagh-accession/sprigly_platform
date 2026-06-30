@@ -21,44 +21,44 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  apps/web:
+  admin:
     dependencies:
       '@clerk/nextjs':
         specifier: ^6.0.0
         version: 6.39.3(next@14.2.35(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@sprigly/db':
         specifier: workspace:*
-        version: link:../../packages/db
+        version: link:../packages/db
       '@sprigly/embedding-client':
         specifier: workspace:*
-        version: link:../../packages/embedding-client
+        version: link:../packages/embedding-client
       '@sprigly/engine':
         specifier: workspace:*
-        version: link:../../packages/engine
+        version: link:../packages/engine
       '@sprigly/knowledge':
         specifier: workspace:*
-        version: link:../../packages/knowledge
+        version: link:../packages/knowledge
       '@sprigly/model-client':
         specifier: workspace:*
-        version: link:../../packages/model-client
+        version: link:../packages/model-client
       '@sprigly/oauth-tokens':
         specifier: workspace:*
-        version: link:../../packages/oauth-tokens
+        version: link:../packages/oauth-tokens
       '@sprigly/sources':
         specifier: workspace:*
-        version: link:../../packages/sources
+        version: link:../packages/sources
       '@sprigly/ui':
         specifier: workspace:*
-        version: link:../../packages/ui
+        version: link:../packages/ui
       '@sprigly/workflows':
         specifier: workspace:*
-        version: link:../../packages/workflows
+        version: link:../packages/workflows
       bullmq:
         specifier: ^5.0.0
         version: 5.76.8
       drizzle-orm:
         specifier: ^0.30.0
-        version: 0.30.10(@types/react@19.2.14)(postgres@3.4.9)(react@18.3.1)
+        version: 0.30.10(@types/react@18.3.28)(postgres@3.4.9)(react@18.3.1)
       next:
         specifier: ^14.2.25
         version: 14.2.35(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -74,10 +74,10 @@ importers:
         version: 20.19.40
       '@types/react':
         specifier: '*'
-        version: 19.2.14
+        version: 18.3.28
       '@types/react-dom':
         specifier: '*'
-        version: 19.2.3(@types/react@19.2.14)
+        version: 19.2.3(@types/react@18.3.28)
       autoprefixer:
         specifier: ^10.4.0
         version: 10.5.0(postcss@8.5.14)
@@ -91,44 +91,44 @@ importers:
         specifier: '*'
         version: 5.9.3
 
-  apps/worker:
+  engine:
     dependencies:
       '@sprigly/audit':
         specifier: workspace:*
-        version: link:../../packages/audit
+        version: link:../packages/audit
       '@sprigly/db':
         specifier: workspace:*
-        version: link:../../packages/db
+        version: link:../packages/db
       '@sprigly/destinations':
         specifier: workspace:*
-        version: link:../../packages/destinations
+        version: link:../packages/destinations
       '@sprigly/embedding-client':
         specifier: workspace:*
-        version: link:../../packages/embedding-client
+        version: link:../packages/embedding-client
       '@sprigly/engine':
         specifier: workspace:*
-        version: link:../../packages/engine
+        version: link:../packages/engine
       '@sprigly/knowledge':
         specifier: workspace:*
-        version: link:../../packages/knowledge
+        version: link:../packages/knowledge
       '@sprigly/model-client':
         specifier: workspace:*
-        version: link:../../packages/model-client
+        version: link:../packages/model-client
       '@sprigly/oauth-tokens':
         specifier: workspace:*
-        version: link:../../packages/oauth-tokens
+        version: link:../packages/oauth-tokens
       '@sprigly/prompts':
         specifier: workspace:*
-        version: link:../../packages/prompts
+        version: link:../packages/prompts
       '@sprigly/sources':
         specifier: workspace:*
-        version: link:../../packages/sources
+        version: link:../packages/sources
       '@sprigly/web-search':
         specifier: workspace:*
-        version: link:../../packages/web-search
+        version: link:../packages/web-search
       '@sprigly/workflows':
         specifier: workspace:*
-        version: link:../../packages/workflows
+        version: link:../packages/workflows
       bullmq:
         specifier: ^5.0.0
         version: 5.76.8
@@ -4790,6 +4790,10 @@ snapshots:
 
   '@types/prop-types@15.7.15': {}
 
+  '@types/react-dom@19.2.3(@types/react@18.3.28)':
+    dependencies:
+      '@types/react': 18.3.28
+
   '@types/react-dom@19.2.3(@types/react@19.2.14)':
     dependencies:
       '@types/react': 19.2.14
@@ -5108,6 +5112,12 @@ snapshots:
       zod: 3.25.76
     transitivePeerDependencies:
       - supports-color
+
+  drizzle-orm@0.30.10(@types/react@18.3.28)(postgres@3.4.9)(react@18.3.1):
+    optionalDependencies:
+      '@types/react': 18.3.28
+      postgres: 3.4.9
+      react: 18.3.1
 
   drizzle-orm@0.30.10(@types/react@19.2.14)(postgres@3.4.9)(react@18.3.1):
     optionalDependencies:
