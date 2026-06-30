@@ -100,6 +100,9 @@ importers:
       '@sprigly/db':
         specifier: workspace:*
         version: link:../packages/db
+      bullmq:
+        specifier: ^5.0.0
+        version: 5.76.8
       drizzle-orm:
         specifier: ^0.30.0
         version: 0.30.10(@types/react@18.3.28)(postgres@3.4.9)(react@18.3.1)
@@ -128,6 +131,9 @@ importers:
       typescript:
         specifier: '*'
         version: 5.9.3
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@20.19.40)
 
   engine:
     dependencies:

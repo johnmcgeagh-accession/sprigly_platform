@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start --port 3200",
     "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "next": "^14.2.25",
@@ -15,12 +16,14 @@
     "react-dom": "18.3.1",
     "lucide-react": "^0.400.0",
     "drizzle-orm": "^0.30.0",
+    "bullmq": "^5.0.0",
     "@sprigly/db": "workspace:*"
   },
   "devDependencies": {
     "typescript": "*",
     "@types/node": "*",
     "@types/react": "^18.3.0",
-    "@types/react-dom": "^18.3.0"
+    "@types/react-dom": "^18.3.0",
+    "vitest": "^1.6.0"
   }
 }

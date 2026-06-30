@@ -10,6 +10,7 @@ import { and, eq, isNull, desc } from 'drizzle-orm';
 import { db, contentCyclePosts } from '@sprigly/db';
 import type { ContentCyclePostRow } from '@sprigly/db';
 import { loadPlanPosts } from '@/lib/plan';
+import { resolveRevert } from '@/lib/revert';
 import type { ShapeResult, PostFormat } from '@/lib/types';
 
 const FORMATS = new Set<PostFormat>(['reel', 'carousel', 'single', 'email']);
@@ -106,26 +107,17 @@ export async function revertPost(clientId: string, cycleId: string, postId: stri
   const row = await ownedPost(clientId, cycleId, postId);
   if (!row) return null;
 
-  if (row.status === 'new') {
+  // Decision is pure (source_meta.original is the baseline — never touched by an
+  // edit or regen, so revert always returns to the generated starting point).
+  const decision = resolveRevert(row);
+  if (decision.action === 'remove') {
     await db.update(contentCyclePosts).set({ deletedAt: new Date() }).where(eq(contentCyclePosts.id, postId));
     return applied(clientId, cycleId, [postId], 'Removed the draft.');
   }
-
-  const orig = (row.sourceMeta as { original?: { caption?: string; format?: string; pillar?: string; scheduledDate?: string; position?: number } } | null)?.original;
-  if (!orig) {
-    // No snapshot to restore to — just clear the edited flag.
+  if (decision.action === 'clear') {
     await db.update(contentCyclePosts).set({ status: 'planned' }).where(eq(contentCyclePosts.id, postId));
     return applied(clientId, cycleId, [postId], 'Reverted.');
   }
-
-  await db.update(contentCyclePosts).set({
-    caption:       orig.caption ?? row.caption,
-    format:        orig.format && FORMATS.has(orig.format as PostFormat) ? orig.format : row.format,
-    pillar:        orig.pillar ?? row.pillar,
-    scheduledDate: orig.scheduledDate ?? row.scheduledDate,
-    position:      typeof orig.position === 'number' ? orig.position : row.position,
-    status:        'planned',
-  }).where(eq(contentCyclePosts.id, postId));
-
+  await db.update(contentCyclePosts).set(decision.values).where(eq(contentCyclePosts.id, postId));
   return applied(clientId, cycleId, [postId], 'Reverted to the original.');
 }

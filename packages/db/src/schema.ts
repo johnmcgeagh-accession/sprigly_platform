@@ -847,3 +847,30 @@ export const appMagicLinkTokens = pgTable(
 
 export type AppMagicLinkToken    = typeof appMagicLinkTokens.$inferSelect;
 export type NewAppMagicLinkToken = typeof appMagicLinkTokens.$inferInsert;
+
+// ─── post_edits ───────────────────────────────────────────────────────────────
+// Audit trail for natural-language caption regens (Phase 3 shape handler): the
+// instruction, caption before/after, pass/fail, token cost. Best-effort write off
+// the hot path. Diagnostic only — never read by the runtime.
+
+export const postEdits = pgTable(
+  'post_edits',
+  {
+    id:            uuid('id').primaryKey().defaultRandom(),
+    createdAt:     timestamp('created_at').notNull().defaultNow(),
+    postId:        uuid('post_id').notNull().references(() => contentCyclePosts.id),
+    cycleId:       uuid('cycle_id').notNull().references(() => contentCycles.id),
+    scope:         text('scope').notNull(),                 // 'post' | 'plan'
+    instruction:   text('instruction').notNull(),
+    captionBefore: text('caption_before'),
+    captionAfter:  text('caption_after'),
+    passed:        boolean('passed').notNull().default(false),
+    tokens:        integer('tokens'),
+  },
+  (t) => ({
+    postIdx: index('post_edits_post_idx').on(t.postId),
+  }),
+);
+
+export type PostEditRow    = typeof postEdits.$inferSelect;
+export type NewPostEditRow = typeof postEdits.$inferInsert;

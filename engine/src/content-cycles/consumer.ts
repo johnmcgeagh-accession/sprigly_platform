@@ -37,6 +37,7 @@ import type { Logger } from 'pino';
 import { extractVoiceDeltasForCycle } from './extract.js';
 import { applyVoiceDeltasForCycle } from './apply.js';
 import { runPlanningForCycle } from './planning.js';
+import { runShapeForCycle, type ShapeJob } from './shape.js';
 import { runIgTrawlJob } from '../ig-producer.js';
 import { requestEmailStub } from './stubs.js';
 import { runContentCycleTick } from './scheduler.js';
@@ -60,7 +61,8 @@ type ContentCycleJob =
   | { type: 'planning';        cycleId: string }
   | { type: 'ig-trawl';        clientId: string; channel: string; dataMonth: string }
   | { type: 'request-email';   clientId: string; channel: string; dataMonth: string }
-  | { type: 'scheduler-tick' };
+  | { type: 'scheduler-tick' }
+  | ShapeJob;
 
 export function createContentCycleConsumer(
   db:                 Db,
@@ -107,6 +109,14 @@ export function createContentCycleConsumer(
             model, prompts, audit, logger,
           });
           break;
+
+        case 'shape':
+          logger.info({ ...logCtx, cycleId: data.cycleId, postId: data.targetPostId, scope: data.scope }, 'content-cycles: starting shape job');
+          // Return the result so BullMQ sets job.returnvalue (read by GET /api/jobs/:id).
+          return await runShapeForCycle(data, {
+            db, encProvider, googleClientId, googleClientSecret,
+            model, prompts, audit, logger,
+          });
 
         case 'ig-trawl': {
           const { clientId, channel, dataMonth } = data;

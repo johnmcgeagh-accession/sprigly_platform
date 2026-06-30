@@ -188,7 +188,11 @@ function parseSinglePost(text: string): PlanPostRow {
   throw new Error('planning repair: response was not a JSON post object');
 }
 
-async function regeneratePost(
+/** Regenerate a single post from feedback (an instruction or a validation failure),
+ *  reusing the planning system prompt + assembled context. Exported so the Phase 3
+ *  shape handler drives an instructed rewrite through the exact same path the
+ *  validation loop uses. */
+export async function regeneratePost(
   post:     PlanPostRow,
   feedback: string,
   ctx:      PlanRepairContext,

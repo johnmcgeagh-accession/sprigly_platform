@@ -306,6 +306,185 @@ async function loadVoiceEdits(db: Db, clientId: string, channel: string): Promis
 
 // ── Worker ─────────────────────────────────────────────────────────────────────
 
+/** Everything assembled from a cycle's inputs needed to generate or reshape its
+ *  plan: the resolved prompts + user message, the validation vocab/critic context,
+ *  catalogue, voice, and the Drive handles. Shared by planning (generation) and the
+ *  Phase 3 shape handler (instructed rewrite), so both run the identical machinery. */
+export interface ShapeContext {
+  answers:            Record<string, string>;
+  freeNotes:          string;
+  planConfigRow:      ClientPlanningConfig | undefined;
+  gather:             CompetitorGatherData | null;
+  catalogue:          Catalogue | null;
+  catalogueGrounding: string;
+  slug:               string;
+  clientName:         string;
+  contact:            string;
+  drive:              DriveApiClient;
+  driveFolderId:      string;
+  folderFiles:        DriveFileMeta[];
+  voiceMd:            string | null;
+  systemPrompt:       string;
+  userMessage:        string;
+  vocab:              { categories: string[]; pillars: string[] };
+  criticPrompt:       string;
+  historicPosts:      HistoricPost[];
+  voiceEdits:         VoiceEditExample[];
+}
+
+/**
+ * Assemble all planning inputs for a cycle: load config / gather / catalogue /
+ * client / channel / Drive folder / voice.md, resolve the generate + critic
+ * prompts, build the user message, and load the critic's historic posts + voice
+ * edits. PURE READS — no Bedrock, no writes — so it is safe to share between
+ * planning's generation and the shape handler. The plan output is determined
+ * solely by `systemPrompt` + `userMessage`, both built here exactly as before.
+ */
+export async function assembleShapeContext(
+  cycle: typeof contentCycles.$inferSelect,
+  deps:  PlanningDeps,
+): Promise<ShapeContext> {
+  const { db, encProvider, googleClientId, googleClientSecret, logger } = deps;
+  const { clientId, channel, cycleMonth } = cycle;
+  const targetMonth = nextMonth(cycleMonth);
+  const logCtx = { cycleId: cycle.id, clientId, channel, dataMonth: cycleMonth, targetMonth };
+
+  // ── Assemble inputs (each optional; never block) ──────────────────────────
+  const intake     = cycle.intakeJson as IntakeJson | null;
+  const answers    = intake?.planContent?.answers ?? {};
+  const freeNotes  = (intake?.planContent?.freeNotes ?? '').trim();
+
+  const [planConfigRow] = await db
+    .select()
+    .from(clientPlanningConfig)
+    .where(and(
+      eq(clientPlanningConfig.clientId, clientId),
+      eq(clientPlanningConfig.channel,  channel),
+    ))
+    .limit(1);
+
+  const [gatherRow] = await db
+    .select()
+    .from(competitorGatherCache)
+    .where(and(
+      eq(competitorGatherCache.clientId, clientId),
+      eq(competitorGatherCache.channel,  channel),
+    ))
+    .limit(1);
+  const gather = (gatherRow?.rawData as CompetitorGatherData | undefined) ?? null;
+
+  const [catRow] = await db
+    .select({ catalogue: clientProductCatalogue.catalogue })
+    .from(clientProductCatalogue)
+    .where(and(
+      eq(clientProductCatalogue.clientId, clientId),
+      eq(clientProductCatalogue.channel,  channel),
+    ))
+    .limit(1);
+  const catalogue = (catRow?.catalogue as Catalogue | undefined) ?? null;
+  const intakeText = [freeNotes, ...Object.values(answers)].join('\n');
+  const catalogueGrounding = catalogue ? buildCatalogueGroundingBlock(catalogue, intakeText) : '';
+
+  const [clientRow] = await db
+    .select({ name: clients.name, slug: clients.slug })
+    .from(clients)
+    .where(eq(clients.id, clientId))
+    .limit(1);
+  const slug       = clientRow?.slug ?? 'client';
+  const clientName = clientRow?.name ?? slug;
+
+  const [channelRow] = await db
+    .select({ driveFolderId: clientChannels.driveFolderId, contactName: clientChannels.contactName })
+    .from(clientChannels)
+    .where(and(
+      eq(clientChannels.clientId, clientId),
+      eq(clientChannels.channel,  channel),
+    ))
+    .limit(1);
+
+  const driveFolderId = channelRow?.driveFolderId ?? null;
+  const contact       = (channelRow?.contactName ?? '').trim() || 'the client';
+
+  // Drive is required for the handoff — without it the CSV can't be delivered.
+  const tokens = await getTokens(db, encProvider, clientId, 'drive');
+  if (!tokens) throw new Error(`assembleShapeContext: no Drive tokens for client ${clientId}`);
+  if (!driveFolderId) throw new Error(`assembleShapeContext: no drive_folder_id for ${clientId}/${channel}`);
+
+  const drive = new DriveApiClient(
+    googleClientId, googleClientSecret, tokens,
+    (refreshed) => storeTokens(db, encProvider, clientId, 'drive', refreshed),
+  );
+
+  const folderFiles = await drive.listFiles(driveFolderId);
+
+  // voice.md — read for the log now; consumed by the prompt in Stage 2.
+  let voiceMd: string | null = null;
+  const voiceMeta = folderFiles.find((f) => f.name === 'voice.md');
+  if (voiceMeta) {
+    try {
+      voiceMd = (await drive.downloadFile(voiceMeta.id)).toString('utf-8');
+    } catch (err) {
+      logger.warn({ ...logCtx, err: String(err) }, 'content-cycles: planning could not read voice.md — continuing without');
+    }
+  }
+
+  // ── Log the assembled inputs (the Stage 1 observability requirement) ──────
+  logger.info(
+    {
+      ...logCtx,
+      contact,
+      slug,
+      planContent: {
+        present:      Object.keys(answers).length > 0 || freeNotes.length > 0,
+        answersCount: Object.keys(answers).length,
+        freeNotesLen: freeNotes.length,
+      },
+      planConfig: planConfigRow
+        ? {
+            present:         true,
+            pillars:         (planConfigRow.pillars         ?? []).length,
+            competitors:     (planConfigRow.competitors     ?? []).length,
+            categories:      (planConfigRow.categories      ?? []).length,
+            recurringSeries: (planConfigRow.recurringSeries ?? []).length,
+          }
+        : { present: false },
+      competitorGather: gather
+        ? { present: true, accounts: gather.accounts?.length ?? 0, benchmark: gather.benchmark?.length ?? 0, gatheredAt: gather.gatheredAt }
+        : { present: false, note: 'no competitor gather data — Stage 2 plan would use pillars-only balance' },
+      voice: { present: voiceMd !== null, length: voiceMd?.length ?? 0 },
+    },
+    'content-cycles: planning inputs assembled',
+  );
+
+  // ── Resolve prompts + build the user message (the plan-determining inputs) ──
+  const systemPrompt = await deps.prompts.resolve(clientId, PLANNING_WORKFLOW, PLANNING_STEP);
+  const userMessage  = buildPlanningUserMessage({
+    clientName, dataMonth: cycleMonth, targetMonth, answers, freeNotes,
+    planConfig: planConfigRow, gather, voiceMd, catalogueGrounding,
+  });
+
+  const vocab = {
+    categories: planConfigRow?.categories ?? [],
+    pillars:    (planConfigRow?.pillars ?? [])
+      .map((p) => (p as { name?: unknown }).name)
+      .filter((n): n is string => typeof n === 'string' && n.length > 0),
+  };
+
+  // ── Critic context (client voice / register / historic posts) ─────────────
+  const criticPrompt  = await deps.prompts.resolve(clientId, PLANNING_WORKFLOW, PLANNING_CRITIC_STEP);
+  const historicPosts = await loadHistoricPosts(drive, folderFiles, logger, logCtx);
+  const voiceEditEx   = await loadVoiceEdits(db, clientId, channel);
+  if (historicPosts.length === 0) {
+    logger.info(logCtx, 'critic: no historic reference — critic on voice.md only');
+  }
+
+  return {
+    answers, freeNotes, planConfigRow, gather, catalogue, catalogueGrounding,
+    slug, clientName, contact, drive, driveFolderId, folderFiles, voiceMd,
+    systemPrompt, userMessage, vocab, criticPrompt, historicPosts, voiceEdits: voiceEditEx,
+  };
+}
+
 /**
  * Run the planning phase for one cycle. Idempotent: a cycle not in
  * 'intake_confirmed' is logged and skipped (covers retries and double-enqueues).
@@ -339,119 +518,17 @@ export async function runPlanningForCycle(
   }
 
   try {
-    // ── Assemble inputs (each optional; never block) ──────────────────────────
-    const intake     = cycle.intakeJson as IntakeJson | null;
-    const answers    = intake?.planContent?.answers ?? {};
-    const freeNotes  = (intake?.planContent?.freeNotes ?? '').trim();
-
-    const [planConfigRow] = await db
-      .select()
-      .from(clientPlanningConfig)
-      .where(and(
-        eq(clientPlanningConfig.clientId, clientId),
-        eq(clientPlanningConfig.channel,  channel),
-      ))
-      .limit(1);
-
-    const [gatherRow] = await db
-      .select()
-      .from(competitorGatherCache)
-      .where(and(
-        eq(competitorGatherCache.clientId, clientId),
-        eq(competitorGatherCache.channel,  channel),
-      ))
-      .limit(1);
-    const gather = (gatherRow?.rawData as CompetitorGatherData | undefined) ?? null;
-
-    const [catRow] = await db
-      .select({ catalogue: clientProductCatalogue.catalogue })
-      .from(clientProductCatalogue)
-      .where(and(
-        eq(clientProductCatalogue.clientId, clientId),
-        eq(clientProductCatalogue.channel,  channel),
-      ))
-      .limit(1);
-    const catalogue = (catRow?.catalogue as Catalogue | undefined) ?? null;
-    const intakeText = [freeNotes, ...Object.values(answers)].join('\n');
-    const catalogueGrounding = catalogue ? buildCatalogueGroundingBlock(catalogue, intakeText) : '';
-
-    const [clientRow] = await db
-      .select({ name: clients.name, slug: clients.slug })
-      .from(clients)
-      .where(eq(clients.id, clientId))
-      .limit(1);
-    const slug       = clientRow?.slug ?? 'client';
-    const clientName = clientRow?.name ?? slug;
-
-    const [channelRow] = await db
-      .select({ driveFolderId: clientChannels.driveFolderId, contactName: clientChannels.contactName })
-      .from(clientChannels)
-      .where(and(
-        eq(clientChannels.clientId, clientId),
-        eq(clientChannels.channel,  channel),
-      ))
-      .limit(1);
-
-    const driveFolderId = channelRow?.driveFolderId ?? null;
-    const contact       = (channelRow?.contactName ?? '').trim() || 'the client';
-
-    // Drive is required for the handoff — without it the CSV can't be delivered.
-    const tokens = await getTokens(db, encProvider, clientId, 'drive');
-    if (!tokens) throw new Error(`runPlanningForCycle: no Drive tokens for client ${clientId}`);
-    if (!driveFolderId) throw new Error(`runPlanningForCycle: no drive_folder_id for ${clientId}/${channel}`);
-
-    const drive = new DriveApiClient(
-      googleClientId, googleClientSecret, tokens,
-      (refreshed) => storeTokens(db, encProvider, clientId, 'drive', refreshed),
-    );
-
-    const folderFiles = await drive.listFiles(driveFolderId);
-
-    // voice.md — read for the log now; consumed by the prompt in Stage 2.
-    let voiceMd: string | null = null;
-    const voiceMeta = folderFiles.find((f) => f.name === 'voice.md');
-    if (voiceMeta) {
-      try {
-        voiceMd = (await drive.downloadFile(voiceMeta.id)).toString('utf-8');
-      } catch (err) {
-        logger.warn({ ...logCtx, err: String(err) }, 'content-cycles: planning could not read voice.md — continuing without');
-      }
-    }
-
-    // ── Log the assembled inputs (the Stage 1 observability requirement) ──────
-    logger.info(
-      {
-        ...logCtx,
-        contact,
-        slug,
-        planContent: {
-          present:      Object.keys(answers).length > 0 || freeNotes.length > 0,
-          answersCount: Object.keys(answers).length,
-          freeNotesLen: freeNotes.length,
-        },
-        planConfig: planConfigRow
-          ? {
-              present:         true,
-              pillars:         (planConfigRow.pillars         ?? []).length,
-              competitors:     (planConfigRow.competitors     ?? []).length,
-              categories:      (planConfigRow.categories      ?? []).length,
-              recurringSeries: (planConfigRow.recurringSeries ?? []).length,
-            }
-          : { present: false },
-        competitorGather: gather
-          ? { present: true, accounts: gather.accounts?.length ?? 0, benchmark: gather.benchmark?.length ?? 0, gatheredAt: gather.gatheredAt }
-          : { present: false, note: 'no competitor gather data — Stage 2 plan would use pillars-only balance' },
-        voice: { present: voiceMd !== null, length: voiceMd?.length ?? 0 },
-      },
-      'content-cycles: planning inputs assembled',
-    );
+    // ── Assemble all inputs (shared with the Phase 3 shape handler) ───────────
+    // Pure reads + prompt resolution. The plan is determined solely by
+    // systemPrompt + userMessage, both built inside assembleShapeContext exactly
+    // as before the extraction — so planning output is unchanged.
+    const {
+      planConfigRow, gather, catalogue, slug, contact, drive, driveFolderId,
+      folderFiles, voiceMd, systemPrompt, userMessage, vocab, criticPrompt,
+      historicPosts, voiceEdits,
+    } = await assembleShapeContext(cycle, deps);
 
     // ── Generate the plan: single pre-assembled Bedrock call ──────────────────
-    const systemPrompt = await deps.prompts.resolve(clientId, PLANNING_WORKFLOW, PLANNING_STEP);
-    const userMessage  = buildPlanningUserMessage({
-      clientName, dataMonth: cycleMonth, targetMonth, answers, freeNotes,
-      planConfig: planConfigRow, gather, voiceMd, catalogueGrounding,
-    });
 
     // Streaming, NOT complete(): this is the platform's largest call (rich voice.md
     // + full-month plan, up to 16k output tokens). complete() has a hard 180s
@@ -527,12 +604,8 @@ export async function runPlanningForCycle(
     );
 
     // ── Validation loop ───────────────────────────────────────────────────────
-    const vocab = {
-      categories: planConfigRow?.categories ?? [],
-      pillars:    (planConfigRow?.pillars ?? [])
-        .map((p) => (p as { name?: unknown }).name)
-        .filter((n): n is string => typeof n === 'string' && n.length > 0),
-    };
+    // vocab + the critic context (criticPrompt / historicPosts / voiceEdits) come
+    // from assembleShapeContext above.
     // Diagnostic trace: records every gate/critic/repair/catalogue step (caption
     // before→after, trigger, token cost) so a run can be judged after the fact.
     // Purely observational — buffered in memory, flushed once at the end, and a
@@ -555,12 +628,6 @@ export async function runPlanningForCycle(
     // STAGE 2 — LLM critic (client-specific): judges voice/sign-off/pillar-voice
     // and the clientWritesOwn flag against THIS client's voice.md + config +
     // historic posts + corrections. Runs only on gate-passing posts.
-    const criticPrompt  = await deps.prompts.resolve(clientId, PLANNING_WORKFLOW, PLANNING_CRITIC_STEP);
-    const historicPosts = await loadHistoricPosts(drive, folderFiles, logger, logCtx);
-    const voiceEditEx    = await loadVoiceEdits(db, clientId, channel);
-    if (historicPosts.length === 0) {
-      logger.info(logCtx, 'critic: no historic reference — critic on voice.md only');
-    }
     const critic = await applyCritic(gate.rows, {
       criticPrompt, voiceMd,
       planConfig:    {
@@ -568,7 +635,7 @@ export async function runPlanningForCycle(
         categories:  planConfigRow?.categories ?? [],
         registerMap: (planConfigRow?.registerMap ?? {}) as RegisterMap,
       },
-      historicPosts, voiceEdits: voiceEditEx,
+      historicPosts, voiceEdits,
       model: deps.model, modelName: PLANNING_MODEL, audit: deps.audit,
       clientId, logger, logMeta: logCtx, exampleCount: 4, tracer,
     }, repairCtx);

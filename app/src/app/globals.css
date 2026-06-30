@@ -11,6 +11,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid #FF6F62; outline-
 .toast { animation: rise .26s ease; }
 .sheet { animation: slideUp .28s cubic-bezier(.22,.61,.36,1); }
 @keyframes rise { from { opacity:0; transform: translate(-50%,8px);} to { opacity:1; transform: translate(-50%,0);} }
+.spin { animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg);} }
 @keyframes slideUp { from { transform: translateY(100%);} to { transform: translateY(0);} }
 @media (max-width:560px){ .planLabel{ display:none;} .planChips{ display:none !important;} }
 @media (prefers-reduced-motion: reduce){ *, .toast,.sheet{ animation:none !important; transition:none !important;} }

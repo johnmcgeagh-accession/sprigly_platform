@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Film, Images, Image as ImageIcon, Mail, CalendarDays, List, Sparkles, Plus, Undo2, Trash2, CornerDownLeft, Lock } from 'lucide-react';
+import { Film, Images, Image as ImageIcon, Mail, CalendarDays, List, Sparkles, Plus, Undo2, Trash2, CornerDownLeft } from 'lucide-react';
 import type { PlanPost, PostFormat, PostStatus, ShapeResult } from '@/lib/types';
 
 /* ------------------------------------------------------------------ *
@@ -62,6 +62,7 @@ export default function PlanApp({ clientName, posts: initial }: { clientName: st
   const [view, setView] = useState<'calendar' | 'list'>('calendar');
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [rewritingId, setRewritingId] = useState<string | null>(null);
   const [narrow, setNarrow] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -128,6 +129,36 @@ export default function PlanApp({ clientName, posts: initial }: { clientName: st
     call('/api/posts', 'POST', { date: iso(YEAR, MONTH, base) });
   };
 
+  // ── Regen (async): enqueue a shape job, then poll for the rewritten caption ──
+  async function shapePost(id: string, instruction: string) {
+    if (!instruction.trim() || rewritingId) return;
+    try {
+      const res = await fetch(`/api/posts/${id}/shape`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ instruction }) });
+      if (!res.ok) { flash('Could not start that change — please try again.'); return; }
+      const r = (await res.json()) as { mode?: string; summary?: string; jobId?: string };
+      if (r.mode === 'pending' && r.jobId) {
+        setRewritingId(id);
+        flash(r.summary ?? 'Sprigly is rewriting this…');
+        void pollJob(r.jobId);
+      }
+    } catch { flash('Network error — please try again.'); }
+  }
+
+  async function pollJob(jobId: string) {
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 1600));
+      let j: { status: string; posts?: PlanPost[]; summary?: string };
+      try { const res = await fetch(`/api/jobs/${jobId}`); if (!res.ok) continue; j = (await res.json()) as typeof j; }
+      catch { continue; }
+      if (j.status === 'done')  { if (j.posts) setPosts(j.posts); setRewritingId(null); flash(j.summary ?? 'Updated the caption.'); return; }
+      if (j.status === 'error') { setRewritingId(null); flash(j.summary ?? 'Could not make that change — left the caption as it was.'); return; }
+      if (j.status === 'gone')  { try { const p = await fetch('/api/plan'); if (p.ok) { const d = (await p.json()) as { posts?: PlanPost[] }; if (d.posts) setPosts(d.posts); } } catch { /* ignore */ } setRewritingId(null); return; }
+      // pending → keep polling
+    }
+    setRewritingId(null);
+    flash('Still working — give it a moment, then refresh.');
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: C.bg, color: C.navy, fontFamily: body }}>
       <header style={{ background: C.card, borderBottom: `1px solid ${C.line}`, padding: narrow ? '15px 18px' : '18px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
@@ -173,7 +204,7 @@ export default function PlanApp({ clientName, posts: initial }: { clientName: st
 
         {!narrow && (
           <section style={{ flex: 1, padding: '28px 30px 132px' }}>
-            <Detail post={sel} busy={busy} onSetFormat={setFormat} onSaveCaption={saveCaption} onRemove={remove} onRevert={revert} />
+            <Detail post={sel} busy={busy} rewriting={rewritingId === sel?.id} onSetFormat={setFormat} onSaveCaption={saveCaption} onRemove={remove} onRevert={revert} onShape={shapePost} />
           </section>
         )}
       </div>
@@ -184,7 +215,7 @@ export default function PlanApp({ clientName, posts: initial }: { clientName: st
             <div style={{ display: 'flex', justifyContent: 'center', padding: '2px 0 12px' }}>
               <div style={{ width: 40, height: 4, borderRadius: 4, background: C.line }} />
             </div>
-            <Detail post={sel} busy={busy} onSetFormat={setFormat} onSaveCaption={saveCaption} onRemove={remove} onRevert={revert} />
+            <Detail post={sel} busy={busy} rewriting={rewritingId === sel?.id} onSetFormat={setFormat} onSaveCaption={saveCaption} onRemove={remove} onRevert={revert} onShape={shapePost} />
           </div>
         </div>
       )}
@@ -299,14 +330,17 @@ function SprigRow({ post, first, last, selected, onClick }: { post: VPost; first
 
 /* ---------------- detail (editable) ---------------- */
 
-function Detail({ post, busy, onSetFormat, onSaveCaption, onRemove, onRevert }: {
-  post: VPost | null; busy: boolean;
+function Detail({ post, busy, rewriting, onSetFormat, onSaveCaption, onRemove, onRevert, onShape }: {
+  post: VPost | null; busy: boolean; rewriting: boolean;
   onSetFormat: (id: string, f: PostFormat) => void; onSaveCaption: (id: string, c: string) => void;
-  onRemove: (id: string) => void; onRevert: (id: string) => void;
+  onRemove: (id: string) => void; onRevert: (id: string) => void; onShape: (id: string, instruction: string) => void;
 }) {
   const [draft, setDraft] = useState('');
+  const [shapeText, setShapeText] = useState('');
   useEffect(() => { setDraft(post?.caption ?? ''); }, [post?.id, post?.caption]);
+  useEffect(() => { setShapeText(''); }, [post?.id]);
   if (!post) return null;
+  const fireShape = () => { if (shapeText.trim()) { onShape(post.id, shapeText); setShapeText(''); } };
   const Icon = FORMAT_META[post.format].Icon; const g = group(post.pillar);
   const dirty = draft !== post.caption;
 
@@ -338,8 +372,29 @@ function Detail({ post, busy, onSetFormat, onSaveCaption, onRemove, onRevert }: 
       <div style={{ marginTop: 18, border: `1.5px dashed ${C.line}`, borderRadius: 14, padding: '16px', textAlign: 'center', color: C.faint, fontSize: 13 }}>
         Video preview — coming soon.
       </div>
-      <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8, color: C.faint, fontSize: 12.5 }}>
-        <Lock size={13} /> Instructed rewrites (&ldquo;make it softer&rdquo;) and voice arrive next — for now, edit the caption directly above.
+      <div style={{ marginTop: 20 }}>
+        <Kicker>Shape this post</Kicker>
+        {rewriting ? (
+          <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 9, color: C.coralDeep, fontSize: 13.5, background: C.coralLt, borderRadius: 11, padding: '11px 14px' }}>
+            <span className="spin" style={{ width: 14, height: 14, border: `2px solid #FFD9D4`, borderTopColor: C.coralDeep, borderRadius: '50%', display: 'inline-block' }} />
+            Sprigly is rewriting this…
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', gap: 8, marginTop: 9 }}>
+              <input value={shapeText} onChange={(e) => setShapeText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') fireShape(); }}
+                placeholder="Make it softer · shorter · warmer · more about the fabric…" style={inputStyle} />
+              <button onClick={fireShape} disabled={busy || !shapeText.trim()} aria-label="Ask Sprigly to rewrite"
+                style={{ ...primaryBtn, padding: '0 14px', height: 42, opacity: busy || !shapeText.trim() ? 0.45 : 1 }}><Sparkles size={16} /></button>
+            </div>
+            <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 10 }}>
+              {['Make it softer', 'Make it shorter', 'Warmer tone'].map((s) => (
+                <button key={s} onClick={() => onShape(post.id, s)} style={chip}>{s}</button>
+              ))}
+            </div>
+            <p style={{ fontSize: 11.5, color: C.faint, marginTop: 9 }}>Sprigly rewrites it in your voice and checks it before it lands. Revert always returns to the original.</p>
+          </>
+        )}
       </div>
     </div>
   );
@@ -407,3 +462,5 @@ function Legend() {
 const primaryBtn = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, background: C.coral, color: '#fff', border: 'none', borderRadius: 11, cursor: 'pointer', fontFamily: body, fontSize: 14, fontWeight: 600 } as const;
 const ghostBtn = { display: 'inline-flex', alignItems: 'center', gap: 7, background: C.card, color: C.coralDeep, border: `1px solid ${C.line}`, borderRadius: 11, cursor: 'pointer', fontFamily: body, fontSize: 13, fontWeight: 600 } as const;
 const textBtn = { display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', color: C.muted, cursor: 'pointer', fontFamily: body, fontSize: 12.5, fontWeight: 600 } as const;
+const inputStyle = { flex: 1, minWidth: 0, padding: '11px 14px', borderRadius: 11, border: `1px solid ${C.line}`, background: C.card, color: C.navy, fontFamily: body, fontSize: 14, outline: 'none' } as const;
+const chip = { background: C.card, border: `1px solid ${C.line}`, borderRadius: 999, padding: '6px 12px', fontSize: 12.5, color: C.muted, cursor: 'pointer', fontFamily: body } as const;
