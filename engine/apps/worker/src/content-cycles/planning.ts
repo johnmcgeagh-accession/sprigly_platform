@@ -223,8 +223,17 @@ function buildPlanningUserMessage(inp: PlanningInputs): string {
     competitorSection,
     '',
     inp.catalogueGrounding
-      ? `PRODUCTS — this client's REAL products and their ACTUAL colourways. Use ONLY products and colourways from this list. NEVER invent a product name or a colourway, and NEVER pair a product with a colourway not listed under it. If the intake needs a product not here, describe it generically without naming a colourway.\n${inp.catalogueGrounding}`
-      : 'PRODUCTS: no catalogue available — refer to products only as the intake names them; do not invent product names or colourways.',
+      ? [
+          "PRODUCTS — this client's REAL products. Each line lists the ONLY colourways that exist for THAT product.",
+          'This is NOT a shared palette. A colourway listed under one product does NOT exist for any other product: "Dark Olive" under Hannah does not mean Nicola comes in dark olive. Each colourway belongs only to the product it is listed under.',
+          "ANTI-BLEED: a hero piece's colourway never transfers to the other pieces in the same outfit. If you style Nicola in vintage navy with a Claire skirt, that does NOT make the Claire \"vintage navy\" — give Claire one of CLAIRE's own colourways, or none.",
+          'OMIT WHEN UNSURE (this is the main rule): when you name a product you may either (a) give it one of ITS OWN listed colourways, or (b) name it with NO colourway at all. A product named WITHOUT a colourway is always valid ("Nicola" is fine); a product named with a colourway it does not have is a fabrication ("Nicola in dark olive" is not). When in any doubt, OMIT the colourway — say less, never wrong.',
+          'OUTFIT / STYLING BLOCKS: name the LEAD / hero piece WITH its colourway. Name the SUPPORTING pieces WITHOUT a colourway, unless you are deliberately using one of that specific product\'s own listed colourways. This matches how the client writes — the hero piece is coloured, the supporting pieces are lighter.',
+          'If you need a product not in this list, describe it generically and name no colourway. NEVER invent a product name.',
+          '',
+          inp.catalogueGrounding,
+        ].join('\n')
+      : 'PRODUCTS: no catalogue available — refer to products only as the intake names them; do not invent product names or colourways, and name no colourway you are unsure of.',
     '',
     'VOICE (voice.md — apply to every caption):',
     inp.voiceMd ?? '(voice.md not available — apply the hard caption rules in the system prompt and keep captions plain and on-brand.)',

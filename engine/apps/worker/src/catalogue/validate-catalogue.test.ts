@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { indexCatalogue, validateText, applyCatalogueValidation } from './validate-catalogue.js';
+import { indexCatalogue, validateText, applyCatalogueValidation, buildCatalogueGroundingBlock } from './validate-catalogue.js';
 import type { Catalogue, ProductFamily } from './parse-catalogue.js';
 
 const fam = (name: string, style: string, colourways: string[]): ProductFamily => ({
@@ -53,5 +53,33 @@ describe('catalogue HARD validation', () => {
     expect(r.caption).toBe('Loving Elle in [confirm colourway].');
     expect(r.notes[0]).toBe('Shoot flat.');
     expect(r.notes[1]).toMatch(/Elle is not available in "dark olive"/);
+  });
+});
+
+describe('buildCatalogueGroundingBlock — SOFT grounding (per-product binding)', () => {
+  it('binds colourways to each product with an explicit "available ONLY in" line', () => {
+    const block = buildCatalogueGroundingBlock(cat, '');
+    expect(block).toContain('- Elle (Semi-Fitted Dress) — available ONLY in: Black, Navy, Navy Stripe');
+    expect(block).toContain('- Emma (T-Shirt Dress) — available ONLY in: Black, Dark Olive, Navy');
+    // "Dark Olive" appears ONLY on Emma's line, never on Elle's — no shared pool.
+    const elleLine = block.split('\n').find((l) => l.startsWith('- Elle'))!;
+    expect(elleLine).not.toMatch(/dark olive/i);
+  });
+
+  it('marks non-live status (pre-order / back-soon) inline', () => {
+    const c2: Catalogue = { ...cat, families: [
+      { ...fam('Nicola', 'T-Shirt', ['Vintage Navy / Ecru Raglan']),
+        variants: [{ originalTitle: '', conforming: true, name: 'Nicola', style: 'T-Shirt', fabric: 'organic cotton',
+          colourway: 'Vintage Navy / Ecru Raglan', status: 'pre-order', kids: false, sales: { netItemsSold: 0, netSales: 0, returns: 0 } }] },
+    ] };
+    expect(buildCatalogueGroundingBlock(c2, '')).toContain('- Nicola (T-Shirt) — available ONLY in: Vintage Navy / Ecru Raglan [PRE-ORDER]');
+  });
+
+  it('grounds the whole catalogue under the generous default cap (no silent cut for normal clients)', () => {
+    expect(buildCatalogueGroundingBlock(cat, '').split('\n').length).toBe(cat.families.length);
+  });
+
+  it('returns empty string when there is no catalogue', () => {
+    expect(buildCatalogueGroundingBlock({ ...cat, families: [] }, '')).toBe('');
   });
 });

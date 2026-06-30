@@ -99,12 +99,20 @@ export function validateText(text: string, idx: CatalogueIndex, windowChars = 28
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /**
- * SOFT grounding — a compact real-products subset for the generation prompt.
+ * SOFT grounding — the real-products list for the generation prompt.
  * Ranks families by relevance: named in the intake (highest), then being pushed
- * (pre-order / back-soon), then by sales. Lists each family's REAL colourways so
- * the model selects from them and never invents a product or colourway.
+ * (pre-order / back-soon), then by sales — so the most relevant survive if a huge
+ * catalogue exceeds the cap. The cap is generous (60) so a normal client's whole
+ * catalogue is grounded: every product the model might style as a supporting piece
+ * has its real colourways, removing the "must invent because it was cut" pressure
+ * (the cap costs ~4 tokens/family — trivial vs the generation call).
+ *
+ * Each line binds colourways to ONE product with "available ONLY in:" so the model
+ * cannot read the colourways as a shared palette and cross-apply one product's
+ * colourway to another (the "Nicola in dark olive" failure). The omit-rule and
+ * anti-bleed instruction that pair with this block live in the generation prompt.
  */
-export function buildCatalogueGroundingBlock(cat: Catalogue, intakeText: string, maxFamilies = 30): string {
+export function buildCatalogueGroundingBlock(cat: Catalogue, intakeText: string, maxFamilies = 60): string {
   const families = cat.families ?? [];
   if (families.length === 0) return '';
   const text = intakeText.toLowerCase();
@@ -117,7 +125,7 @@ export function buildCatalogueGroundingBlock(cat: Catalogue, intakeText: string,
   const ranked = [...families].sort((a, b) => score(b) - score(a)).slice(0, maxFamilies);
   return ranked.map((f) => {
     const cols = f.variants.map((v) => v.colourway + (v.status !== 'live' ? ` [${v.status.toUpperCase()}]` : '')).join(', ');
-    return `- ${f.name} (${f.style}): ${cols}`;
+    return `- ${f.name} (${f.style}) — available ONLY in: ${cols}`;
   }).join('\n');
 }
 
