@@ -4,6 +4,10 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@types/react': ^18.3.0
+  '@types/react-dom': ^18.3.0
+
 importers:
 
   .:
@@ -73,11 +77,11 @@ importers:
         specifier: '*'
         version: 20.19.40
       '@types/react':
-        specifier: '*'
+        specifier: ^18.3.0
         version: 18.3.28
       '@types/react-dom':
-        specifier: '*'
-        version: 19.2.3(@types/react@18.3.28)
+        specifier: ^18.3.0
+        version: 18.3.7(@types/react@18.3.28)
       autoprefixer:
         specifier: ^10.4.0
         version: 10.5.0(postcss@8.5.14)
@@ -134,7 +138,7 @@ importers:
         version: 5.76.8
       drizzle-orm:
         specifier: ^0.30.0
-        version: 0.30.10(@types/react@19.2.14)(postgres@3.4.9)(react@18.3.1)
+        version: 0.30.10(@types/react@18.3.28)(postgres@3.4.9)(react@18.3.1)
       googleapis:
         specifier: ^144.0.0
         version: 144.0.0
@@ -178,7 +182,7 @@ importers:
         version: link:../embedding-client
       drizzle-orm:
         specifier: ^0.30.0
-        version: 0.30.10(@types/react@19.2.14)(postgres@3.4.9)(react@18.3.1)
+        version: 0.30.10(@types/react@18.3.28)(postgres@3.4.9)(react@18.3.1)
       postgres:
         specifier: ^3.4.0
         version: 3.4.9
@@ -218,7 +222,7 @@ importers:
         version: link:../workflows
       drizzle-orm:
         specifier: ^0.30.0
-        version: 0.30.10(@types/react@19.2.14)(postgres@3.4.9)(react@18.3.1)
+        version: 0.30.10(@types/react@18.3.28)(postgres@3.4.9)(react@18.3.1)
       googleapis:
         specifier: ^144.0.0
         version: 144.0.0
@@ -259,7 +263,7 @@ importers:
         version: link:../prompts
       drizzle-orm:
         specifier: ^0.30.0
-        version: 0.30.10(@types/react@19.2.14)(postgres@3.4.9)(react@18.3.1)
+        version: 0.30.10(@types/react@18.3.28)(postgres@3.4.9)(react@18.3.1)
     devDependencies:
       typescript:
         specifier: '*'
@@ -284,7 +288,7 @@ importers:
         version: link:../sources
       drizzle-orm:
         specifier: ^0.30.0
-        version: 0.30.10(@types/react@19.2.14)(postgres@3.4.9)(react@18.3.1)
+        version: 0.30.10(@types/react@18.3.28)(postgres@3.4.9)(react@18.3.1)
     devDependencies:
       typescript:
         specifier: '*'
@@ -319,7 +323,7 @@ importers:
         version: link:../db
       drizzle-orm:
         specifier: ^0.30.0
-        version: 0.30.10(@types/react@19.2.14)(postgres@3.4.9)(react@18.3.1)
+        version: 0.30.10(@types/react@18.3.28)(postgres@3.4.9)(react@18.3.1)
     devDependencies:
       typescript:
         specifier: '*'
@@ -360,7 +364,7 @@ importers:
         version: link:../db
       drizzle-orm:
         specifier: ^0.30.0
-        version: 0.30.10(@types/react@19.2.14)(postgres@3.4.9)(react@18.3.1)
+        version: 0.30.10(@types/react@18.3.28)(postgres@3.4.9)(react@18.3.1)
     devDependencies:
       typescript:
         specifier: '*'
@@ -382,7 +386,7 @@ importers:
         version: link:../oauth-tokens
       drizzle-orm:
         specifier: ^0.30.0
-        version: 0.30.10(@types/react@19.2.14)(postgres@3.4.9)(react@18.3.1)
+        version: 0.30.10(@types/react@18.3.28)(postgres@3.4.9)(react@18.3.1)
       googleapis:
         specifier: ^144.0.0
         version: 144.0.0
@@ -404,11 +408,11 @@ importers:
         version: 18.3.1(react@18.3.1)
     devDependencies:
       '@types/react':
-        specifier: '*'
-        version: 19.2.14
+        specifier: ^18.3.0
+        version: 18.3.28
       '@types/react-dom':
-        specifier: '*'
-        version: 19.2.3(@types/react@19.2.14)
+        specifier: ^18.3.0
+        version: 18.3.7(@types/react@18.3.28)
       typescript:
         specifier: '*'
         version: 5.9.3
@@ -1820,16 +1824,13 @@ packages:
   '@types/prop-types@15.7.15':
     resolution: {integrity: sha512-F6bEyamV9jKGAFBEmlQnesRPGOQqS2+Uwi0Em15xenOxHaf2hv6L8YCVn3rPdPJOiJfPiCnLIRyvwVaqMY3MIw==}
 
-  '@types/react-dom@19.2.3':
-    resolution: {integrity: sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ==}
+  '@types/react-dom@18.3.7':
+    resolution: {integrity: sha512-MEe3UeoENYVFXzoXEWsvcpg6ZvlrFNlOQ7EOsvhI3CfAXwzPfO8Qwuxd40nepsYKqyyVQnTdEfv68q91yLcKrQ==}
     peerDependencies:
-      '@types/react': ^19.2.0
+      '@types/react': ^18.3.0
 
   '@types/react@18.3.28':
     resolution: {integrity: sha512-z9VXpC7MWrhfWipitjNdgCauoMLRdIILQsAEV+ZesIzBq/oUlxk0m3ApZuMFCXdnS4U7KrI+l3WRUEGQ8K1QKw==}
-
-  '@types/react@19.2.14':
-    resolution: {integrity: sha512-ilcTH/UniCkMdtexkoCN0bI7pMcJDvmQFPvuPvmEaYA/NSfFTAgdUSLAoVjaRJm7+6PvcM+q1zYOwS4wTYMF9w==}
 
   '@vitest/expect@1.6.1':
     resolution: {integrity: sha512-jXL+9+ZNIJKruofqXuuTClf44eSpcHlgj3CiuNihUF3Ioujtmc0zIa3UJOW5RjDK1YLBJZnWBlPuqhYycLioog==}
@@ -2137,7 +2138,7 @@ packages:
       '@planetscale/database': '>=1'
       '@types/better-sqlite3': '*'
       '@types/pg': '*'
-      '@types/react': '>=18'
+      '@types/react': ^18.3.0
       '@types/sql.js': '*'
       '@vercel/postgres': '>=0.8.0'
       '@xata.io/client': '*'
@@ -4790,21 +4791,13 @@ snapshots:
 
   '@types/prop-types@15.7.15': {}
 
-  '@types/react-dom@19.2.3(@types/react@18.3.28)':
+  '@types/react-dom@18.3.7(@types/react@18.3.28)':
     dependencies:
       '@types/react': 18.3.28
-
-  '@types/react-dom@19.2.3(@types/react@19.2.14)':
-    dependencies:
-      '@types/react': 19.2.14
 
   '@types/react@18.3.28':
     dependencies:
       '@types/prop-types': 15.7.15
-      csstype: 3.2.3
-
-  '@types/react@19.2.14':
-    dependencies:
       csstype: 3.2.3
 
   '@vitest/expect@1.6.1':
@@ -5116,12 +5109,6 @@ snapshots:
   drizzle-orm@0.30.10(@types/react@18.3.28)(postgres@3.4.9)(react@18.3.1):
     optionalDependencies:
       '@types/react': 18.3.28
-      postgres: 3.4.9
-      react: 18.3.1
-
-  drizzle-orm@0.30.10(@types/react@19.2.14)(postgres@3.4.9)(react@18.3.1):
-    optionalDependencies:
-      '@types/react': 19.2.14
       postgres: 3.4.9
       react: 18.3.1
 
