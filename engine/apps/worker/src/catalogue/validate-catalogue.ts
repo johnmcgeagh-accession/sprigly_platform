@@ -39,7 +39,18 @@ export function indexCatalogue(cat: Catalogue): CatalogueIndex {
     if (!set) { set = new Set(); colourwaysByName.set(name, set); }
     for (const v of fam.variants) {
       const c = (v.colourway ?? '').toLowerCase().trim();
-      if (c) { set.add(c); colourSet.add(c); }
+      if (!c) continue;
+      set.add(c); colourSet.add(c);
+      // Compound colourways (e.g. Nicola's "vintage navy / ecru raglan"): also
+      // register each slash-separated COMPONENT as valid for this product and as a
+      // recognised colourway phrase. A caption naming one part ("Nicola in Vintage
+      // Navy", "Nicola in Ecru Raglan") is correct and must not be flagged.
+      if (c.includes('/')) {
+        for (const part of c.split('/')) {
+          const p = part.trim();
+          if (p) { set.add(p); colourSet.add(p); }
+        }
+      }
     }
   }
   return {
@@ -80,17 +91,26 @@ export function validateText(text: string, idx: CatalogueIndex, windowChars = 28
 
   const out = new Map<string, CaptionViolation>();
   for (const ch of colourHits) {
+    // Bind the colourway to the product it grammatically belongs to: the nearest
+    // PRECEDING product name on the same line. Captions read "Product in Colourway"
+    // / "Product Colourway", so the colourway attaches to the product just before
+    // it — never to a following product, and never to a more distant one when a
+    // closer product sits between them. This kills proximity bleed: in "Nicola in
+    // Vintage Navy with the Claire skirt" the colourway binds to Nicola only, not
+    // the nearby Claire; in "Claire in Navy with the Hannah … in White" navy binds
+    // to Claire and white to Hannah, not crossed.
+    let best: Span | null = null;
     for (const nh of nameHits) {
-      const gap = Math.max(nh.start - ch.end, ch.start - nh.end, 0);
-      if (gap > windowChars) continue;
-      // Don't associate across a line break (different paragraph/topic).
-      const between = text.slice(Math.min(ch.end, nh.end), Math.max(ch.start, nh.start));
-      if (between.includes('\n')) continue;
-      const valid = idx.colourwaysByName.get(nh.text);
-      if (valid && !valid.has(ch.text)) {
-        const key = `${nh.text}|${ch.text}`;
-        if (!out.has(key)) out.set(key, { name: nh.text, colourway: ch.text, valid: [...valid] });
-      }
+      if (nh.end > ch.start) continue;                          // must precede the colourway
+      if (ch.start - nh.end > windowChars) continue;            // within the window
+      if (text.slice(nh.end, ch.start).includes('\n')) continue; // same line/paragraph
+      if (!best || nh.end > best.end) best = nh;                // keep the closest preceding
+    }
+    if (!best) continue;
+    const valid = idx.colourwaysByName.get(best.text);
+    if (valid && !valid.has(ch.text)) {
+      const key = `${best.text}|${ch.text}`;
+      if (!out.has(key)) out.set(key, { name: best.text, colourway: ch.text, valid: [...valid] });
     }
   }
   return [...out.values()];

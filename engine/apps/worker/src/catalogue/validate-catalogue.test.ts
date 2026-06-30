@@ -83,3 +83,49 @@ describe('buildCatalogueGroundingBlock — SOFT grounding (per-product binding)'
     expect(buildCatalogueGroundingBlock({ ...cat, families: [] }, '')).toBe('');
   });
 });
+
+describe('validateText — precision (compound colourways + grammatical binding)', () => {
+  // Mirrors the IVY-t shapes that produced the false positives.
+  const cat2: Catalogue = {
+    families: [
+      fam('Nicola', 'T-Shirt', ['Vintage Navy / Ecru Raglan']),  // compound colourway
+      fam('Claire', 'Skirt', ['Black', 'Dark Olive', 'Navy', 'Plum']),
+      fam('Hannah', 'T-Shirt', ['White', 'Cornflower', 'Ecru', 'Navy Breton']),  // no plain navy
+      fam('Mabel', 'T-Shirt', ['Navy', 'Grey Marl']),
+      fam('Joy', 'Shorts', ['Vintage Navy', 'Watermelon']),
+    ],
+    flagged: [], statusBreakdown: { live: 13, 'pre-order': 0, 'back-soon': 0, 'sample-sale': 0 },
+  };
+  const idx2 = indexCatalogue(cat2);
+
+  // ── compound colourways: a component reference is valid ──
+  it('accepts a component of a compound colourway (Nicola in Vintage Navy / Ecru Raglan)', () => {
+    expect(validateText('Nicola in Vintage Navy is the one I reach for.', idx2)).toEqual([]);
+    expect(validateText('Nicola in Ecru Raglan, tucked in at the front.', idx2)).toEqual([]);
+  });
+
+  // ── proximity / grammatical binding: colourway binds to its product only ──
+  it('does not bleed a colourway onto a nearby supporting product', () => {
+    // "Vintage Navy" belongs to Nicola; Claire (no colourway) must NOT be flagged.
+    expect(validateText('Nicola in Vintage Navy, tucked into the Claire skirt.', idx2)).toEqual([]);
+  });
+
+  it('binds each colourway to its own product across a multi-product line', () => {
+    // Claire in Navy (valid) + Hannah in White (valid) — no crossed "hannah in navy".
+    expect(validateText('Claire in Navy with the Hannah T-Shirt in White.', idx2)).toEqual([]);
+  });
+
+  it('does not bind a colourway to a FOLLOWING product (trainers/shorts nouns)', () => {
+    expect(validateText('Nicola in Ecru Raglan, with Joy shorts and sandals.', idx2)).toEqual([]);
+  });
+
+  // ── genuine fabrications are STILL caught (precision, not leniency) ──
+  it('still flags a genuinely wrong product+colourway pairing', () => {
+    expect(validateText('Claire in Cornflower this week.', idx2))
+      .toEqual([{ name: 'claire', colourway: 'cornflower', valid: ['black', 'dark olive', 'navy', 'plum'] }]);
+  });
+
+  it('still flags a hero-colourway bled onto the wrong product when grammatically bound', () => {
+    expect(validateText('Mabel in Ecru is back.', idx2)[0]?.name).toBe('mabel');
+  });
+});
