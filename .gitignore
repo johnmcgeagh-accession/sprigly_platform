@@ -1,12 +1,21 @@
 .paul
-*/node_modules/
-*/dist/
-*/.next/
-*/.turbo/
-*/*.env
-*/.env.local
-*/.env.*.local
-*/*.log
+
+# dependencies / build artifacts — bare patterns match at ANY depth, so they
+# cover the lifted workspace (engine/, admin/, packages/*/) not just one level.
+node_modules/
+dist/
+.next/
+.turbo/
+*.log
+
+# env files — bare patterns ALSO ignore the workspace-root .env.local (the real
+# secret file lifted here in Stage 4). .env.example is NOT matched and stays tracked.
+*.env
+.env.local
+.env.*.local
+
+# os
 .DS_Store
-*/.DS_Store
-engine/apps/worker/eval-results/
+
+# worker eval output (was engine/apps/worker/eval-results; worker is now engine/)
+engine/eval-results/
