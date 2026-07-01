@@ -10,6 +10,10 @@ import {
   resetCycle,
   copyClientLink,
   setDeliverySurface,
+  setAiChangeLimit,
+  liftAiLimit,
+  clearAiLimitOverride,
+  setPostsPerWeek,
   type ActionResult,
 } from './actions';
 import { formatDateTime, formatDateTimeShort } from '@/lib/format-date';
@@ -36,6 +40,9 @@ interface Props {
   contentCycleEnabled: boolean;
   cycle:               CycleInfo | null;
   deliverySurface:     'app' | 'sheet' | 'both';  // what the delivery email links to
+  aiChangeLimit:       number;         // monthly AI-change allowance (rewrites/regen)
+  aiChangeLimitOverrideUntil: string | null;  // ISO; future = unlimited
+  postsPerWeek:        number | null;  // null = derive from config/history
   intakePresent:       boolean;  // planContent answers/freeNotes present → planning can run
   driveFiles:          DriveFileMeta[] | null;  // null = fetch failed / no tokens
   driveError:          boolean;
@@ -46,6 +53,14 @@ interface Props {
 // Deterministic, hydration-safe formatters (see @/lib/format-date).
 const fmtDate = formatDateTime;
 const fmtModified = formatDateTimeShort;
+
+// "YYYY-MM" → previous month "YYYY-MM" (the data month behind a plan month).
+// Deterministic in its input (no `new Date()` now), so hydration-safe.
+function prevMonthUI(yyyymm: string): string {
+  const [y, m] = yyyymm.split('-').map(Number);
+  const d = new Date(Date.UTC(y!, m! - 2, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
 
 function StatusBadge({ status }: { status: string }) {
   const colours: Record<string, string> = {
@@ -75,6 +90,9 @@ export function ContentCycleOpsPanel({
   contentCycleEnabled,
   cycle,
   deliverySurface,
+  aiChangeLimit,
+  aiChangeLimitOverrideUntil,
+  postsPerWeek,
   intakePresent,
   driveFiles,
   driveError,
@@ -86,7 +104,11 @@ export function ContentCycleOpsPanel({
   const [linkCopied,         setLinkCopied]          = useState(false);
   const [startMonth,         setStartMonth]          = useState('');
   const [startNote,          setStartNote]           = useState<string | null>(null);
+  const [aiLimitInput,       setAiLimitInput]         = useState(String(aiChangeLimit));
+  const [ppwInput,           setPpwInput]             = useState(postsPerWeek != null ? String(postsPerWeek) : '');
   const [isPending,          startTransition]        = useTransition();
+
+  const overrideActive = aiChangeLimitOverrideUntil != null && new Date(aiChangeLimitOverrideUntil).getTime() > Date.now();
 
   function copyLink() {
     setActionError(null);
@@ -115,6 +137,17 @@ export function ContentCycleOpsPanel({
   const cycleIsActive    = cycle !== null && cycle.status !== 'scheduled';
   const cycleIsRequested = cycle?.status === 'requested';
 
+  // "Start & prepare" inputs check: the picked plan month's DATA month is planMonth−1;
+  // ig-trawl/sales fetch for that data month, so check Drive for those files.
+  const startMonthValid = /^\d{4}-(0[1-9]|1[0-2])$/.test(startMonth);
+  const startDataMonth  = startMonthValid ? prevMonthUI(startMonth) : null;
+  const startHasPosts = startDataMonth
+    ? (driveFiles?.some(f => f.name.toLowerCase() === `instagram-posts-${startDataMonth}.json`.toLowerCase()) ?? false)
+    : false;
+  const startHasSales = startDataMonth
+    ? (driveFiles?.some(f => f.name.toLowerCase() === `sales-${startDataMonth}.csv`.toLowerCase()) ?? false)
+    : false;
+
   function callTrigger(
     action: (fd: FormData) => Promise<ActionResult>,
     extraFields?: Record<string, string>,
@@ -131,9 +164,10 @@ export function ContentCycleOpsPanel({
     });
   }
 
-  // "Start a month" — kick off planning for an arbitrary future plan month for THIS
-  // channel. planMonth is the month you want to see posts for; the action derives
-  // the data month (planMonth − 1) itself. Surfaces the success note, not just errors.
+  // "Start & prepare" — run the automated input-fetch trace (ig-trawl → request-email)
+  // for an arbitrary plan month on THIS channel, stopping BEFORE planning. planMonth
+  // is the month you want posts for; the action derives the data month (planMonth − 1).
+  // Surfaces the success note, not just errors.
   function runStartMonth() {
     setActionError(null);
     setStartNote(null);
@@ -392,10 +426,90 @@ export function ContentCycleOpsPanel({
           </div>
         </div>
 
-        {/* Start a month — plan an arbitrary future month on demand */}
+        {/* Limits & cadence (Phase 4) */}
+        <div className="mt-4 pt-4 border-t border-gray-100 space-y-3">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Limits &amp; cadence</h3>
+
+          {/* AI-change limit */}
+          <div className="flex items-center gap-2 flex-wrap text-sm">
+            <span className="font-medium text-gray-600 w-40 shrink-0">AI-change limit / month</span>
+            <input
+              type="number" min={0} step={1}
+              value={aiLimitInput}
+              disabled={isPending}
+              onChange={(e) => setAiLimitInput((e.target as unknown as { value: string }).value)}
+              className="border border-gray-300 rounded px-2 py-1 text-sm w-24 disabled:opacity-50"
+            />
+            <button
+              type="button"
+              disabled={isPending || aiLimitInput.trim() === '' || aiLimitInput === String(aiChangeLimit)}
+              onClick={() => callTrigger(setAiChangeLimit, { limit: aiLimitInput.trim() })}
+              className="px-2.5 py-1 text-xs font-medium bg-gray-700 text-white rounded hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Save
+            </button>
+            <span className="text-xs text-gray-400">rewrites/regen only — structural edits are always free</span>
+          </div>
+
+          {/* Override */}
+          <div className="flex items-center gap-2 flex-wrap text-sm">
+            <span className="font-medium text-gray-600 w-40 shrink-0">Override</span>
+            {overrideActive ? (
+              <>
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+                  Unlimited until {fmtDate(aiChangeLimitOverrideUntil!)}
+                </span>
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => callTrigger(clearAiLimitOverride)}
+                  className="text-xs text-gray-500 underline hover:text-gray-700 disabled:opacity-50"
+                >
+                  Clear override
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="text-xs text-gray-400">Limit in force.</span>
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => callTrigger(liftAiLimit)}
+                  className="px-2.5 py-1 text-xs font-medium bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                >
+                  Lift limit for 30 days
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Posts per week */}
+          <div className="flex items-center gap-2 flex-wrap text-sm">
+            <span className="font-medium text-gray-600 w-40 shrink-0">Posts per week</span>
+            <input
+              type="number" min={1} max={14} step={1}
+              value={ppwInput}
+              placeholder="auto"
+              disabled={isPending}
+              onChange={(e) => setPpwInput((e.target as unknown as { value: string }).value)}
+              className="border border-gray-300 rounded px-2 py-1 text-sm w-24 disabled:opacity-50"
+            />
+            <button
+              type="button"
+              disabled={isPending || ppwInput === (postsPerWeek != null ? String(postsPerWeek) : '')}
+              onClick={() => callTrigger(setPostsPerWeek, { postsPerWeek: ppwInput.trim() })}
+              className="px-2.5 py-1 text-xs font-medium bg-gray-700 text-white rounded hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Save
+            </button>
+            <span className="text-xs text-gray-400">blank = derive from history/config (unchanged)</span>
+          </div>
+        </div>
+
+        {/* Start & prepare — run the input-fetch trace for an arbitrary month, stop before planning */}
         <div className="mt-4 pt-4 border-t border-gray-100">
           <div className="flex items-center gap-2 flex-wrap text-sm">
-            <span className="font-medium text-gray-600">Start a month:</span>
+            <span className="font-medium text-gray-600">Start &amp; prepare:</span>
             <input
               type="month"
               value={startMonth}
@@ -406,20 +520,52 @@ export function ContentCycleOpsPanel({
             <span className="text-xs text-gray-400">for {channel}</span>
             <button
               type="button"
-              disabled={isPending || !startMonth}
+              disabled={isPending || !startMonthValid}
               onClick={runStartMonth}
-              title={`Create/reuse the cycle for the chosen plan month and run planning now. Delivery stays pinned to the test inbox; no client is emailed. Writes ${channel} rows for the picked month to content_cycle_posts.`}
+              title={`Create/reuse the ${channel} cycle for the chosen plan month and run the input trace (IG trawl → request-email) for its data month. STOPS before planning — check the inputs below, then run planning deliberately. No client is emailed; the John-pinned delivery is untouched.`}
               className="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isPending ? 'Starting…' : 'Start & plan'}
+              {isPending ? 'Preparing…' : 'Start & prepare'}
             </button>
           </div>
           <p className="mt-1.5 text-xs text-gray-400">
-            Pick the month you want posts <em>for</em> (e.g. <span className="font-mono">2026-07</span> → July posts).
-            Planning runs straight away and delivery is pinned to the test inbox.
+            Pick the month you want posts <em>for</em> (e.g. <span className="font-mono">2026-07</span> → July posts, data month <span className="font-mono">2026-06</span>).
+            Runs the IG trawl + request, <strong>stops before planning</strong>, and shows what inputs were found so you can fill gaps first.
           </p>
+
+          {/* Inputs found for the picked month's data month — prominent, so gaps are obvious before planning */}
+          {startMonthValid && startDataMonth && (
+            <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                Inputs found — data month <span className="font-mono normal-case">{startDataMonth}</span>
+              </div>
+              <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+                <span className="inline-flex items-center gap-2">
+                  <span className={startHasPosts ? 'text-green-600 font-bold' : 'text-red-500 font-bold'}>{startHasPosts ? '✓' : '✗'}</span>
+                  <span className={startHasPosts ? 'text-gray-700' : 'text-red-600 font-medium'}>
+                    IG posts <span className="font-mono text-xs text-gray-400">instagram-posts-{startDataMonth}.json</span>
+                  </span>
+                </span>
+                <span className="inline-flex items-center gap-2">
+                  <span className={startHasSales ? 'text-green-600 font-bold' : 'text-red-500 font-bold'}>{startHasSales ? '✓' : '✗'}</span>
+                  <span className={startHasSales ? 'text-gray-700' : 'text-red-600 font-medium'}>
+                    Sales data <span className="font-mono text-xs text-gray-400">sales-{startDataMonth}.csv</span>
+                  </span>
+                </span>
+              </div>
+              {(!startHasPosts || !startHasSales) && (
+                <p className="mt-2 text-xs text-amber-600">
+                  Missing inputs won&apos;t block planning, but the plan will be thinner. Prepare fetches IG automatically; drop <span className="font-mono">sales-{startDataMonth}.csv</span> into Drive if absent, then run planning.
+                </p>
+              )}
+              {driveFiles === null && (
+                <p className="mt-2 text-xs text-gray-400 italic">Drive file list unavailable — can&apos;t confirm inputs (check Drive OAuth).</p>
+              )}
+            </div>
+          )}
+
           {startNote && (
-            <div className="mt-2 flex items-start gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2.5">
+            <div className="mt-3 flex items-start gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2.5">
               <span className="shrink-0 font-bold">✓</span>
               <span>{startNote}</span>
               <button

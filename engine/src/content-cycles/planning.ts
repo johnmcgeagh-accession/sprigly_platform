@@ -172,6 +172,7 @@ interface PlanningInputs {
   gather:     CompetitorGatherData | null;
   voiceMd:    string | null;
   catalogueGrounding: string;   // SOFT grounding: real products + colourways (may be '')
+  postsPerWeek: number | null;  // Phase 4 — explicit weekly cadence override; null = use config cadence
 }
 
 /** Build the single user message: every assembled input, clearly sectioned, for
@@ -200,6 +201,9 @@ function buildPlanningUserMessage(inp: PlanningInputs): string {
     'PLANNING CONFIG:',
     `Pillars (use these names verbatim; assign exactly one per post):\n${JSON.stringify(cfg?.pillars ?? [], null, 2)}`,
     `Cadence: ${JSON.stringify(cfg?.cadence ?? {})}`,
+    inp.postsPerWeek != null
+      ? `TARGET CADENCE (AUTHORITATIVE — overrides the cadence range above): plan exactly ${inp.postsPerWeek} posts per week across the plan month, distributed evenly on the standard posting days/times.`
+      : '',
     `Recurring series (schedule each on its day/time/format/whoPosts):\n${JSON.stringify(cfg?.recurringSeries ?? [], null, 2)}`,
     `Posting times (use these labels): ${JSON.stringify(cfg?.postingTimes ?? {})}`,
     `Categories (AUTHORITATIVE — use ONLY these values for the category field): ${JSON.stringify(cfg?.categories ?? [])}`,
@@ -394,7 +398,7 @@ export async function assembleShapeContext(
   const clientName = clientRow?.name ?? slug;
 
   const [channelRow] = await db
-    .select({ driveFolderId: clientChannels.driveFolderId, contactName: clientChannels.contactName })
+    .select({ driveFolderId: clientChannels.driveFolderId, contactName: clientChannels.contactName, postsPerWeek: clientChannels.postsPerWeek })
     .from(clientChannels)
     .where(and(
       eq(clientChannels.clientId, clientId),
@@ -461,6 +465,7 @@ export async function assembleShapeContext(
   const userMessage  = buildPlanningUserMessage({
     clientName, dataMonth: cycleMonth, targetMonth, answers, freeNotes,
     planConfig: planConfigRow, gather, voiceMd, catalogueGrounding,
+    postsPerWeek: channelRow?.postsPerWeek ?? null,
   });
 
   const vocab = {

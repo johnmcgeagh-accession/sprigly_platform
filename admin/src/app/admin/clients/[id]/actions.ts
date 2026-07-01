@@ -54,7 +54,13 @@ export async function copyClientLink(formData: FormData): Promise<{ ok: boolean;
     clientId, cycleId: cycle.id, token,
     expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30),
   });
-  const base = (process.env.APP_BASE_URL ?? 'https://app.sprigly.co.uk').replace(/\/$/, '');
+  // /p/<token> is a CLIENT app route. Admin has no env schema, so guard here: if
+  // APP_BASE_URL is unset OR wrongly points at the admin origin, fall back to the
+  // app origin rather than mint a dead admin.sprigly.co.uk/p/… link.
+  const raw = (process.env.APP_BASE_URL ?? 'https://app.sprigly.co.uk').replace(/\/$/, '');
+  let base = raw;
+  try { if (/^admin\./i.test(new URL(raw).hostname)) base = 'https://app.sprigly.co.uk'; }
+  catch { base = 'https://app.sprigly.co.uk'; }
   return { ok: true, url: `${base}/p/${token}` };
 }
 
@@ -70,6 +76,74 @@ export async function setDeliverySurface(formData: FormData): Promise<ActionResu
 
   await db.update(clientChannels)
     .set({ deliverySurface: surface })
+    .where(and(eq(clientChannels.clientId, clientId), eq(clientChannels.channel, channel)));
+  revalidatePath(`/admin/clients/${clientId}`);
+  return { ok: true };
+}
+
+// ── AI-change limit (Phase 4) ─────────────────────────────────────────────────
+// Monthly allowance of AI changes (rewrites/regen) per channel. Structural edits
+// are always free. A future override_until lifts the cap ("Lift limit for 30 days").
+
+export async function setAiChangeLimit(formData: FormData): Promise<ActionResult> {
+  const clientId = String(formData.get('clientId') ?? '');
+  const channel  = String(formData.get('channel')  ?? '');
+  const raw      = String(formData.get('limit')    ?? '').trim();
+  if (!clientId || !channel) return { ok: false, message: 'Missing client/channel.' };
+  const limit = parseInt(raw, 10);
+  if (isNaN(limit) || limit < 0 || limit > 100000) return { ok: false, message: `Invalid limit "${raw}".` };
+
+  await db.update(clientChannels)
+    .set({ aiChangeLimit: limit })
+    .where(and(eq(clientChannels.clientId, clientId), eq(clientChannels.channel, channel)));
+  revalidatePath(`/admin/clients/${clientId}`);
+  return { ok: true };
+}
+
+/** Lift the limit for 30 days (override_until = now + 30 days) — unblocks a client
+ *  while real usage is watched via the app counter. */
+export async function liftAiLimit(formData: FormData): Promise<ActionResult> {
+  const clientId = String(formData.get('clientId') ?? '');
+  const channel  = String(formData.get('channel')  ?? '');
+  if (!clientId || !channel) return { ok: false, message: 'Missing client/channel.' };
+
+  const until = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  await db.update(clientChannels)
+    .set({ aiChangeLimitOverrideUntil: until })
+    .where(and(eq(clientChannels.clientId, clientId), eq(clientChannels.channel, channel)));
+  revalidatePath(`/admin/clients/${clientId}`);
+  return { ok: true };
+}
+
+export async function clearAiLimitOverride(formData: FormData): Promise<ActionResult> {
+  const clientId = String(formData.get('clientId') ?? '');
+  const channel  = String(formData.get('channel')  ?? '');
+  if (!clientId || !channel) return { ok: false, message: 'Missing client/channel.' };
+
+  await db.update(clientChannels)
+    .set({ aiChangeLimitOverrideUntil: null })
+    .where(and(eq(clientChannels.clientId, clientId), eq(clientChannels.channel, channel)));
+  revalidatePath(`/admin/clients/${clientId}`);
+  return { ok: true };
+}
+
+// ── Posts-per-week (Phase 4) ──────────────────────────────────────────────────
+// Blank = derive from config/history (unchanged). A value targets that cadence.
+export async function setPostsPerWeek(formData: FormData): Promise<ActionResult> {
+  const clientId = String(formData.get('clientId') ?? '');
+  const channel  = String(formData.get('channel')  ?? '');
+  const raw      = String(formData.get('postsPerWeek') ?? '').trim();
+  if (!clientId || !channel) return { ok: false, message: 'Missing client/channel.' };
+
+  let postsPerWeek: number | null = null;
+  if (raw !== '') {
+    const n = parseInt(raw, 10);
+    if (isNaN(n) || n < 1 || n > 14) return { ok: false, message: `Posts per week must be 1–14 (or blank for auto), got "${raw}".` };
+    postsPerWeek = n;
+  }
+
+  await db.update(clientChannels)
+    .set({ postsPerWeek })
     .where(and(eq(clientChannels.clientId, clientId), eq(clientChannels.channel, channel)));
   revalidatePath(`/admin/clients/${clientId}`);
   return { ok: true };
@@ -262,22 +336,18 @@ function prevMonth(yyyymm: string): string {
 }
 
 /**
- * "Start a month" — create or reuse the content_cycles row for an ARBITRARY plan
- * month and fire planning for it directly, without waiting for the daily scheduler.
- * Lets us test future months (e.g. July, August) on demand before the scheduler
- * would ever reach them.
+ * "Start & prepare" — create/reuse the cycle for an ARBITRARY plan month and run
+ * the same automated INPUT-FETCH trace the scheduler does (ig-trawl → request-email),
+ * then STOP. It deliberately does NOT plan: planning stays a separate, deliberate
+ * click so John can first see which inputs were actually found (IG posts + sales in
+ * Drive) and fill any gaps before generating — no auto-planning on thin data, which
+ * is what produced July off missing IG/sales.
  *
- * `planMonth` is the month you want to SEE posts for. The worker plans
- * cycle_month + 1, so the underlying cycle row's cycle_month is planMonth − 1 (the
- * data month). Picking 2026-07 therefore creates a cycle at 2026-06 and produces
- * July-dated rows in content_cycle_posts (the dual-write inside runPlanningForCycle).
- *
- * No fresh intake is required: assembleShapeContext treats intake as optional and
- * falls back to the client's standing planning config, so we only mark
- * intakeSource='manual' and leave intakeJson null. This action never runs
- * request-email, so no real client is emailed; workbook delivery stays pinned to
- * the test inbox by the build-workbook workflow. Reuses the shared enqueuePlanning
- * + deterministic planning_${cycleId} jobId — no duplicated planning logic.
+ * `planMonth` is the month you want posts for. The worker plans cycle_month + 1, so
+ * the cycle is keyed at cycle_month = planMonth − 1 (the data month), and ig-trawl /
+ * sales fetch for that data month. The cycle lands at 'requested' (request-email's
+ * transition); it never reaches delivery, so the John-pinned delivery is untouched.
+ * Reuses the same job helpers/jobIds as the scheduler — no duplicated fetch logic.
  */
 export async function startCycleForMonth(formData: FormData): Promise<ActionResult> {
   const clientId  = formData.get('clientId')  as string;
@@ -292,42 +362,40 @@ export async function startCycleForMonth(formData: FormData): Promise<ActionResu
   // The worker plans cycle_month + 1, so the data month behind a July plan is June.
   const dataMonth = prevMonth(planMonth);
 
+  const queue = getCyclesQueue();
   try {
-    // Create the cycle row if this (client, channel, month) has never run. A fresh
-    // row starts at intake_confirmed so planning can pick it up immediately; an
-    // already-existing row is left untouched here and normalised in onSlotReady.
+    const trawlJobId = igTrawlJobId(clientId, channel, dataMonth);
+    const emailJobId = requestEmailJobId(clientId, channel, dataMonth);
+
+    // Don't double-fire if a trawl is already running for this month.
+    const trawlSlot = await prepareJobSlot(queue, trawlJobId);
+    if (!trawlSlot.ok) return trawlSlot;
+    // Free any completed request-email entry so the ig-trawl→request-email chain lands.
+    await prepareJobSlot(queue, emailJobId);
+
+    // Create the cycle if this (client, channel, month) has never run; otherwise reset
+    // it to 'scheduled' so the fetch trace re-runs cleanly. We do NOT set
+    // intake_confirmed and do NOT enqueue planning — prepare stops at 'requested'.
+    // (This only resets cycle STATUS; content_cycle_posts are untouched — those are
+    // only ever rewritten by the planning worker, so no other month's plan is at risk.)
+    await db.update(contentCycles)
+      .set({ status: 'scheduled', requestSentAt: null })
+      .where(and(eq(contentCycles.clientId, clientId), eq(contentCycles.channel, channel), eq(contentCycles.cycleMonth, dataMonth)));
     await db.insert(contentCycles)
-      .values({ clientId, channel, cycleMonth: dataMonth, status: 'intake_confirmed', intakeSource: 'manual' })
+      .values({ clientId, channel, cycleMonth: dataMonth, status: 'scheduled' })
       .onConflictDoNothing();
 
-    const [cycle] = await db
-      .select({ id: contentCycles.id, status: contentCycles.status })
-      .from(contentCycles)
-      .where(and(
-        eq(contentCycles.clientId,   clientId),
-        eq(contentCycles.channel,    channel),
-        eq(contentCycles.cycleMonth, dataMonth),
-      ))
-      .limit(1);
-    if (!cycle) return { ok: false, message: 'Could not create or find the cycle row.' };
-
-    // Normalise to intake_confirmed ONLY once the planning slot is confirmed free —
-    // handles re-firing a month that already reached planning/workbook_built,
-    // mirroring triggerPlanning.
-    const result = await enqueuePlanning(cycle.id, async () => {
-      if (cycle.status !== 'intake_confirmed') {
-        await db.update(contentCycles)
-          .set({ status: 'intake_confirmed', intakeSource: 'manual', updatedAt: new Date() })
-          .where(eq(contentCycles.id, cycle.id));
-      }
-    });
-    if (!result.ok) return result;
-
+    await queue.add('ig-trawl', { type: 'ig-trawl', clientId, channel, dataMonth }, { ...IG_TRAWL_JOB_OPTIONS, jobId: trawlJobId });
     revalidatePath(`/admin/clients/${clientId}`);
-    return { ok: true, message: `Started ${planMonth} plan for ${channel} (data month ${dataMonth}) — planning enqueued.` };
+    return {
+      ok: true,
+      message: `Preparing ${planMonth} (data month ${dataMonth}) — running IG trawl → request-email. Stops before planning; check the inputs found below, then run planning.`,
+    };
   } catch (err) {
     console.error('[startCycleForMonth]', err);
-    return { ok: false, message: err instanceof Error ? err.message : 'Failed to start month.' };
+    return { ok: false, message: err instanceof Error ? err.message : 'Failed to start & prepare.' };
+  } finally {
+    await queue.close();
   }
 }
 

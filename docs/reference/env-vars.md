@@ -73,6 +73,17 @@ Anthropic defaults use versionless aliases. Anthropic routes these to the latest
 
 ---
 
+## Base URLs
+
+Two **distinct** origins — one for the client app, one for admin. Conflating them mints dead links (a client `/p/` link built on the admin origin 404s, and vice-versa).
+
+| Variable | Required | Example | Notes |
+|---|---|---|---|
+| `APP_BASE_URL` | Yes | `https://app.sprigly.co.uk` | The **client app** origin. Mints `/p/<token>` client links: the delivery email (`engine/src/index.ts` `mintAppLink`) and admin's "Copy client link" (`admin/.../[id]/actions.ts`). `apps/worker/src/env.ts` **rejects an `admin.*` host at boot** (fails loudly) so it can never silently mint `admin.sprigly.co.uk/p/…`. |
+| `ADMIN_BASE_URL` | No (defaults to `https://admin.sprigly.co.uk`) | `https://admin.sprigly.co.uk` | The **admin app** origin. Mints the triage digest `/review/<token>` link (`engine/src/digest-sender.ts`), whose route lives in `admin/`. Defaults to the sole admin origin, so the digest keeps working without extra config. |
+
+---
+
 ## Gmail OAuth
 
 | Variable | Required | Example | Notes |
@@ -131,6 +142,7 @@ BEDROCK_MODEL_ID_OPUS
 TAVILY_API_KEY
 GOOGLE_CLIENT_ID
 GOOGLE_CLIENT_SECRET
+APP_BASE_URL              (must be the app origin; boot rejects an admin.* host)
 
 # One of:
 AWS_KMS_KEY_ID           (production)

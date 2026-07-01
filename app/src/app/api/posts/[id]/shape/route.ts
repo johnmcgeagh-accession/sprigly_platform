@@ -6,6 +6,7 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { enqueueShape } from '@/lib/queue';
+import { getUsageForCycle, isRewriteBlocked } from '@/lib/usage';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,6 +18,16 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   let instruction = '';
   try { instruction = String(((await req.json()) as { instruction?: unknown }).instruction ?? '').trim(); } catch { /* below */ }
   if (!instruction) return NextResponse.json({ error: 'no_instruction' }, { status: 400 });
+
+  // A rewrite is AI work — enforce the monthly limit before any spend.
+  const usage = await getUsageForCycle(session.clientId, session.cycleId);
+  if (isRewriteBlocked(usage)) {
+    return NextResponse.json({
+      mode: 'blocked',
+      summary: `You’ve used all ${usage.limit} AI changes this month — resets on the 1st. Editing directly stays free.`,
+      usage,
+    });
+  }
 
   const r = await enqueueShape({
     type: 'shape', scope: 'post', cycleId: session.cycleId, targetPostId: params.id, instruction, source: 'web',

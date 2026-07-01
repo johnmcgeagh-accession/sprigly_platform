@@ -73,6 +73,9 @@ async function getClientChannels(clientId: string) {
       contentCycleSchedule: clientChannels.contentCycleSchedule,
       extraQuestions:       clientChannels.extraQuestions,
       deliverySurface:      clientChannels.deliverySurface,
+      aiChangeLimit:        clientChannels.aiChangeLimit,
+      aiChangeLimitOverrideUntil: clientChannels.aiChangeLimitOverrideUntil,
+      postsPerWeek:         clientChannels.postsPerWeek,
     })
     .from(clientChannels)
     .where(eq(clientChannels.clientId, clientId));
@@ -390,6 +393,9 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                     contentCycleEnabled={client.contentCycleEnabled}
                     cycle={cycle}
                     deliverySurface={(ch.deliverySurface as 'app' | 'sheet' | 'both') ?? 'both'}
+                    aiChangeLimit={ch.aiChangeLimit ?? 30}
+                    aiChangeLimitOverrideUntil={ch.aiChangeLimitOverrideUntil ? ch.aiChangeLimitOverrideUntil.toISOString() : null}
+                    postsPerWeek={ch.postsPerWeek ?? null}
                     intakePresent={intakePresent}
                     driveFiles={driveResult.files}
                     driveError={driveResult.error}

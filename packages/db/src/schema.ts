@@ -518,6 +518,10 @@ export const clientChannels = pgTable(
     contentCycleSchedule: jsonb('content_cycle_schedule').$type<{ day: number; hour: number } | null>(),
     extraQuestions:       jsonb('extra_questions').$type<string[] | null>(),
     deliverySurface:      text('delivery_surface').notNull().default('both'),  // 'app' | 'sheet' | 'both' (Phase 2)
+    // Phase 4 — AI-change allowance (rewrites/regen only; structural edits never counted).
+    aiChangeLimit:             integer('ai_change_limit').notNull().default(30),
+    aiChangeLimitOverrideUntil: timestamp('ai_change_limit_override_until', { withTimezone: true }),  // future = unlimited
+    postsPerWeek:              integer('posts_per_week'),   // null = derive from config/history (unchanged)
   },
   (t) => ({
     uniqClientChannel: uniqueIndex('client_channels_unique').on(t.clientId, t.channel),
@@ -869,6 +873,8 @@ export const postEdits = pgTable(
   },
   (t) => ({
     postIdx: index('post_edits_post_idx').on(t.postId),
+    // Phase 4 — monthly AI-change usage count (join cycle_id → content_cycles, filter created_at).
+    cycleCreatedIdx: index('post_edits_cycle_created_idx').on(t.cycleId, t.createdAt),
   }),
 );
 

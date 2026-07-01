@@ -42,6 +42,26 @@ export type ShapeResult =
   | { mode: 'applied'; summary: string; changedPostIds: string[]; posts: PlanPost[] }
   | { mode: 'pending'; summary: string; jobId: string };
 
+// ── Agent bar (Phase 4) ───────────────────────────────────────────────────────
+// The plan-level bar classifies structural-vs-rewrite and routes. Structural →
+// 'applied' (sync, free, uncounted). Rewrite/AI-caption → 'pending' + jobIds
+// (async, counted). 'blocked' = at the monthly AI-change limit (structural stays
+// free). 'noop' = a gentle clarification (nothing applied, nothing spent).
+
+export interface UsageSnapshot {
+  used:          number;
+  limit:         number;
+  overrideUntil: string | null;
+  resetsOn:      string;
+  unlimited:     boolean;
+}
+
+export type AgentResult =
+  | { mode: 'applied'; summary: string; changedPostIds: string[]; posts: PlanPost[] }
+  | { mode: 'pending'; summary: string; jobIds: string[]; usage: UsageSnapshot }
+  | { mode: 'blocked'; summary: string; usage: UsageSnapshot }
+  | { mode: 'noop';    summary: string };
+
 // ── Magic-link claims ─────────────────────────────────────────────────────────
 export interface LinkClaims {
   clientId: string;

@@ -167,7 +167,7 @@ export async function sendDigestsForAllClients(
   encProvider: EncryptionProvider,
   googleClientId: string,
   googleClientSecret: string,
-  appBaseUrl: string,
+  adminBaseUrl: string,   // the /review/<token> route lives in admin/ — admin origin
   logger: Logger,
 ): Promise<void> {
   const now = new Date();
@@ -230,7 +230,7 @@ export async function sendDigestsForAllClients(
       const { gmail, emailAddress } = gmailClient;
 
       const token = await upsertDigestToken(db, config.clientId, now);
-      const reviewUrl = `${appBaseUrl}/review/${token}`;
+      const reviewUrl = `${adminBaseUrl}/review/${token}`;
 
       const items = pending.map((row) => {
         const meta = row.sourceMetadata as Record<string, unknown>;

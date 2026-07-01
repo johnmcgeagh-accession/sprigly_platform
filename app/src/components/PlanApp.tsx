@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Film, Images, Image as ImageIcon, Mail, CalendarDays, List, Sparkles, Plus, Undo2, Trash2, CornerDownLeft } from 'lucide-react';
-import type { PlanPost, PostFormat, PostStatus, ShapeResult } from '@/lib/types';
+import { Film, Images, Image as ImageIcon, Mail, CalendarDays, List, Sparkles, Plus, Undo2, Trash2, CornerDownLeft, Send } from 'lucide-react';
+import type { PlanPost, PostFormat, PostStatus, ShapeResult, AgentResult, UsageSnapshot } from '@/lib/types';
 
 /* ------------------------------------------------------------------ *
  * Sprigly — client plan surface (app.sprigly.co.uk). Phase 2: a real
@@ -66,12 +66,22 @@ export default function PlanApp({ clientName, posts: initial }: { clientName: st
   const [narrow, setNarrow] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
+  const [usage, setUsage] = useState<UsageSnapshot | null>(null);
+  const [agentText, setAgentText] = useState('');
+  const [agentBusy, setAgentBusy] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const f = () => setNarrow(window.innerWidth < 900);
     f(); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f);
   }, []);
+
+  // Load the AI-change usage counter on mount.
+  useEffect(() => { void refreshUsage(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  async function refreshUsage() {
+    try { const r = await fetch('/api/usage'); if (r.ok) setUsage((await r.json()) as UsageSnapshot); } catch { /* non-fatal */ }
+  }
 
   const flash = (m: string) => {
     setToast(m);
@@ -129,34 +139,57 @@ export default function PlanApp({ clientName, posts: initial }: { clientName: st
     call('/api/posts', 'POST', { date: iso(YEAR, MONTH, base) });
   };
 
-  // ── Regen (async): enqueue a shape job, then poll for the rewritten caption ──
+  // ── Post-level regen (async): enqueue a shape job, poll for the rewritten caption ──
   async function shapePost(id: string, instruction: string) {
     if (!instruction.trim() || rewritingId) return;
     try {
       const res = await fetch(`/api/posts/${id}/shape`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ instruction }) });
       if (!res.ok) { flash('Could not start that change — please try again.'); return; }
-      const r = (await res.json()) as { mode?: string; summary?: string; jobId?: string };
+      const r = (await res.json()) as { mode?: string; summary?: string; jobId?: string; usage?: UsageSnapshot };
+      if (r.mode === 'blocked') { if (r.usage) setUsage(r.usage); flash(r.summary ?? 'You’ve reached this month’s AI-change limit.'); return; }
       if (r.mode === 'pending' && r.jobId) {
         setRewritingId(id);
         flash(r.summary ?? 'Sprigly is rewriting this…');
-        void pollJob(r.jobId);
+        await pollOne(r.jobId);
+        setRewritingId(null);
+        await refreshUsage();
       }
     } catch { flash('Network error — please try again.'); }
   }
 
-  async function pollJob(jobId: string) {
+  /** Poll one shape job until it settles; swap in the fresh posts on done. */
+  async function pollOne(jobId: string): Promise<void> {
     for (let i = 0; i < 30; i++) {
       await new Promise((r) => setTimeout(r, 1600));
       let j: { status: string; posts?: PlanPost[]; summary?: string };
       try { const res = await fetch(`/api/jobs/${jobId}`); if (!res.ok) continue; j = (await res.json()) as typeof j; }
       catch { continue; }
-      if (j.status === 'done')  { if (j.posts) setPosts(j.posts); setRewritingId(null); flash(j.summary ?? 'Updated the caption.'); return; }
-      if (j.status === 'error') { setRewritingId(null); flash(j.summary ?? 'Could not make that change — left the caption as it was.'); return; }
-      if (j.status === 'gone')  { try { const p = await fetch('/api/plan'); if (p.ok) { const d = (await p.json()) as { posts?: PlanPost[] }; if (d.posts) setPosts(d.posts); } } catch { /* ignore */ } setRewritingId(null); return; }
+      if (j.status === 'done')  { if (j.posts) setPosts(j.posts); flash(j.summary ?? 'Updated the caption.'); return; }
+      if (j.status === 'error') { flash(j.summary ?? 'Could not make that change — left the caption as it was.'); return; }
+      if (j.status === 'gone')  { try { const p = await fetch('/api/plan'); if (p.ok) { const d = (await p.json()) as { posts?: PlanPost[] }; if (d.posts) setPosts(d.posts); } } catch { /* ignore */ } return; }
       // pending → keep polling
     }
-    setRewritingId(null);
     flash('Still working — give it a moment, then refresh.');
+  }
+
+  // ── Plan-level agent bar: classify server-side, then apply (structural) or poll (rewrite) ──
+  async function runAgent(text: string) {
+    const instruction = text.trim();
+    if (!instruction || agentBusy) return;
+    setAgentBusy(true);
+    try {
+      const res = await fetch('/api/plan/agent', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ instruction, selectedPostId: selId }) });
+      if (!res.ok) { flash('Something went wrong — please try again.'); setAgentBusy(false); return; }
+      const r = (await res.json()) as AgentResult;
+      if (r.mode === 'applied') { setPosts(r.posts); flash(r.summary); setAgentText(''); setAgentBusy(false); return; }
+      if (r.mode === 'noop')    { flash(r.summary); setAgentBusy(false); return; }
+      if (r.mode === 'blocked') { setUsage(r.usage); flash(r.summary); setAgentBusy(false); return; }
+      // pending: hold the "Sprigly is working…" state until every job settles.
+      setUsage(r.usage); flash(r.summary); setAgentText('');
+      await Promise.all(r.jobIds.map((id) => pollOne(id)));
+      await refreshUsage();
+      setAgentBusy(false);
+    } catch { flash('Network error — please try again.'); setAgentBusy(false); }
   }
 
   return (
@@ -220,7 +253,7 @@ export default function PlanApp({ clientName, posts: initial }: { clientName: st
         </div>
       )}
 
-      <ComingSoonBar />
+      <AgentBar value={agentText} onChange={setAgentText} onRun={runAgent} busy={agentBusy} usage={usage} />
 
       {toast && (
         <div className="toast" role="status" style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 84, zIndex: 60, background: C.navy, color: '#fff', padding: '11px 16px', borderRadius: 12, fontSize: 13.5, maxWidth: 'min(520px,92vw)', boxShadow: '0 12px 32px rgba(30,42,74,.26)', display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -405,15 +438,77 @@ function nextFormat(f: PostFormat): PostFormat {
   return FORMAT_CYCLE[(i + 1) % FORMAT_CYCLE.length]!;
 }
 
-/* ---------------- bottom bar (regen stub) ---------------- */
+/* ---------------- bottom bar (the plan agent) ---------------- */
 
-function ComingSoonBar() {
+const AGENT_CHIPS = ['Move the Tuesday post to Friday', 'Make them all warmer', 'Add a post about the linen launch'];
+
+/** Format an ISO datetime as "12 Aug". */
+function fmtDay(isoStr: string): string {
+  const d = new Date(isoStr);
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
+
+function usageLine(u: UsageSnapshot | null): { text: string; atLimit: boolean } {
+  if (!u) return { text: '', atLimit: false };
+  if (u.unlimited) return { text: u.overrideUntil ? `Unlimited until ${fmtDay(u.overrideUntil)}` : 'Unlimited', atLimit: false };
+  const atLimit = u.used >= u.limit;
+  return { text: `${u.used} of ${u.limit} AI changes this month`, atLimit };
+}
+
+function AgentBar({ value, onChange, onRun, busy, usage }: {
+  value: string; onChange: (v: string) => void; onRun: (text: string) => void; busy: boolean; usage: UsageSnapshot | null;
+}) {
+  const { text: counter, atLimit } = usageLine(usage);
   return (
-    <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 50, background: C.agentBar, borderTop: '1px solid rgba(255,255,255,.07)', padding: '13px 18px', boxShadow: '0 -6px 28px rgba(30,42,74,.20)' }}>
-      <div style={{ maxWidth: 960, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 9, color: 'rgba(255,255,255,.82)', fontSize: 13.5 }}>
-        <Sparkles size={15} color={C.coral} />
-        <span className="planLabel" style={{ fontFamily: display, fontSize: 14, color: '#fff' }}>Talk to your plan</span>
-        <span style={{ color: 'rgba(255,255,255,.6)' }}>— arrives next. For now, move, add, edit and revert posts directly.</span>
+    <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 50, background: C.agentBar, borderTop: '1px solid rgba(255,255,255,.07)', padding: '12px 18px', boxShadow: '0 -6px 28px rgba(30,42,74,.20)' }}>
+      <div style={{ maxWidth: 960, margin: '0 auto' }}>
+        {/* Header row: label + usage counter */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9 }}>
+          <Sparkles size={15} color={C.coral} />
+          <span className="planLabel" style={{ fontFamily: display, fontSize: 14, color: '#fff' }}>Talk to your plan</span>
+          {counter && (
+            <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: atLimit ? '#FFC9C2' : 'rgba(255,255,255,.62)' }}>
+              {counter}
+              {atLimit && <span style={{ color: 'rgba(255,255,255,.5)', fontWeight: 500 }}>· editing stays free</span>}
+            </span>
+          )}
+        </div>
+
+        {busy ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#fff', fontSize: 13.5, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.10)', borderRadius: 12, padding: '11px 14px' }}>
+            <span className="spin" style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,.35)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block' }} />
+            Sprigly is working…
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && value.trim()) onRun(value); }}
+                placeholder="Move the Tuesday post to Friday · change the reel to a carousel · make them all warmer…"
+                aria-label="Talk to your plan"
+                style={{ flex: 1, minWidth: 0, padding: '11px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,.14)', background: 'rgba(255,255,255,.08)', color: '#fff', fontFamily: body, fontSize: 14, outline: 'none' }}
+              />
+              <button
+                onClick={() => value.trim() && onRun(value)}
+                disabled={!value.trim()}
+                aria-label="Send to Sprigly"
+                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, height: 42, padding: '0 15px', background: C.coral, color: '#fff', border: 'none', borderRadius: 12, cursor: value.trim() ? 'pointer' : 'default', fontFamily: body, fontSize: 14, fontWeight: 600, opacity: value.trim() ? 1 : 0.45 }}
+              >
+                <Send size={15} />
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 9 }}>
+              {AGENT_CHIPS.map((c) => (
+                <button key={c} onClick={() => onRun(c)}
+                  style={{ background: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.12)', borderRadius: 999, padding: '5px 12px', fontSize: 12, color: 'rgba(255,255,255,.85)', cursor: 'pointer', fontFamily: body }}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

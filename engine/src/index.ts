@@ -151,7 +151,8 @@ registry.register(createCalendarBuildWorkbookWorkflow(
         clientId, cycleId: cycle.id, token,
         expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30),
       });
-      const base = (process.env.APP_BASE_URL ?? 'https://app.sprigly.co.uk').replace(/\/$/, '');
+      // /p/<token> is a CLIENT app route — mint against the validated app origin.
+      const base = env.APP_BASE_URL.replace(/\/$/, '');
       return `${base}/p/${token}`;
     } catch { return null; }
   },
@@ -268,7 +269,7 @@ logger.info({ intervalMs: env.POLL_INTERVAL_MS }, 'Polling started');
 
 const DIGEST_CHECK_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 const sendDigests = (): Promise<void> =>
-  sendDigestsForAllClients(db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, env.APP_BASE_URL, logger);
+  sendDigestsForAllClients(db, encProvider, env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, env.ADMIN_BASE_URL, logger);
 void sendDigests();
 const digestInterval = setInterval(() => { void sendDigests(); }, DIGEST_CHECK_INTERVAL_MS);
 logger.info({ intervalMs: DIGEST_CHECK_INTERVAL_MS }, 'Digest sender started');
