@@ -25,6 +25,9 @@ async function getMailboxes() {
       status:       oauthConnections.status,
       pollingMode:  oauthConnections.pollingMode,
       lastPolledAt: oauthConnections.lastPolledAt,
+      lastOkAt:     oauthConnections.lastOkAt,
+      lastError:    oauthConnections.lastError,
+      lastErrorAt:  oauthConnections.lastErrorAt,
       clientName:   clients.name,
       clientId:     clients.id,
     })
@@ -33,12 +36,32 @@ async function getMailboxes() {
     .orderBy(clients.name, desc(oauthConnections.createdAt));
 }
 
-export default async function MailboxesPage() {
+function healthLabel(status: string): { text: string; cls: string } {
+  if (status === 'active') return { text: 'connected',       cls: 'bg-green-100 text-green-700' };
+  if (status === 'error')  return { text: 'needs reconnect', cls: 'bg-red-100 text-red-700' };
+  return { text: status, cls: 'bg-gray-100 text-gray-600' };
+}
+
+export default async function MailboxesPage({ searchParams }: { searchParams: { oauth_connected?: string; oauth_error?: string } }) {
   const mailboxes = await getMailboxes();
+  const connected = searchParams.oauth_connected;
+  const oauthError = searchParams.oauth_error;
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Mailboxes</h1>
+      <h1 className="text-2xl font-bold text-gray-900 mb-6">Mailboxes &amp; OAuth connections</h1>
+
+      {connected && (
+        <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-2.5 text-sm text-green-800">
+          ✓ Reconnected <span className="font-medium">{connected}</span>. Polling resumes automatically.
+        </div>
+      )}
+      {oauthError && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-800">
+          Reconnect failed: <span className="font-mono text-xs">{oauthError}</span>
+          {oauthError === 'no_refresh_token' && ' — revoke Sprigly\'s access in the Google account, then reconnect so a fresh refresh token is issued.'}
+        </div>
+      )}
 
       <div className="bg-white rounded-lg border border-gray-200">
         <table className="w-full text-sm">
@@ -47,9 +70,10 @@ export default async function MailboxesPage() {
               <th className="px-6 py-3 font-medium">Client</th>
               <th className="px-6 py-3 font-medium">Email</th>
               <th className="px-6 py-3 font-medium">Provider</th>
-              <th className="px-6 py-3 font-medium">Status</th>
+              <th className="px-6 py-3 font-medium">Health</th>
               <th className="px-6 py-3 font-medium">Mode</th>
               <th className="px-6 py-3 font-medium">Last polled</th>
+              <th className="px-6 py-3 font-medium">Last OK</th>
               <th className="px-6 py-3 font-medium"></th>
             </tr>
           </thead>
@@ -71,13 +95,17 @@ export default async function MailboxesPage() {
                   </span>
                 </td>
                 <td className="px-6 py-3">
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                    m.status === 'active'
-                      ? 'bg-green-100 text-green-700'
-                      : 'bg-red-100 text-red-700'
-                  }`}>
-                    {m.status}
-                  </span>
+                  {(() => { const h = healthLabel(m.status); return (
+                    <span
+                      title={m.status === 'error' && m.lastError ? `${m.lastError}${m.lastErrorAt ? ` (${formatRelativeTime(m.lastErrorAt)})` : ''}` : undefined}
+                      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${h.cls}`}
+                    >
+                      {h.text}
+                    </span>
+                  ); })()}
+                  {m.status === 'error' && m.lastError && (
+                    <div className="mt-1 max-w-xs truncate text-[11px] text-red-500" title={m.lastError}>{m.lastError}</div>
+                  )}
                 </td>
                 <td className="px-6 py-3">
                   <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
@@ -93,19 +121,28 @@ export default async function MailboxesPage() {
                     ? formatRelativeTime(m.lastPolledAt)
                     : '—'}
                 </td>
-                <td className="px-6 py-3 text-right">
+                <td className="px-6 py-3 text-gray-500">
+                  {m.lastOkAt ? formatRelativeTime(m.lastOkAt) : '—'}
+                </td>
+                <td className="px-6 py-3 text-right whitespace-nowrap">
+                  <a
+                    href={`/api/oauth/${m.provider}/authorize?clientId=${m.clientId}`}
+                    className={`text-xs font-medium ${m.status === 'error' ? 'text-red-600' : 'text-blue-600'} hover:underline`}
+                  >
+                    {m.status === 'error' ? 'Reconnect' : 'Connect / Reconnect'}
+                  </a>
                   <Link
                     href={`/admin/mailboxes/${m.id}`}
-                    className="text-blue-600 hover:underline text-xs"
+                    className="ml-3 text-blue-600 hover:underline text-xs"
                   >
-                    Change mode →
+                    Mode →
                   </Link>
                 </td>
               </tr>
             ))}
             {mailboxes.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-6 py-8 text-center text-gray-400">
+                <td colSpan={8} className="px-6 py-8 text-center text-gray-400">
                   No mailboxes connected.
                 </td>
               </tr>

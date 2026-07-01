@@ -1,6 +1,6 @@
 import { db as _db, workflowRuns, oauthConnections } from '@sprigly/db';
 import { eq, and, sql } from 'drizzle-orm';
-import { getTokens, storeTokens } from '@sprigly/oauth-tokens';
+import { getTokens, storeTokens, isInvalidGrant, markConnectionError } from '@sprigly/oauth-tokens';
 import type { EncryptionProvider } from '@sprigly/oauth-tokens';
 import { GmailApiClient, extractMessageText } from '@sprigly/sources';
 import { ingestSource } from '@sprigly/knowledge';
@@ -126,6 +126,16 @@ async function checkSentDraftsForClient(
           : 'Q&A feedback ingested — sent as-is',
       );
     } catch (err) {
+      // A revoked/expired refresh token throws invalid_grant on the first Gmail call.
+      // Mark the connection unhealthy (status='error' → dropped from the active poll
+      // set) and bail this client instead of hammering every run every 60s.
+      if (isInvalidGrant(err)) {
+        const transitioned = await markConnectionError(db, clientId, 'gmail', String(err));
+        if (transitioned) {
+          logger.error({ clientId }, 'check-sent-drafts: gmail invalid_grant — connection marked error, backing off until reconnect');
+        }
+        return;
+      }
       logger.error({ runId: run.id, clientId, err: String(err) }, 'check-sent-drafts: run check failed');
     }
   }

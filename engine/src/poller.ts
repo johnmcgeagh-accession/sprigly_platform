@@ -1,5 +1,6 @@
 import { db as _db, oauthConnections, incomingEvents } from '@sprigly/db';
 import { eq, and } from 'drizzle-orm';
+import { isInvalidGrant, markConnectionError } from '@sprigly/oauth-tokens';
 import { GmailPoller } from '@sprigly/sources';
 import { Queue } from 'bullmq';
 import type { Logger } from 'pino';
@@ -33,6 +34,13 @@ export async function pollAllClients(
 
       logger.info({ clientId, count, queued: events.length }, 'polled');
     } catch (err) {
+      if (isInvalidGrant(err)) {
+        const transitioned = await markConnectionError(db, clientId, 'gmail', String(err));
+        if (transitioned) {
+          logger.error({ clientId }, 'gmail poll: invalid_grant — connection marked error, backing off until reconnect');
+        }
+        continue;
+      }
       logger.error({ clientId, err: String(err) }, 'poll failed');
     }
   }

@@ -39,6 +39,11 @@ export async function storeTokens(
         scopes: tokens.scopes,
         emailAddress: tokens.emailAddress ?? null,
         status: 'active',
+        // A successful store (reconnect or auto-refresh) means the token works now:
+        // clear the error and mark healthy so a reconnected row leaves the storm.
+        lastOkAt: new Date(),
+        lastError: null,
+        lastErrorAt: null,
         updatedAt: new Date(),
       })
       .where(eq(oauthConnections.id, existingRow.id));
@@ -51,6 +56,7 @@ export async function storeTokens(
       scopes: tokens.scopes,
       emailAddress: tokens.emailAddress ?? null,
       status: 'active',
+      lastOkAt: new Date(),
     });
   }
 }

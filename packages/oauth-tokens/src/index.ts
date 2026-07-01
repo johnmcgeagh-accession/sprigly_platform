@@ -3,3 +3,4 @@ export { KmsProvider, LocalDevProvider, createEncryptionProvider } from './provi
 export { storeTokens } from './store-tokens.js';
 export { getTokens } from './get-tokens.js';
 export { encrypt, decrypt } from './crypto.js';
+export { isInvalidGrant, markConnectionError, markConnectionOk } from './connection-health.js';

@@ -106,6 +106,11 @@ export const oauthConnections = pgTable('oauth_connections', {
   status: text('status').notNull().default('active'),
   pollingMode: text('polling_mode').notNull().default('selective'),
   lastPolledAt: timestamp('last_polled_at').default(sql`now()`),
+  // Health (0055): last successful token use; last auth error + when. status flips
+  // to 'error' on invalid_grant so pollers (where status='active') back off.
+  lastOkAt:     timestamp('last_ok_at', { withTimezone: true }),
+  lastError:    text('last_error'),
+  lastErrorAt:  timestamp('last_error_at', { withTimezone: true }),
 });
 
 export type OAuthConnection = typeof oauthConnections.$inferSelect;

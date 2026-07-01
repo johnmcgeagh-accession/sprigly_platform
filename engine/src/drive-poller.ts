@@ -40,7 +40,7 @@ import {
 } from '@sprigly/db';
 import { eq, and, isNotNull } from 'drizzle-orm';
 import { transitionCycle } from './content-cycles/machine.js';
-import { getTokens, storeTokens } from '@sprigly/oauth-tokens';
+import { getTokens, storeTokens, isInvalidGrant, markConnectionError } from '@sprigly/oauth-tokens';
 import type { EncryptionProvider } from '@sprigly/oauth-tokens';
 import { DriveApiClient } from '@sprigly/sources';
 import { Queue } from 'bullmq';
@@ -137,6 +137,13 @@ export class DrivePoller {
           );
         }
       } catch (err) {
+        if (isInvalidGrant(err)) {
+          const transitioned = await markConnectionError(this.db, row.clientId, 'drive', String(err));
+          if (transitioned) {
+            this.logger.error({ clientId: row.clientId }, 'drive: invalid_grant — connection marked error, backing off until reconnect');
+          }
+          continue;
+        }
         this.logger.error(
           { clientId: row.clientId, channel: row.channel, err: String(err) },
           'drive: poll failed',
