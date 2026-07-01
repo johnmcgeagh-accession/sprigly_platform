@@ -51,11 +51,12 @@ import { DriveApiClient } from '@sprigly/sources';
 import type { ModelClient } from '@sprigly/model-client';
 import type { AuditLogger } from '@sprigly/audit';
 import type { DbPromptResolver } from '@sprigly/prompts';
-import type { IntakeJson, CompetitorGatherData } from '@sprigly/engine';
+import type { IntakeJson, CompetitorGatherData, StructuredBrief } from '@sprigly/engine';
 import type { Logger } from 'pino';
 import { transitionCycle } from './machine.js';
 import { applyCodeGate, applyCritic, normaliseDashes } from './plan-validation.js';
 import { parsePlanResponse } from './parse-plan.js';
+import { extractStructuredBrief, EMPTY_STRUCTURED_BRIEF } from './brief-extract.js';
 import type { RegisterMap } from './plan-validation.js';
 import type { PlanPostRow, HistoricPost, VoiceEditExample, PlanRepairContext } from './plan-validation.js';
 import { PlanningTracer } from './planning-trace.js';
@@ -173,6 +174,70 @@ interface PlanningInputs {
   voiceMd:    string | null;
   catalogueGrounding: string;   // SOFT grounding: real products + colourways (may be '')
   postsPerWeek: number | null;  // Phase 4 — explicit weekly cadence override; null = use config cadence
+  structuredBrief: StructuredBrief | null;  // Phase 3b — authoritative parsed brief (may be null/empty)
+}
+
+/** Render the STRUCTURED BRIEF section: the parsed, concrete, authoritative form of
+ *  the client's brief (products / dated schedule / undated content asks / window).
+ *  Returned '' when there is nothing briefed, so the prompt is unchanged for cycles
+ *  with no brief. conflicts[] is deliberately NOT rendered here — it is surfaced to
+ *  the human reviewer on the plan output, not fed to the model as an instruction. */
+function renderStructuredBriefSection(sb: StructuredBrief): string {
+  const products = sb.products.map((p) => {
+    const bits = [`${p.product}${p.colourway ? ` in ${p.colourway}` : ''} — ${p.status.toUpperCase()}`];
+    if (p.launch_date) bits.push(`launches ${p.launch_date}`);
+    if (p.content_from) bits.push(`content from ${p.content_from}`);
+    return `  - ${bits.join('; ')}`;
+  }).join('\n');
+  const schedule = sb.schedule.map((b) => {
+    const who = [b.product, b.colourway].filter(Boolean).join(' ');
+    return `  - ${b.date} (${b.type})${who ? ` — ${who}` : ''}: ${b.note}`;
+  }).join('\n');
+  const asks = sb.content_asks.map((a) => `  - ${a.type}${a.product ? ` (${a.product})` : ''}: ${a.note}`).join('\n');
+  const pw = sb.plan_window;
+
+  return [
+    'STRUCTURED BRIEF (AUTHORITATIVE — the parsed, concrete form of the client brief. Where this and the free-text INTAKE below differ, THIS wins. Build the month from these items first):',
+    pw.from || pw.month
+      ? `PLAN WINDOW: ${pw.from ? `start content from ${pw.from}; ` : ''}${pw.month ? `every date must fall in ${pw.month}` : ''}. Place NOTHING${pw.from ? ` before ${pw.from}` : ''}.`
+      : '',
+    '',
+    'BRIEFED LAUNCHES / RESTOCKS (the ONLY launches and restocks this month — feature these; do NOT frame any other product as launching, new, or returning):',
+    products || '  (none)',
+    '',
+    'FIXED DATED BEATS (authoritative schedule — use THESE dates exactly; do not invent, shift, or de-collide dates. Two beats may legitimately share a date):',
+    schedule || '  (none)',
+    '',
+    'UNDATED CONTENT PIECES (each MUST appear once somewhere in the month, on a sensible date inside the plan window — do NOT drop any):',
+    asks || '  (none)',
+  ].filter((l) => l !== '').join('\n');
+}
+
+/** True when a brief carries nothing to render (so the section is omitted). */
+function hasBriefContent(sb: StructuredBrief | null): sb is StructuredBrief {
+  return !!sb && (sb.products.length > 0 || sb.schedule.length > 0 || sb.content_asks.length > 0);
+}
+
+/**
+ * Surface brief conflicts (Phase 3b) to the human plan reviewer: append a visible
+ * "⚠️ Brief conflict" note to the Sprigly Notes of the post(s) on each conflicting
+ * date (e.g. the 17 July double-booking, the 19/26 July weekday mismatches), falling
+ * back to the first post for a conflict with no matching dated post. Deterministic,
+ * post-generation, mutates row.notes in place. NOT auto-resolved and NOT hidden —
+ * the reviewer decides. Returns the number of conflicts surfaced.
+ */
+function surfaceConflicts(rows: PlanPostRow[], brief: StructuredBrief | null, targetMonth: string): number {
+  const conflicts = brief?.conflicts ?? [];
+  if (conflicts.length === 0 || rows.length === 0) return 0;
+  for (const c of conflicts) {
+    const note = `⚠️ Brief conflict (please confirm): ${c.description}`;
+    const dated = c.dates && c.dates.length > 0
+      ? rows.filter((r) => { const iso = isoDateInMonth(r.date, targetMonth); return iso != null && c.dates!.includes(iso); })
+      : [];
+    const recipients = dated.length > 0 ? dated : [rows[0]!];
+    for (const r of recipients) r.notes = r.notes ? `${r.notes} ${note}` : note;
+  }
+  return conflicts.length;
 }
 
 /** Build the single user message: every assembled input, clearly sectioned, for
@@ -194,7 +259,10 @@ function buildPlanningUserMessage(inp: PlanningInputs): string {
     `PLAN MONTH (plan FOR this month; every date must fall in it): ${monthLabelOf(inp.targetMonth)} (${inp.targetMonth})`,
     `DATA MONTH (the current month the intake and any data are from; you are planning the month AFTER it): ${monthLabelOf(inp.dataMonth)} (${inp.dataMonth})`,
     '',
-    'INTAKE — the client\'s planning answers for the PLAN MONTH (your PRIMARY signal; plan that month around this):',
+    hasBriefContent(inp.structuredBrief) ? renderStructuredBriefSection(inp.structuredBrief) : '',
+    hasBriefContent(inp.structuredBrief)
+      ? 'INTAKE (the original free-text brief, for context and voice — the STRUCTURED BRIEF above is its authoritative concrete form and wins on any difference):'
+      : 'INTAKE — the client\'s planning answers for the PLAN MONTH (your PRIMARY signal; plan that month around this):',
     answerLines || '(no structured answers provided)',
     inp.freeNotes ? `\nFREE NOTES:\n${inp.freeNotes}` : '',
     '',
@@ -321,6 +389,7 @@ export interface ShapeContext {
   gather:             CompetitorGatherData | null;
   catalogue:          Catalogue | null;
   catalogueGrounding: string;
+  structuredBrief:    StructuredBrief | null;
   slug:               string;
   clientName:         string;
   contact:            string;
@@ -387,7 +456,12 @@ export async function assembleShapeContext(
     .limit(1);
   const catalogue = (catRow?.catalogue as Catalogue | undefined) ?? null;
   const intakeText = [freeNotes, ...Object.values(answers)].join('\n');
-  const catalogueGrounding = catalogue ? buildCatalogueGroundingBlock(catalogue, intakeText) : '';
+  // Structured brief (0058) — read off the cycle row (mapped column). Null until
+  // extraction-persistence is wired, so grounding + validation degrade to prior
+  // behaviour. NOTE: 0058 must be applied before this deploys — the mapped column
+  // means select().from(contentCycles) references structured_brief.
+  const structuredBrief = (cycle.structuredBrief ?? null) as StructuredBrief | null;
+  const catalogueGrounding = catalogue ? buildCatalogueGroundingBlock(catalogue, intakeText, structuredBrief) : '';
 
   const [clientRow] = await db
     .select({ name: clients.name, slug: clients.slug })
@@ -466,6 +540,7 @@ export async function assembleShapeContext(
     clientName, dataMonth: cycleMonth, targetMonth, answers, freeNotes,
     planConfig: planConfigRow, gather, voiceMd, catalogueGrounding,
     postsPerWeek: channelRow?.postsPerWeek ?? null,
+    structuredBrief,
   });
 
   const vocab = {
@@ -484,10 +559,58 @@ export async function assembleShapeContext(
   }
 
   return {
-    answers, freeNotes, planConfigRow, gather, catalogue, catalogueGrounding,
+    answers, freeNotes, planConfigRow, gather, catalogue, catalogueGrounding, structuredBrief,
     slug, clientName, contact, drive, driveFolderId, folderFiles, voiceMd,
     systemPrompt, userMessage, vocab, criticPrompt, historicPosts, voiceEdits: voiceEditEx,
   };
+}
+
+/**
+ * Extract-once persistence of the structured brief (Phase 3a). If the cycle already
+ * has a persisted structured_brief, re-read it — no extraction (regen is cheap and
+ * stable). Otherwise extract from intake_json.planContent, persist it, and return
+ * it. An EMPTY brief extracts to the empty structure with NO model call and is still
+ * persisted so it is not re-extracted. Never blocks planning: an extraction or
+ * persist failure logs and falls back to the empty structure in memory (NOT
+ * persisted, so a later run retries). Reading/writing structured_brief requires
+ * migration 0058 applied on the DB.
+ */
+async function ensureStructuredBrief(
+  cycle: typeof contentCycles.$inferSelect,
+  deps:  PlanningDeps,
+): Promise<StructuredBrief> {
+  const existing = cycle.structuredBrief;
+  if (existing != null) return existing as StructuredBrief;   // extract-once: re-read on regen
+
+  const intake      = cycle.intakeJson as IntakeJson | null;
+  const planContent = intake?.planContent ?? { answers: {}, freeNotes: '' };
+  const planMonth   = nextMonth(cycle.cycleMonth);
+  const logCtx      = { cycleId: cycle.id, clientId: cycle.clientId, channel: cycle.channel };
+
+  let brief: StructuredBrief;
+  try {
+    brief = await extractStructuredBrief({
+      planContent, planMonth, model: deps.model,
+      logger: deps.logger, audit: deps.audit, clientId: cycle.clientId,
+    });
+  } catch (err) {
+    deps.logger.warn({ ...logCtx, err: String(err) }, 'content-cycles: brief extraction failed — planning continues without a structured brief (retries next run)');
+    return EMPTY_STRUCTURED_BRIEF;   // in-memory only; NOT persisted, so a later run retries
+  }
+
+  try {
+    await deps.db
+      .update(contentCycles)
+      .set({ structuredBrief: brief, updatedAt: new Date() })
+      .where(eq(contentCycles.id, cycle.id));
+    deps.logger.info(
+      { ...logCtx, products: brief.products.length, schedule: brief.schedule.length, contentAsks: brief.content_asks.length },
+      'content-cycles: structured brief extracted + persisted',
+    );
+  } catch (err) {
+    deps.logger.warn({ ...logCtx, err: String(err) }, 'content-cycles: structured brief persist failed — non-fatal (used in memory this run)');
+  }
+  return brief;
 }
 
 /**
@@ -523,12 +646,17 @@ export async function runPlanningForCycle(
   }
 
   try {
+    // ── Phase 3a: extract-once structured-brief persistence ───────────────────
+    // Ensure structured_brief is populated (extract + persist on first plan, re-read
+    // on regen), assigned back onto the in-memory cycle so the grounding + hard
+    // validation built in assembleShapeContext consume it. Never blocks planning.
+    cycle.structuredBrief = await ensureStructuredBrief(cycle, deps);
+
     // ── Assemble all inputs (shared with the Phase 3 shape handler) ───────────
-    // Pure reads + prompt resolution. The plan is determined solely by
-    // systemPrompt + userMessage, both built inside assembleShapeContext exactly
-    // as before the extraction — so planning output is unchanged.
+    // Pure reads + prompt resolution. The plan is determined by systemPrompt +
+    // userMessage, both built inside assembleShapeContext.
     const {
-      planConfigRow, gather, catalogue, slug, contact, drive, driveFolderId,
+      planConfigRow, gather, catalogue, structuredBrief, slug, contact, drive, driveFolderId,
       folderFiles, voiceMd, systemPrompt, userMessage, vocab, criticPrompt,
       historicPosts, voiceEdits,
     } = await assembleShapeContext(cycle, deps);
@@ -655,7 +783,7 @@ export async function runPlanningForCycle(
     // isn't re-flagged by the code gate. Skipped when no catalogue is cached.
     let planRows = critic.rows;
     if (catalogue) {
-      const idx = indexCatalogue(catalogue);
+      const idx = indexCatalogue(catalogue, structuredBrief);
       let totalViolations = 0;
       planRows = critic.rows.map((p, index) => {
         const before = p.draftCaption ?? '';
@@ -673,6 +801,14 @@ export async function runPlanningForCycle(
       );
     } else {
       logger.info({ ...logCtx }, 'content-cycles: no product catalogue cached — hard validation skipped (soft grounding only)');
+    }
+
+    // ── Surface brief conflicts to the reviewer (Phase 3b) ─────────────────────
+    // Append ⚠️ notes on the affected dated posts (17 Jul double-booking, 19/26 Jul
+    // weekday mismatches) so the reviewer sees them on the plan. Not auto-resolved.
+    const conflictsSurfaced = surfaceConflicts(planRows, structuredBrief, targetMonth);
+    if (conflictsSurfaced > 0) {
+      logger.info({ ...logCtx, conflictsSurfaced }, 'content-cycles: surfaced brief conflicts to reviewer via post notes');
     }
 
     // ── Persist the diagnostic trace (best-effort; never fails the run) ────────

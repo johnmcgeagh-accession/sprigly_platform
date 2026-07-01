@@ -243,6 +243,69 @@ export interface IntakeJson {
   capturedAt:      string;  // ISO date
 }
 
+// ─── structured brief (brief-launch primitive) ───────────────────────────────
+// The parsed, structured form of a client's unstructured planning brief
+// (intake_json.planContent — answers + freeNotes), produced by the brief
+// extractor (engine/src/content-cycles/brief-extract.ts). Later phases feed this
+// into the catalogue-grounding vocabulary, the hard colourway validation, and the
+// generation timing signal — none of which are wired yet.
+//
+// This is the DATA CONTRACT the extractor emits and persists verbatim: the field
+// names match the extractor's JSON output exactly (snake_case launch_date /
+// content_from / plan_window, as specified), so the persisted jsonb, the LLM
+// output, and this type are one shape with no mapping layer.
+
+export type BriefProductStatus = 'new' | 'restock';
+
+// A launch / restock declaration lifted from the brief. One per (product,
+// colourway) the client says is launching or returning this month.
+export interface BriefProduct {
+  product:      string;               // product / family name, as the client named it
+  colourway:    string | null;        // the stated colourway, or null if none given
+  status:       BriefProductStatus;   // "new" (brand new) vs "restock" (returning)
+  launch_date:  string | null;        // ISO date (YYYY-MM-DD) it goes live, or null if undated
+  content_from: string | null;        // ISO date content may start, or null
+}
+
+// A dated content beat from the brief (a specific placement on a specific date).
+export interface BriefScheduleBeat {
+  date:      string;                   // ISO date (YYYY-MM-DD) — must appear literally in the brief
+  type:      string;                   // beat kind, e.g. "launch" | "weekend-style-guide" | "sunday-style"
+  product:   string | null;           // the product this beat features, if named
+  colourway: string | null;           // the colourway for this beat, if named
+  note:      string;                   // the beat text, verbatim from the brief
+}
+
+// An UNDATED content ask: a piece the brief asks for this month with no fixed
+// date (Connie details, customer quotes, sensitive-skin education, BTS, Refer a
+// Friend). Kept out of schedule[] (which is dated-only) so it is not lost.
+export interface BriefContentAsk {
+  type:    string;                     // kebab-case ask kind, e.g. "product-details" | "referral-reminder"
+  product: string | null;             // the product it is about, or null
+  note:    string;                     // the ask text, verbatim from the brief
+}
+
+// An internal contradiction in the brief the extractor must NOT resolve (e.g. one
+// date assigned to two beats). Recorded here verbatim; the extractor keeps only
+// dates literally present in the source rather than inventing one to de-collide.
+export interface BriefConflict {
+  description: string;                 // what the contradiction is
+  dates:       string[] | null;        // ISO dates involved, if date-based; else null
+  items:       string[] | null;        // the colliding beats / labels, if applicable; else null
+}
+
+export interface StructuredBrief {
+  products:     BriefProduct[];        // launch / restock declarations
+  schedule:     BriefScheduleBeat[];   // dated content beats (literal dates only)
+  content_asks: BriefContentAsk[];     // undated briefed content pieces
+  focus:        string[];              // primary hero families to feature
+  conflicts:    BriefConflict[];       // internal contradictions, surfaced not resolved
+  plan_window: {
+    from:  string | null;              // ISO date the plan should start from, or null
+    month: string | null;             // plan month, YYYY-MM, or null
+  };
+}
+
 export interface TriageStore {
   writeSeenMessage(params: {
     clientId: string;

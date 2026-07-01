@@ -646,6 +646,12 @@ export const contentCycles = pgTable(
     draftCsvRef:       text('draft_csv_ref'),                   // Drive file ID
     workbookRef:       text('workbook_ref'),                    // Drive file ID
     pendingDeltasJson: jsonb('pending_deltas_json').$type<unknown>(), // RuleDelta[] gate buffer
+    // StructuredBrief (@sprigly/engine) — the parsed launch/restock brief. Typed
+    // `unknown` to avoid a @sprigly/db → @sprigly/engine circular import (cast at
+    // the read site). REQUIRES migration 0058 applied before this maps in a deploy:
+    // select().from(contentCycles) emits every mapped column, so an unapplied
+    // column makes all content-cycle reads error until 0058 runs.
+    structuredBrief:   jsonb('structured_brief').$type<unknown>(),
     requestSentAt:     timestamp('request_sent_at'),
     remindedAt:        timestamp('reminded_at'),
     replyReceivedAt:   timestamp('reply_received_at'),

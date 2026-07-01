@@ -15,12 +15,17 @@
  */
 
 import type { Catalogue, ProductFamily } from './parse-catalogue.js';
+import type { StructuredBrief } from '@sprigly/engine';
 
 export interface CatalogueIndex {
   /** product name (lower) → set of its valid colourways (lower) across all families */
   colourwaysByName: Map<string, Set<string>>;
   names:      string[];   // product names to match (ambiguous/brand names excluded)
-  colourways: string[];   // distinct colourway phrases, longest-first
+  colourways: string[];   // distinct colourway phrases, longest-first (catalogue-only)
+  /** product name (lower) → colourways admitted ONLY because the brief declared them
+   *  (i.e. not a sold variant of that product). Provenance tag for briefed launches
+   *  (e.g. Connie → {violet}); empty when no brief is merged. */
+  briefedByName: Map<string, Set<string>>;
 }
 
 // Names that collide with the brand or with common caption words — never matched
@@ -29,7 +34,21 @@ const AMBIGUOUS_NAMES = new Set(['ivy']);
 
 function escapeRe(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
-export function indexCatalogue(cat: Catalogue): CatalogueIndex {
+/** The catalogue family name a briefed product refers to: the longest catalogue
+ *  name that appears as a whole word in the brief's product string ("Connie
+ *  sweatshirt" → "connie"). null when the brief names a product not in the
+ *  catalogue. */
+function matchBriefToCatalogueName(briefProduct: string, catalogueNames: string[]): string | null {
+  const b = briefProduct.toLowerCase().trim();
+  let best: string | null = null;
+  for (const n of catalogueNames) {
+    if (AMBIGUOUS_NAMES.has(n)) continue;
+    if (new RegExp('\\b' + escapeRe(n) + '\\b').test(b) && (best === null || n.length > best.length)) best = n;
+  }
+  return best;
+}
+
+export function indexCatalogue(cat: Catalogue, brief?: StructuredBrief | null): CatalogueIndex {
   const colourwaysByName = new Map<string, Set<string>>();
   const colourSet = new Set<string>();
   for (const fam of cat.families) {
@@ -53,10 +72,38 @@ export function indexCatalogue(cat: Catalogue): CatalogueIndex {
       }
     }
   }
+
+  // ── Merge the structured brief's (product → colourway) pairs ─────────────────
+  // A briefed launch colourway (e.g. Connie Violet) has no sales line, so it is
+  // absent from the catalogue and would be flagged as a fabrication. Admit it into
+  // the SPECIFIC product's valid set only — NOT the global colourway vocabulary
+  // (colourSet), so "Violet" stays a real Hannah colourway and Connie-Violet vs
+  // Hannah-Violet remain distinguishable. briefedByName records the ones admitted
+  // solely because of the brief (not already a sold variant).
+  const briefedByName = new Map<string, Set<string>>();
+  const catalogueNames = [...colourwaysByName.keys()];
+  for (const p of brief?.products ?? []) {
+    const colour = (p.colourway ?? '').toLowerCase().trim();
+    if (!colour) continue;
+    const name = matchBriefToCatalogueName(p.product, catalogueNames) ?? p.product.toLowerCase().trim();
+    if (!name || AMBIGUOUS_NAMES.has(name)) continue;
+    let set = colourwaysByName.get(name);
+    if (!set) { set = new Set(); colourwaysByName.set(name, set); }
+    const newlyBriefed = !set.has(colour);   // not already a sold/known variant
+    set.add(colour);
+    if (colour.includes('/')) for (const part of colour.split('/')) { const q = part.trim(); if (q) set.add(q); }
+    if (newlyBriefed) {
+      let brf = briefedByName.get(name);
+      if (!brf) { brf = new Set(); briefedByName.set(name, brf); }
+      brf.add(colour);
+    }
+  }
+
   return {
     colourwaysByName,
     names: [...colourwaysByName.keys()],
     colourways: [...colourSet].sort((a, b) => b.length - a.length), // longest-first
+    briefedByName,
   };
 }
 
@@ -132,7 +179,12 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
  * colourway to another (the "Nicola in dark olive" failure). The omit-rule and
  * anti-bleed instruction that pair with this block live in the generation prompt.
  */
-export function buildCatalogueGroundingBlock(cat: Catalogue, intakeText: string, maxFamilies = 60): string {
+export function buildCatalogueGroundingBlock(
+  cat: Catalogue,
+  intakeText: string,
+  brief?: StructuredBrief | null,
+  maxFamilies = 60,
+): string {
   const families = cat.families ?? [];
   if (families.length === 0) return '';
   const text = intakeText.toLowerCase();
@@ -142,10 +194,31 @@ export function buildCatalogueGroundingBlock(cat: Catalogue, intakeText: string,
   const sales = (f: ProductFamily) => f.variants.reduce((n, v) => n + (v.sales?.netItemsSold ?? 0), 0);
   const score = (f: ProductFamily) => (named(f) ? 1000 : 0) + (pushed(f) ? 500 : 0) + sales(f) / 1000;
 
+  // Briefed launch colourways for a family: (product → colourway) declared in the
+  // brief that are NOT a sold variant of that family (e.g. Connie Violet). Rendered
+  // with a distinct [BRIEFED LAUNCH] marker so the model sees the colourway exists
+  // and is briefed, not sold. Original case preserved from the brief.
+  const briefedLaunches = (f: ProductFamily): string[] => {
+    const sold = new Set(f.variants.map((v) => (v.colourway ?? '').toLowerCase().trim()));
+    const nameRe = new RegExp('\\b' + escapeRe(f.name.toLowerCase()) + '\\b');
+    const out: string[] = [];
+    for (const p of brief?.products ?? []) {
+      const colour = (p.colourway ?? '').trim();
+      if (!colour) continue;
+      if (!nameRe.test(p.product.toLowerCase())) continue;         // brief product is this family
+      if (sold.has(colour.toLowerCase())) continue;                // already a sold line
+      if (out.some((c) => c.toLowerCase() === colour.toLowerCase())) continue; // dedupe
+      out.push(colour);
+    }
+    return out;
+  };
+
   const ranked = [...families].sort((a, b) => score(b) - score(a)).slice(0, maxFamilies);
   return ranked.map((f) => {
     const cols = f.variants.map((v) => v.colourway + (v.status !== 'live' ? ` [${v.status.toUpperCase()}]` : '')).join(', ');
-    return `- ${f.name} (${f.style}) — available ONLY in: ${cols}`;
+    const briefed = briefedLaunches(f).map((c) => `${c} [BRIEFED LAUNCH]`);
+    const allCols = briefed.length ? [cols, ...briefed].filter(Boolean).join(', ') : cols;
+    return `- ${f.name} (${f.style}) — available ONLY in: ${allCols}`;
   }).join('\n');
 }
 

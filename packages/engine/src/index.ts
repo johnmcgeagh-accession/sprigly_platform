@@ -48,6 +48,12 @@ export type {
   PlanContentAnswers,
   BusinessContextNote,
   IntakeJson,
+  BriefProductStatus,
+  BriefProduct,
+  BriefScheduleBeat,
+  BriefContentAsk,
+  BriefConflict,
+  StructuredBrief,
 } from './types.js';
 export { recordResolution } from './resolution.js';
 export type { RecordResolutionParams } from './resolution.js';

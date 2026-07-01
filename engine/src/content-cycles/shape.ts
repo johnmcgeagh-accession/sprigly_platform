@@ -112,7 +112,7 @@ export async function runShapeForCycle(job: ShapeJob, deps: PlanningDeps): Promi
   // 3. HARD catalogue grounding (rewrite invalid product/colourway pairings).
   let finalCaption = revised.draftCaption ?? before;
   if (ctx.catalogue) {
-    const idx = indexCatalogue(ctx.catalogue as Catalogue);
+    const idx = indexCatalogue(ctx.catalogue as Catalogue, ctx.structuredBrief);
     finalCaption = applyCatalogueValidation(finalCaption, '', idx).caption;
   }
 
