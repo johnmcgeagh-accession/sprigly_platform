@@ -1,0 +1,13 @@
+{
+  "id": "blog-05",
+  "workflowId": "sprigly-blog-post",
+  "input": { "topic": "What AI-ready looks like for a 10-person law firm" },
+  "assertions": {
+    "lengthMin": 2000,
+    "lengthMax": 6000,
+    "mustContain": ["law", "firm"],
+    "mustNotContain": ["seamlessly", "unlock", "empower", "in today's", "it's worth noting", "—", "delve", "leverage", "game-changer"],
+    "requiredSections": ["faq"],
+    "isValidJson": false
+  }
+}

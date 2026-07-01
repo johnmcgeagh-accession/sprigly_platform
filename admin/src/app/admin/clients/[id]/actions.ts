@@ -253,6 +253,84 @@ export async function triggerPlanning(formData: FormData): Promise<ActionResult>
   }
 }
 
+/** "YYYY-MM" → the previous month's "YYYY-MM" (rolls the year at January).
+ *  Inverse of the worker's nextMonth(): the data month behind a plan month. */
+function prevMonth(yyyymm: string): string {
+  const [y, m] = yyyymm.split('-').map(Number);
+  const d = new Date(Date.UTC(y!, m! - 2, 1)); // m is 1-based; m-2 == previous month index
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * "Start a month" — create or reuse the content_cycles row for an ARBITRARY plan
+ * month and fire planning for it directly, without waiting for the daily scheduler.
+ * Lets us test future months (e.g. July, August) on demand before the scheduler
+ * would ever reach them.
+ *
+ * `planMonth` is the month you want to SEE posts for. The worker plans
+ * cycle_month + 1, so the underlying cycle row's cycle_month is planMonth − 1 (the
+ * data month). Picking 2026-07 therefore creates a cycle at 2026-06 and produces
+ * July-dated rows in content_cycle_posts (the dual-write inside runPlanningForCycle).
+ *
+ * No fresh intake is required: assembleShapeContext treats intake as optional and
+ * falls back to the client's standing planning config, so we only mark
+ * intakeSource='manual' and leave intakeJson null. This action never runs
+ * request-email, so no real client is emailed; workbook delivery stays pinned to
+ * the test inbox by the build-workbook workflow. Reuses the shared enqueuePlanning
+ * + deterministic planning_${cycleId} jobId — no duplicated planning logic.
+ */
+export async function startCycleForMonth(formData: FormData): Promise<ActionResult> {
+  const clientId  = formData.get('clientId')  as string;
+  const channel   = formData.get('channel')   as string;
+  const planMonth = String(formData.get('planMonth') ?? '').trim();
+
+  if (!clientId || !channel) return { ok: false, message: 'Missing client/channel.' };
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(planMonth)) {
+    return { ok: false, message: `Invalid month "${planMonth}" — expected YYYY-MM.` };
+  }
+
+  // The worker plans cycle_month + 1, so the data month behind a July plan is June.
+  const dataMonth = prevMonth(planMonth);
+
+  try {
+    // Create the cycle row if this (client, channel, month) has never run. A fresh
+    // row starts at intake_confirmed so planning can pick it up immediately; an
+    // already-existing row is left untouched here and normalised in onSlotReady.
+    await db.insert(contentCycles)
+      .values({ clientId, channel, cycleMonth: dataMonth, status: 'intake_confirmed', intakeSource: 'manual' })
+      .onConflictDoNothing();
+
+    const [cycle] = await db
+      .select({ id: contentCycles.id, status: contentCycles.status })
+      .from(contentCycles)
+      .where(and(
+        eq(contentCycles.clientId,   clientId),
+        eq(contentCycles.channel,    channel),
+        eq(contentCycles.cycleMonth, dataMonth),
+      ))
+      .limit(1);
+    if (!cycle) return { ok: false, message: 'Could not create or find the cycle row.' };
+
+    // Normalise to intake_confirmed ONLY once the planning slot is confirmed free —
+    // handles re-firing a month that already reached planning/workbook_built,
+    // mirroring triggerPlanning.
+    const result = await enqueuePlanning(cycle.id, async () => {
+      if (cycle.status !== 'intake_confirmed') {
+        await db.update(contentCycles)
+          .set({ status: 'intake_confirmed', intakeSource: 'manual', updatedAt: new Date() })
+          .where(eq(contentCycles.id, cycle.id));
+      }
+    });
+    if (!result.ok) return result;
+
+    revalidatePath(`/admin/clients/${clientId}`);
+    return { ok: true, message: `Started ${planMonth} plan for ${channel} (data month ${dataMonth}) — planning enqueued.` };
+  } catch (err) {
+    console.error('[startCycleForMonth]', err);
+    return { ok: false, message: err instanceof Error ? err.message : 'Failed to start month.' };
+  }
+}
+
 export async function resetCycle(formData: FormData): Promise<void> {
   const clientId  = formData.get('clientId')  as string;
   const channel   = formData.get('channel')   as string;

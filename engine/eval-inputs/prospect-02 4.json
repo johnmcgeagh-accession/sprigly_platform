@@ -1,0 +1,18 @@
+{
+  "id": "prospect-02",
+  "workflowId": "sprigly-prospect-research",
+  "input": {
+    "brandName": "Hawksley Legal",
+    "sector": "solicitors",
+    "url": "https://hawksleylegal.co.uk",
+    "notes": "Residential conveyancing and wills/probate. 6 fee earners. Practice manager handles all client onboarding manually."
+  },
+  "assertions": {
+    "lengthMin": 400,
+    "lengthMax": 3000,
+    "mustContain": ["Hawksley", "legal"],
+    "mustNotContain": ["seamlessly", "unlock", "empower", "—", "delve", "leverage"],
+    "requiredSections": ["painPoints", "aiUseCases", "callTalkingPoints"],
+    "isValidJson": true
+  }
+}

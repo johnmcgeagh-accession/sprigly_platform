@@ -6,6 +6,7 @@ import {
   triggerTrawl,
   triggerEmail,
   triggerPlanning,
+  startCycleForMonth,
   resetCycle,
   copyClientLink,
   setDeliverySurface,
@@ -83,6 +84,8 @@ export function ContentCycleOpsPanel({
   const [actionError,        setActionError]         = useState<string | null>(null);
   const [clientLink,         setClientLink]          = useState<string | null>(null);
   const [linkCopied,         setLinkCopied]          = useState(false);
+  const [startMonth,         setStartMonth]          = useState('');
+  const [startNote,          setStartNote]           = useState<string | null>(null);
   const [isPending,          startTransition]        = useTransition();
 
   function copyLink() {
@@ -125,6 +128,27 @@ export function ContentCycleOpsPanel({
       if (extraFields) Object.entries(extraFields).forEach(([k, v]) => fd.set(k, v));
       const result = await action(fd);
       if (!result.ok) setActionError(result.message ?? 'An error occurred.');
+    });
+  }
+
+  // "Start a month" — kick off planning for an arbitrary future plan month for THIS
+  // channel. planMonth is the month you want to see posts for; the action derives
+  // the data month (planMonth − 1) itself. Surfaces the success note, not just errors.
+  function runStartMonth() {
+    setActionError(null);
+    setStartNote(null);
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(startMonth)) {
+      setActionError('Pick a plan month (YYYY-MM) first.');
+      return;
+    }
+    startTransition(async () => {
+      const fd = new FormData();
+      fd.set('clientId',  clientId);
+      fd.set('channel',   channel);
+      fd.set('planMonth', startMonth);
+      const result = await startCycleForMonth(fd);
+      if (!result.ok) { setActionError(result.message ?? 'Could not start the month.'); return; }
+      setStartNote(result.message ?? `Started ${startMonth}.`);
     });
   }
 
@@ -366,6 +390,48 @@ export function ContentCycleOpsPanel({
               <option value="sheet">Workbook only</option>
             </select>
           </div>
+        </div>
+
+        {/* Start a month — plan an arbitrary future month on demand */}
+        <div className="mt-4 pt-4 border-t border-gray-100">
+          <div className="flex items-center gap-2 flex-wrap text-sm">
+            <span className="font-medium text-gray-600">Start a month:</span>
+            <input
+              type="month"
+              value={startMonth}
+              disabled={isPending}
+              onChange={(e) => setStartMonth((e.target as unknown as { value: string }).value)}
+              className="border border-gray-300 rounded px-2 py-1 text-sm disabled:opacity-50"
+            />
+            <span className="text-xs text-gray-400">for {channel}</span>
+            <button
+              type="button"
+              disabled={isPending || !startMonth}
+              onClick={runStartMonth}
+              title={`Create/reuse the cycle for the chosen plan month and run planning now. Delivery stays pinned to the test inbox; no client is emailed. Writes ${channel} rows for the picked month to content_cycle_posts.`}
+              className="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isPending ? 'Starting…' : 'Start & plan'}
+            </button>
+          </div>
+          <p className="mt-1.5 text-xs text-gray-400">
+            Pick the month you want posts <em>for</em> (e.g. <span className="font-mono">2026-07</span> → July posts).
+            Planning runs straight away and delivery is pinned to the test inbox.
+          </p>
+          {startNote && (
+            <div className="mt-2 flex items-start gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2.5">
+              <span className="shrink-0 font-bold">✓</span>
+              <span>{startNote}</span>
+              <button
+                type="button"
+                onClick={() => setStartNote(null)}
+                className="ml-auto shrink-0 text-green-500 hover:text-green-700 text-xs"
+                aria-label="Dismiss"
+              >
+                ✕
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Inline action error */}

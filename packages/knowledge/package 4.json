@@ -1,0 +1,29 @@
+{
+  "name": "@sprigly/knowledge",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sprigly/db": "workspace:*",
+    "@sprigly/embedding-client": "workspace:*",
+    "@sprigly/model-client": "workspace:*",
+    "@sprigly/sources": "workspace:*",
+    "drizzle-orm": "^0.30.0"
+  },
+  "devDependencies": {
+    "typescript": "*"
+  }
+}
