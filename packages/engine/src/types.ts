@@ -213,6 +213,7 @@ export interface CompetitorGatherData {
   accounts:   CompetitorAccountCache[];
   benchmark:  CompetitorBenchmarkRow[];
   gatheredAt: string;   // ISO date of the most recent gather run
+  quotaExhausted?: boolean;  // Apify hit 402/429 during the last run (data may be partial/stale)
 }
 
 // ─── intake_json shape ───────────────────────────────────────────────────────

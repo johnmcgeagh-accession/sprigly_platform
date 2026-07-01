@@ -654,6 +654,12 @@ export const contentCycles = pgTable(
     voiceMergedAt:     timestamp('voice_merged_at'),
     closedAt:          timestamp('closed_at'),
     failedStep:        text('failed_step'),
+    // IG input outcome (0056) — distinct from a Drive-file check. See values in the
+    // migration header: ok | no_key | no_handle | empty_month | account_mismatch |
+    // quota_exhausted | bad_key | error.
+    igInputStatus:     text('ig_input_status'),
+    igInputDetail:     text('ig_input_detail'),
+    igInputCheckedAt:  timestamp('ig_input_checked_at', { withTimezone: true }),
   },
   (t) => ({
     uniqClientChannelMonth: uniqueIndex('content_cycles_unique').on(

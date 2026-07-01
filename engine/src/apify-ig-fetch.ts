@@ -42,6 +42,27 @@ export interface FetchApifyPostsResult {
 
 const APIFY_TIMEOUT_MS = 120_000;
 
+/** Apify HTTP failure carrying the status code so callers can branch on it —
+ *  401 (bad key), 402/429 (credits/quota exhausted) vs any other error. */
+export class ApifyHttpError extends Error {
+  constructor(public readonly status: number, public readonly body: string) {
+    super(`HTTP ${status}: ${body}`);
+    this.name = 'ApifyHttpError';
+  }
+}
+
+/** Classify an error as an Apify auth/quota failure (for status recording). */
+export function classifyApifyError(err: unknown): 'bad_key' | 'quota_exhausted' | null {
+  const status = err instanceof ApifyHttpError ? err.status : undefined;
+  if (status === 401 || status === 403) return 'bad_key';
+  if (status === 402 || status === 429) return 'quota_exhausted';
+  // Fall back to string-matching the wrapped message (the re-wrap preserves "HTTP <n>").
+  const s = String((err as { message?: unknown })?.message ?? err);
+  if (/HTTP 40[13]\b/.test(s)) return 'bad_key';
+  if (/HTTP (402|429)\b/.test(s)) return 'quota_exhausted';
+  return null;
+}
+
 // ── Fetch helper ──────────────────────────────────────────────────────────────
 
 export async function fetchApifyPostsForHandle(
@@ -71,7 +92,7 @@ export async function fetchApifyPostsForHandle(
       },
     );
     if (!res.ok) {
-      throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      throw new ApifyHttpError(res.status, await res.text());
     }
     const body = await res.json() as unknown;
     if (!Array.isArray(body)) throw new Error('Apify response is not an array');
@@ -84,6 +105,9 @@ export async function fetchApifyPostsForHandle(
       firstUrl:   (rawPosts[0] as Record<string, unknown>)?.['url'],
     }, 'apify-ig-fetch: raw response (pre-filter)');
   } catch (err) {
+    // Preserve the HTTP status so callers can branch on 401/402 — re-throw the typed
+    // error as-is; only wrap the non-typed (timeout / network) cases.
+    if (err instanceof ApifyHttpError) throw err;
     const label = (err as { name?: string }).name === 'AbortError'
       ? `timed out after ${APIFY_TIMEOUT_MS / 1000}s`
       : String(err);

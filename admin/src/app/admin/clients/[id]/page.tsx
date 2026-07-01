@@ -5,7 +5,7 @@ import { formatDateTimeShort } from '@/lib/format-date';
 
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { db, clients, clientConfigs, clientChannels, oauthConnections, incomingEvents, routingRules, promptTemplates, workflowRuns, contentCycles } from '@sprigly/db';
+import { db, clients, clientConfigs, clientChannels, oauthConnections, incomingEvents, routingRules, promptTemplates, workflowRuns, contentCycles, clientPlanningConfig } from '@sprigly/db';
 import { eq, desc, and, isNull, sql, inArray } from 'drizzle-orm';
 import { workflowMeta, type WorkflowMeta } from '@sprigly/workflows';
 import { getTokens, storeTokens, createEncryptionProvider } from '@sprigly/oauth-tokens';
@@ -86,7 +86,21 @@ type CycleInfo = {
   status:        string;
   requestSentAt: string | null;
   intakeJson:    IntakeJson | null;
+  igInputStatus: string | null;
+  igInputDetail: string | null;
 };
+
+async function getCompetitorsByChannel(
+  clientId: string,
+  channelNames: string[],
+): Promise<Map<string, string[]>> {
+  if (channelNames.length === 0) return new Map();
+  const rows = await db
+    .select({ channel: clientPlanningConfig.channel, competitors: clientPlanningConfig.competitors })
+    .from(clientPlanningConfig)
+    .where(and(eq(clientPlanningConfig.clientId, clientId), inArray(clientPlanningConfig.channel, channelNames)));
+  return new Map(rows.map((r) => [r.channel, (r.competitors ?? []) as string[]]));
+}
 
 async function getCyclesByChannel(
   clientId: string,
@@ -101,6 +115,8 @@ async function getCyclesByChannel(
       status:        contentCycles.status,
       requestSentAt: contentCycles.requestSentAt,
       intakeJson:    contentCycles.intakeJson,
+      igInputStatus: contentCycles.igInputStatus,
+      igInputDetail: contentCycles.igInputDetail,
     })
     .from(contentCycles)
     .where(
@@ -115,6 +131,8 @@ async function getCyclesByChannel(
     status:        r.status,
     requestSentAt: r.requestSentAt ? r.requestSentAt.toISOString() : null,
     intakeJson:    (r.intakeJson as IntakeJson | null) ?? null,
+    igInputStatus: r.igInputStatus ?? null,
+    igInputDetail: r.igInputDetail ?? null,
   }]));
 }
 
@@ -291,10 +309,11 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
   if (!client) notFound();
 
   const channelNames = channels.map(c => c.channel);
-  const [promptCoverage, cyclesByChannel, driveByChannel] = await Promise.all([
+  const [promptCoverage, cyclesByChannel, driveByChannel, competitorsByChannel] = await Promise.all([
     getPromptCoverage(params.id, clientRules.map((r) => r.workflowId)),
     getCyclesByChannel(params.id, channelNames, dataMonth),
     getDriveFilesByChannel(params.id, channels.map(c => ({ channel: c.channel, driveFolderId: c.driveFolderId ?? null }))),
+    getCompetitorsByChannel(params.id, channelNames),
   ]);
 
   return (
@@ -396,6 +415,9 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                     aiChangeLimit={ch.aiChangeLimit ?? 30}
                     aiChangeLimitOverrideUntil={ch.aiChangeLimitOverrideUntil ? ch.aiChangeLimitOverrideUntil.toISOString() : null}
                     postsPerWeek={ch.postsPerWeek ?? null}
+                    competitors={competitorsByChannel.get(ch.channel) ?? []}
+                    igInputStatus={cycle?.igInputStatus ?? null}
+                    igInputDetail={cycle?.igInputDetail ?? null}
                     intakePresent={intakePresent}
                     driveFiles={driveResult.files}
                     driveError={driveResult.error}

@@ -56,3 +56,7 @@ export { WorkflowRegistry } from './workflow-registry.js';
 export { EventRouter, extractField, evaluateCondition, evaluateConditions, matchRules } from './event-router.js';
 export { WorkflowRunner } from './workflow-runner.js';
 export { DestinationDispatcher } from './destination-dispatcher.js';
+export { buildCatalogue, parseProductTitle } from './catalogue/parse-catalogue.js';
+export type {
+  Catalogue, ParsedProduct, ProductFamily, ProductStatus, SalesRow, VariantSales,
+} from './catalogue/parse-catalogue.js';

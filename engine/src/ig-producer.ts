@@ -14,12 +14,12 @@
 
 import { z } from 'zod';
 import { eq, and } from 'drizzle-orm';
-import { db as _db, clientChannels } from '@sprigly/db';
+import { db as _db, clientChannels, contentCycles } from '@sprigly/db';
 import { DriveApiClient } from '@sprigly/sources';
 import { getTokens, storeTokens, type EncryptionProvider } from '@sprigly/oauth-tokens';
 import type { Logger } from 'pino';
 import { igPostSchema } from './lean-line.js';
-import { fetchApifyPostsForHandle } from './apify-ig-fetch.js';
+import { fetchApifyPostsForHandle, classifyApifyError } from './apify-ig-fetch.js';
 
 type Db = typeof _db;
 
@@ -65,20 +65,28 @@ function inTargetMonth(timestamp: string | undefined, month: string): boolean {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-export async function trawlInstagramPosts(params: IgProducerParams): Promise<void> {
+/** Distinct IG-input outcome, recorded on the cycle so the prepare panel can tell
+ *  "never ran" from "ran empty" from "failed". 'quota_exhausted'/'bad_key'/'error'
+ *  are produced in runIgTrawlJob from the thrown Apify error, not here. */
+export type IgTrawlStatus =
+  | 'ok' | 'no_key' | 'no_handle' | 'empty_month' | 'account_mismatch'
+  | 'quota_exhausted' | 'bad_key' | 'error';
+export interface IgTrawlOutcome { status: IgTrawlStatus; detail?: string; postCount?: number }
+
+export async function trawlInstagramPosts(params: IgProducerParams): Promise<IgTrawlOutcome> {
   const { clientId, channel, month, handle, driveFolderId, drive, apifyApiKey, logger } = params;
   const logCtx = { clientId, channel, month };
 
   // ── Missing API key ───────────────────────────────────────────────────────
   if (!apifyApiKey) {
     logger.warn(logCtx, 'ig-trawl: APIFY_API_KEY not set — skipping; lean-line degrades to sales-only');
-    return;
+    return { status: 'no_key' };
   }
 
   // ── Missing handle (DB column absent) ────────────────────────────────────
   if (!handle) {
     logger.info(logCtx, 'ig-trawl: no instagram_handle — skipping');
-    return;
+    return { status: 'no_handle' };
   }
 
   // ── Fetch from Apify (shared helper) ─────────────────────────────────────
@@ -102,10 +110,11 @@ export async function trawlInstagramPosts(params: IgProducerParams): Promise<voi
       'ig-trawl: dropped tagged/mention posts (foreign owner) — normal actor behaviour');
   }
   if (ownedPosts.length === 0) {
-    throw new Error(
-      `ig-trawl: account mismatch — expected "${handle}", found owners: ${distinctOtherOwners.join(', ')}. ` +
-      `Check instagram_handle in client_channels for this client.`,
-    );
+    // Record + return (not throw): a wrong handle is deterministic — retrying 5× is
+    // futile, and the prepare panel should show "handle mismatch", not a failed job.
+    const detail = `expected "${handle}", found owners: ${distinctOtherOwners.join(', ') || '(none)'}`;
+    logger.warn({ ...logCtx, handle, distinctOtherOwners }, `ig-trawl: account mismatch — ${detail}`);
+    return { status: 'account_mismatch', detail };
   }
 
   // ── Coverage visibility ───────────────────────────────────────────────────
@@ -136,7 +145,7 @@ export async function trawlInstagramPosts(params: IgProducerParams): Promise<voi
   if (monthPosts.length === 0) {
     logger.warn({ ...logCtx, handle, rawCount, ownedCount: ownedPosts.length, skippedHidden: skippedHiddenCount },
       'ig-trawl: no posts for target month after filtering — not writing file');
-    return;
+    return { status: 'empty_month', detail: `${ownedPosts.length} owned posts, none in ${month}` };
   }
 
   // ── Map to igPostSchema shape ─────────────────────────────────────────────
@@ -181,6 +190,8 @@ export async function trawlInstagramPosts(params: IgProducerParams): Promise<voi
     logger.info({ ...logCtx, handle, filename, fileId, postCount: validated.length },
       'ig-trawl: created Drive file');
   }
+
+  return { status: 'ok', postCount: validated.length };
 }
 
 // ── Job-level runner (called by BullMQ consumer and CLI wrapper) ──────────────
@@ -234,9 +245,41 @@ export async function runIgTrawlJob(
     },
   );
 
-  await trawlInstagramPosts({
-    clientId, channel, month: dataMonth,
-    handle: chanRow.instagramHandle ?? undefined,
-    driveFolderId, drive, apifyApiKey, logger,
-  });
+  // Record the IG-input outcome on the cycle (best-effort) so the prepare panel can
+  // distinguish never-ran / empty / failed. The cycle is keyed by (clientId, channel,
+  // cycleMonth) and dataMonth == cycleMonth, so we resolve it without a cycleId.
+  const recordIgStatus = async (status: string, detail?: string): Promise<void> => {
+    try {
+      await db.update(contentCycles)
+        .set({ igInputStatus: status, igInputDetail: detail ?? null, igInputCheckedAt: new Date() })
+        .where(and(
+          eq(contentCycles.clientId, clientId),
+          eq(contentCycles.channel, channel),
+          eq(contentCycles.cycleMonth, dataMonth),
+        ));
+    } catch (err) {
+      logger.warn({ ...logCtx, err: String(err) }, 'ig-trawl: could not record ig_input_status');
+    }
+  };
+
+  try {
+    const outcome = await trawlInstagramPosts({
+      clientId, channel, month: dataMonth,
+      handle: chanRow.instagramHandle ?? undefined,
+      driveFolderId, drive, apifyApiKey, logger,
+    });
+    await recordIgStatus(outcome.status, outcome.detail);
+  } catch (err) {
+    // Apify auth/quota failures are deterministic — record the distinct status and
+    // DON'T rethrow (no point retrying 5×). Transient/unknown errors record 'error'
+    // and rethrow so BullMQ can retry them.
+    const apify = classifyApifyError(err);
+    if (apify) {
+      await recordIgStatus(apify, String((err as { message?: unknown })?.message ?? err).slice(0, 300));
+      logger.error({ ...logCtx, status: apify }, `ig-trawl: Apify ${apify} — recorded, not retrying`);
+      return;
+    }
+    await recordIgStatus('error', String((err as { message?: unknown })?.message ?? err).slice(0, 300));
+    throw err;
+  }
 }

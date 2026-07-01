@@ -32,7 +32,7 @@ import type {
   ScoredIgPost,
 } from '@sprigly/engine';
 import type { Logger } from 'pino';
-import { fetchApifyPostsForHandle, type RawApifyPost } from './apify-ig-fetch.js';
+import { fetchApifyPostsForHandle, classifyApifyError, type RawApifyPost } from './apify-ig-fetch.js';
 
 type Db = typeof _db;
 
@@ -41,6 +41,7 @@ type Db = typeof _db;
 const STALE_DAYS          = 30;
 const COMPETITOR_LIMIT    = 50;  // posts per account
 const GATHER_CONCURRENCY  = 3;   // max parallel Apify calls
+export const MAX_COMPETITORS = 5; // Apify-runway cap — scrape only the first 5 handles
 
 // ── Scoring ───────────────────────────────────────────────────────────────────
 
@@ -189,6 +190,7 @@ export interface GatherResult {
   accountsGathered:     number;
   accountsSkippedFresh: number;
   accountsFailed:       number;
+  quotaExhausted:       boolean;   // Apify returned 402/429 during the run
 }
 
 // ── Main gather function ──────────────────────────────────────────────────────
@@ -214,10 +216,17 @@ export async function gatherCompetitorData(
     .where(and(eq(clientPlanningConfig.clientId, clientId), eq(clientPlanningConfig.channel, channel)))
     .limit(1);
 
-  const competitors = (configRows[0]?.competitors ?? []) as string[];
-  if (competitors.length === 0) {
+  const configured = (configRows[0]?.competitors ?? []) as string[];
+  if (configured.length === 0) {
     logger.warn(logCtx, 'competitor-gather: no competitors configured in client_planning_config — skipping');
-    return { accountsGathered: 0, accountsSkippedFresh: 0, accountsFailed: 0 };
+    return { accountsGathered: 0, accountsSkippedFresh: 0, accountsFailed: 0, quotaExhausted: false };
+  }
+  // Runway cap: only ever scrape the first MAX_COMPETITORS. An over-cap list is
+  // flagged (not silently truncated) so it can be trimmed in admin.
+  const competitors = configured.slice(0, MAX_COMPETITORS);
+  if (configured.length > MAX_COMPETITORS) {
+    logger.warn({ ...logCtx, configured: configured.length, cap: MAX_COMPETITORS, dropped: configured.slice(MAX_COMPETITORS) },
+      `competitor-gather: ${configured.length} competitors configured but capped at ${MAX_COMPETITORS} — trim the list in admin`);
   }
   logger.info({ ...logCtx, count: competitors.length, competitors }, 'competitor-gather: starting gather');
 
@@ -240,6 +249,7 @@ export async function gatherCompetitorData(
   let accountsGathered     = 0;
   let accountsSkippedFresh = 0;
   let accountsFailed       = 0;
+  let quotaExhausted       = false;   // set when Apify returns 402/429 for any handle
 
   // 3. Batch fetch (3-concurrent)
   await runBatched(competitors, GATHER_CONCURRENCY, async (handle) => {
@@ -263,8 +273,18 @@ export async function gatherCompetitorData(
     try {
       fetchResult = await fetchApifyPostsForHandle(handle, COMPETITOR_LIMIT, apifyApiKey, logger, handleCtx);
     } catch (err) {
-      logger.warn({ ...handleCtx, err: String(err) },
-        'competitor-gather: Apify fetch failed — skipping this handle (non-fatal)');
+      // Branch on 402/429 so credit exhaustion is surfaced distinctly instead of
+      // hiding inside the generic accountsFailed counter (every remaining handle
+      // would otherwise 402 and look like a private/renamed account).
+      const kind = classifyApifyError(err);
+      if (kind === 'quota_exhausted') {
+        quotaExhausted = true;
+        logger.error({ ...handleCtx, err: String(err) },
+          'competitor-gather: Apify QUOTA EXHAUSTED (402/429) — credits spent; remaining handles will also fail');
+      } else {
+        logger.warn({ ...handleCtx, err: String(err), kind: kind ?? 'other' },
+          'competitor-gather: Apify fetch failed — skipping this handle (non-fatal)');
+      }
       accountsFailed++;
       return;
     }
@@ -324,6 +344,7 @@ export async function gatherCompetitorData(
     accounts,
     benchmark,
     gatheredAt: new Date().toISOString(),
+    quotaExhausted,
   };
 
   // 5. Upsert to DB
@@ -339,8 +360,8 @@ export async function gatherCompetitorData(
       .values({ clientId, channel, gatheredAt: now, rawData: gatherData as unknown as Record<string, unknown> });
   }
 
-  logger.info({ ...logCtx, accountsGathered, accountsSkippedFresh, accountsFailed, total: competitors.length },
+  logger.info({ ...logCtx, accountsGathered, accountsSkippedFresh, accountsFailed, quotaExhausted, total: competitors.length },
     'competitor-gather: complete');
 
-  return { accountsGathered, accountsSkippedFresh, accountsFailed };
+  return { accountsGathered, accountsSkippedFresh, accountsFailed, quotaExhausted };
 }
