@@ -88,6 +88,7 @@ type CycleInfo = {
   intakeJson:    IntakeJson | null;
   igInputStatus: string | null;
   igInputDetail: string | null;
+  postsSyncStatus: string | null;
 };
 
 async function getCompetitorsByChannel(
@@ -117,6 +118,7 @@ async function getCyclesByChannel(
       intakeJson:    contentCycles.intakeJson,
       igInputStatus: contentCycles.igInputStatus,
       igInputDetail: contentCycles.igInputDetail,
+      postsSyncStatus: contentCycles.postsSyncStatus,
     })
     .from(contentCycles)
     .where(
@@ -133,6 +135,7 @@ async function getCyclesByChannel(
     intakeJson:    (r.intakeJson as IntakeJson | null) ?? null,
     igInputStatus: r.igInputStatus ?? null,
     igInputDetail: r.igInputDetail ?? null,
+    postsSyncStatus: r.postsSyncStatus ?? null,
   }]));
 }
 

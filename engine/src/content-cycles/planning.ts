@@ -28,7 +28,7 @@
  * On error: → failed, failed_step='planning' (CSV not guaranteed; safe to retry).
  */
 
-import { eq, and, desc, isNotNull } from 'drizzle-orm';
+import { eq, and, desc, isNotNull, inArray } from 'drizzle-orm';
 import {
   db as _db,
   contentCycles,
@@ -39,6 +39,7 @@ import {
   voiceEdits,
   clientProductCatalogue,
   contentCyclePosts,
+  postEdits,
 } from '@sprigly/db';
 import type { NewContentCyclePostRow } from '@sprigly/db';
 import { mapFormat, isoDateInMonth } from './post-mapping.js';
@@ -57,6 +58,7 @@ import { transitionCycle } from './machine.js';
 import { applyCodeGate, applyCritic, normaliseDashes } from './plan-validation.js';
 import { parsePlanResponse } from './parse-plan.js';
 import { extractStructuredBrief, EMPTY_STRUCTURED_BRIEF } from './brief-extract.js';
+import { mergePlan, briefedProductNames, type ExistingPost } from './plan-merge.js';
 import type { RegisterMap } from './plan-validation.js';
 import type { PlanPostRow, HistoricPost, VoiceEditExample, PlanRepairContext } from './plan-validation.js';
 import { PlanningTracer } from './planning-trace.js';
@@ -816,11 +818,15 @@ export async function runPlanningForCycle(
     // steps in one insert. Read back with `pnpm --filter @sprigly/worker planning-trace <cycleId>`.
     await tracer.flush(db);
 
-    // ── Dual-write content_cycle_posts (additive; never fails the run) ─────────
-    // The structured backbone the client app reads/edits, written ALONGSIDE the
-    // CSV → xlsx → Drive path (which stays the live delivery + safety net). The
-    // plan is fully regenerated each run, so replace the cycle's rows wholesale.
-    // A failure here is logged and swallowed — the CSV path is unaffected.
+    // ── Write content_cycle_posts — EDIT-AWARE MERGE (edits win, rest replaced) ─
+    // The client app reads/edits this table. A blind delete-all→insert (the old
+    // behaviour) hit the post_edits → content_cycle_posts FK and silently rolled
+    // back, leaving the app stale. Instead: classify existing posts, DELETE only the
+    // un-edited + empty-placeholder rows (all post_edits-free by construction), KEEP
+    // the client's edited/authored posts (flagged for review), and INSERT the new
+    // plan as review_state='regenerated'. Fail-loud: a write failure is logged at
+    // ERROR and flags the cycle out_of_sync (the workbook/CSV path is unaffected) —
+    // never silently swallowed.
     try {
       const postRows: NewContentCyclePostRow[] = [];
       for (let i = 0; i < planRows.length; i++) {
@@ -834,6 +840,7 @@ export async function runPlanningForCycle(
           pillar:        p.pillar ?? null,
           caption:       p.draftCaption ?? null,
           status:        'planned',
+          reviewState:   'regenerated',
           position:      i,
           sourceMeta: {
             title:             p.title ?? '',
@@ -855,13 +862,50 @@ export async function runPlanningForCycle(
           },
         });
       }
+
+      // Classify the cycle's existing posts (explicit columns — never select-all, so
+      // this is safe before/after the review_state column is applied).
+      const existingRows = await db
+        .select({
+          id: contentCyclePosts.id, scheduledDate: contentCyclePosts.scheduledDate,
+          status: contentCyclePosts.status, caption: contentCyclePosts.caption,
+          sourceMeta: contentCyclePosts.sourceMeta,
+        })
+        .from(contentCyclePosts)
+        .where(eq(contentCyclePosts.cycleId, cycleId));
+      const editRefs = await db.select({ postId: postEdits.postId }).from(postEdits).where(eq(postEdits.cycleId, cycleId));
+      const editedIds = new Set(editRefs.map((r) => r.postId));
+      const catalogueNames = (catalogue?.families ?? [])
+        .map((f) => f.name.toLowerCase().trim())
+        .filter((n) => n && n !== 'ivy');
+      const existing: ExistingPost[] = existingRows.map((r) => ({
+        id: r.id, scheduledDate: r.scheduledDate, status: r.status, caption: r.caption,
+        title: ((r.sourceMeta as Record<string, unknown> | null)?.['title'] as string) ?? '',
+        hasPostEdit: editedIds.has(r.id),
+      }));
+      const dec = mergePlan({ existing, briefedProducts: briefedProductNames(structuredBrief, catalogueNames), catalogueNames });
+      const deleteIds = [...dec.drop, ...dec.replace].map((d) => d.post.id);
+
       await db.transaction(async (tx) => {
-        await tx.delete(contentCyclePosts).where(eq(contentCyclePosts.cycleId, cycleId));
+        // FK-safe: deleteIds are drop+replace only — never a post_edits-referenced row.
+        if (deleteIds.length > 0) await tx.delete(contentCyclePosts).where(inArray(contentCyclePosts.id, deleteIds));
+        for (const pr of dec.preserve) {
+          await tx.update(contentCyclePosts).set({ reviewState: pr.reviewState }).where(eq(contentCyclePosts.id, pr.post.id));
+        }
         if (postRows.length > 0) await tx.insert(contentCyclePosts).values(postRows);
       });
-      logger.info({ ...logCtx, posts: postRows.length }, 'content-cycles: dual-wrote content_cycle_posts');
+      await db.update(contentCycles).set({ postsSyncStatus: 'synced', updatedAt: new Date() }).where(eq(contentCycles.id, cycleId));
+      logger.info(
+        { ...logCtx, preserved: dec.preserve.length, orphaned: dec.preserve.filter((d) => d.orphaned).length,
+          dropped: dec.drop.length, replaced: dec.replace.length, inserted: postRows.length },
+        'content-cycles: edit-aware merge wrote content_cycle_posts',
+      );
     } catch (err) {
-      logger.warn({ ...logCtx, err: String(err) }, 'content-cycles: content_cycle_posts dual-write failed — non-fatal (CSV path unaffected)');
+      // FAIL-LOUD (not silent): flag the cycle out_of_sync so the stale app surface is
+      // visible in admin; the workbook/CSV path below is unaffected and still runs.
+      logger.error({ ...logCtx, err: String(err) }, 'content-cycles: content_cycle_posts merge-write FAILED — flagging cycle out_of_sync (workbook unaffected)');
+      await db.update(contentCycles).set({ postsSyncStatus: 'out_of_sync', updatedAt: new Date() }).where(eq(contentCycles.id, cycleId))
+        .catch((e) => logger.error({ ...logCtx, err: String(e) }, 'content-cycles: also failed to set posts_sync_status=out_of_sync'));
     }
 
     // ── Serialise to the 13-column CSV ────────────────────────────────────────

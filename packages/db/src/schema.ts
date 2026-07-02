@@ -666,6 +666,11 @@ export const contentCycles = pgTable(
     igInputStatus:     text('ig_input_status'),
     igInputDetail:     text('ig_input_detail'),
     igInputCheckedAt:  timestamp('ig_input_checked_at', { withTimezone: true }),
+    // Health of the content_cycle_posts write for this cycle's latest plan run:
+    // 'synced' (posts match the plan) | 'out_of_sync' (posts-write failed — the app
+    // is serving a stale plan; surfaced in the admin cycle-status block) | null.
+    // REQUIRES migration 0060 before deploy (mapped column → select-all).
+    postsSyncStatus:   text('posts_sync_status'),
   },
   (t) => ({
     uniqClientChannelMonth: uniqueIndex('content_cycles_unique').on(
@@ -834,6 +839,12 @@ export const contentCyclePosts = pgTable(
     position:      integer('position').notNull().default(0),           // explicit order within the cycle
     sourceMeta:    jsonb('source_meta').$type<Record<string, unknown>>(), // lossless CSV columns
     deletedAt:     timestamp('deleted_at'),                            // soft-delete (Phase 2) — null = live
+    // Regen merge provenance (orthogonal to `status`): 'preserved_edit' (kept from
+    // the client's prior work), 'preserved_edit_orphan' (kept but names a product no
+    // longer in the brief — needs accept/remove), 'regenerated' (fresh from the new
+    // plan), null (pre-existing / not yet classified). REQUIRES migration 0059 before
+    // deploy — select().from(content_cycle_posts) emits every mapped column.
+    reviewState:   text('review_state'),
   },
   (t) => ({
     cycleDateIdx: index('content_cycle_posts_cycle_date_idx').on(t.cycleId, t.scheduledDate),
