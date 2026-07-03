@@ -1,0 +1,10 @@
+# name them explicitly so no write command ever gets the prod URL by accident
+export PROD_DB="<prod connection string>"      # only ever read from this
+export UAT_DB="<uat connection string>"        # only ever write to this
+
+# 1. dump prod (read-only on prod) — custom format, compressed, restorable
+pg_dump "$PROD_DB" -Fc -f prod_snapshot.dump
+
+# 2. restore into UAT — --clean --if-exists so a re-run is idempotent
+pg_restore --clean --if-exists --no-owner --no-privileges \
+  -d "$UAT_DB" prod_snapshot.dump
