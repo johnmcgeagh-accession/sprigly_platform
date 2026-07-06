@@ -1,42 +1,63 @@
 /**
- * POST /api/plan/agent — the proposal-based plan agent (commit 2).
+ * POST /api/plan/agent — the task-parser-based plan agent.
  *
- * Persists the turn (user + assistant messages) to a conversation and routes the
- * message:
- *   - Typed input tries the deterministic regex classifier first (free, instant).
- *   - Voice input, and any unconfident typed input, goes to the LLM router (Haiku).
- *   - structural / add / rewrite → the EXISTING mutation + shape-job pipeline.
- *   - note_for_month / idea_backlog / next_cycle_input → a pending proposal (no
- *     content table is touched until the client approves it).
- *   - query → a grounded answer (knowledge retrieval + current cycle state).
- *   - clarify → a gentle nudge.
- * Response: { conversationId, message, proposals[], applied?, pendingJobIds? }.
+ * EVERY message goes through the LLM task parser (no regex fast path). Tasks run in
+ * message order:
+ *   - move/delete/rewrite/add → pending PROPOSALS (nothing applies here). All
+ *     proposals from one message share a changeSetId so they review as one unit.
+ *   - add_note → a DIRECT write to plan_inputs (notes are inert until integrated).
+ *   - query → answered inline (knowledge retrieval + cycle state).
+ *   - clarify → surfaced in the reply.
+ * The assistant reply summarises everything in message order.
+ * Response: { conversationId, message, proposals[], changeSetId }.
  * Everything is scoped server-side to the session's (clientId, cycleId).
  */
+import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { loadPlanPosts } from '@/lib/plan';
-import { classifyAgentInstruction } from '@/lib/agent-classify';
-import { runActionPlan } from '@/lib/agent/actions';
-import { runLlmRouter } from '@/lib/agent/router';
-import { getClientCycleMonths, resolveCycleForMonth } from '@/lib/agent/cycle-state';
+import type { PlanPost } from '@/lib/types';
 import { getModelClient, getEmbeddingClient } from '@/lib/agent/model';
+import { parseTasks } from '@/lib/agent/task-parser';
+import { getClientCycleMonths, resolveCycleForMonth, weekDigest } from '@/lib/agent/cycle-state';
+import { resolvePostSelector } from '@/lib/agent/selectors';
+import { moveSummary, deleteSummary, rewriteSummary, addSummary } from '@/lib/agent/summaries';
 import { ensureConversation, appendMessage } from '@/lib/agent/conversation';
-import { buildCapture } from '@/lib/agent/capture';
 import { createProposal } from '@/lib/agent/proposals';
+import { saveNote } from '@/lib/agent/notes';
 import { answerQuery } from '@/lib/agent/query';
-import { CAPTURE_INTENTS, type AgentTurnResponse, type CaptureIntent, type ProposalView, type RouterResult } from '@/lib/agent/types';
-import type { AgentPlan } from '@/lib/agent-classify';
+import type { AgentTurnResponse, ParsedTask, ProposalView } from '@/lib/agent/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const todayIso = (): string => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
+const todayIso = (d = new Date()): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-const isCapture = (i: string): i is CaptureIntent => (CAPTURE_INTENTS as readonly string[]).includes(i);
+/** Resolve a task's post reference to an owned post, or null (ambiguous/hallucinated). */
+function resolvePost(task: ParsedTask, posts: PlanPost[]): PlanPost | null {
+  if (task.postId) {
+    const byId = posts.find((p) => p.id === task.postId);
+    if (byId) return byId;
+  }
+  if (task.selector) {
+    const id = resolvePostSelector(task.selector, posts);
+    if (id) return posts.find((p) => p.id === id) ?? null;
+  }
+  return null;
+}
+
+/** A sensible default date for an add_post with no date: two days after the last
+ *  scheduled post, else a week out. */
+function defaultAddDate(posts: PlanPost[], today: Date): string {
+  const dates = posts.map((p) => p.date).sort();
+  const base = dates.length ? new Date(`${dates[dates.length - 1]}T00:00:00`) : today;
+  const d = new Date(base); d.setDate(d.getDate() + (dates.length ? 2 : 7));
+  return todayIso(d);
+}
+
+const whichPost = (reason?: string | null) =>
+  `I couldn’t tell which post you meant${reason ? ` for “${reason.trim()}”` : ''} — could you name its date?`;
 
 export async function POST(req: Request) {
   const session = await getSession();
@@ -44,105 +65,109 @@ export async function POST(req: Request) {
   const { clientId, cycleId } = session;
 
   let instruction = '';
-  let selectedPostId: string | undefined;
   let conversationId: string | undefined;
   let source: 'web' | 'voice' = 'web';
   let voiceSessionId: string | undefined;
   try {
-    const b = (await req.json()) as {
-      instruction?: unknown; selectedPostId?: unknown; conversationId?: unknown; source?: unknown; sessionId?: unknown;
-    };
+    const b = (await req.json()) as { instruction?: unknown; conversationId?: unknown; source?: unknown; sessionId?: unknown };
     instruction = String(b.instruction ?? '').trim();
-    if (b.selectedPostId) selectedPostId = String(b.selectedPostId);
     if (b.conversationId) conversationId = String(b.conversationId);
     if (b.source === 'voice') source = 'voice';
     if (b.sessionId) voiceSessionId = String(b.sessionId);
   } catch { /* handled below */ }
   if (!instruction) return NextResponse.json({ error: 'bad_request' }, { status: 400 });
 
-  // Persist the turn's user message.
   const convId = await ensureConversation(clientId, cycleId, conversationId);
-  const userMetadata: Record<string, unknown> = {};
-  if (voiceSessionId) userMetadata.sessionId = voiceSessionId;
-  const userMessageId = await appendMessage({
-    conversationId: convId, role: 'user', content: instruction, source,
-    ...(Object.keys(userMetadata).length ? { metadata: userMetadata } : {}),
-  });
+  const userMeta: Record<string, unknown> = { source };
+  if (voiceSessionId) userMeta.sessionId = voiceSessionId;
+  const userMessageId = await appendMessage({ conversationId: convId, role: 'user', content: instruction, source, metadata: userMeta });
 
   const posts = await loadPlanPosts(clientId, cycleId);
+  const today = new Date();
 
-  // ── Route ────────────────────────────────────────────────────────────────
-  let plan: AgentPlan | null = null;
-  let routed: RouterResult | null = null;
-
-  if (source === 'web') {
-    const fast = classifyAgentInstruction(instruction, posts, selectedPostId);
-    if (fast.kind !== 'clarify') plan = fast;
-  }
-  if (!plan) {
-    try {
-      const cycleMonths = await getClientCycleMonths(clientId, cycleId);
-      routed = await runLlmRouter(instruction, { today: todayIso(), cycleMonths }, getModelClient());
-      // An LLM-classified action is re-resolved deterministically so it runs through
-      // the exact existing pipeline; if the cleaned text still can't resolve a target,
-      // fall back to the router's clarify text.
-      if (routed.intent === 'structural' || routed.intent === 'add' || routed.intent === 'rewrite') {
-        const rePlan = classifyAgentInstruction(routed.content, posts, selectedPostId);
-        if (rePlan.kind !== 'clarify') plan = rePlan;
-      }
-    } catch {
-      // Router/model unavailable (e.g. Bedrock env not configured) — degrade to a
-      // clarify rather than 500 the turn. The message is still persisted.
-      routed = { intent: 'clarify', content: 'I couldn’t process that just now — please try again in a moment.', targetMonth: null, channel: null };
-    }
+  // ── Parse (the only entry point) ──────────────────────────────────────────
+  let tasks: ParsedTask[];
+  try {
+    const ctx = {
+      today: todayIso(today),
+      cycleMonths: await getClientCycleMonths(clientId, cycleId),
+      weekDigest: weekDigest(posts, today),
+    };
+    tasks = await parseTasks(instruction, ctx, getModelClient());
+  } catch {
+    tasks = [{ action: 'clarify', question: 'I couldn’t process that just now — please try again in a moment.' }];
   }
 
-  // ── Handle ───────────────────────────────────────────────────────────────
+  // ── Execute in message order ──────────────────────────────────────────────
+  const changeSetId = randomUUID();
   const proposals: ProposalView[] = [];
-  const resp: AgentTurnResponse = { conversationId: convId, message: '', proposals };
-  let assistantIntent = 'clarify';
+  const replyParts: string[] = [];
 
-  if (plan) {
-    assistantIntent = plan.kind;
-    const outcome = await runActionPlan(plan, clientId, cycleId);
-    resp.message = outcome.text;
-    if (outcome.applied) resp.applied = outcome.applied;
-    if (outcome.pendingJobIds) resp.pendingJobIds = outcome.pendingJobIds;
-  } else if (routed) {
-    assistantIntent = routed.intent;
-    if (routed.intent === 'query') {
-      try {
-        resp.message = await answerQuery(
-          { clientId, cycleId, question: routed.content, today: new Date() },
-          { model: getModelClient(), embeddingClient: getEmbeddingClient() },
-        );
-      } catch {
-        resp.message = 'I couldn’t look that up just now — please try again.';
+  const propose = async (action: 'move_post' | 'delete_post' | 'rewrite_post' | 'add_post', payload: Parameters<typeof createProposal>[0]['payload'], summary: string) => {
+    const pv = await createProposal({ clientId, conversationId: convId, messageId: userMessageId, changeSetId, action, payload, summary });
+    proposals.push(pv);
+    replyParts.push(`• ${summary}`);
+  };
+
+  for (const task of tasks) {
+    switch (task.action) {
+      case 'move_post': {
+        const post = resolvePost(task, posts);
+        if (!post) { replyParts.push(whichPost(task.reason)); break; }
+        if (!task.toDate) { replyParts.push(`Move “${post.caption?.split('\n')[0] || post.pillar}” to when?${task.reason ? ` (you asked: “${task.reason}”)` : ''}`); break; }
+        await propose('move_post', { kind: 'move', cycleId, postId: post.id, toDate: task.toDate }, moveSummary(post, task.toDate, task.reason));
+        break;
       }
-    } else if (isCapture(routed.intent)) {
-      // note_for_month defaults to the current cycle when no month is named.
-      const resolvedCycle = routed.targetMonth
-        ? await resolveCycleForMonth(clientId, routed.targetMonth)
-        : routed.intent === 'note_for_month' ? cycleId : null;
-      const cap = buildCapture(routed.intent, routed, resolvedCycle);
-      const pv = await createProposal({
-        clientId, conversationId: convId, messageId: userMessageId,
-        intent: cap.intent, payload: cap.payload, summary: cap.summary,
-      });
-      proposals.push(pv);
-      resp.message = `Got it — ${cap.summary}. Approve it and I’ll add it to your plan inputs.`;
-    } else {
-      // clarify (or an action intent whose target couldn't be resolved)
-      resp.message = routed.content || 'Could you say a bit more about what you’d like to change?';
+      case 'delete_post': {
+        const post = resolvePost(task, posts);
+        if (!post) { replyParts.push(whichPost(task.reason)); break; }
+        await propose('delete_post', { kind: 'delete', cycleId, postId: post.id }, deleteSummary(post, task.reason));
+        break;
+      }
+      case 'rewrite_post': {
+        const post = resolvePost(task, posts);
+        if (!post) { replyParts.push(whichPost(task.reason)); break; }
+        if (!task.instruction) { replyParts.push('What change should I make to that caption?'); break; }
+        await propose('rewrite_post', { kind: 'rewrite', cycleId, postId: post.id, instruction: task.instruction }, rewriteSummary(post, task.reason));
+        break;
+      }
+      case 'add_post': {
+        const date = task.toDate ?? defaultAddDate(posts, today);
+        await propose('add_post', { kind: 'add', cycleId, date, channel: task.channel ?? null }, addSummary(date, task.reason));
+        break;
+      }
+      case 'add_note': {
+        if (!task.content) { replyParts.push('What would you like me to note down?'); break; }
+        const noteCycle = task.targetMonth ? await resolveCycleForMonth(clientId, task.targetMonth) : cycleId;
+        await saveNote({ clientId, cycleId: noteCycle, content: task.content, relevantFrom: task.relevantFrom ?? null, relevantTo: task.relevantTo ?? null });
+        const window = task.relevantFrom || task.relevantTo ? ` (relevant ${task.relevantFrom ?? '…'}–${task.relevantTo ?? '…'})` : '';
+        replyParts.push(`• Noted: ${task.content}${window}`);
+        break;
+      }
+      case 'query': {
+        let answer: string;
+        try {
+          answer = await answerQuery(
+            { clientId, cycleId, question: task.question ?? instruction, today },
+            { model: getModelClient(), embeddingClient: getEmbeddingClient() },
+          );
+        } catch { answer = 'I couldn’t look that up just now — please try again.'; }
+        replyParts.push(answer);
+        break;
+      }
+      case 'clarify':
+      default:
+        replyParts.push(task.question ?? 'Could you say a bit more about what you’d like?');
+        break;
     }
-  } else {
-    resp.message = 'Could you say a bit more about what you’d like to change?';
   }
 
-  // Persist the assistant reply.
+  const message = replyParts.join('\n') || 'Okay.';
+  const resp: AgentTurnResponse = { conversationId: convId, message, proposals, changeSetId: proposals.length ? changeSetId : null };
+
   await appendMessage({
-    conversationId: convId, role: 'assistant', content: resp.message,
-    metadata: { intent: assistantIntent, proposalIds: proposals.map((p) => p.id) },
+    conversationId: convId, role: 'assistant', content: message,
+    metadata: { tasks: tasks.map((t) => t.action), changeSetId: resp.changeSetId, proposalIds: proposals.map((p) => p.id) },
   });
 
   return NextResponse.json(resp);

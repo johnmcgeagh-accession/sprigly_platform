@@ -13,7 +13,9 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'no_session' }, { status: 401 });
 
-  const proposal = await approveProposal(session.clientId, params.id, 'client');
-  if (!proposal) return NextResponse.json({ error: 'not_found' }, { status: 404 });
-  return NextResponse.json({ proposal });
+  const r = await approveProposal(session.clientId, params.id, 'client');
+  if (!r.proposal) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+  // A rewrite approval enqueues a shape job; the client polls jobId to see the
+  // new caption. move/delete/add applied synchronously (no jobId).
+  return NextResponse.json({ proposal: r.proposal, ...(r.jobId ? { jobId: r.jobId } : {}) });
 }

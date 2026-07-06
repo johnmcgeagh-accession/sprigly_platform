@@ -24,9 +24,10 @@ import { POST as REJECT } from './[id]/reject/route';
 
 beforeEach(() => {
   h.session = { clientId: 'client-1', cycleId: 'cycle-1' };
-  h.listPending.mockReset().mockResolvedValue([{ id: 'p1', intent: 'note_for_month', summary: 's', status: 'pending' }]);
-  h.approve.mockReset().mockResolvedValue({ id: 'p1', intent: 'note_for_month', summary: 's', status: 'applied' });
-  h.reject.mockReset().mockResolvedValue({ id: 'p1', intent: 'note_for_month', summary: 's', status: 'rejected' });
+  h.listPending.mockReset().mockResolvedValue([{ id: 'p1', intent: 'move_post', summary: 's', status: 'pending', changeSetId: 'cs-1' }]);
+  // approveProposal now returns { proposal, jobId? }.
+  h.approve.mockReset().mockResolvedValue({ proposal: { id: 'p1', intent: 'move_post', summary: 's', status: 'applied', changeSetId: 'cs-1' } });
+  h.reject.mockReset().mockResolvedValue({ id: 'p1', intent: 'move_post', summary: 's', status: 'rejected', changeSetId: 'cs-1' });
 });
 
 describe('GET /api/plan/proposals', () => {
@@ -59,7 +60,7 @@ describe('POST /api/plan/proposals/:id/approve', () => {
   });
 
   it('404 when the proposal is not found for this client', async () => {
-    h.approve.mockResolvedValue(null);
+    h.approve.mockResolvedValue({ proposal: null });
     const res = await APPROVE(new Request('http://x', { method: 'POST' }), { params: { id: 'nope' } });
     expect(res.status).toBe(404);
   });

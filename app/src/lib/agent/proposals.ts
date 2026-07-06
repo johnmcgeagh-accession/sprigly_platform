@@ -1,26 +1,35 @@
 /**
- * agent/proposals.ts — proposal lifecycle + deterministic apply.
+ * agent/proposals.ts — proposal lifecycle + apply.
  *
- * Capture intents (note/idea/next_cycle) create a pending agent_proposals row and
- * touch NO content table. Approval applies the proposal by INSERTing a plan_inputs
- * row from the stored payload — pure and deterministic, no model. Apply is
- * idempotent two ways: a conditional status transition (only 'pending' → 'approved'
- * proceeds) and a unique index on plan_inputs.source_proposal_id, so a
- * double-approve can never double-insert. Everything is client-scoped.
+ * EVERY mutating action (move/delete/rewrite/add) is a pending proposal; nothing
+ * applies at parse time. Approval applies deterministically for move/delete/add
+ * (patchPost/softDeletePost/addDraft — client+cycle scoped per commit 33f658f) and
+ * enqueues the existing quota'd, validated BullMQ shape job for rewrite. Apply is
+ * gated by a conditional status transition (only 'pending' proceeds), so a
+ * double-approve never double-applies.
  */
 import { and, desc, eq } from 'drizzle-orm';
-import { db, agentProposals, planInputs } from '@sprigly/db';
+import { db, agentProposals, contentCycles } from '@sprigly/db';
 import type { AgentProposalRow } from '@sprigly/db';
-import type { CaptureIntent, ProposalPayload, ProposalView } from './types';
+import { patchPost, softDeletePost, addDraft } from '../mutations';
+import { enqueueShape } from '../queue';
+import { getUsageForCycle, isRewriteBlocked } from '../usage';
+import type { MutatingAction, ProposalPayload, ProposalView } from './types';
 
-const view = (r: Pick<AgentProposalRow, 'id' | 'intent' | 'summary' | 'status'>): ProposalView =>
-  ({ id: r.id, intent: r.intent, summary: r.summary, status: r.status });
+const view = (r: Pick<AgentProposalRow, 'id' | 'intent' | 'summary' | 'status' | 'changeSetId'>): ProposalView =>
+  ({ id: r.id, intent: r.intent, summary: r.summary, status: r.status, changeSetId: r.changeSetId ?? null });
+
+const cols = {
+  id: agentProposals.id, intent: agentProposals.intent, summary: agentProposals.summary,
+  status: agentProposals.status, changeSetId: agentProposals.changeSetId,
+};
 
 export interface CreateProposalArgs {
   clientId: string;
   conversationId: string;
   messageId: string;
-  intent: CaptureIntent;
+  changeSetId: string;
+  action: MutatingAction;
   payload: ProposalPayload;
   summary: string;
 }
@@ -32,18 +41,19 @@ export async function createProposal(args: CreateProposalArgs): Promise<Proposal
       clientId: args.clientId,
       conversationId: args.conversationId,
       messageId: args.messageId,
-      intent: args.intent,
+      changeSetId: args.changeSetId,
+      intent: args.action,
       payload: args.payload as unknown as Record<string, unknown>,
       summary: args.summary,
     })
-    .returning({ id: agentProposals.id, intent: agentProposals.intent, summary: agentProposals.summary, status: agentProposals.status });
+    .returning(cols);
   return view(row!);
 }
 
 /** Pending proposals for a client, newest first. Client-scoped. */
 export async function listPendingProposals(clientId: string): Promise<ProposalView[]> {
   const rows = await db
-    .select({ id: agentProposals.id, intent: agentProposals.intent, summary: agentProposals.summary, status: agentProposals.status })
+    .select(cols)
     .from(agentProposals)
     .where(and(eq(agentProposals.clientId, clientId), eq(agentProposals.status, 'pending')))
     .orderBy(desc(agentProposals.createdAt));
@@ -52,56 +62,73 @@ export async function listPendingProposals(clientId: string): Promise<ProposalVi
 
 async function currentView(clientId: string, id: string): Promise<ProposalView | null> {
   const [row] = await db
-    .select({ id: agentProposals.id, intent: agentProposals.intent, summary: agentProposals.summary, status: agentProposals.status })
+    .select(cols)
     .from(agentProposals)
     .where(and(eq(agentProposals.id, id), eq(agentProposals.clientId, clientId)))
     .limit(1);
   return row ? view(row) : null;
 }
 
-/** Deterministic apply: one plan_inputs row from the proposal payload. The
- *  onConflictDoNothing on source_proposal_id is the DB-level idempotency backstop. */
-async function applyProposal(row: AgentProposalRow): Promise<void> {
-  const payload = row.payload as unknown as ProposalPayload;
+async function setStatus(clientId: string, id: string, status: string, error: string | null, applied: boolean): Promise<void> {
   await db
-    .insert(planInputs)
-    .values({
-      clientId: row.clientId,
-      cycleId: payload.cycleId ?? null,
-      type: payload.type,
-      content: payload.content,
-      sourceProposalId: row.id,
-    })
-    .onConflictDoNothing({ target: planInputs.sourceProposalId });
+    .update(agentProposals)
+    .set({ status, error, ...(applied ? { appliedAt: new Date() } : {}) })
+    .where(and(eq(agentProposals.id, id), eq(agentProposals.clientId, clientId)));
 }
+
+async function cycleChannel(clientId: string, cycleId: string): Promise<string> {
+  const [row] = await db
+    .select({ channel: contentCycles.channel })
+    .from(contentCycles)
+    .where(and(eq(contentCycles.id, cycleId), eq(contentCycles.clientId, clientId)))
+    .limit(1);
+  return row?.channel ?? 'instagram';
+}
+
+export interface ApproveResult { proposal: ProposalView | null; jobId?: string }
 
 /**
  * Approve + apply a proposal, idempotently. The conditional transition
- * (WHERE status='pending') is the concurrency gate — only one caller applies.
- * A second approve (already applied/rejected) is a no-op returning current state.
+ * (WHERE status='pending') is the concurrency gate — only one caller applies. A
+ * rewrite enqueues the quota'd shape job (returns a jobId to poll); move/delete/add
+ * apply through the existing deterministic mutations.
  */
-export async function approveProposal(clientId: string, id: string, resolvedBy: string): Promise<ProposalView | null> {
+export async function approveProposal(clientId: string, id: string, resolvedBy: string): Promise<ApproveResult> {
   const claimed = await db
     .update(agentProposals)
     .set({ status: 'approved', resolvedAt: new Date(), resolvedBy })
     .where(and(eq(agentProposals.id, id), eq(agentProposals.clientId, clientId), eq(agentProposals.status, 'pending')))
     .returning();
   const row = claimed[0];
-  if (!row) return currentView(clientId, id); // not pending (already resolved) or not owned
+  if (!row) return { proposal: await currentView(clientId, id) }; // already resolved / not owned
 
+  const payload = row.payload as unknown as ProposalPayload;
   try {
-    await applyProposal(row);
-    await db
-      .update(agentProposals)
-      .set({ status: 'applied', appliedAt: new Date() })
-      .where(and(eq(agentProposals.id, id), eq(agentProposals.clientId, clientId)));
-    return view({ ...row, status: 'applied' });
+    if (payload.kind === 'rewrite') {
+      const usage = await getUsageForCycle(row.clientId, payload.cycleId);
+      if (isRewriteBlocked(usage)) {
+        await setStatus(clientId, id, 'failed', `You’ve used all ${usage.limit} AI changes this month.`, false);
+        return { proposal: view({ ...row, status: 'failed' }) };
+      }
+      const r = await enqueueShape({ type: 'shape', scope: 'post', clientId: row.clientId, cycleId: payload.cycleId, targetPostId: payload.postId, instruction: payload.instruction, source: 'web' });
+      if ('error' in r) throw new Error(r.error);
+      await setStatus(clientId, id, 'applied', null, true);
+      return { proposal: view({ ...row, status: 'applied' }), jobId: r.jobId };
+    }
+
+    if (payload.kind === 'move') {
+      await patchPost(row.clientId, payload.cycleId, payload.postId, { date: payload.toDate });
+    } else if (payload.kind === 'delete') {
+      await softDeletePost(row.clientId, payload.cycleId, payload.postId);
+    } else if (payload.kind === 'add') {
+      const channel = payload.channel ?? await cycleChannel(row.clientId, payload.cycleId);
+      await addDraft(row.clientId, payload.cycleId, channel, payload.date);
+    }
+    await setStatus(clientId, id, 'applied', null, true);
+    return { proposal: view({ ...row, status: 'applied' }) };
   } catch (err) {
-    await db
-      .update(agentProposals)
-      .set({ status: 'failed', error: String(err) })
-      .where(and(eq(agentProposals.id, id), eq(agentProposals.clientId, clientId)));
-    return view({ ...row, status: 'failed' });
+    await setStatus(clientId, id, 'failed', String(err), false);
+    return { proposal: view({ ...row, status: 'failed' }) };
   }
 }
 
@@ -111,8 +138,7 @@ export async function rejectProposal(clientId: string, id: string, resolvedBy: s
     .update(agentProposals)
     .set({ status: 'rejected', resolvedAt: new Date(), resolvedBy })
     .where(and(eq(agentProposals.id, id), eq(agentProposals.clientId, clientId), eq(agentProposals.status, 'pending')))
-    .returning({ id: agentProposals.id, intent: agentProposals.intent, summary: agentProposals.summary, status: agentProposals.status });
+    .returning(cols);
   const row = rejected[0];
-  if (row) return view(row);
-  return currentView(clientId, id);
+  return row ? view(row) : currentView(clientId, id);
 }

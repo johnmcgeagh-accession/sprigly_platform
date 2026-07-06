@@ -1,0 +1,152 @@
+/**
+ * agent/task-parser.ts — the ONLY entry to the plan agent.
+ *
+ * Every message (typed or dictated) goes through one Bedrock Haiku call that
+ * returns an ordered list of tasks. A compound message yields multiple tasks in
+ * message order; an ambiguous post reference yields a clarify task while siblings
+ * proceed; malformed model output degrades to a single clarify task (never a 500).
+ * The parser only PARSES — nothing applies here; mutating tasks become proposals
+ * downstream.
+ */
+import type { ModelClient } from '@sprigly/model-client';
+import { AGENT_MODEL } from './model';
+import type { ParsedTask, TaskActionType } from './types';
+
+const ACTIONS: readonly TaskActionType[] = [
+  'move_post', 'delete_post', 'rewrite_post', 'add_post', 'add_note', 'query', 'clarify',
+];
+
+export interface ParserContext {
+  today: string;                    // 'YYYY-MM-DD'
+  cycleMonths: string;             // formatted list of the client's cycle months
+  weekDigest: string;              // formatted digest of this week's posts (with ids)
+}
+
+export const TASK_PARSER_SYSTEM_PROMPT = `You turn a single message from a clothing-brand client into an ordered list of TASKS for their content-plan assistant. The message may be typed or transcribed from speech — messy, rambling, or self-correcting. Read for intent. A message can contain MANY requests; produce one task per request, IN THE ORDER they appear.
+
+Task actions:
+- "move_post": reschedule an existing post. Fields: postId or selector; toDate (ISO 'YYYY-MM-DD').
+- "delete_post": remove an existing post. Fields: postId or selector.
+- "rewrite_post": change the WORDING of an existing post's caption. Fields: postId or selector; instruction (the change to make).
+- "add_post": add a new post. Fields: toDate (ISO, optional); channel ('instagram'|'email', optional).
+- "add_note": remember a fact/instruction for the plan (not an edit to one existing post). Fields: content; targetMonth ('YYYY-MM', optional); relevantFrom/relevantTo (ISO dates, optional, if the note names a window).
+- "query": a question about the plan or brand knowledge. Fields: question.
+- "clarify": the request is too vague or a post reference is ambiguous. Fields: question (what you need to know).
+
+Resolving post references:
+- The WEEK DIGEST lists this week's posts with their ids. If a reference ("the Thursday reel", "post 3", "the linen one") matches EXACTLY ONE digest post, set "postId" to that id and omit "selector".
+- If it matches NONE or MORE THAN ONE digest post, leave "postId" null and put the raw reference in "selector" (it may resolve against the full plan later; if not it becomes a clarify).
+- If a post reference is genuinely ambiguous and you cannot pick one, emit a "clarify" task for it — never guess which post.
+
+Every task also carries "reason": the user's own phrasing for that request (a short verbatim snippet), used in the confirmation.
+
+Dates must be ISO 'YYYY-MM-DD'. Resolve relative dates ("Saturday", "the 14th", "next Friday") against today's date and the current week.
+
+Output ONLY a JSON object, no prose, no code fences:
+{"tasks": [ { "action": "...", ... } ]}
+
+Examples:
+
+Message: "move the Thursday post to Saturday and add a note about the linen restock and what do I need to film this week"
+→ {"tasks":[{"action":"move_post","postId":"<thursday id if unique in digest, else null>","selector":"the Thursday post","toDate":"<saturday ISO>","reason":"move the Thursday post to Saturday"},{"action":"add_note","content":"Linen restock coming up.","reason":"add a note about the linen restock"},{"action":"query","question":"What do I need to film this week?","reason":"what do I need to film this week"}]}
+
+Message: "make the reel warmer"  (two reels in the digest)
+→ {"tasks":[{"action":"clarify","question":"You have two reels this week — which one should I rewrite: Tuesday's or Friday's?","reason":"make the reel warmer"}]}
+
+Message: "what's our returns policy?"
+→ {"tasks":[{"action":"query","question":"What is our returns policy?","reason":"what's our returns policy"}]}
+
+Message: "um so yeah can you like push the wednesday one back a couple days, to the friday i mean"
+→ {"tasks":[{"action":"move_post","selector":"the Wednesday post","toDate":"<friday ISO>","reason":"push the Wednesday one to Friday"}]}`;
+
+function buildUserMessage(text: string, ctx: ParserContext): string {
+  return `Today is ${ctx.today}.
+
+The client's content-plan months:
+${ctx.cycleMonths}
+
+WEEK DIGEST (this week's posts):
+${ctx.weekDigest}
+
+Client message:
+"""
+${text}
+"""`;
+}
+
+function extractJson(raw: string): unknown {
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start === -1 || end === -1 || end <= start) return null;
+  try { return JSON.parse(raw.slice(start, end + 1)); } catch { return null; }
+}
+
+const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
+const isoDate = (v: unknown): string | null => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+const isoMonth = (v: unknown): string | null => (typeof v === 'string' && /^\d{4}-\d{2}$/.test(v) ? v : null);
+const clarify = (question: string, reason?: string | null): ParsedTask => ({ action: 'clarify', question, reason: reason ?? null });
+
+/** Normalise one raw task into a valid ParsedTask, or a clarify if it can't be. */
+function normalizeTask(raw: unknown): ParsedTask {
+  if (!raw || typeof raw !== 'object') return clarify('Could you say that another way?');
+  const r = raw as Record<string, unknown>;
+  const action = r.action as TaskActionType;
+  const reason = str(r.reason);
+  if (!(ACTIONS as readonly string[]).includes(action)) return clarify('Could you say that another way?', reason);
+
+  const postRef = { postId: str(r.postId), selector: str(r.selector) };
+  const needsPost = () => postRef.postId != null || postRef.selector != null;
+
+  switch (action) {
+    case 'move_post':
+      if (!needsPost()) return clarify('Which post should I move?', reason);
+      return { action, ...postRef, toDate: isoDate(r.toDate), reason };
+    case 'delete_post':
+      if (!needsPost()) return clarify('Which post should I remove?', reason);
+      return { action, ...postRef, reason };
+    case 'rewrite_post': {
+      const instruction = str(r.instruction);
+      if (!needsPost()) return clarify('Which post should I rewrite?', reason);
+      if (!instruction) return clarify('What change should I make to the caption?', reason);
+      return { action, ...postRef, instruction, reason };
+    }
+    case 'add_post':
+      return { action, toDate: isoDate(r.toDate), channel: r.channel === 'email' ? 'email' : r.channel === 'instagram' ? 'instagram' : null, reason };
+    case 'add_note': {
+      const content = str(r.content);
+      if (!content) return clarify('What would you like me to note down?', reason);
+      return { action, content, targetMonth: isoMonth(r.targetMonth), relevantFrom: isoDate(r.relevantFrom), relevantTo: isoDate(r.relevantTo), reason };
+    }
+    case 'query': {
+      const question = str(r.question);
+      if (!question) return clarify('What would you like to know?', reason);
+      return { action, question, reason };
+    }
+    case 'clarify':
+      return clarify(str(r.question) ?? 'Could you say a bit more about what you’d like?', reason);
+    default:
+      return clarify('Could you say that another way?', reason);
+  }
+}
+
+/** Parse a message into an ordered list of tasks. Never throws. */
+export async function parseTasks(text: string, ctx: ParserContext, model: ModelClient): Promise<ParsedTask[]> {
+  let raw = '';
+  try {
+    const res = await model.complete({
+      model: AGENT_MODEL,
+      system: TASK_PARSER_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: buildUserMessage(text, ctx) }],
+      maxTokens: 900,
+      temperature: 0,
+    });
+    raw = res.content;
+  } catch {
+    return [clarify('I couldn’t process that just now — please try again in a moment.')];
+  }
+
+  const parsed = extractJson(raw) as { tasks?: unknown } | null;
+  const tasks = parsed && Array.isArray(parsed.tasks) ? parsed.tasks : null;
+  if (!tasks || tasks.length === 0) return [clarify('I didn’t catch a request there — could you rephrase?')];
+  return tasks.map(normalizeTask);
+}

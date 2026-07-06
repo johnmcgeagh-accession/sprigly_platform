@@ -968,10 +968,13 @@ export const agentProposals = pgTable(
     clientId:       uuid('client_id').notNull().references(() => clients.id),
     conversationId: uuid('conversation_id').notNull().references(() => conversations.id),
     messageId:      uuid('message_id').notNull().references(() => agentMessages.id),
-    intent:         text('intent').notNull(),                     // 'note_for_month'|'idea_backlog'|'next_cycle_input'
+    intent:         text('intent').notNull(),                     // move_post|delete_post|rewrite_post|add_post
     payload:        jsonb('payload').$type<Record<string, unknown>>().notNull(),
-    summary:        text('summary').notNull(),                    // human-readable one-liner
+    summary:        text('summary').notNull(),                    // human-readable before→after with the ask
     status:         text('status').notNull().default('pending'),  // pending|approved|rejected|applied|failed
+    // All proposals parsed from ONE message share a change_set_id so the review UI
+    // renders (and can approve) them as one unit (migration 0063). Nullable.
+    changeSetId:    uuid('change_set_id'),
     createdAt:      timestamp('created_at').notNull().defaultNow(),
     resolvedAt:     timestamp('resolved_at'),
     resolvedBy:     text('resolved_by'),
@@ -993,6 +996,11 @@ export const planInputs = pgTable(
     cycleId:          uuid('cycle_id').references(() => contentCycles.id),   // nullable
     type:             text('type').notNull(),                     // 'note' | 'idea' | 'next_cycle'
     content:          text('content').notNull(),
+    // Notes are inert until integrated; relevance window (both nullable) + status
+    // scope when they matter (migration 0063). status: 'active' | 'archived'.
+    relevantFrom:     date('relevant_from', { mode: 'string' }),
+    relevantTo:       date('relevant_to', { mode: 'string' }),
+    status:           text('status').notNull().default('active'),
     sourceProposalId: uuid('source_proposal_id').references(() => agentProposals.id),
     createdAt:        timestamp('created_at').notNull().defaultNow(),
   },

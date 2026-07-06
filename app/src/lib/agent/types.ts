@@ -1,52 +1,53 @@
 /**
- * agent/types.ts — the proposal-based plan agent contract (commit 2).
+ * agent/types.ts — the task-parser-based plan agent contract.
  *
- * Kept separate from the top-level lib/types.ts so the agent surface can evolve
- * without churn to the plan-render/switcher types.
+ * EVERY message is parsed by the LLM task parser into an ordered list of tasks.
+ * Every mutating task becomes a pending proposal (nothing applies on parse);
+ * add_note writes directly; query/clarify resolve inline. There is no regex fast
+ * path and no immediate execution.
  */
 
-/** The eight intents the LLM router classifies into. */
-export type RouterIntent =
-  | 'note_for_month'
-  | 'idea_backlog'
-  | 'next_cycle_input'
-  | 'structural'
-  | 'add'
-  | 'rewrite'
-  | 'query'
-  | 'clarify';
+/** The parser's task actions, in message order. */
+export type TaskActionType =
+  | 'move_post' | 'delete_post' | 'rewrite_post' | 'add_post'
+  | 'add_note' | 'query' | 'clarify';
 
-/** Capture intents create a proposal instead of touching any content table. */
-export type CaptureIntent = 'note_for_month' | 'idea_backlog' | 'next_cycle_input';
+/** Mutating actions become proposals. */
+export type MutatingAction = 'move_post' | 'delete_post' | 'rewrite_post' | 'add_post';
+export const MUTATING_ACTIONS: readonly MutatingAction[] = ['move_post', 'delete_post', 'rewrite_post', 'add_post'];
 
-export const CAPTURE_INTENTS: readonly CaptureIntent[] = ['note_for_month', 'idea_backlog', 'next_cycle_input'];
-
-/** The router's structured output. `content` is the cleaned instruction/text. */
-export interface RouterResult {
-  intent: RouterIntent;
-  content: string;
-  targetMonth?: string | null;   // 'YYYY-MM' when the client named one
-  channel?: string | null;       // 'instagram' | 'email' when named
+/**
+ * A single parsed task. `postId` is set when the parser resolved a reference to
+ * exactly one post; `selector` is the raw reference when it didn't (resolved or
+ * rejected server-side). `reason` is the user's own phrasing for this task, used
+ * verbatim in the proposal summary.
+ */
+export interface ParsedTask {
+  action: TaskActionType;
+  postId?: string | null;
+  selector?: string | null;
+  toDate?: string | null;        // move_post / add_post destination (ISO 'YYYY-MM-DD')
+  instruction?: string | null;   // rewrite_post
+  channel?: string | null;       // add_post
+  content?: string | null;       // add_note
+  targetMonth?: string | null;   // add_note ('YYYY-MM')
+  relevantFrom?: string | null;  // add_note (ISO date)
+  relevantTo?: string | null;    // add_note (ISO date)
+  question?: string | null;      // query / clarify
+  reason?: string | null;        // the user's phrasing for this task
 }
 
-/** plan_inputs.type — the deterministic apply target for each capture intent. */
-export type PlanInputType = 'note' | 'idea' | 'next_cycle';
+/** Payload persisted on an agent_proposals row — everything approval needs to
+ *  apply deterministically (move/delete/add) or enqueue (rewrite). */
+export type ProposalPayload =
+  | { kind: 'move';    cycleId: string; postId: string; toDate: string }
+  | { kind: 'delete';  cycleId: string; postId: string }
+  | { kind: 'rewrite'; cycleId: string; postId: string; instruction: string }
+  | { kind: 'add';     cycleId: string; date: string; channel: string | null };
 
-export const CAPTURE_TO_INPUT: Record<CaptureIntent, PlanInputType> = {
-  note_for_month: 'note',
-  idea_backlog: 'idea',
-  next_cycle_input: 'next_cycle',
+export const ACTION_TO_KIND: Record<MutatingAction, ProposalPayload['kind']> = {
+  move_post: 'move', delete_post: 'delete', rewrite_post: 'rewrite', add_post: 'add',
 };
-
-/** Payload persisted on an agent_proposals row — everything apply needs, so apply
- *  is a pure deterministic INSERT with no re-derivation. */
-export interface ProposalPayload {
-  type: PlanInputType;
-  content: string;
-  cycleId: string | null;
-  targetMonth?: string | null;
-  channel?: string | null;
-}
 
 /** The proposal shape returned to the client (list + inline actions). */
 export interface ProposalView {
@@ -54,15 +55,14 @@ export interface ProposalView {
   intent: string;
   summary: string;
   status: string;
+  changeSetId: string | null;
 }
 
-/** The /api/plan/agent response envelope for a single turn. */
+/** The /api/plan/agent turn response. Mutations never apply here — they arrive as
+ *  proposals to review. */
 export interface AgentTurnResponse {
   conversationId: string;
-  message: string;              // the assistant's reply text
-  proposals: ProposalView[];    // proposals created this turn (empty for most turns)
-  // Action turns (structural/add/rewrite) additionally carry the existing seam
-  // fields so the plan UI updates in place exactly as before.
-  applied?: { changedPostIds: string[] };
-  pendingJobIds?: string[];
+  message: string;
+  proposals: ProposalView[];
+  changeSetId: string | null;
 }

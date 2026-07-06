@@ -1,0 +1,104 @@
+/**
+ * task-parser.test.ts — the single LLM parse step.
+ *
+ * The model itself can't be asserted against live, so we mock it to return canned
+ * JSON (including messy dictated fixtures) and assert parseTasks preserves order,
+ * normalises/validates each task, and degrades malformed output to a single
+ * clarify — never throwing.
+ */
+import { describe, it, expect, vi } from 'vitest';
+
+vi.mock('@sprigly/model-client', () => ({ createModelClientFromEnv: () => ({ complete: async () => ({}), completeStreaming: async () => ({}) }) }));
+vi.mock('@sprigly/embedding-client', () => ({ createEmbeddingClientFromEnv: () => ({ embed: async () => [] }) }));
+
+import { parseTasks, type ParserContext } from './task-parser';
+import type { ModelClient } from '@sprigly/model-client';
+
+const CTX: ParserContext = { today: '2026-09-01', cycleMonths: '- September 2026 (2026-09) [current, editable] — planning', weekDigest: '- id=post-9 | Thu 3 Sep | instagram/reel | Autumn layers' };
+
+function fakeModel(content: string): ModelClient {
+  return {
+    async complete() { return { content, inputTokens: 0, outputTokens: 0, modelId: 'haiku', stopReason: 'end_turn' }; },
+    async completeStreaming() { return { content, inputTokens: 0, outputTokens: 0, modelId: 'haiku', stopReason: 'end_turn' }; },
+  };
+}
+const throwingModel: ModelClient = { async complete() { throw new Error('boom'); }, async completeStreaming() { throw new Error('boom'); } };
+
+describe('compound messages', () => {
+  it('yields tasks in message order', async () => {
+    const model = fakeModel(JSON.stringify({ tasks: [
+      { action: 'move_post', postId: 'post-9', toDate: '2026-09-05', reason: 'move the Thursday post to Saturday' },
+      { action: 'add_note', content: 'Linen restock coming.', reason: 'add a note about the linen restock' },
+      { action: 'query', question: 'What do I need to film this week?', reason: 'what do I need to film' },
+    ] }));
+    const tasks = await parseTasks('move the thursday post to saturday and note the linen restock and what do I film this week', CTX, model);
+    expect(tasks.map((t) => t.action)).toEqual(['move_post', 'add_note', 'query']);
+    expect(tasks[0]!.postId).toBe('post-9');
+    expect(tasks[0]!.toDate).toBe('2026-09-05');
+  });
+});
+
+describe('ambiguous / dictated / question fixtures', () => {
+  it('an ambiguous reference is a clarify task', async () => {
+    const model = fakeModel(JSON.stringify({ tasks: [{ action: 'clarify', question: 'Which reel — Tuesday or Friday?', reason: 'make the reel warmer' }] }));
+    const [t] = await parseTasks('make the reel warmer', CTX, model);
+    expect(t!.action).toBe('clarify');
+    expect(t!.question).toContain('Which reel');
+  });
+
+  it('a pure question is a query task', async () => {
+    const [t] = await parseTasks("what's our returns policy", CTX, fakeModel(JSON.stringify({ tasks: [{ action: 'query', question: 'What is our returns policy?' }] })));
+    expect(t!.action).toBe('query');
+  });
+
+  it('messy dictated speech resolves to a move with a selector', async () => {
+    const model = fakeModel(JSON.stringify({ tasks: [{ action: 'move_post', selector: 'the Wednesday post', toDate: '2026-09-04', reason: 'push the Wednesday one to Friday' }] }));
+    const [t] = await parseTasks('um yeah push the wednesday one back to like the friday i mean', CTX, model);
+    expect(t!.action).toBe('move_post');
+    expect(t!.selector).toBe('the Wednesday post');
+  });
+});
+
+describe('validation + resilience', () => {
+  it('a move with no post reference becomes clarify', async () => {
+    const [t] = await parseTasks('move it', CTX, fakeModel(JSON.stringify({ tasks: [{ action: 'move_post', toDate: '2026-09-04' }] })));
+    expect(t!.action).toBe('clarify');
+  });
+
+  it('a rewrite with no instruction becomes clarify', async () => {
+    const [t] = await parseTasks('reword the reel', CTX, fakeModel(JSON.stringify({ tasks: [{ action: 'rewrite_post', postId: 'post-9' }] })));
+    expect(t!.action).toBe('clarify');
+  });
+
+  it('an add_note with no content becomes clarify', async () => {
+    const [t] = await parseTasks('note', CTX, fakeModel(JSON.stringify({ tasks: [{ action: 'add_note' }] })));
+    expect(t!.action).toBe('clarify');
+  });
+
+  it('an unknown action becomes clarify', async () => {
+    const [t] = await parseTasks('x', CTX, fakeModel(JSON.stringify({ tasks: [{ action: 'nuke_everything' }] })));
+    expect(t!.action).toBe('clarify');
+  });
+
+  it('drops an invalid toDate to null', async () => {
+    const [t] = await parseTasks('x', CTX, fakeModel(JSON.stringify({ tasks: [{ action: 'move_post', postId: 'post-9', toDate: 'Saturday' }] })));
+    expect(t!.action).toBe('move_post');
+    expect(t!.toDate).toBeNull();
+  });
+
+  it('malformed JSON degrades to a single clarify task', async () => {
+    const tasks = await parseTasks('x', CTX, fakeModel('not json'));
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]!.action).toBe('clarify');
+  });
+
+  it('an empty tasks array degrades to clarify', async () => {
+    const tasks = await parseTasks('x', CTX, fakeModel(JSON.stringify({ tasks: [] })));
+    expect(tasks[0]!.action).toBe('clarify');
+  });
+
+  it('a model error degrades to clarify (never throws)', async () => {
+    const tasks = await parseTasks('x', CTX, throwingModel);
+    expect(tasks[0]!.action).toBe('clarify');
+  });
+});

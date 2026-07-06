@@ -5,13 +5,13 @@ import { Film, Images, Image as ImageIcon, Mail, CalendarDays, List, Sparkles, P
 import type { PlanPost, PostFormat, PostStatus, ShapeResult, UsageSnapshot, CycleSummary } from '@/lib/types';
 import type { ProposalView } from '@/lib/agent/types';
 
-/** The /api/plan/agent turn response (commit 2). */
+/** The /api/plan/agent turn response. Mutations arrive as proposals to review —
+ *  nothing is applied on the turn itself. */
 interface AgentTurn {
   conversationId: string;
   message: string;
   proposals?: ProposalView[];
-  applied?: { changedPostIds: string[] };
-  pendingJobIds?: string[];
+  changeSetId?: string | null;
 }
 
 /* ------------------------------------------------------------------ *
@@ -158,10 +158,17 @@ export default function PlanApp({ clientName, posts: initial, cycles, homeCycleI
     try {
       const res = await fetch(`/api/plan/proposals/${id}/${action}`, { method: 'POST' });
       if (!res.ok) { flash('Could not update that — please try again.'); return; }
-      const d = (await res.json()) as { proposal: ProposalView };
+      const d = (await res.json()) as { proposal: ProposalView; jobId?: string };
       setPendingProposals((cur) => cur.filter((p) => p.id !== id));
       setLastReply((lr) => (lr ? { ...lr, proposals: lr.proposals.map((p) => (p.id === id ? d.proposal : p)) } : lr));
-      flash(action === 'approve' ? 'Added to your plan inputs.' : 'Dismissed.');
+      if (action === 'approve') {
+        flash('Change approved.');
+        // move/delete/add applied synchronously; rewrite enqueued a job to poll.
+        await reloadPlan();
+        if (d.jobId) { await pollOne(d.jobId); await refreshUsage(); }
+      } else {
+        flash('Dismissed.');
+      }
     } catch { flash('Network error — please try again.'); }
     finally { setProposalBusy(null); }
   }
@@ -283,14 +290,12 @@ export default function PlanApp({ clientName, posts: initial, cycles, homeCycleI
       setLastReply({ message: r.message, proposals: created });
       setAgentText('');
       if (created.length) {
-        // Merge into the review queue (new first, de-duped).
+        // Merge into the review queue (new first, de-duped). Nothing applies until
+        // the client approves — the plan is unchanged on this turn.
         setPendingProposals((cur) => [...created.filter((p) => !cur.some((c) => c.id === p.id)), ...cur]);
       } else {
         flash(r.message);
       }
-      if (r.applied) await reloadPlan();
-      if (r.pendingJobIds?.length) await Promise.all(r.pendingJobIds.map((id) => pollOne(id)));
-      await refreshUsage();
     } catch { flash('Network error — please try again.'); }
     finally { setAgentBusy(false); }
   }
@@ -635,7 +640,7 @@ function AgentBar({ value, onChange, onRun, busy, usage, proposals, lastReply, d
                 {p.status === 'pending'
                   ? <ProposalRow p={p} busy={proposalBusy === p.id} disabled={proposalBusy != null} onApprove={() => onApprove(p.id)} onReject={() => onReject(p.id)} />
                   : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: p.status === 'applied' ? '#9BE7C4' : 'rgba(255,255,255,.5)' }}>
-                      <Check size={13} /> {p.status === 'applied' ? 'Added to your plan inputs' : p.status}
+                      <Check size={13} /> {p.status === 'applied' ? 'Approved' : p.status}
                     </span>}
               </div>
             ))}
