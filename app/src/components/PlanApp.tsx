@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Film, Images, Image as ImageIcon, Mail, CalendarDays, List, Sparkles, Plus, Undo2, Trash2, CornerDownLeft, Send } from 'lucide-react';
-import type { PlanPost, PostFormat, PostStatus, ShapeResult, AgentResult, UsageSnapshot } from '@/lib/types';
+import { Film, Images, Image as ImageIcon, Mail, CalendarDays, List, Sparkles, Plus, Undo2, Trash2, CornerDownLeft, Send, ChevronDown, Check, Eye, ArrowLeft } from 'lucide-react';
+import type { PlanPost, PostFormat, PostStatus, ShapeResult, AgentResult, UsageSnapshot, CycleSummary } from '@/lib/types';
 
 /* ------------------------------------------------------------------ *
  * Sprigly — client plan surface (app.sprigly.co.uk). Phase 2: a real
@@ -56,7 +56,9 @@ interface VPost {
   caption: string; status: PostStatus; script: string | null;
 }
 
-export default function PlanApp({ clientName, posts: initial }: { clientName: string; posts: PlanPost[] }) {
+export default function PlanApp({ clientName, posts: initial, cycles, homeCycleId }: {
+  clientName: string; posts: PlanPost[]; cycles: CycleSummary[]; homeCycleId: string;
+}) {
   const [posts, setPosts] = useState<PlanPost[]>(initial);
   const [selId, setSelId] = useState<string | null>(initial[0]?.id ?? null);
   const [view, setView] = useState<'calendar' | 'list'>('calendar');
@@ -69,7 +71,39 @@ export default function PlanApp({ clientName, posts: initial }: { clientName: st
   const [usage, setUsage] = useState<UsageSnapshot | null>(null);
   const [agentText, setAgentText] = useState('');
   const [agentBusy, setAgentBusy] = useState(false);
+  // Month switcher (slice 1): which cycle is on screen, whether it's view-only, and
+  // the header menu's open state. Writes only ever target the home cycle server-side.
+  const [activeCycleId, setActiveCycleId] = useState(homeCycleId);
+  const [readOnly, setReadOnly] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [switching, setSwitching] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const homeMonth = useMemo(() => cycles.find((c) => c.isHome)?.monthLabel ?? 'your current plan', [cycles]);
+  const activeMonth = useMemo(
+    () => cycles.find((c) => c.cycleId === activeCycleId)?.monthLabel,
+    [cycles, activeCycleId],
+  );
+
+  /** Switch the rendered cycle via GET /api/plan?cycleId=. Pure read; the home
+   *  cycle comes back editable, every other month read-only. */
+  async function switchCycle(cycleId: string) {
+    if (cycleId === activeCycleId || switching) { setMenuOpen(false); return; }
+    setSwitching(true); setMenuOpen(false);
+    try {
+      const isHome = cycleId === homeCycleId;
+      const url = isHome ? '/api/plan' : `/api/plan?cycleId=${encodeURIComponent(cycleId)}`;
+      const res = await fetch(url);
+      if (!res.ok) { flash('Could not open that month — please try again.'); return; }
+      const d = (await res.json()) as { posts: PlanPost[]; readOnly: boolean };
+      setPosts(d.posts);
+      setReadOnly(d.readOnly);
+      setActiveCycleId(cycleId);
+      setSelId(d.posts[0]?.id ?? null);
+      setSheetOpen(false);
+    } catch { flash('Network error — please try again.'); }
+    finally { setSwitching(false); }
+  }
 
   useEffect(() => {
     const f = () => setNarrow(window.innerWidth < 900);
@@ -89,8 +123,11 @@ export default function PlanApp({ clientName, posts: initial }: { clientName: st
     toastTimer.current = setTimeout(() => setToast(null), 3200);
   };
 
-  /** Call a structural endpoint; on success swap in the returned post set. */
+  /** Call a structural endpoint; on success swap in the returned post set.
+   *  No-op in a view-only month — the affordances are removed from the UI, and the
+   *  server rejects any write outside the home cycle anyway; this is belt-and-braces. */
   async function call(url: string, method: string, payload?: unknown): Promise<void> {
+    if (readOnly) return;
     setBusy(true);
     try {
       const init: RequestInit = { method };
@@ -141,7 +178,7 @@ export default function PlanApp({ clientName, posts: initial }: { clientName: st
 
   // ── Post-level regen (async): enqueue a shape job, poll for the rewritten caption ──
   async function shapePost(id: string, instruction: string) {
-    if (!instruction.trim() || rewritingId) return;
+    if (readOnly || !instruction.trim() || rewritingId) return;
     try {
       const res = await fetch(`/api/posts/${id}/shape`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ instruction }) });
       if (!res.ok) { flash('Could not start that change — please try again.'); return; }
@@ -175,7 +212,7 @@ export default function PlanApp({ clientName, posts: initial }: { clientName: st
   // ── Plan-level agent bar: classify server-side, then apply (structural) or poll (rewrite) ──
   async function runAgent(text: string) {
     const instruction = text.trim();
-    if (!instruction || agentBusy) return;
+    if (readOnly || !instruction || agentBusy) return;
     setAgentBusy(true);
     try {
       const res = await fetch('/api/plan/agent', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ instruction, selectedPostId: selId }) });
@@ -199,22 +236,30 @@ export default function PlanApp({ clientName, posts: initial }: { clientName: st
           <SprigMark size={narrow ? 22 : 26} />
           <span style={{ fontFamily: display, fontSize: narrow ? 18 : 22, color: C.coral }}>Sprigly</span>
         </span>
-        <div style={{ textAlign: 'right', lineHeight: 1.25 }}>
-          <div style={{ fontFamily: display, fontSize: narrow ? 17 : 20, color: C.navy }}>
-            {clientName} · <span style={{ fontStyle: 'italic', color: C.coral }}>{MONTHS[MONTH]}</span> plan
-          </div>
-          <div style={{ fontSize: 12, color: C.faint, marginTop: 2 }}>
-            {vposts.length} posts · opened from your link, no password needed
-          </div>
-        </div>
+        <MonthMenu
+          clientName={clientName}
+          cycles={cycles}
+          activeCycleId={activeCycleId}
+          activeMonthLabel={activeMonth ?? MONTHS[MONTH]!}
+          postCount={vposts.length}
+          readOnly={readOnly}
+          switching={switching}
+          open={menuOpen}
+          onToggle={() => setMenuOpen((o) => !o)}
+          onClose={() => setMenuOpen(false)}
+          onPick={switchCycle}
+          narrow={narrow}
+        />
       </header>
 
       <div style={{ display: 'flex', flexDirection: narrow ? 'column' : 'row', maxWidth: 1240, margin: '0 auto', minHeight: 'calc(100vh - 78px)' }}>
         <section style={{ flex: narrow ? 'unset' : '0 0 52%', padding: narrow ? '20px 14px 132px' : '28px 28px 132px', borderRight: narrow ? 'none' : `1px solid ${C.line}` }}>
+          {readOnly && <ViewOnlyBanner homeMonth={homeMonth} onBack={() => switchCycle(homeCycleId)} />}
+
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
             <Kicker>Your plan</Kicker>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button onClick={addDraft} disabled={busy} style={{ ...ghostBtn, padding: '7px 12px', opacity: busy ? 0.5 : 1 }}><Plus size={14} /> Add a post</button>
+              {!readOnly && <button onClick={addDraft} disabled={busy} style={{ ...ghostBtn, padding: '7px 12px', opacity: busy ? 0.5 : 1 }}><Plus size={14} /> Add a post</button>}
               <div style={{ display: 'inline-flex', background: C.surface, border: `1px solid ${C.line}`, borderRadius: 11, padding: 3 }}>
                 <Toggle active={view === 'calendar'} onClick={() => setView('calendar')} icon={CalendarDays} label="Calendar" />
                 <Toggle active={view === 'list'} onClick={() => setView('list')} icon={List} label="List" />
@@ -224,10 +269,12 @@ export default function PlanApp({ clientName, posts: initial }: { clientName: st
 
           {vposts.length === 0 ? (
             <div style={{ padding: '40px 16px', textAlign: 'center', color: C.faint, fontSize: 14, border: `1.5px dashed ${C.line}`, borderRadius: 14 }}>
-              No posts yet — use <strong>Add a post</strong> to start, or your plan will appear here once it&rsquo;s generated.
+              {readOnly
+                ? 'This month has no posts to show.'
+                : <>No posts yet — use <strong>Add a post</strong> to start, or your plan will appear here once it&rsquo;s generated.</>}
             </div>
           ) : view === 'calendar' ? (
-            <CalendarView posts={vposts} selId={sel?.id ?? null} onSelect={select} onReschedule={reschedule} year={YEAR} month={MONTH} mdays={MDAYS} dragId={dragId} setDragId={setDragId} />
+            <CalendarView posts={vposts} selId={sel?.id ?? null} onSelect={select} onReschedule={reschedule} year={YEAR} month={MONTH} mdays={MDAYS} dragId={dragId} setDragId={setDragId} readOnly={readOnly} />
           ) : (
             <ListView posts={vposts} selId={sel?.id ?? null} onSelect={select} />
           )}
@@ -237,7 +284,9 @@ export default function PlanApp({ clientName, posts: initial }: { clientName: st
 
         {!narrow && (
           <section style={{ flex: 1, padding: '28px 30px 132px' }}>
-            <Detail post={sel} busy={busy} rewriting={rewritingId === sel?.id} onSetFormat={setFormat} onSaveCaption={saveCaption} onRemove={remove} onRevert={revert} onShape={shapePost} />
+            {readOnly
+              ? <ReadOnlyDetail post={sel} />
+              : <Detail post={sel} busy={busy} rewriting={rewritingId === sel?.id} onSetFormat={setFormat} onSaveCaption={saveCaption} onRemove={remove} onRevert={revert} onShape={shapePost} />}
           </section>
         )}
       </div>
@@ -248,12 +297,16 @@ export default function PlanApp({ clientName, posts: initial }: { clientName: st
             <div style={{ display: 'flex', justifyContent: 'center', padding: '2px 0 12px' }}>
               <div style={{ width: 40, height: 4, borderRadius: 4, background: C.line }} />
             </div>
-            <Detail post={sel} busy={busy} rewriting={rewritingId === sel?.id} onSetFormat={setFormat} onSaveCaption={saveCaption} onRemove={remove} onRevert={revert} onShape={shapePost} />
+            {readOnly
+              ? <ReadOnlyDetail post={sel} />
+              : <Detail post={sel} busy={busy} rewriting={rewritingId === sel?.id} onSetFormat={setFormat} onSaveCaption={saveCaption} onRemove={remove} onRevert={revert} onShape={shapePost} />}
           </div>
         </div>
       )}
 
-      <AgentBar value={agentText} onChange={setAgentText} onRun={runAgent} busy={agentBusy} usage={usage} />
+      {readOnly
+        ? <BackBar homeMonth={homeMonth} onBack={() => switchCycle(homeCycleId)} />
+        : <AgentBar value={agentText} onChange={setAgentText} onRun={runAgent} busy={agentBusy} usage={usage} />}
 
       {toast && (
         <div className="toast" role="status" style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 84, zIndex: 60, background: C.navy, color: '#fff', padding: '11px 16px', borderRadius: 12, fontSize: 13.5, maxWidth: 'min(520px,92vw)', boxShadow: '0 12px 32px rgba(30,42,74,.26)', display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -266,9 +319,9 @@ export default function PlanApp({ clientName, posts: initial }: { clientName: st
 
 /* ---------------- views ---------------- */
 
-function CalendarView({ posts, selId, onSelect, onReschedule, year, month, mdays, dragId, setDragId }: {
+function CalendarView({ posts, selId, onSelect, onReschedule, year, month, mdays, dragId, setDragId, readOnly }: {
   posts: VPost[]; selId: string | null; onSelect: (id: string) => void; onReschedule: (id: string, day: number) => void;
-  year: number; month: number; mdays: number; dragId: string | null; setDragId: (id: string | null) => void;
+  year: number; month: number; mdays: number; dragId: string | null; setDragId: (id: string | null) => void; readOnly: boolean;
 }) {
   const [over, setOver] = useState<number | null>(null);
   const byDay: Record<number, VPost[]> = {};
@@ -295,18 +348,18 @@ function CalendarView({ posts, selId, onSelect, onReschedule, year, month, mdays
               const weekend = di >= 5;
               return (
                 <div key={di}
-                  onDragOver={(e) => { if (day && dragId != null) { e.preventDefault(); setOver(day); } }}
+                  onDragOver={(e) => { if (!readOnly && day && dragId != null) { e.preventDefault(); setOver(day); } }}
                   onDragLeave={() => setOver((o) => (o === day ? null : o))}
-                  onDrop={(e) => { e.preventDefault(); if (day && dragId != null) onReschedule(dragId, day); setOver(null); setDragId(null); }}
+                  onDrop={(e) => { if (readOnly) return; e.preventDefault(); if (day && dragId != null) onReschedule(dragId, day); setOver(null); setDragId(null); }}
                   style={{ minHeight: 94, background: day ? (isOver ? C.coralLt : C.card) : 'transparent', border: `1px solid ${isOver ? C.coral : day ? C.line : 'transparent'}`, borderRadius: 10, padding: 6, boxShadow: day ? softShadow : 'none', transition: 'background .12s, border-color .12s' }}>
                   {day && <div style={{ fontSize: 11.5, fontWeight: 700, color: weekend ? C.coral : C.faint, marginBottom: 5, paddingLeft: 2 }}>{day}</div>}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {dayPosts.map((p) => {
                       const g = group(p.pillar); const Icon = FORMAT_META[p.format].Icon; const isSel = p.id === selId;
                       return (
-                        <button key={p.id} draggable onDragStart={() => setDragId(p.id)} onDragEnd={() => { setDragId(null); setOver(null); }}
+                        <button key={p.id} draggable={!readOnly} onDragStart={() => { if (!readOnly) setDragId(p.id); }} onDragEnd={() => { setDragId(null); setOver(null); }}
                           onClick={() => onSelect(p.id)} className="chip-cal"
-                          style={{ display: 'flex', alignItems: 'center', gap: 5, width: '100%', textAlign: 'left', cursor: 'grab', background: isSel ? g.fg : g.bg, color: isSel ? '#fff' : g.fg, border: `1px solid ${isSel ? g.fg : 'transparent'}`, borderLeft: `3px solid ${g.fg}`, borderRadius: 6, padding: '4px 6px', font: 'inherit', fontSize: 11, fontWeight: 600, lineHeight: 1.1, opacity: dragId === p.id ? 0.4 : 1 }}>
+                          style={{ display: 'flex', alignItems: 'center', gap: 5, width: '100%', textAlign: 'left', cursor: readOnly ? 'pointer' : 'grab', background: isSel ? g.fg : g.bg, color: isSel ? '#fff' : g.fg, border: `1px solid ${isSel ? g.fg : 'transparent'}`, borderLeft: `3px solid ${g.fg}`, borderRadius: 6, padding: '4px 6px', font: 'inherit', fontSize: 11, fontWeight: 600, lineHeight: 1.1, opacity: dragId === p.id ? 0.4 : 1 }}>
                           <Icon size={11} style={{ flexShrink: 0 }} />
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortPillar(p.pillar)}</span>
                           {p.status === 'new' && <span style={{ marginLeft: 'auto', fontSize: 8.5, fontWeight: 800 }}>NEW</span>}
@@ -320,7 +373,7 @@ function CalendarView({ posts, selId, onSelect, onReschedule, year, month, mdays
             })}
           </div>
         ))}
-        <p style={{ fontSize: 12, color: C.faint, marginTop: 10 }}>Drag any post to another day to reschedule it.</p>
+        {!readOnly && <p style={{ fontSize: 12, color: C.faint, marginTop: 10 }}>Drag any post to another day to reschedule it.</p>}
       </div>
     </div>
   );
@@ -509,6 +562,159 @@ function AgentBar({ value, onChange, onRun, busy, usage }: {
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- month switcher ---------------- */
+
+/** Header title that doubles as the month menu trigger. With one month it reads as
+ *  a plain title; with more, a chevron invites the switch. Kept deliberately plain
+ *  for slice 1 — the receding-plane stack is a later slice over this same data. */
+function MonthMenu({ clientName, cycles, activeCycleId, activeMonthLabel, postCount, readOnly, switching, open, onToggle, onClose, onPick, narrow }: {
+  clientName: string; cycles: CycleSummary[]; activeCycleId: string; activeMonthLabel: string;
+  postCount: number; readOnly: boolean; switching: boolean; open: boolean;
+  onToggle: () => void; onClose: () => void; onPick: (cycleId: string) => void; narrow: boolean;
+}) {
+  const hasChoice = cycles.length > 1;
+  const shortMonth = activeMonthLabel.split(' ')[0];   // 'July 2026' → 'July' for the compact title
+
+  return (
+    <div style={{ position: 'relative', textAlign: 'right', lineHeight: 1.25 }}>
+      <button
+        onClick={hasChoice ? onToggle : undefined}
+        aria-haspopup={hasChoice ? 'menu' : undefined}
+        aria-expanded={hasChoice ? open : undefined}
+        disabled={switching}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', padding: 0,
+          font: 'inherit', color: 'inherit', cursor: hasChoice ? 'pointer' : 'default', textAlign: 'right',
+        }}
+      >
+        <span style={{ fontFamily: display, fontSize: narrow ? 17 : 20, color: C.navy }}>
+          {clientName} · <span style={{ fontStyle: 'italic', color: C.coral }}>{shortMonth}</span> plan
+        </span>
+        {hasChoice && (
+          <ChevronDown size={narrow ? 16 : 18} color={C.faint}
+            style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s', flexShrink: 0 }} />
+        )}
+      </button>
+      <div style={{ fontSize: 12, color: C.faint, marginTop: 2 }}>
+        {readOnly
+          ? <>view only · {postCount} posts</>
+          : <>{postCount} posts · opened from your link, no password needed</>}
+      </div>
+
+      {open && hasChoice && (
+        <>
+          <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 70 }} />
+          <div role="menu" style={{
+            position: 'absolute', top: 'calc(100% + 10px)', right: 0, zIndex: 71, width: 'min(320px, 86vw)',
+            background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, boxShadow: '0 16px 44px rgba(30,42,74,.18)',
+            padding: 6, textAlign: 'left',
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: C.faint, padding: '8px 10px 6px' }}>
+              Your months
+            </div>
+            {cycles.map((c) => (
+              <MonthRow key={c.cycleId} cycle={c} active={c.cycleId === activeCycleId} onClick={() => onPick(c.cycleId)} />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function MonthRow({ cycle, active, onClick }: { cycle: CycleSummary; active: boolean; onClick: () => void }) {
+  return (
+    <button role="menuitem" onClick={onClick} style={{
+      display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', cursor: 'pointer',
+      background: active ? C.coralLt : 'transparent', border: 'none', borderRadius: 10, padding: '10px 10px', font: 'inherit',
+    }}>
+      <span style={{ width: 18, flexShrink: 0, display: 'inline-flex', justifyContent: 'center' }}>
+        {active && <Check size={15} color={C.coralDeep} />}
+      </span>
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontFamily: display, fontSize: 16, color: C.navy }}>{cycle.monthLabel}</span>
+          {cycle.isHome
+            ? <Tag bg={C.coralLt} fg={C.coralDeep}>this month</Tag>
+            : <Tag bg={C.tagBg} fg={C.muted}>view only</Tag>}
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3, fontSize: 12, color: C.muted, flexWrap: 'wrap' }}>
+          <span>{cycle.livePostCount} posts</span>
+          {cycle.preservedEditCount > 0 && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: C.slate }}>
+              <span style={{ width: 6, height: 6, borderRadius: 3, background: C.slate }} />{cycle.preservedEditCount} kept
+            </span>
+          )}
+          {cycle.preservedEditOrphanCount > 0 && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: C.coralDeep, fontWeight: 600 }}>
+              <span style={{ width: 6, height: 6, borderRadius: 3, background: C.coral }} />{cycle.preservedEditOrphanCount} to review
+            </span>
+          )}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+/** In-page banner shown at the top of a view-only month. Restates that edits live in
+ *  the current plan and offers the way back. */
+function ViewOnlyBanner({ homeMonth, onBack }: { homeMonth: string; onBack: () => void }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, padding: '11px 14px', background: C.navyLt, border: `1px solid ${C.line}`, borderRadius: 12, flexWrap: 'wrap' }}>
+      <Eye size={15} color={C.slate} style={{ flexShrink: 0 }} />
+      <span style={{ fontSize: 13, color: C.muted, flex: 1, minWidth: 160 }}>
+        You&rsquo;re looking at a past month. Edits belong to your current plan — <strong style={{ color: C.navy, fontWeight: 600 }}>{homeMonth}</strong>.
+      </span>
+      <button onClick={onBack} style={{ ...ghostBtn, padding: '6px 11px' }}><ArrowLeft size={13} /> Back to {homeMonth}</button>
+    </div>
+  );
+}
+
+/** Read-only detail for a past month: everything the editable Detail shows, minus
+ *  every affordance that writes. */
+function ReadOnlyDetail({ post }: { post: VPost | null }) {
+  if (!post) return null;
+  const Icon = FORMAT_META[post.format].Icon; const g = group(post.pillar);
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: g.bg, color: g.fg, padding: '5px 11px', borderRadius: 9, fontSize: 12.5, fontWeight: 600 }}>
+          <Icon size={14} /> {FORMAT_META[post.format].label}
+        </span>
+        <span style={{ fontSize: 12.5, color: C.muted }}>{post.pillar}</span>
+        <span style={{ color: C.line }}>·</span>
+        <span style={{ fontFamily: display, fontSize: 16, color: C.navy }}>{`${WK[post.date.getDay()]} ${MONTHS[post.date.getMonth()]} ${post.date.getDate()}`}</span>
+        <StatusTag status={post.status} />
+      </div>
+
+      <Kicker>Caption</Kicker>
+      <p style={{ marginTop: 9, background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, padding: '16px 18px', fontFamily: body, fontSize: 15, lineHeight: 1.62, color: C.navy, boxShadow: softShadow, whiteSpace: 'pre-wrap' }}>
+        {post.caption || <span style={{ color: C.faint }}>No caption.</span>}
+      </p>
+      <p style={{ fontSize: 11.5, color: C.faint, marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <Eye size={13} /> This month is view only. Switch to your current plan to make changes.
+      </p>
+    </div>
+  );
+}
+
+/** Replaces the agent bar in a view-only month — the persistent bottom slot keeps a
+ *  job (get home) instead of going dead. */
+function BackBar({ homeMonth, onBack }: { homeMonth: string; onBack: () => void }) {
+  return (
+    <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 50, background: C.agentBar, borderTop: '1px solid rgba(255,255,255,.07)', padding: '14px 18px', boxShadow: '0 -6px 28px rgba(30,42,74,.20)' }}>
+      <div style={{ maxWidth: 960, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'rgba(255,255,255,.72)', fontSize: 13.5 }}>
+          <Eye size={15} color={C.coral} /> Viewing a past month — edits are off here.
+        </span>
+        <button onClick={onBack} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 7, height: 40, padding: '0 16px', background: C.coral, color: '#fff', border: 'none', borderRadius: 12, cursor: 'pointer', fontFamily: body, fontSize: 14, fontWeight: 600 }}>
+          <ArrowLeft size={15} /> Back to {homeMonth}
+        </button>
       </div>
     </div>
   );

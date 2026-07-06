@@ -2,13 +2,38 @@
  * plan.ts — server-side plan reads. Loads content_cycle_posts for a cycle and maps
  * them to the PlanPost contract. All access is scoped by the caller's session
  * (clientId + cycleId), never by client-supplied ids.
+ *
+ * Slice 1 of the month switcher adds two read-only helpers alongside loadPlanPosts:
+ *   loadCycleList        — the client's qualifying months (for the header menu).
+ *   isCycleReadableByClient — the guard the read path uses before serving a
+ *                          non-home cycle, so a forged ?cycleId= can never leak
+ *                          another client's plan.
+ * Neither widens WRITE scope: mutations stay bound to the session's own cycleId.
  */
-import { and, asc, eq, isNull } from 'drizzle-orm';
-import { db, contentCyclePosts } from '@sprigly/db';
-import type { PlanPost, PostChannel, PostFormat, PostStatus } from './types.js';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { db, contentCycles, contentCyclePosts } from '@sprigly/db';
+import type {
+  CycleSummary, PlanPost, PostChannel, PostFormat, PostStatus, ReviewState,
+} from './types.js';
 
-const FORMATS = new Set<PostFormat>(['reel', 'carousel', 'single', 'email']);
+const FORMATS  = new Set<PostFormat>(['reel', 'carousel', 'single', 'email']);
 const STATUSES = new Set<PostStatus>(['planned', 'edited', 'new']);
+const REVIEW_STATES = new Set<ReviewState>(['preserved_edit', 'preserved_edit_orphan', 'regenerated']);
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/** 'YYYY-MM' or 'YYYY-MM-DD' → 'July 2026'. Falls back to the raw string if it
+ *  doesn't parse (defensive; every real cycle has dated posts). */
+function monthLabel(yyyymm: string): string {
+  const m = /^(\d{4})-(\d{2})/.exec(yyyymm);
+  if (!m) return yyyymm;
+  const year = m[1];
+  const idx  = Number(m[2]) - 1;
+  return `${MONTH_NAMES[idx] ?? yyyymm} ${year}`;
+}
 
 /** Load the plan posts for a cycle, ordered by position then date. Scoped to the
  *  session's client+cycle — pass both so a token can only ever read its own plan. */
@@ -24,16 +49,135 @@ export async function loadPlanPosts(clientId: string, cycleId: string): Promise<
     .orderBy(asc(contentCyclePosts.position), asc(contentCyclePosts.scheduledDate));
 
   return rows.map((r) => ({
-    id:       r.id,
-    cycleId:  r.cycleId,
-    clientId: r.clientId,
-    channel:  (r.channel === 'email' ? 'email' : 'instagram') as PostChannel,
-    date:     r.scheduledDate,                                   // already 'YYYY-MM-DD'
-    format:   (FORMATS.has(r.format as PostFormat) ? r.format : 'single') as PostFormat,
-    pillar:   r.pillar ?? '',
-    caption:  r.caption ?? '',
-    status:   (STATUSES.has(r.status as PostStatus) ? r.status : 'planned') as PostStatus,
-    script:   r.script ?? null,
-    overlay:  r.overlay ?? null,
+    id:          r.id,
+    cycleId:     r.cycleId,
+    clientId:    r.clientId,
+    channel:     (r.channel === 'email' ? 'email' : 'instagram') as PostChannel,
+    date:        r.scheduledDate,                                   // already 'YYYY-MM-DD'
+    format:      (FORMATS.has(r.format as PostFormat) ? r.format : 'single') as PostFormat,
+    pillar:      r.pillar ?? '',
+    caption:     r.caption ?? '',
+    status:      (STATUSES.has(r.status as PostStatus) ? r.status : 'planned') as PostStatus,
+    reviewState: (r.reviewState && REVIEW_STATES.has(r.reviewState as ReviewState) ? r.reviewState : null) as ReviewState | null,
+    script:      r.script ?? null,
+    overlay:     r.overlay ?? null,
   }));
+}
+
+/**
+ * The client's qualifying cycles for a channel, newest month first — the source
+ * for the header month menu. A cycle QUALIFIES if it has ≥1 live post AND its
+ * posts_sync_status is not 'out_of_sync' ('synced' with or without provenance,
+ * 'unknown', and NULL legacy all pass). The home cycle is ALWAYS included even if
+ * it no longer qualifies, so the surface the token was minted for can never vanish
+ * from its own switcher. Read-only; never widens write scope.
+ */
+export async function loadCycleList(
+  clientId: string,
+  channel:  string,
+  homeCycleId: string,
+): Promise<CycleSummary[]> {
+  // Aggregate live posts per cycle. leftJoin so a cycle with zero live posts still
+  // returns a row (liveCount 0); count(post.id) — not count(*) — so the phantom
+  // null-join row doesn't inflate the count.
+  const rows = await db
+    .select({
+      cycleId:    contentCycles.id,
+      cycleMonth: contentCycles.cycleMonth,
+      syncStatus: contentCycles.postsSyncStatus,
+      syncedAt:   contentCycles.postsSyncedAt,
+      updatedAt:  contentCycles.updatedAt,
+      firstMonth: sql<string | null>`to_char(min(${contentCyclePosts.scheduledDate}), 'YYYY-MM')`,
+      liveCount:  sql<number>`count(${contentCyclePosts.id})::int`,
+      preservedEdit:       sql<number>`(count(${contentCyclePosts.id}) filter (where ${contentCyclePosts.reviewState} = 'preserved_edit'))::int`,
+      preservedEditOrphan: sql<number>`(count(${contentCyclePosts.id}) filter (where ${contentCyclePosts.reviewState} = 'preserved_edit_orphan'))::int`,
+    })
+    .from(contentCycles)
+    .leftJoin(contentCyclePosts, and(
+      eq(contentCyclePosts.cycleId, contentCycles.id),
+      isNull(contentCyclePosts.deletedAt),
+    ))
+    .where(and(
+      eq(contentCycles.clientId, clientId),
+      eq(contentCycles.channel, channel),
+    ))
+    .groupBy(
+      contentCycles.id, contentCycles.cycleMonth, contentCycles.postsSyncStatus,
+      contentCycles.postsSyncedAt, contentCycles.updatedAt,
+    );
+
+  // Qualify, then collapse any month collision to the most recent cycle.
+  const byMonth = new Map<string, {
+    summary: CycleSummary;
+    syncedAt: Date | null;
+    updatedAt: Date | null;
+  }>();
+
+  for (const r of rows) {
+    const isHome     = r.cycleId === homeCycleId;
+    const hasPosts   = r.liveCount > 0;
+    const isBadState = r.syncStatus === 'out_of_sync';
+    if (!isHome && (!hasPosts || isBadState)) continue;   // home is always kept
+
+    // Plan month from the earliest live post date. If the home cycle has no live
+    // posts, there's no post date to derive from — fall back to cycle_month so the
+    // row still labels (rare; the home cycle normally has posts).
+    const displayMonth = r.firstMonth ?? r.cycleMonth.slice(0, 7);
+    const summary: CycleSummary = {
+      cycleId:                  r.cycleId,
+      displayMonth,
+      monthLabel:               monthLabel(displayMonth),
+      livePostCount:            r.liveCount,
+      isHome,
+      preservedEditCount:       r.preservedEdit,
+      preservedEditOrphanCount: r.preservedEditOrphan,
+    };
+
+    const existing = byMonth.get(displayMonth);
+    if (!existing) {
+      byMonth.set(displayMonth, { summary, syncedAt: r.syncedAt, updatedAt: r.updatedAt });
+      continue;
+    }
+    // Collision: one calendar month resolved to two cycles. Keep the most recent by
+    // posts_synced_at, else updated_at; never silently render both. The unique index
+    // (client, channel, cycle_month) makes this defensive, not expected.
+    const incomingT = (r.syncedAt ?? r.updatedAt)?.getTime() ?? 0;
+    const existingT = (existing.syncedAt ?? existing.updatedAt)?.getTime() ?? 0;
+    const keepIncoming = existing.summary.isHome ? false : (summary.isHome || incomingT >= existingT);
+    // eslint-disable-next-line no-console
+    console.warn(`[loadCycleList] month ${displayMonth} has two cycles for client ${clientId}; keeping ${keepIncoming ? r.cycleId : existing.summary.cycleId}`);
+    if (keepIncoming) byMonth.set(displayMonth, { summary, syncedAt: r.syncedAt, updatedAt: r.updatedAt });
+  }
+
+  return [...byMonth.values()]
+    .map((v) => v.summary)
+    .sort((a, b) => b.displayMonth.localeCompare(a.displayMonth));   // newest month first
+}
+
+/**
+ * Guard for the read path: may THIS client read THIS cycle? True only if the cycle
+ * belongs to the client AND qualifies (≥1 live post AND not 'out_of_sync'). The
+ * caller allows the home cycle unconditionally; this covers every OTHER cycle, so a
+ * forged ?cycleId= for another client (or an out_of_sync surface) is refused.
+ */
+export async function isCycleReadableByClient(clientId: string, cycleId: string): Promise<boolean> {
+  const [row] = await db
+    .select({
+      syncStatus: contentCycles.postsSyncStatus,
+      liveCount:  sql<number>`count(${contentCyclePosts.id})::int`,
+    })
+    .from(contentCycles)
+    .leftJoin(contentCyclePosts, and(
+      eq(contentCyclePosts.cycleId, contentCycles.id),
+      isNull(contentCyclePosts.deletedAt),
+    ))
+    .where(and(
+      eq(contentCycles.id, cycleId),
+      eq(contentCycles.clientId, clientId),      // ownership — never trust the id alone
+    ))
+    .groupBy(contentCycles.id, contentCycles.postsSyncStatus);
+
+  if (!row) return false;                        // not this client's cycle, or nonexistent
+  if (row.syncStatus === 'out_of_sync') return false;
+  return row.liveCount > 0;
 }

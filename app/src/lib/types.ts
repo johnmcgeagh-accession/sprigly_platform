@@ -8,18 +8,39 @@ export type PostChannel = 'instagram' | 'email';
 export type PostFormat  = 'reel' | 'carousel' | 'single' | 'email';
 export type PostStatus  = 'planned' | 'edited' | 'new';
 
+// Regen-merge provenance (migration 0059), orthogonal to `status`. Carried on the
+// post so the future orphan accept/remove affordance and the switcher's per-month
+// review badges read from one field. null = pre-existing / not yet classified.
+export type ReviewState = 'preserved_edit' | 'preserved_edit_orphan' | 'regenerated';
+
 export interface PlanPost {
-  id:       string;
-  cycleId:  string;
-  clientId: string;
-  channel:  PostChannel;
-  date:     string;            // ISO 'YYYY-MM-DD'
-  format:   PostFormat;
-  pillar:   string;
-  caption:  string;
-  status:   PostStatus;
-  script?:  string | null;
-  overlay?: string | null;
+  id:          string;
+  cycleId:     string;
+  clientId:    string;
+  channel:     PostChannel;
+  date:        string;            // ISO 'YYYY-MM-DD'
+  format:      PostFormat;
+  pillar:      string;
+  caption:     string;
+  status:      PostStatus;
+  reviewState: ReviewState | null;
+  script?:     string | null;
+  overlay?:    string | null;
+}
+
+// ── Month switcher (slice 1) ──────────────────────────────────────────────────
+// One qualifying cycle the client may browse. `displayMonth` is derived from the
+// EARLIEST live post date (not cycle_month + 1), so it stays correct through any
+// future month-resolution change. Only the home cycle is editable; the rest are
+// view-only (writes stay scoped to the token's own cycle server-side).
+export interface CycleSummary {
+  cycleId:                  string;
+  displayMonth:             string;   // 'YYYY-MM' from MIN(scheduled_date) of live posts
+  monthLabel:               string;   // 'July 2026'
+  livePostCount:            number;
+  isHome:                   boolean;  // === session.cycleId (the one editable month)
+  preservedEditCount:       number;
+  preservedEditOrphanCount: number;
 }
 
 // ── Agent seam ────────────────────────────────────────────────────────────────

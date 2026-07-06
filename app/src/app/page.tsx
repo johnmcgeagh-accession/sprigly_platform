@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
-import { db, clients } from '@sprigly/db';
+import { db, clients, contentCycles } from '@sprigly/db';
 import { getSession } from '@/lib/auth';
-import { loadPlanPosts } from '@/lib/plan';
+import { loadPlanPosts, loadCycleList } from '@/lib/plan';
 import PlanApp from '@/components/PlanApp';
 
 export const dynamic = 'force-dynamic';
@@ -15,9 +15,28 @@ export default async function Page() {
     .from(clients)
     .where(eq(clients.id, session.clientId))
     .limit(1);
-  const posts = await loadPlanPosts(session.clientId, session.cycleId);
 
-  return <PlanApp clientName={client?.name ?? 'your'} posts={posts} />;
+  // The switcher lists the client's qualifying months for the HOME cycle's channel
+  // (per-channel months don't mix in slice 1). The home cycle is the only editable one.
+  const [home] = await db
+    .select({ channel: contentCycles.channel })
+    .from(contentCycles)
+    .where(eq(contentCycles.id, session.cycleId))
+    .limit(1);
+
+  const posts  = await loadPlanPosts(session.clientId, session.cycleId);
+  const cycles = home
+    ? await loadCycleList(session.clientId, home.channel, session.cycleId)
+    : [];
+
+  return (
+    <PlanApp
+      clientName={client?.name ?? 'your'}
+      posts={posts}
+      cycles={cycles}
+      homeCycleId={session.cycleId}
+    />
+  );
 }
 
 function Gate() {
