@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# pull-env.sh — pull Railway service variables into a local .env file
+# Usage: ./pull-env.sh [-s service] [-e environment] [-o output]
+set -euo pipefail
+
+SERVICE=""
+ENVIRONMENT=""
+OUTPUT=".env.local"
+
+while getopts "s:e:o:" opt; do
+  case $opt in
+    s) SERVICE="$OPTARG" ;;
+    e) ENVIRONMENT="$OPTARG" ;;
+    o) OUTPUT="$OPTARG" ;;
+    *) echo "Usage: $0 [-s service] [-e environment] [-o output]"; exit 1 ;;
+  esac
+done
+
+command -v railway >/dev/null || { echo "railway CLI not found — npm i -g @railway/cli"; exit 1; }
+command -v jq >/dev/null || { echo "jq not found — sudo apt install jq / brew install jq"; exit 1; }
+
+# Must be run inside a linked project (railway link) or it will prompt
+ARGS=(variables --json)
+[[ -n "$SERVICE" ]] && ARGS+=(--service "$SERVICE")
+[[ -n "$ENVIRONMENT" ]] && ARGS+=(--environment "$ENVIRONMENT")
+
+echo "Pulling variables${SERVICE:+ for service '$SERVICE'}${ENVIRONMENT:+ (env: $ENVIRONMENT)}..."
+JSON=$(railway "${ARGS[@]}")
+
+# Back up any existing file
+if [[ -f "$OUTPUT" ]]; then
+  cp "$OUTPUT" "$OUTPUT.bak.$(date +%Y%m%d%H%M%S)"
+  echo "Backed up existing $OUTPUT"
+fi
+
+# Write vars, skipping Railway's injected platform vars
+echo "$JSON" | jq -r '
+  to_entries
+  | map(select(.key | startswith("RAILWAY_") | not))
+  | sort_by(.key)
+  | .[]
+  | "\(.key)=\"\(.value | gsub("\""; "\\\""))\""
+' > "$OUTPUT"
+
+COUNT=$(grep -c '=' "$OUTPUT" || true)
+echo "Wrote $COUNT variables to $OUTPUT"

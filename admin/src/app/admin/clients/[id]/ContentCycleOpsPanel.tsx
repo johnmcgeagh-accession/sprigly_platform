@@ -29,7 +29,7 @@ interface DriveFileMeta {
 interface CycleInfo {
   status:          string;
   requestSentAt:   string | null;  // ISO string (Date serialised from server)
-  postsSyncStatus: string | null;  // 'synced' | 'out_of_sync' | null — app-plan write health
+  postsSyncStatus: string | null;  // 'synced' | 'out_of_sync' | 'unknown' | null — app-plan write health
 }
 
 interface Props {
@@ -258,6 +258,14 @@ export function ContentCycleOpsPanel({
                   <dt className="text-gray-400 w-24 shrink-0">App plan</dt>
                   <dd className="inline-flex items-center gap-1 rounded-md bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
                     ⚠️ out of sync — posts-write failed; app is showing a stale plan
+                  </dd>
+                </div>
+              )}
+              {cycle.postsSyncStatus === 'unknown' && (
+                <div className="flex items-center gap-2">
+                  <dt className="text-gray-400 w-24 shrink-0">App plan</dt>
+                  <dd className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                    ⚠️ unverified — last regen failed before writing; app plan not confirmed current
                   </dd>
                 </div>
               )}

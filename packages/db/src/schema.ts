@@ -667,10 +667,16 @@ export const contentCycles = pgTable(
     igInputDetail:     text('ig_input_detail'),
     igInputCheckedAt:  timestamp('ig_input_checked_at', { withTimezone: true }),
     // Health of the content_cycle_posts write for this cycle's latest plan run:
-    // 'synced' (posts match the plan) | 'out_of_sync' (posts-write failed — the app
-    // is serving a stale plan; surfaced in the admin cycle-status block) | null.
-    // REQUIRES migration 0060 before deploy (mapped column → select-all).
+    // 'synced' (a write committed AND was verified to leave the live posts matching
+    // the new plan) | 'out_of_sync' (a write was attempted and failed/rolled back —
+    // the app is serving a stale plan) | 'unknown' (a regen threw before a verified
+    // write — surface not trusted) | null (legacy). REQUIRES migration 0060.
     postsSyncStatus:   text('posts_sync_status'),
+    // Provenance for a VERIFIED 'synced' (0061), so the flag is attributable to one
+    // committed write rather than ambient. Both set together with status='synced'
+    // and cleared to null on out_of_sync/unknown. REQUIRES migration 0061.
+    postsSyncedAt:     timestamp('posts_synced_at'),
+    postsSyncedRunId:  text('posts_synced_run_id'),
   },
   (t) => ({
     uniqClientChannelMonth: uniqueIndex('content_cycles_unique').on(

@@ -1,6 +1,6 @@
 # name them explicitly so no write command ever gets the prod URL by accident
-export PROD_DB="<prod connection string>"      # only ever read from this
-export UAT_DB="<uat connection string>"        # only ever write to this
+export PROD_DB="postgresql://postgres:h7wHnoYfmJ0C3FLa2hS4F3jWeaZBBV8CuQn8eXgcw8I=@yamabiko.proxy.rlwy.net:59459/railway"      # only ever read from this
+export UAT_DB="postgresql://postgres:XCfaCYpUuYZlFJkkPeihBPaKKrmOrBEG@hayabusa.proxy.rlwy.net:24746/railway"        # only ever write to this
 
 # 1. dump prod (read-only on prod) — custom format, compressed, restorable
 pg_dump "$PROD_DB" -Fc -f prod_snapshot.dump

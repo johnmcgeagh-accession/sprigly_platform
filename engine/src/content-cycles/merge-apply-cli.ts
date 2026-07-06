@@ -7,15 +7,16 @@
  *
  * DRY BY DEFAULT: prints the exact WRITE PLAN (delete ids / preserve ids+review_state
  * / insert set) and asserts FK-safety, writing NOTHING. Pass --write to commit — the
- * write touches review_state + posts_sync_status, so it REQUIRES migrations 0059 and
- * 0060 applied.
+ * write touches review_state + posts_sync_status + posts_synced_at/run_id, so it
+ * REQUIRES migrations 0059, 0060 and 0061 applied.
  *
  * Run (dry):   cd engine && set -a && . ../.env.local && set +a && \
  *                pnpm exec tsx src/content-cycles/merge-apply-cli.ts <cycleId>
  * Run (write): ... merge-apply-cli.ts <cycleId> --write
  */
-import { eq, and, inArray } from 'drizzle-orm';
-import { db, contentCycles, contentCyclePosts, postEdits, clientProductCatalogue } from '@sprigly/db';
+import { randomUUID } from 'node:crypto';
+import { eq, and, isNull, inArray } from 'drizzle-orm';
+import { db, contentCycles, contentCyclePosts, postEdits, clientProductCatalogue, stampPostsSyncStatus } from '@sprigly/db';
 import type { NewContentCyclePostRow } from '@sprigly/db';
 import { getTokens, storeTokens, createEncryptionProvider } from '@sprigly/oauth-tokens';
 import { DriveApiClient } from '@sprigly/sources';
@@ -129,11 +130,35 @@ console.log(`post_edits-referenced posts: ${editedIds.size}  |  preserved: ${dec
 if (!write) { console.log('\nDRY RUN — nothing written. Re-run with --write (after 0059 + 0060 applied) to commit.\n'); process.exit(0); }
 if (!fkSafe) { console.error('\nABORT: a row marked for delete is post_edits-referenced — refusing to write.'); process.exit(1); }
 
-await db.transaction(async (tx) => {
-  if (deleteIds.length > 0) await tx.delete(contentCyclePosts).where(inArray(contentCyclePosts.id, deleteIds));
-  for (const pr of dec.preserve) await tx.update(contentCyclePosts).set({ reviewState: pr.reviewState }).where(eq(contentCyclePosts.id, pr.post.id));
-  if (newRows.length > 0) await tx.insert(contentCyclePosts).values(newRows);
-});
-await db.update(contentCycles).set({ postsSyncStatus: 'synced', updatedAt: new Date() }).where(eq(contentCycles.id, cycle.id));
-console.log(`\nWROTE: deleted ${deleteIds.length}, preserved ${dec.preserve.length}, inserted ${newRows.length}. posts_sync_status=synced.\n`);
-process.exit(0);
+// A new plan that yields zero insertable rows is a failure, not a sync — and must
+// never reach the delete (a delete-only commit would wipe the live plan).
+if (newRows.length === 0) { console.error('\nABORT: new plan CSV produced 0 in-month posts — refusing to write.'); process.exit(1); }
+
+const writeRunId = randomUUID();
+try {
+  const insertedIds = await db.transaction(async (tx) => {
+    if (deleteIds.length > 0) await tx.delete(contentCyclePosts).where(inArray(contentCyclePosts.id, deleteIds));
+    for (const pr of dec.preserve) await tx.update(contentCyclePosts).set({ reviewState: pr.reviewState }).where(eq(contentCyclePosts.id, pr.post.id));
+    const ins = await tx.insert(contentCyclePosts).values(newRows).returning({ id: contentCyclePosts.id });
+    return ins.map((r) => r.id);
+  });
+
+  // Verify the write landed before stamping synced (parity with planning.ts).
+  const liveInserted = await db.select({ id: contentCyclePosts.id }).from(contentCyclePosts)
+    .where(and(inArray(contentCyclePosts.id, insertedIds), isNull(contentCyclePosts.deletedAt)));
+  if (liveInserted.length !== newRows.length) throw new Error(`post-write verification failed — expected ${newRows.length} live inserted posts, found ${liveInserted.length}`);
+  if (deleteIds.length > 0) {
+    const survivors = await db.select({ id: contentCyclePosts.id }).from(contentCyclePosts)
+      .where(and(inArray(contentCyclePosts.id, deleteIds), isNull(contentCyclePosts.deletedAt)));
+    if (survivors.length > 0) throw new Error(`post-write verification failed — ${survivors.length} replace-set rows still live`);
+  }
+
+  await stampPostsSyncStatus(cycle.id, 'synced', { runId: writeRunId, syncedAt: new Date() });
+  console.log(`\nWROTE (run ${writeRunId}): deleted ${deleteIds.length}, preserved ${dec.preserve.length}, inserted ${newRows.length}. posts_sync_status=synced.\n`);
+  process.exit(0);
+} catch (err) {
+  console.error(`\nWRITE FAILED (${String(err)}) — marking cycle out_of_sync (fresh connection, will throw if that also fails)…`);
+  await stampPostsSyncStatus(cycle.id, 'out_of_sync', { runId: writeRunId });
+  console.error('Marked out_of_sync. No stale synced left behind.\n');
+  process.exit(1);
+}

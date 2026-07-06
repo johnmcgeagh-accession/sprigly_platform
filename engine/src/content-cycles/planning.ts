@@ -28,7 +28,8 @@
  * On error: → failed, failed_step='planning' (CSV not guaranteed; safe to retry).
  */
 
-import { eq, and, desc, isNotNull, inArray } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { eq, and, desc, isNull, isNotNull, inArray } from 'drizzle-orm';
 import {
   db as _db,
   contentCycles,
@@ -40,6 +41,7 @@ import {
   clientProductCatalogue,
   contentCyclePosts,
   postEdits,
+  stampPostsSyncStatus,
 } from '@sprigly/db';
 import type { NewContentCyclePostRow } from '@sprigly/db';
 import { mapFormat, isoDateInMonth } from './post-mapping.js';
@@ -640,7 +642,17 @@ export async function runPlanningForCycle(
   // month's plan. cycleMonth stays the data month (Option a — no migration);
   // the plan, its dates, and the CSV/xlsx filename all target cycleMonth + 1.
   const targetMonth = nextMonth(cycleMonth);
-  const logCtx = { cycleId, clientId, channel, dataMonth: cycleMonth, targetMonth };
+  // A stable id for THIS write run — recorded on a verified 'synced' so the flag is
+  // attributable to one commit, and carried on the failure stamp for correlation.
+  const writeRunId = randomUUID();
+  const logCtx = { cycleId, clientId, channel, dataMonth: cycleMonth, targetMonth, writeRunId };
+  // Guards gap (c): only a verified posts-write may leave the flag 'synced'. Until
+  // the posts stage RESOLVES (verified synced, or explicitly stamped out_of_sync),
+  // any throw must NOT leave a stale 'synced' — the outer catch downgrades to
+  // 'unknown'. postsWriteFailStamped keeps a precise out_of_sync from being
+  // overwritten by 'unknown' if a LATER (CSV/transition) step then fails.
+  let postsVerifiedSynced  = false;
+  let postsWriteFailStamped = false;
 
   if (status !== 'intake_confirmed') {
     logger.info({ ...logCtx, status }, 'content-cycles: planning skipped — cycle not in intake_confirmed');
@@ -886,26 +898,69 @@ export async function runPlanningForCycle(
       const dec = mergePlan({ existing, briefedProducts: briefedProductNames(structuredBrief, catalogueNames), catalogueNames });
       const deleteIds = [...dec.drop, ...dec.replace].map((d) => d.post.id);
 
-      await db.transaction(async (tx) => {
+      // Gap (a): a plan was generated but yielded ZERO writable posts (e.g. every
+      // date fell outside targetMonth). That is a FAILURE, not a sync — and it must
+      // never reach the delete below (a delete-only commit would wipe the live plan
+      // and still stamp 'synced'). Throw so the failure path runs.
+      if (postRows.length === 0) {
+        throw new Error(
+          `planning: generated ${planRows.length} plan rows but 0 writable content_cycle_posts ` +
+          `(dates outside ${targetMonth}?) — refusing to write or stamp synced`,
+        );
+      }
+
+      const insertedIds = await db.transaction(async (tx) => {
         // FK-safe: deleteIds are drop+replace only — never a post_edits-referenced row.
         if (deleteIds.length > 0) await tx.delete(contentCyclePosts).where(inArray(contentCyclePosts.id, deleteIds));
         for (const pr of dec.preserve) {
           await tx.update(contentCyclePosts).set({ reviewState: pr.reviewState }).where(eq(contentCyclePosts.id, pr.post.id));
         }
-        if (postRows.length > 0) await tx.insert(contentCyclePosts).values(postRows);
+        const ins = await tx.insert(contentCyclePosts).values(postRows).returning({ id: contentCyclePosts.id });
+        return ins.map((r) => r.id);
       });
-      await db.update(contentCycles).set({ postsSyncStatus: 'synced', updatedAt: new Date() }).where(eq(contentCycles.id, cycleId));
+
+      // Gap (a): VERIFY the write landed before claiming 'synced' — never stamp on
+      // an unverified/partial commit. Assert every inserted row is live post-commit
+      // and no replace-set row survived. A mismatch is treated as a write failure.
+      const liveInserted = await db
+        .select({ id: contentCyclePosts.id })
+        .from(contentCyclePosts)
+        .where(and(inArray(contentCyclePosts.id, insertedIds), isNull(contentCyclePosts.deletedAt)));
+      if (liveInserted.length !== postRows.length) {
+        throw new Error(`planning: post-write verification failed — expected ${postRows.length} live inserted posts, found ${liveInserted.length}`);
+      }
+      if (deleteIds.length > 0) {
+        const survivors = await db
+          .select({ id: contentCyclePosts.id })
+          .from(contentCyclePosts)
+          .where(and(inArray(contentCyclePosts.id, deleteIds), isNull(contentCyclePosts.deletedAt)));
+        if (survivors.length > 0) {
+          throw new Error(`planning: post-write verification failed — ${survivors.length} replace-set rows still live after delete`);
+        }
+      }
+
+      // Only now is it a VERIFIED sync — stamp attributably (posts_synced_at + run id).
+      await stampPostsSyncStatus(cycleId, 'synced', { runId: writeRunId, syncedAt: new Date() });
+      postsVerifiedSynced = true;
       logger.info(
         { ...logCtx, preserved: dec.preserve.length, orphaned: dec.preserve.filter((d) => d.orphaned).length,
           dropped: dec.drop.length, replaced: dec.replace.length, inserted: postRows.length },
-        'content-cycles: edit-aware merge wrote content_cycle_posts',
+        'content-cycles: edit-aware merge wrote content_cycle_posts (verified synced)',
       );
     } catch (err) {
-      // FAIL-LOUD (not silent): flag the cycle out_of_sync so the stale app surface is
-      // visible in admin; the workbook/CSV path below is unaffected and still runs.
-      logger.error({ ...logCtx, err: String(err) }, 'content-cycles: content_cycle_posts merge-write FAILED — flagging cycle out_of_sync (workbook unaffected)');
-      await db.update(contentCycles).set({ postsSyncStatus: 'out_of_sync', updatedAt: new Date() }).where(eq(contentCycles.id, cycleId))
-        .catch((e) => logger.error({ ...logCtx, err: String(e) }, 'content-cycles: also failed to set posts_sync_status=out_of_sync'));
+      // FAIL-LOUD: mark the cycle out_of_sync so the stale app surface is visible in
+      // admin. Gap (b): the stamp is NOT fire-and-forget — it runs on a fresh
+      // connection with a retry (the shared pool's session may be poisoned by the
+      // failure above). If it STILL cannot persist, we do NOT swallow: rethrow so the
+      // outer catch fails the cycle loudly rather than leaving a stale 'synced'.
+      logger.error({ ...logCtx, err: String(err) }, 'content-cycles: content_cycle_posts merge-write FAILED — marking cycle out_of_sync (workbook unaffected)');
+      try {
+        await stampPostsSyncStatus(cycleId, 'out_of_sync', { runId: writeRunId });
+        postsWriteFailStamped = true;
+      } catch (stampErr) {
+        logger.error({ ...logCtx, err: String(stampErr) }, 'content-cycles: CRITICAL — could not persist out_of_sync on a fresh connection; escalating rather than leaving a stale synced');
+        throw new Error(`content-cycles: could not mark cycle ${cycleId} out_of_sync after a failed posts-write — refusing to continue with a possibly-stale synced: ${String(stampErr)}`);
+      }
     }
 
     // ── Serialise to the 13-column CSV ────────────────────────────────────────
@@ -935,6 +990,15 @@ export async function runPlanningForCycle(
     logger.info({ ...logCtx, csvFileId }, 'content-cycles: planning complete — handed off to build-workbook pipeline');
   } catch (err) {
     logger.error({ ...logCtx, err: String(err) }, 'content-cycles: planning phase failed');
+    // Gap (c): if the run failed WITHOUT resolving the posts stage (no verified sync
+    // and no explicit out_of_sync stamp — e.g. a throw upstream of the posts stage),
+    // the surface is not verified — downgrade a possibly-stale 'synced' to 'unknown'.
+    // Skip if a verified sync already landed (don't corrupt a legitimate 'synced') or
+    // if out_of_sync was already stamped (keep that more precise status).
+    if (!postsVerifiedSynced && !postsWriteFailStamped) {
+      await stampPostsSyncStatus(cycleId, 'unknown', { runId: writeRunId })
+        .catch((se) => logger.error({ ...logCtx, err: String(se) }, 'content-cycles: also failed to mark posts_sync_status=unknown on planning failure'));
+    }
     await transitionCycle(db, cycleId, 'failed', { failedStep: 'planning' }, logger)
       .catch((te) => {
         logger.error({ ...logCtx, err: String(te) }, 'content-cycles: failed to transition to failed state');

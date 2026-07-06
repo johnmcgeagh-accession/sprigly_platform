@@ -29,3 +29,7 @@ engine/eval-results/
 * [0-9].*
 * [0-9]
 
+.vercel
+.env*
+.env.prod
+.bkup.env.local
