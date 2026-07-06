@@ -181,12 +181,15 @@ export function classifyAgentInstruction(instruction: string, posts: PlanPost[],
     return { kind: 'structural', actions: targets.map((p) => ({ type: 'patch' as const, postId: p.id, patch: { format } })), summary: `Changed ${list(targets)} to ${format}.` };
   }
 
-  // 5) REWRITE (AI — counted). Resolve targets; unspecified plural verbs default to all.
+  // 5) REWRITE (AI — counted). An explicit all-selector ("all posts", "them all",
+  // "the whole plan") resolves to every post via resolveTargets. A bare plural with
+  // no resolvable antecedent ("make these warmer") must NOT default to the whole
+  // plan — that risks an unbounded counted rewrite the client didn't ask for
+  // (audit §7.7). Ask instead.
   if (rewriteVerb) {
     let targets = resolveTargets(t, posts, selectedId);
-    if (!targets.length && /\b(them|they|these|those|all)\b/.test(t)) targets = posts;
     if (!targets.length && selectedId) { const sel = posts.find((p) => p.id === selectedId); if (sel) targets = [sel]; }
-    if (!targets.length) return { kind: 'clarify', summary: 'Which posts should I rewrite? Try “make the Tuesday post warmer” or “make them all warmer”.' };
+    if (!targets.length) return { kind: 'clarify', summary: 'Which posts should I rewrite? Try “make the Tuesday post warmer”, “make them all warmer”, or “rewrite the whole plan”.' };
     return { kind: 'rewrite', targetPostIds: targets.map((p) => p.id), instruction: raw, summary: `Sprigly is rewriting ${list(targets)}…` };
   }
 

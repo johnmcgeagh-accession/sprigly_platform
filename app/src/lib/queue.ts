@@ -9,6 +9,7 @@ import { Queue } from 'bullmq';
 export interface ShapePayload {
   type:         'shape';
   scope:        'post' | 'plan';
+  clientId:     string;
   cycleId:      string;
   targetPostId: string;
   instruction:  string;
@@ -23,9 +24,22 @@ function getQueue(): Queue | null {
 
 export const shapeJobId = (cycleId: string, postId: string) => `shape_${cycleId}_${postId}`;
 
-/** Enqueue a shape job. Clears a stale completed/failed slot first (prepareJobSlot);
- *  if one is already active/waiting, returns its id rather than duplicating. */
-export async function enqueueShape(payload: ShapePayload): Promise<{ jobId: string } | { error: string }> {
+/**
+ * Enqueue result. `busy` means a job for this exact post is already
+ * active/waiting — the new instruction was NOT enqueued (the deterministic
+ * jobId is one-per-post). Callers must surface this explicitly rather than
+ * treat the returned jobId as if the new instruction had been accepted, or a
+ * second instruction is silently lost (audit §7.5).
+ */
+export type EnqueueResult =
+  | { jobId: string }
+  | { busy: true; jobId: string }
+  | { error: string };
+
+/** Enqueue a shape job. Clears a stale completed/failed slot first; if one is
+ *  already active/waiting, returns `{ busy: true, jobId }` WITHOUT enqueuing —
+ *  the caller decides how to tell the user. */
+export async function enqueueShape(payload: ShapePayload): Promise<EnqueueResult> {
   const queue = getQueue();
   if (!queue) return { error: 'Server not configured for background jobs (REDIS_URL missing).' };
   const jobId = shapeJobId(payload.cycleId, payload.targetPostId);
@@ -36,7 +50,9 @@ export async function enqueueShape(payload: ShapePayload): Promise<{ jobId: stri
       if (state === 'completed' || state === 'failed' || state === 'unknown') {
         try { await existing.remove(); } catch { /* best-effort */ }
       } else {
-        return { jobId };   // already active/waiting
+        // A change for this post is still in flight. Do NOT silently drop the
+        // new instruction by returning this jobId as success.
+        return { busy: true, jobId };
       }
     }
     await queue.add('shape', payload, {

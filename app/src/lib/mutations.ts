@@ -16,17 +16,26 @@ import type { ShapeResult, PostFormat } from '@/lib/types';
 const FORMATS = new Set<PostFormat>(['reel', 'carousel', 'single', 'email']);
 const DRAFT_PLACEHOLDER = 'Draft idea — tell Sprigly what this post should be about and it\'ll write the caption.';
 
+/**
+ * The (id, clientId, cycleId) scope every write must carry. The preceding
+ * `ownedPost` SELECT already gates access, but scoping the UPDATE itself is
+ * defense-in-depth: a foreign postId can never mutate another client's or
+ * cycle's row even if a check is missed upstream (audit §4).
+ */
+function scopedPost(clientId: string, cycleId: string, postId: string) {
+  return and(
+    eq(contentCyclePosts.id, postId),
+    eq(contentCyclePosts.clientId, clientId),
+    eq(contentCyclePosts.cycleId, cycleId),
+  );
+}
+
 /** Fetch a post only if it belongs to this session's client+cycle (and isn't deleted). */
 async function ownedPost(clientId: string, cycleId: string, postId: string): Promise<ContentCyclePostRow | null> {
   const [row] = await db
     .select()
     .from(contentCyclePosts)
-    .where(and(
-      eq(contentCyclePosts.id, postId),
-      eq(contentCyclePosts.clientId, clientId),
-      eq(contentCyclePosts.cycleId, cycleId),
-      isNull(contentCyclePosts.deletedAt),
-    ))
+    .where(and(scopedPost(clientId, cycleId, postId), isNull(contentCyclePosts.deletedAt)))
     .limit(1);
   return row ?? null;
 }
@@ -59,7 +68,7 @@ export async function patchPost(clientId: string, cycleId: string, postId: strin
   if (typeof patch.position === 'number' && Number.isFinite(patch.position)) set.position = Math.trunc(patch.position);
   if (typeof patch.caption === 'string')  set.caption = patch.caption;
 
-  await db.update(contentCyclePosts).set(set).where(eq(contentCyclePosts.id, postId));
+  await db.update(contentCyclePosts).set(set).where(scopedPost(clientId, cycleId, postId));
 
   const what = patch.date ? 'Moved it.' : patch.format ? 'Changed the format.' : patch.caption !== undefined ? 'Saved your caption.' : patch.position !== undefined ? 'Reordered.' : 'Updated.';
   return applied(clientId, cycleId, [postId], what);
@@ -97,7 +106,7 @@ export async function addDraft(clientId: string, cycleId: string, channel: strin
 export async function softDeletePost(clientId: string, cycleId: string, postId: string): Promise<ShapeResult | null> {
   const row = await ownedPost(clientId, cycleId, postId);
   if (!row) return null;
-  await db.update(contentCyclePosts).set({ deletedAt: new Date() }).where(eq(contentCyclePosts.id, postId));
+  await db.update(contentCyclePosts).set({ deletedAt: new Date() }).where(scopedPost(clientId, cycleId, postId));
   return applied(clientId, cycleId, [postId], 'Removed it.');
 }
 
@@ -111,13 +120,13 @@ export async function revertPost(clientId: string, cycleId: string, postId: stri
   // edit or regen, so revert always returns to the generated starting point).
   const decision = resolveRevert(row);
   if (decision.action === 'remove') {
-    await db.update(contentCyclePosts).set({ deletedAt: new Date() }).where(eq(contentCyclePosts.id, postId));
+    await db.update(contentCyclePosts).set({ deletedAt: new Date() }).where(scopedPost(clientId, cycleId, postId));
     return applied(clientId, cycleId, [postId], 'Removed the draft.');
   }
   if (decision.action === 'clear') {
-    await db.update(contentCyclePosts).set({ status: 'planned' }).where(eq(contentCyclePosts.id, postId));
+    await db.update(contentCyclePosts).set({ status: 'planned' }).where(scopedPost(clientId, cycleId, postId));
     return applied(clientId, cycleId, [postId], 'Reverted.');
   }
-  await db.update(contentCyclePosts).set(decision.values).where(eq(contentCyclePosts.id, postId));
+  await db.update(contentCyclePosts).set(decision.values).where(scopedPost(clientId, cycleId, postId));
   return applied(clientId, cycleId, [postId], 'Reverted to the original.');
 }

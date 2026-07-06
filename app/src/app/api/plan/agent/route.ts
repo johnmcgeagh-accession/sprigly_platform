@@ -81,20 +81,34 @@ export async function POST(req: Request) {
     if (!plan.caption || !newId) {
       return NextResponse.json({ mode: 'applied', summary: plan.summary, changedPostIds: created.changedPostIds, posts: created.posts });
     }
-    const r = await enqueueShape({ type: 'shape', scope: 'plan', cycleId, targetPostId: newId, instruction: plan.caption, source: 'web' });
+    // The draft was just created, so a busy slot is not expected; treat the
+    // returned jobId as the enqueued caption job either way.
+    const r = await enqueueShape({ type: 'shape', scope: 'plan', clientId, cycleId, targetPostId: newId, instruction: plan.caption, source: 'web' });
     if ('error' in r) return NextResponse.json({ error: r.error }, { status: 503 });
     return NextResponse.json({ mode: 'pending', summary: plan.summary, jobIds: [r.jobId], usage });
   }
 
   // Rewrite — one validated shape job per target post (each counts when it lands).
+  // A post already being shaped is reported as busy rather than silently dropped.
   if (plan.kind === 'rewrite') {
     const jobIds: string[] = [];
+    let busy = 0;
     for (const postId of plan.targetPostIds) {
-      const r = await enqueueShape({ type: 'shape', scope: 'post', cycleId, targetPostId: postId, instruction: plan.instruction, source: 'web' });
+      const r = await enqueueShape({ type: 'shape', scope: 'post', clientId, cycleId, targetPostId: postId, instruction: plan.instruction, source: 'web' });
       if ('error' in r) return NextResponse.json({ error: r.error }, { status: 503 });
+      if ('busy' in r) { busy++; continue; }
       jobIds.push(r.jobId);
     }
-    return NextResponse.json({ mode: 'pending', summary: plan.summary, jobIds, usage });
+    if (jobIds.length === 0) {
+      return NextResponse.json({
+        mode: 'noop',
+        summary: busy > 0
+          ? 'Still finishing the last change on that post — give it a moment, then try again.'
+          : 'Nothing to rewrite.',
+      });
+    }
+    const summary = busy > 0 ? `${plan.summary} (${busy} still finishing a previous change)` : plan.summary;
+    return NextResponse.json({ mode: 'pending', summary, jobIds, usage });
   }
 
   return NextResponse.json({ mode: 'noop', summary: 'Nothing to change.' });

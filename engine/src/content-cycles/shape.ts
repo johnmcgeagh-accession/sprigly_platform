@@ -25,6 +25,7 @@ const PLANNING_MODEL = 'sonnet';
 export interface ShapeJob {
   type:         'shape';
   scope:        'post' | 'plan';
+  clientId:     string;
   cycleId:      string;
   targetPostId: string;
   instruction:  string;
@@ -49,11 +50,18 @@ export async function runShapeForCycle(job: ShapeJob, deps: PlanningDeps): Promi
 
   const [cycle] = await db.select().from(contentCycles).where(eq(contentCycles.id, job.cycleId)).limit(1);
   if (!cycle) throw new Error(`shape: cycle ${job.cycleId} not found`);
+  // Defense-in-depth: the enqueuer derives clientId server-side from the
+  // session; refuse if the job's client doesn't own the cycle.
+  if (cycle.clientId !== job.clientId) throw new Error(`shape: cycle ${job.cycleId} not owned by client ${job.clientId}`);
 
   const [post] = await db
     .select()
     .from(contentCyclePosts)
-    .where(and(eq(contentCyclePosts.id, job.targetPostId), eq(contentCyclePosts.cycleId, job.cycleId)))
+    .where(and(
+      eq(contentCyclePosts.id, job.targetPostId),
+      eq(contentCyclePosts.cycleId, job.cycleId),
+      eq(contentCyclePosts.clientId, job.clientId),
+    ))
     .limit(1);
   if (!post) throw new Error(`shape: post ${job.targetPostId} not found in cycle ${job.cycleId}`);
 
@@ -119,7 +127,11 @@ export async function runShapeForCycle(job: ShapeJob, deps: PlanningDeps): Promi
   // 4. Write caption + status, PRESERVING source_meta (incl. original baseline).
   await db.update(contentCyclePosts)
     .set({ caption: finalCaption, status: 'edited' })
-    .where(eq(contentCyclePosts.id, post.id));
+    .where(and(
+      eq(contentCyclePosts.id, post.id),
+      eq(contentCyclePosts.cycleId, job.cycleId),
+      eq(contentCyclePosts.clientId, job.clientId),
+    ));
 
   // 5. Audit (best-effort; never fails the job).
   try {
