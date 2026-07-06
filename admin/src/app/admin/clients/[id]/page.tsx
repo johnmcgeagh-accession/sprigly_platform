@@ -89,6 +89,8 @@ type CycleInfo = {
   igInputStatus: string | null;
   igInputDetail: string | null;
   postsSyncStatus: string | null;
+  postsSyncedAt:   string | null;  // ISO; provenance for a verified 'synced' (0061)
+  postsSyncedRunId: string | null;
 };
 
 async function getCompetitorsByChannel(
@@ -119,6 +121,8 @@ async function getCyclesByChannel(
       igInputStatus: contentCycles.igInputStatus,
       igInputDetail: contentCycles.igInputDetail,
       postsSyncStatus: contentCycles.postsSyncStatus,
+      postsSyncedAt:   contentCycles.postsSyncedAt,
+      postsSyncedRunId: contentCycles.postsSyncedRunId,
     })
     .from(contentCycles)
     .where(
@@ -136,6 +140,8 @@ async function getCyclesByChannel(
     igInputStatus: r.igInputStatus ?? null,
     igInputDetail: r.igInputDetail ?? null,
     postsSyncStatus: r.postsSyncStatus ?? null,
+    postsSyncedAt:   r.postsSyncedAt ? r.postsSyncedAt.toISOString() : null,
+    postsSyncedRunId: r.postsSyncedRunId ?? null,
   }]));
 }
 

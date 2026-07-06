@@ -30,6 +30,8 @@ interface CycleInfo {
   status:          string;
   requestSentAt:   string | null;  // ISO string (Date serialised from server)
   postsSyncStatus: string | null;  // 'synced' | 'out_of_sync' | 'unknown' | null — app-plan write health
+  postsSyncedAt:   string | null;  // ISO; set only for a VERIFIED synced (0061). null = no provenance
+  postsSyncedRunId: string | null; // the write run a verified synced is attributable to
 }
 
 interface Props {
@@ -253,6 +255,30 @@ export function ContentCycleOpsPanel({
                 <dt className="text-gray-400 w-24 shrink-0">Status</dt>
                 <dd><StatusBadge status={cycle.status} /></dd>
               </div>
+              {/* Verified synced: an EARNED, attributable claim — show the attribution. */}
+              {cycle.postsSyncStatus === 'synced' && cycle.postsSyncedAt && (
+                <div className="flex items-center gap-2">
+                  <dt className="text-gray-400 w-24 shrink-0">App plan</dt>
+                  <dd className="inline-flex items-center gap-1 rounded-md bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
+                    ✓ synced
+                    <span className="text-green-600/80 font-normal">
+                      · {fmtDate(cycle.postsSyncedAt)}
+                      {cycle.postsSyncedRunId && <> · run <span className="font-mono">{cycle.postsSyncedRunId.slice(0, 8)}</span></>}
+                    </span>
+                  </dd>
+                </div>
+              )}
+              {/* Synced WITHOUT provenance: a stale 'synced' predating the verified-stamp
+                  semantics (0061). Not trusted as green — an unattributed synced is exactly
+                  the thing we no longer treat as confirmed. */}
+              {cycle.postsSyncStatus === 'synced' && !cycle.postsSyncedAt && (
+                <div className="flex items-center gap-2">
+                  <dt className="text-gray-400 w-24 shrink-0">App plan</dt>
+                  <dd className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                    synced (unverified — predates verification)
+                  </dd>
+                </div>
+              )}
               {cycle.postsSyncStatus === 'out_of_sync' && (
                 <div className="flex items-center gap-2">
                   <dt className="text-gray-400 w-24 shrink-0">App plan</dt>
