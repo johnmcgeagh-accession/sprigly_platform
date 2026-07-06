@@ -2,7 +2,17 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Film, Images, Image as ImageIcon, Mail, CalendarDays, List, Sparkles, Plus, Undo2, Trash2, CornerDownLeft, Send, ChevronDown, Check, Eye, ArrowLeft } from 'lucide-react';
-import type { PlanPost, PostFormat, PostStatus, ShapeResult, AgentResult, UsageSnapshot, CycleSummary } from '@/lib/types';
+import type { PlanPost, PostFormat, PostStatus, ShapeResult, UsageSnapshot, CycleSummary } from '@/lib/types';
+import type { ProposalView } from '@/lib/agent/types';
+
+/** The /api/plan/agent turn response (commit 2). */
+interface AgentTurn {
+  conversationId: string;
+  message: string;
+  proposals?: ProposalView[];
+  applied?: { changedPostIds: string[] };
+  pendingJobIds?: string[];
+}
 
 /* ------------------------------------------------------------------ *
  * Sprigly — client plan surface (app.sprigly.co.uk). Phase 2: a real
@@ -71,6 +81,14 @@ export default function PlanApp({ clientName, posts: initial, cycles, homeCycleI
   const [usage, setUsage] = useState<UsageSnapshot | null>(null);
   const [agentText, setAgentText] = useState('');
   const [agentBusy, setAgentBusy] = useState(false);
+  // Proposal-based agent (commit 3): the conversation id echoed back each turn, the
+  // client's pending proposals (review queue), the last assistant reply shown
+  // in-thread, and the id currently being approved/rejected.
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [pendingProposals, setPendingProposals] = useState<ProposalView[]>([]);
+  const [lastReply, setLastReply] = useState<{ message: string; proposals: ProposalView[] } | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [proposalBusy, setProposalBusy] = useState<string | null>(null);
   // Month switcher (slice 1): which cycle is on screen, whether it's view-only, and
   // the header menu's open state. Writes only ever target the home cycle server-side.
   const [activeCycleId, setActiveCycleId] = useState(homeCycleId);
@@ -110,11 +128,50 @@ export default function PlanApp({ clientName, posts: initial, cycles, homeCycleI
     f(); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f);
   }, []);
 
-  // Load the AI-change usage counter on mount.
-  useEffect(() => { void refreshUsage(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  // Load the AI-change usage counter and pending proposals on mount.
+  useEffect(() => { void refreshUsage(); void refreshProposals(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
   async function refreshUsage() {
     try { const r = await fetch('/api/usage'); if (r.ok) setUsage((await r.json()) as UsageSnapshot); } catch { /* non-fatal */ }
+  }
+
+  async function refreshProposals() {
+    try { const r = await fetch('/api/plan/proposals?status=pending'); if (r.ok) setPendingProposals(((await r.json()) as { proposals: ProposalView[] }).proposals); } catch { /* non-fatal */ }
+  }
+
+  /** Reload the home plan after an agent action applied a structural change. */
+  async function reloadPlan() {
+    try {
+      const r = await fetch('/api/plan');
+      if (!r.ok) return;
+      const d = (await r.json()) as { posts: PlanPost[] };
+      setPosts(d.posts);
+      setSelId((cur) => (d.posts.some((p) => p.id === cur) ? cur : d.posts[0]?.id ?? null));
+    } catch { /* non-fatal */ }
+  }
+
+  /** Approve or reject a proposal; drop it from the review queue and reflect the
+   *  new status in the in-thread reply. */
+  async function decideProposal(id: string, action: 'approve' | 'reject') {
+    if (proposalBusy) return;
+    setProposalBusy(id);
+    try {
+      const res = await fetch(`/api/plan/proposals/${id}/${action}`, { method: 'POST' });
+      if (!res.ok) { flash('Could not update that — please try again.'); return; }
+      const d = (await res.json()) as { proposal: ProposalView };
+      setPendingProposals((cur) => cur.filter((p) => p.id !== id));
+      setLastReply((lr) => (lr ? { ...lr, proposals: lr.proposals.map((p) => (p.id === id ? d.proposal : p)) } : lr));
+      flash(action === 'approve' ? 'Added to your plan inputs.' : 'Dismissed.');
+    } catch { flash('Network error — please try again.'); }
+    finally { setProposalBusy(null); }
+  }
+
+  async function approveAllProposals() {
+    for (const id of pendingProposals.map((p) => p.id)) {
+      // eslint-disable-next-line no-await-in-loop
+      await decideProposal(id, 'approve');
+    }
+    setDrawerOpen(false);
   }
 
   const flash = (m: string) => {
@@ -209,24 +266,33 @@ export default function PlanApp({ clientName, posts: initial, cycles, homeCycleI
     flash('Still working — give it a moment, then refresh.');
   }
 
-  // ── Plan-level agent bar: classify server-side, then apply (structural) or poll (rewrite) ──
+  // ── Plan-level agent: route server-side, then apply / poll / propose / answer ──
   async function runAgent(text: string) {
     const instruction = text.trim();
     if (readOnly || !instruction || agentBusy) return;
     setAgentBusy(true);
     try {
-      const res = await fetch('/api/plan/agent', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ instruction, selectedPostId: selId }) });
-      if (!res.ok) { flash('Something went wrong — please try again.'); setAgentBusy(false); return; }
-      const r = (await res.json()) as AgentResult;
-      if (r.mode === 'applied') { setPosts(r.posts); flash(r.summary); setAgentText(''); setAgentBusy(false); return; }
-      if (r.mode === 'noop')    { flash(r.summary); setAgentBusy(false); return; }
-      if (r.mode === 'blocked') { setUsage(r.usage); flash(r.summary); setAgentBusy(false); return; }
-      // pending: hold the "Sprigly is working…" state until every job settles.
-      setUsage(r.usage); flash(r.summary); setAgentText('');
-      await Promise.all(r.jobIds.map((id) => pollOne(id)));
+      const res = await fetch('/api/plan/agent', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ instruction, selectedPostId: selId, conversationId }),
+      });
+      if (!res.ok) { flash('Something went wrong — please try again.'); return; }
+      const r = (await res.json()) as AgentTurn;
+      setConversationId(r.conversationId);
+      const created = r.proposals ?? [];
+      setLastReply({ message: r.message, proposals: created });
+      setAgentText('');
+      if (created.length) {
+        // Merge into the review queue (new first, de-duped).
+        setPendingProposals((cur) => [...created.filter((p) => !cur.some((c) => c.id === p.id)), ...cur]);
+      } else {
+        flash(r.message);
+      }
+      if (r.applied) await reloadPlan();
+      if (r.pendingJobIds?.length) await Promise.all(r.pendingJobIds.map((id) => pollOne(id)));
       await refreshUsage();
-      setAgentBusy(false);
-    } catch { flash('Network error — please try again.'); setAgentBusy(false); }
+    } catch { flash('Network error — please try again.'); }
+    finally { setAgentBusy(false); }
   }
 
   return (
@@ -306,7 +372,15 @@ export default function PlanApp({ clientName, posts: initial, cycles, homeCycleI
 
       {readOnly
         ? <BackBar homeMonth={homeMonth} onBack={() => switchCycle(homeCycleId)} />
-        : <AgentBar value={agentText} onChange={setAgentText} onRun={runAgent} busy={agentBusy} usage={usage} />}
+        : <AgentBar
+            value={agentText} onChange={setAgentText} onRun={runAgent} busy={agentBusy} usage={usage}
+            proposals={pendingProposals} lastReply={lastReply} drawerOpen={drawerOpen}
+            proposalBusy={proposalBusy}
+            onToggleDrawer={() => setDrawerOpen((o) => !o)}
+            onApprove={(id) => decideProposal(id, 'approve')}
+            onReject={(id) => decideProposal(id, 'reject')}
+            onApproveAll={approveAllProposals}
+          />}
 
       {toast && (
         <div className="toast" role="status" style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 84, zIndex: 60, background: C.navy, color: '#fff', padding: '11px 16px', borderRadius: 12, fontSize: 13.5, maxWidth: 'min(520px,92vw)', boxShadow: '0 12px 32px rgba(30,42,74,.26)', display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -508,17 +582,42 @@ function usageLine(u: UsageSnapshot | null): { text: string; atLimit: boolean } 
   return { text: `${u.used} of ${u.limit} AI changes this month`, atLimit };
 }
 
-function AgentBar({ value, onChange, onRun, busy, usage }: {
+function AgentBar({ value, onChange, onRun, busy, usage, proposals, lastReply, drawerOpen, proposalBusy, onToggleDrawer, onApprove, onReject, onApproveAll }: {
   value: string; onChange: (v: string) => void; onRun: (text: string) => void; busy: boolean; usage: UsageSnapshot | null;
+  proposals: ProposalView[]; lastReply: { message: string; proposals: ProposalView[] } | null;
+  drawerOpen: boolean; proposalBusy: string | null;
+  onToggleDrawer: () => void; onApprove: (id: string) => void; onReject: (id: string) => void; onApproveAll: () => void;
 }) {
   const { text: counter, atLimit } = usageLine(usage);
+  const pendingCount = proposals.length;
   return (
     <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 50, background: C.agentBar, borderTop: '1px solid rgba(255,255,255,.07)', padding: '12px 18px', boxShadow: '0 -6px 28px rgba(30,42,74,.20)' }}>
       <div style={{ maxWidth: 960, margin: '0 auto' }}>
-        {/* Header row: label + usage counter */}
+        {/* Proposals review drawer (expands upward) */}
+        {drawerOpen && pendingCount > 0 && (
+          <div style={{ marginBottom: 10, background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.12)', borderRadius: 12, padding: 10, maxHeight: 200, overflowY: 'auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,.62)' }}>To review ({pendingCount})</span>
+              <button onClick={onApproveAll} disabled={proposalBusy != null} style={{ marginLeft: 'auto', ...darkPrimaryBtn, height: 28, padding: '0 12px', opacity: proposalBusy != null ? 0.5 : 1 }}>
+                <Check size={13} /> Approve all
+              </button>
+            </div>
+            {proposals.map((p) => (
+              <ProposalRow key={p.id} p={p} busy={proposalBusy === p.id} disabled={proposalBusy != null} onApprove={() => onApprove(p.id)} onReject={() => onReject(p.id)} />
+            ))}
+          </div>
+        )}
+
+        {/* Header row: label + review badge + usage counter */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9 }}>
           <Sparkles size={15} color={C.coral} />
           <span className="planLabel" style={{ fontFamily: display, fontSize: 14, color: '#fff' }}>Talk to your plan</span>
+          {pendingCount > 0 && (
+            <button onClick={onToggleDrawer} aria-expanded={drawerOpen} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: C.coral, color: '#fff', border: 'none', borderRadius: 999, padding: '3px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: body }}>
+              {pendingCount} to review
+              <ChevronDown size={13} style={{ transform: drawerOpen ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
+            </button>
+          )}
           {counter && (
             <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: atLimit ? '#FFC9C2' : 'rgba(255,255,255,.62)' }}>
               {counter}
@@ -526,6 +625,22 @@ function AgentBar({ value, onChange, onRun, busy, usage }: {
             </span>
           )}
         </div>
+
+        {/* Last assistant reply, with inline actions on any proposals it created */}
+        {!busy && lastReply && (
+          <div style={{ marginBottom: 9, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.10)', borderRadius: 12, padding: '10px 12px' }}>
+            <div style={{ fontSize: 13.5, color: 'rgba(255,255,255,.92)', lineHeight: 1.5 }}>{lastReply.message}</div>
+            {lastReply.proposals.map((p) => (
+              <div key={p.id} style={{ marginTop: 8 }}>
+                {p.status === 'pending'
+                  ? <ProposalRow p={p} busy={proposalBusy === p.id} disabled={proposalBusy != null} onApprove={() => onApprove(p.id)} onReject={() => onReject(p.id)} />
+                  : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: p.status === 'applied' ? '#9BE7C4' : 'rgba(255,255,255,.5)' }}>
+                      <Check size={13} /> {p.status === 'applied' ? 'Added to your plan inputs' : p.status}
+                    </span>}
+              </div>
+            ))}
+          </div>
+        )}
 
         {busy ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#fff', fontSize: 13.5, background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.10)', borderRadius: 12, padding: '11px 14px' }}>
@@ -563,6 +678,24 @@ function AgentBar({ value, onChange, onRun, busy, usage }: {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/** One proposal in the review drawer / inline reply (dark agent bar). */
+function ProposalRow({ p, busy, disabled, onApprove, onReject }: {
+  p: ProposalView; busy: boolean; disabled: boolean; onApprove: () => void; onReject: () => void;
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0' }}>
+      <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'rgba(255,255,255,.9)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.summary}>{p.summary}</span>
+      <button onClick={onApprove} disabled={disabled} style={{ ...darkPrimaryBtn, height: 28, padding: '0 11px', opacity: disabled ? 0.5 : 1 }}>
+        {busy
+          ? <span className="spin" style={{ width: 12, height: 12, border: '2px solid rgba(255,255,255,.4)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block' }} />
+          : <Check size={13} />}
+        Approve
+      </button>
+      <button onClick={onReject} disabled={disabled} style={{ ...darkGhostBtn, height: 28, padding: '0 11px', opacity: disabled ? 0.5 : 1 }}>Dismiss</button>
     </div>
   );
 }
@@ -765,3 +898,6 @@ const ghostBtn = { display: 'inline-flex', alignItems: 'center', gap: 7, backgro
 const textBtn = { display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', color: C.muted, cursor: 'pointer', fontFamily: body, fontSize: 12.5, fontWeight: 600 } as const;
 const inputStyle = { flex: 1, minWidth: 0, padding: '11px 14px', borderRadius: 11, border: `1px solid ${C.line}`, background: C.card, color: C.navy, fontFamily: body, fontSize: 14, outline: 'none' } as const;
 const chip = { background: C.card, border: `1px solid ${C.line}`, borderRadius: 999, padding: '6px 12px', fontSize: 12.5, color: C.muted, cursor: 'pointer', fontFamily: body } as const;
+// Buttons for the dark agent bar (proposal review).
+const darkPrimaryBtn = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: C.coral, color: '#fff', border: 'none', borderRadius: 9, cursor: 'pointer', fontFamily: body, fontSize: 12.5, fontWeight: 600 } as const;
+const darkGhostBtn = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(255,255,255,.08)', color: 'rgba(255,255,255,.85)', border: '1px solid rgba(255,255,255,.14)', cursor: 'pointer', fontFamily: body, fontSize: 12.5, fontWeight: 600 } as const;
