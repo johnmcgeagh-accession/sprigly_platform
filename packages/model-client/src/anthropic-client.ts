@@ -28,6 +28,7 @@ export class AnthropicClient implements ModelClient {
         model: params.model,
         max_tokens: params.maxTokens ?? 4096,
         messages,
+        ...(params.temperature !== undefined && { temperature: params.temperature }),
         ...(params.system !== undefined && { system: params.system }),
         ...(params.tools !== undefined && { tools: params.tools as Anthropic.Tool[] }),
       });

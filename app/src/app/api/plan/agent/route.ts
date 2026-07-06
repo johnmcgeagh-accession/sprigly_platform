@@ -1,115 +1,149 @@
 /**
- * POST /api/plan/agent — the plan-level agent bar. Takes a free-text instruction,
- * classifies it (deterministic, no model), and routes:
- *   structural (move/format/add-blank/remove) → apply via Phase 2 mutations,
- *     synchronous + FREE + uncounted → { mode:'applied', posts, ... }.
- *   rewrite / "add a post about X"            → enqueue the Phase 3 shape job(s),
- *     COUNTED against the monthly AI-change limit → { mode:'pending', jobIds, usage }.
- *   at/over limit (no override)               → { mode:'blocked' } — no enqueue, no spend.
- *   unclear                                   → { mode:'noop' } — a gentle nudge.
+ * POST /api/plan/agent — the proposal-based plan agent (commit 2).
+ *
+ * Persists the turn (user + assistant messages) to a conversation and routes the
+ * message:
+ *   - Typed input tries the deterministic regex classifier first (free, instant).
+ *   - Voice input, and any unconfident typed input, goes to the LLM router (Haiku).
+ *   - structural / add / rewrite → the EXISTING mutation + shape-job pipeline.
+ *   - note_for_month / idea_backlog / next_cycle_input → a pending proposal (no
+ *     content table is touched until the client approves it).
+ *   - query → a grounded answer (knowledge retrieval + current cycle state).
+ *   - clarify → a gentle nudge.
+ * Response: { conversationId, message, proposals[], applied?, pendingJobIds? }.
  * Everything is scoped server-side to the session's (clientId, cycleId).
  */
 import { NextResponse } from 'next/server';
-import { and, eq } from 'drizzle-orm';
-import { db, contentCycles } from '@sprigly/db';
 import { getSession } from '@/lib/auth';
 import { loadPlanPosts } from '@/lib/plan';
 import { classifyAgentInstruction } from '@/lib/agent-classify';
-import { patchPost, softDeletePost, addDraft } from '@/lib/mutations';
-import { enqueueShape } from '@/lib/queue';
-import { getUsageForCycle, isRewriteBlocked } from '@/lib/usage';
-import type { ShapeResult } from '@/lib/types';
+import { runActionPlan } from '@/lib/agent/actions';
+import { runLlmRouter } from '@/lib/agent/router';
+import { getClientCycleMonths, resolveCycleForMonth } from '@/lib/agent/cycle-state';
+import { getModelClient, getEmbeddingClient } from '@/lib/agent/model';
+import { ensureConversation, appendMessage } from '@/lib/agent/conversation';
+import { buildCapture } from '@/lib/agent/capture';
+import { createProposal } from '@/lib/agent/proposals';
+import { answerQuery } from '@/lib/agent/query';
+import { CAPTURE_INTENTS, type AgentTurnResponse, type CaptureIntent, type ProposalView, type RouterResult } from '@/lib/agent/types';
+import type { AgentPlan } from '@/lib/agent-classify';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+const todayIso = (): string => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const isCapture = (i: string): i is CaptureIntent => (CAPTURE_INTENTS as readonly string[]).includes(i);
 
 export async function POST(req: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'no_session' }, { status: 401 });
   const { clientId, cycleId } = session;
 
-  let instruction = '', selectedPostId: string | undefined;
+  let instruction = '';
+  let selectedPostId: string | undefined;
+  let conversationId: string | undefined;
+  let source: 'web' | 'voice' = 'web';
+  let voiceSessionId: string | undefined;
   try {
-    const b = (await req.json()) as { instruction?: unknown; selectedPostId?: unknown };
+    const b = (await req.json()) as {
+      instruction?: unknown; selectedPostId?: unknown; conversationId?: unknown; source?: unknown; sessionId?: unknown;
+    };
     instruction = String(b.instruction ?? '').trim();
     if (b.selectedPostId) selectedPostId = String(b.selectedPostId);
-  } catch { /* below */ }
+    if (b.conversationId) conversationId = String(b.conversationId);
+    if (b.source === 'voice') source = 'voice';
+    if (b.sessionId) voiceSessionId = String(b.sessionId);
+  } catch { /* handled below */ }
   if (!instruction) return NextResponse.json({ error: 'bad_request' }, { status: 400 });
 
+  // Persist the turn's user message.
+  const convId = await ensureConversation(clientId, cycleId, conversationId);
+  const userMetadata: Record<string, unknown> = {};
+  if (voiceSessionId) userMetadata.sessionId = voiceSessionId;
+  const userMessageId = await appendMessage({
+    conversationId: convId, role: 'user', content: instruction, source,
+    ...(Object.keys(userMetadata).length ? { metadata: userMetadata } : {}),
+  });
+
   const posts = await loadPlanPosts(clientId, cycleId);
-  const plan  = classifyAgentInstruction(instruction, posts, selectedPostId);
 
-  // Gentle clarification — nothing applied, nothing spent.
-  if (plan.kind === 'clarify') {
-    return NextResponse.json({ mode: 'noop', summary: plan.summary });
+  // ── Route ────────────────────────────────────────────────────────────────
+  let plan: AgentPlan | null = null;
+  let routed: RouterResult | null = null;
+
+  if (source === 'web') {
+    const fast = classifyAgentInstruction(instruction, posts, selectedPostId);
+    if (fast.kind !== 'clarify') plan = fast;
   }
-
-  // Structural — synchronous, free, never counted.
-  if (plan.kind === 'structural') {
-    let lastPosts = posts;
-    const changed: string[] = [];
-    for (const a of plan.actions) {
-      const r: ShapeResult | null = a.type === 'delete'
-        ? await softDeletePost(clientId, cycleId, a.postId)
-        : await patchPost(clientId, cycleId, a.postId, a.patch);
-      if (r && r.mode === 'applied') { lastPosts = r.posts; changed.push(...r.changedPostIds); }
+  if (!plan) {
+    try {
+      const cycleMonths = await getClientCycleMonths(clientId, cycleId);
+      routed = await runLlmRouter(instruction, { today: todayIso(), cycleMonths }, getModelClient());
+      // An LLM-classified action is re-resolved deterministically so it runs through
+      // the exact existing pipeline; if the cleaned text still can't resolve a target,
+      // fall back to the router's clarify text.
+      if (routed.intent === 'structural' || routed.intent === 'add' || routed.intent === 'rewrite') {
+        const rePlan = classifyAgentInstruction(routed.content, posts, selectedPostId);
+        if (rePlan.kind !== 'clarify') plan = rePlan;
+      }
+    } catch {
+      // Router/model unavailable (e.g. Bedrock env not configured) — degrade to a
+      // clarify rather than 500 the turn. The message is still persisted.
+      routed = { intent: 'clarify', content: 'I couldn’t process that just now — please try again in a moment.', targetMonth: null, channel: null };
     }
-    return NextResponse.json({ mode: 'applied', summary: plan.summary, changedPostIds: changed, posts: lastPosts });
   }
 
-  // Everything below is AI work → enforce the monthly limit before any spend.
-  const usage = await getUsageForCycle(clientId, cycleId);
-  if (isRewriteBlocked(usage)) {
-    return NextResponse.json({
-      mode: 'blocked',
-      summary: `You’ve used all ${usage.limit} AI changes this month — resets on the 1st. Moving, reformatting, adding and removing posts stays free.`,
-      usage,
-    });
-  }
+  // ── Handle ───────────────────────────────────────────────────────────────
+  const proposals: ProposalView[] = [];
+  const resp: AgentTurnResponse = { conversationId: convId, message: '', proposals };
+  let assistantIntent = 'clarify';
 
-  // "add a post about X" — create the blank draft structurally (free), then write its
-  // caption with one shape job (counted). A plain "add a post" stays fully structural.
-  if (plan.kind === 'add') {
-    const [cyc] = await db
-      .select({ channel: contentCycles.channel })
-      .from(contentCycles)
-      .where(and(eq(contentCycles.id, cycleId), eq(contentCycles.clientId, clientId)))
-      .limit(1);
-    const created = await addDraft(clientId, cycleId, cyc?.channel ?? 'instagram', plan.date);
-    if (created.mode !== 'applied') return NextResponse.json({ mode: 'noop', summary: 'Could not add the post.' });
-    const newId = created.changedPostIds[0];
-    if (!plan.caption || !newId) {
-      return NextResponse.json({ mode: 'applied', summary: plan.summary, changedPostIds: created.changedPostIds, posts: created.posts });
-    }
-    // The draft was just created, so a busy slot is not expected; treat the
-    // returned jobId as the enqueued caption job either way.
-    const r = await enqueueShape({ type: 'shape', scope: 'plan', clientId, cycleId, targetPostId: newId, instruction: plan.caption, source: 'web' });
-    if ('error' in r) return NextResponse.json({ error: r.error }, { status: 503 });
-    return NextResponse.json({ mode: 'pending', summary: plan.summary, jobIds: [r.jobId], usage });
-  }
-
-  // Rewrite — one validated shape job per target post (each counts when it lands).
-  // A post already being shaped is reported as busy rather than silently dropped.
-  if (plan.kind === 'rewrite') {
-    const jobIds: string[] = [];
-    let busy = 0;
-    for (const postId of plan.targetPostIds) {
-      const r = await enqueueShape({ type: 'shape', scope: 'post', clientId, cycleId, targetPostId: postId, instruction: plan.instruction, source: 'web' });
-      if ('error' in r) return NextResponse.json({ error: r.error }, { status: 503 });
-      if ('busy' in r) { busy++; continue; }
-      jobIds.push(r.jobId);
-    }
-    if (jobIds.length === 0) {
-      return NextResponse.json({
-        mode: 'noop',
-        summary: busy > 0
-          ? 'Still finishing the last change on that post — give it a moment, then try again.'
-          : 'Nothing to rewrite.',
+  if (plan) {
+    assistantIntent = plan.kind;
+    const outcome = await runActionPlan(plan, clientId, cycleId);
+    resp.message = outcome.text;
+    if (outcome.applied) resp.applied = outcome.applied;
+    if (outcome.pendingJobIds) resp.pendingJobIds = outcome.pendingJobIds;
+  } else if (routed) {
+    assistantIntent = routed.intent;
+    if (routed.intent === 'query') {
+      try {
+        resp.message = await answerQuery(
+          { clientId, cycleId, question: routed.content, today: new Date() },
+          { model: getModelClient(), embeddingClient: getEmbeddingClient() },
+        );
+      } catch {
+        resp.message = 'I couldn’t look that up just now — please try again.';
+      }
+    } else if (isCapture(routed.intent)) {
+      // note_for_month defaults to the current cycle when no month is named.
+      const resolvedCycle = routed.targetMonth
+        ? await resolveCycleForMonth(clientId, routed.targetMonth)
+        : routed.intent === 'note_for_month' ? cycleId : null;
+      const cap = buildCapture(routed.intent, routed, resolvedCycle);
+      const pv = await createProposal({
+        clientId, conversationId: convId, messageId: userMessageId,
+        intent: cap.intent, payload: cap.payload, summary: cap.summary,
       });
+      proposals.push(pv);
+      resp.message = `Got it — ${cap.summary}. Approve it and I’ll add it to your plan inputs.`;
+    } else {
+      // clarify (or an action intent whose target couldn't be resolved)
+      resp.message = routed.content || 'Could you say a bit more about what you’d like to change?';
     }
-    const summary = busy > 0 ? `${plan.summary} (${busy} still finishing a previous change)` : plan.summary;
-    return NextResponse.json({ mode: 'pending', summary, jobIds, usage });
+  } else {
+    resp.message = 'Could you say a bit more about what you’d like to change?';
   }
 
-  return NextResponse.json({ mode: 'noop', summary: 'Nothing to change.' });
+  // Persist the assistant reply.
+  await appendMessage({
+    conversationId: convId, role: 'assistant', content: resp.message,
+    metadata: { intent: assistantIntent, proposalIds: proposals.map((p) => p.id) },
+  });
+
+  return NextResponse.json(resp);
 }

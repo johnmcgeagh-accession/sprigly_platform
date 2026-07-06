@@ -100,6 +100,15 @@ importers:
       '@sprigly/db':
         specifier: workspace:*
         version: link:../packages/db
+      '@sprigly/embedding-client':
+        specifier: workspace:*
+        version: link:../packages/embedding-client
+      '@sprigly/knowledge':
+        specifier: workspace:*
+        version: link:../packages/knowledge
+      '@sprigly/model-client':
+        specifier: workspace:*
+        version: link:../packages/model-client
       bullmq:
         specifier: ^5.0.0
         version: 5.76.8

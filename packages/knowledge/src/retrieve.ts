@@ -12,8 +12,6 @@ import type { KnowledgeSourceType } from '@sprigly/db';
 // the index keeps fetching candidates until k rows survive the filters.
 // SET LOCAL scopes both GUCs to the transaction only — no global state leak.
 
-// TODO: consider a minimum score floor if low-quality matches become a problem.
-
 export interface RetrievedChunk {
   id: string;
   content: string;
@@ -28,6 +26,10 @@ export interface RetrieveArgs {
   queryText: string;
   topicId?: string | null;
   k?: number;
+  /** Minimum cosine-similarity score (0..1) a chunk must clear to be returned.
+   *  Omit to keep every top-k row (legacy behaviour); set e.g. 0.5 to drop
+   *  weak matches so a sparse knowledge bank doesn't feed noise into a prompt. */
+  minScore?: number;
 }
 
 /** Minimal embed interface — structurally compatible with EmbeddingClient. */
@@ -48,7 +50,7 @@ export async function retrieveChunks(
   args: RetrieveArgs,
   deps: { embeddingClient: Embedder },
 ): Promise<RetrievedChunk[]> {
-  const { clientId, queryText, topicId = null, k = 6 } = args;
+  const { clientId, queryText, topicId = null, k = 6, minScore } = args;
   const { embeddingClient } = deps;
 
   const queryEmbedding = await embeddingClient.embed(queryText);
@@ -69,7 +71,7 @@ export async function retrieveChunks(
     `;
   });
 
-  return rows.map((row) => ({
+  const chunks = rows.map((row) => ({
     id:         row.id,
     content:    row.content,
     summary:    row.summary,
@@ -77,4 +79,6 @@ export async function retrieveChunks(
     sourceType: row.source_type as KnowledgeSourceType,
     score:      typeof row.score === 'number' ? row.score : parseFloat(row.score as string),
   }));
+
+  return minScore === undefined ? chunks : chunks.filter((c) => c.score >= minScore);
 }

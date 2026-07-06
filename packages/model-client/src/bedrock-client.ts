@@ -178,7 +178,10 @@ export class BedrockClient implements ModelClient {
         messages,
         ...(params.system !== undefined && { system: [{ text: params.system }] }),
         ...(toolConfig !== undefined && { toolConfig }),
-        inferenceConfig: { maxTokens: params.maxTokens ?? 4096 },
+        inferenceConfig: {
+          maxTokens: params.maxTokens ?? 4096,
+          ...(params.temperature !== undefined && { temperature: params.temperature }),
+        },
       });
 
       const response = await this.sendWithRetry(command);

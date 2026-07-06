@@ -17,7 +17,10 @@
     "lucide-react": "^0.400.0",
     "drizzle-orm": "^0.30.0",
     "bullmq": "^5.0.0",
-    "@sprigly/db": "workspace:*"
+    "@sprigly/db": "workspace:*",
+    "@sprigly/embedding-client": "workspace:*",
+    "@sprigly/knowledge": "workspace:*",
+    "@sprigly/model-client": "workspace:*"
   },
   "devDependencies": {
     "typescript": "*",

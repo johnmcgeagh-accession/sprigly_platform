@@ -914,3 +914,95 @@ export const postEdits = pgTable(
 
 export type PostEditRow    = typeof postEdits.$inferSelect;
 export type NewPostEditRow = typeof postEdits.$inferInsert;
+
+// ─── plan agent: conversations / agent_messages / agent_proposals / plan_inputs ─
+// The proposal-based plan agent (migration 0062). A conversation groups the
+// client's messages (typed or dictated) with the agent's replies. Non-structural
+// "capture" intents (note_for_month, idea_backlog, next_cycle_input) create an
+// agent_proposals row the client approves before anything lands; approval INSERTs
+// a plan_inputs row deterministically (no model). Structural/add/rewrite still
+// flow through the existing mutation + shape-job pipeline unchanged.
+// APPLY-BEFORE-DEPLOY: these are new tables — the proposal endpoints error until
+// 0062 is live, but existing content-cycle reads are unaffected.
+
+export const conversations = pgTable(
+  'conversations',
+  {
+    id:            uuid('id').primaryKey().defaultRandom(),
+    clientId:      uuid('client_id').notNull().references(() => clients.id),
+    cycleId:       uuid('cycle_id').references(() => contentCycles.id),   // nullable — not every chat is cycle-bound
+    createdAt:     timestamp('created_at').notNull().defaultNow(),
+    lastMessageAt: timestamp('last_message_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    clientIdx: index('conversations_client_idx').on(t.clientId, t.lastMessageAt),
+  }),
+);
+export type ConversationRow    = typeof conversations.$inferSelect;
+export type NewConversationRow = typeof conversations.$inferInsert;
+
+export const agentMessages = pgTable(
+  'agent_messages',
+  {
+    id:             uuid('id').primaryKey().defaultRandom(),
+    conversationId: uuid('conversation_id').notNull().references(() => conversations.id),
+    role:           text('role').notNull(),                  // 'user' | 'assistant'
+    content:        text('content').notNull(),
+    source:         text('source').notNull().default('web'), // 'web' | 'voice'
+    createdAt:      timestamp('created_at').notNull().defaultNow(),
+    // Voice sessionId (the sprigly-voice integration seam), the intent
+    // classification result, and any proposal ids created from this message.
+    metadata:       jsonb('metadata').$type<Record<string, unknown>>(),
+  },
+  (t) => ({
+    convIdx: index('agent_messages_conversation_idx').on(t.conversationId, t.createdAt),
+  }),
+);
+export type AgentMessageRow    = typeof agentMessages.$inferSelect;
+export type NewAgentMessageRow = typeof agentMessages.$inferInsert;
+
+export const agentProposals = pgTable(
+  'agent_proposals',
+  {
+    id:             uuid('id').primaryKey().defaultRandom(),
+    clientId:       uuid('client_id').notNull().references(() => clients.id),
+    conversationId: uuid('conversation_id').notNull().references(() => conversations.id),
+    messageId:      uuid('message_id').notNull().references(() => agentMessages.id),
+    intent:         text('intent').notNull(),                     // 'note_for_month'|'idea_backlog'|'next_cycle_input'
+    payload:        jsonb('payload').$type<Record<string, unknown>>().notNull(),
+    summary:        text('summary').notNull(),                    // human-readable one-liner
+    status:         text('status').notNull().default('pending'),  // pending|approved|rejected|applied|failed
+    createdAt:      timestamp('created_at').notNull().defaultNow(),
+    resolvedAt:     timestamp('resolved_at'),
+    resolvedBy:     text('resolved_by'),
+    appliedAt:      timestamp('applied_at'),
+    error:          text('error'),
+  },
+  (t) => ({
+    clientStatusIdx: index('agent_proposals_client_status_idx').on(t.clientId, t.status),
+  }),
+);
+export type AgentProposalRow    = typeof agentProposals.$inferSelect;
+export type NewAgentProposalRow = typeof agentProposals.$inferInsert;
+
+export const planInputs = pgTable(
+  'plan_inputs',
+  {
+    id:               uuid('id').primaryKey().defaultRandom(),
+    clientId:         uuid('client_id').notNull().references(() => clients.id),
+    cycleId:          uuid('cycle_id').references(() => contentCycles.id),   // nullable
+    type:             text('type').notNull(),                     // 'note' | 'idea' | 'next_cycle'
+    content:          text('content').notNull(),
+    sourceProposalId: uuid('source_proposal_id').references(() => agentProposals.id),
+    createdAt:        timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    clientTypeIdx: index('plan_inputs_client_type_idx').on(t.clientId, t.type),
+    // Idempotency backstop: at most one plan_inputs row per source proposal, so a
+    // double-approve can never double-insert. (NULLs are distinct, so proposal-less
+    // seed rows are still allowed.)
+    proposalUniq: uniqueIndex('plan_inputs_source_proposal_uniq').on(t.sourceProposalId),
+  }),
+);
+export type PlanInputRow    = typeof planInputs.$inferSelect;
+export type NewPlanInputRow = typeof planInputs.$inferInsert;
