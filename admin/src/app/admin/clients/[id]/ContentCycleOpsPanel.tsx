@@ -6,6 +6,7 @@ import {
   triggerTrawl,
   triggerEmail,
   triggerPlanning,
+  triggerWeeklySession,
   startCycleForMonth,
   resetCycle,
   copyClientLink,
@@ -422,6 +423,20 @@ export function ContentCycleOpsPanel({
               className="text-xs text-gray-500 underline hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
             >
               Run planning now
+            </button>
+
+            <button
+              type="button"
+              disabled={isPending || !cycleIsActive}
+              onClick={() => callTrigger(triggerWeeklySession)}
+              title={
+                cycleIsActive
+                  ? 'Run the weekly planning session now — audits the upcoming week (weather, maturing notes, date conflicts) and proposes reviewable changes in the client app. Re-runnable.'
+                  : 'No cycle yet — run the cycle first.'
+              }
+              className="text-xs text-gray-500 underline hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
+            >
+              Run weekly session
             </button>
 
             <button

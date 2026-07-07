@@ -11,6 +11,7 @@ import { ingestSource } from '@sprigly/knowledge';
 import { Queue } from 'bullmq';
 import type { IntakeJson } from '@sprigly/engine';
 import { enqueuePlanning } from './planning-enqueue';
+import { enqueueWeeklySession, londonWeekStart } from './weekly-session-enqueue';
 
 // ── BullMQ job helpers (mirrored from apps/worker/src/content-cycles/job-options.ts) ──
 const IG_TRAWL_JOB_OPTIONS    = { attempts: 5, backoff: { type: 'exponential', delay: 5_000 } } as const;
@@ -279,6 +280,42 @@ export async function triggerEmail(formData: FormData): Promise<ActionResult> {
  * Reuses the shared enqueuePlanning path; cycle state is normalised to
  * intake_confirmed only once the job slot is confirmed free.
  */
+/**
+ * Run the weekly planning session now for this cycle and the upcoming week.
+ * Enqueues a 'weekly-session' job; the engine worker audits the week (weather +
+ * maturing notes + date conflicts) and writes reviewable proposals into the
+ * client app. Re-runnable — deterministic jobId per cycle+week dedups in-flight.
+ */
+export async function triggerWeeklySession(formData: FormData): Promise<ActionResult> {
+  const clientId  = formData.get('clientId')  as string;
+  const channel   = formData.get('channel')   as string;
+  const dataMonth = formData.get('dataMonth') as string;
+
+  try {
+    const rows = await db
+      .select({ id: contentCycles.id })
+      .from(contentCycles)
+      .where(and(
+        eq(contentCycles.clientId,   clientId),
+        eq(contentCycles.channel,    channel),
+        eq(contentCycles.cycleMonth, dataMonth),
+      ))
+      .limit(1);
+
+    const cycle = rows[0];
+    if (!cycle) return { ok: false, message: `No cycle for ${dataMonth} yet — run the cycle first.` };
+
+    const result = await enqueueWeeklySession(clientId, cycle.id, londonWeekStart());
+    if (!result.ok) return result;
+
+    revalidatePath(`/admin/clients/${clientId}`);
+    return { ok: true };
+  } catch (err) {
+    console.error('[triggerWeeklySession]', err);
+    return { ok: false, message: err instanceof Error ? err.message : 'Failed to enqueue the weekly session.' };
+  }
+}
+
 export async function triggerPlanning(formData: FormData): Promise<ActionResult> {
   const clientId  = formData.get('clientId')  as string;
   const channel   = formData.get('channel')   as string;
