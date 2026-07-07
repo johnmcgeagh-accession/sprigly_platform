@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Film, Images, Image as ImageIcon, Mail, CalendarDays, List, Sparkles, Plus, Undo2, Trash2, CornerDownLeft, Send, ChevronDown, Check, Eye, ArrowLeft } from 'lucide-react';
 import type { PlanPost, PostFormat, PostStatus, ShapeResult, UsageSnapshot, CycleSummary } from '@/lib/types';
 import type { ProposalView } from '@/lib/agent/types';
+import type { NoteView } from '@/lib/agent/notes';
 
 /** The /api/plan/agent turn response. Mutations arrive as proposals to review —
  *  nothing is applied on the turn itself. */
@@ -89,6 +90,10 @@ export default function PlanApp({ clientName, posts: initial, cycles, homeCycleI
   const [lastReply, setLastReply] = useState<{ message: string; proposals: ProposalView[] } | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [proposalBusy, setProposalBusy] = useState<string | null>(null);
+  // Active plan notes (review-later captures) + the notes drawer.
+  const [notes, setNotes] = useState<NoteView[]>([]);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [noteBusy, setNoteBusy] = useState<string | null>(null);
   // Month switcher (slice 1): which cycle is on screen, whether it's view-only, and
   // the header menu's open state. Writes only ever target the home cycle server-side.
   const [activeCycleId, setActiveCycleId] = useState(homeCycleId);
@@ -128,8 +133,8 @@ export default function PlanApp({ clientName, posts: initial, cycles, homeCycleI
     f(); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f);
   }, []);
 
-  // Load the AI-change usage counter and pending proposals on mount.
-  useEffect(() => { void refreshUsage(); void refreshProposals(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  // Load the AI-change usage counter, pending proposals, and active notes on mount.
+  useEffect(() => { void refreshUsage(); void refreshProposals(); void refreshNotes(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
   async function refreshUsage() {
     try { const r = await fetch('/api/usage'); if (r.ok) setUsage((await r.json()) as UsageSnapshot); } catch { /* non-fatal */ }
@@ -137,6 +142,21 @@ export default function PlanApp({ clientName, posts: initial, cycles, homeCycleI
 
   async function refreshProposals() {
     try { const r = await fetch('/api/plan/proposals?status=pending'); if (r.ok) setPendingProposals(((await r.json()) as { proposals: ProposalView[] }).proposals); } catch { /* non-fatal */ }
+  }
+
+  async function refreshNotes() {
+    try { const r = await fetch('/api/plan/notes'); if (r.ok) setNotes(((await r.json()) as { notes: NoteView[] }).notes); } catch { /* non-fatal */ }
+  }
+
+  async function dismissNote(id: string) {
+    if (noteBusy) return;
+    setNoteBusy(id);
+    try {
+      const r = await fetch(`/api/plan/notes/${id}/dismiss`, { method: 'POST' });
+      if (!r.ok) { flash('Could not dismiss that note — please try again.'); return; }
+      setNotes((cur) => cur.filter((n) => n.id !== id));
+    } catch { flash('Network error — please try again.'); }
+    finally { setNoteBusy(null); }
   }
 
   /** Reload the home plan after an agent action applied a structural change. */
@@ -296,6 +316,7 @@ export default function PlanApp({ clientName, posts: initial, cycles, homeCycleI
       } else {
         flash(r.message);
       }
+      void refreshNotes();   // a turn may have captured a note
     } catch { flash('Network error — please try again.'); }
     finally { setAgentBusy(false); }
   }
@@ -381,10 +402,13 @@ export default function PlanApp({ clientName, posts: initial, cycles, homeCycleI
             value={agentText} onChange={setAgentText} onRun={runAgent} busy={agentBusy} usage={usage}
             proposals={pendingProposals} lastReply={lastReply} drawerOpen={drawerOpen}
             proposalBusy={proposalBusy}
-            onToggleDrawer={() => setDrawerOpen((o) => !o)}
+            onToggleDrawer={() => { setDrawerOpen((o) => !o); setNotesOpen(false); }}
             onApprove={(id) => decideProposal(id, 'approve')}
             onReject={(id) => decideProposal(id, 'reject')}
             onApproveAll={approveAllProposals}
+            notes={notes} notesOpen={notesOpen} noteBusy={noteBusy}
+            onToggleNotes={() => { setNotesOpen((o) => !o); setDrawerOpen(false); }}
+            onDismissNote={dismissNote}
           />}
 
       {toast && (
@@ -587,17 +611,38 @@ function usageLine(u: UsageSnapshot | null): { text: string; atLimit: boolean } 
   return { text: `${u.used} of ${u.limit} AI changes this month`, atLimit };
 }
 
-function AgentBar({ value, onChange, onRun, busy, usage, proposals, lastReply, drawerOpen, proposalBusy, onToggleDrawer, onApprove, onReject, onApproveAll }: {
+function AgentBar({ value, onChange, onRun, busy, usage, proposals, lastReply, drawerOpen, proposalBusy, onToggleDrawer, onApprove, onReject, onApproveAll, notes, notesOpen, noteBusy, onToggleNotes, onDismissNote }: {
   value: string; onChange: (v: string) => void; onRun: (text: string) => void; busy: boolean; usage: UsageSnapshot | null;
   proposals: ProposalView[]; lastReply: { message: string; proposals: ProposalView[] } | null;
   drawerOpen: boolean; proposalBusy: string | null;
   onToggleDrawer: () => void; onApprove: (id: string) => void; onReject: (id: string) => void; onApproveAll: () => void;
+  notes: NoteView[]; notesOpen: boolean; noteBusy: string | null;
+  onToggleNotes: () => void; onDismissNote: (id: string) => void;
 }) {
   const { text: counter, atLimit } = usageLine(usage);
   const pendingCount = proposals.length;
   return (
     <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 50, background: C.agentBar, borderTop: '1px solid rgba(255,255,255,.07)', padding: '12px 18px', boxShadow: '0 -6px 28px rgba(30,42,74,.20)' }}>
       <div style={{ maxWidth: 960, margin: '0 auto' }}>
+        {/* Notes drawer (expands upward) */}
+        {notesOpen && notes.length > 0 && (
+          <div style={{ marginBottom: 10, background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.12)', borderRadius: 12, padding: 10, maxHeight: 200, overflowY: 'auto' }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,.62)', marginBottom: 8 }}>Notes ({notes.length})</div>
+            {notes.map((n) => (
+              <div key={n.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '6px 0', borderTop: '1px solid rgba(255,255,255,.06)' }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'rgba(255,255,255,.9)' }}>
+                  {n.content}
+                  <span style={{ display: 'block', marginTop: 2, fontSize: 11, color: 'rgba(255,255,255,.45)' }}>
+                    {n.source === 'voice' ? '🎙 voice · ' : ''}{fmtDay(n.createdAt)}
+                    {(n.relevantFrom || n.relevantTo) ? ` · relevant ${n.relevantFrom ?? '…'}–${n.relevantTo ?? '…'}` : ''}
+                  </span>
+                </span>
+                <button onClick={() => onDismissNote(n.id)} disabled={noteBusy != null} style={{ ...darkGhostBtn, height: 26, padding: '0 10px', opacity: noteBusy != null ? 0.5 : 1 }}>Dismiss</button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Proposals review drawer (expands upward) */}
         {drawerOpen && pendingCount > 0 && (
           <div style={{ marginBottom: 10, background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.12)', borderRadius: 12, padding: 10, maxHeight: 200, overflowY: 'auto' }}>
@@ -621,6 +666,12 @@ function AgentBar({ value, onChange, onRun, busy, usage, proposals, lastReply, d
             <button onClick={onToggleDrawer} aria-expanded={drawerOpen} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: C.coral, color: '#fff', border: 'none', borderRadius: 999, padding: '3px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: body }}>
               {pendingCount} to review
               <ChevronDown size={13} style={{ transform: drawerOpen ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
+            </button>
+          )}
+          {notes.length > 0 && (
+            <button onClick={onToggleNotes} aria-expanded={notesOpen} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,.10)', color: 'rgba(255,255,255,.85)', border: '1px solid rgba(255,255,255,.14)', borderRadius: 999, padding: '3px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: body }}>
+              {notes.length} note{notes.length === 1 ? '' : 's'}
+              <ChevronDown size={13} style={{ transform: notesOpen ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
             </button>
           )}
           {counter && (

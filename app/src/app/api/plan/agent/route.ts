@@ -139,7 +139,7 @@ export async function POST(req: Request) {
       case 'add_note': {
         if (!task.content) { replyParts.push('What would you like me to note down?'); break; }
         const noteCycle = task.targetMonth ? await resolveCycleForMonth(clientId, task.targetMonth) : cycleId;
-        await saveNote({ clientId, cycleId: noteCycle, content: task.content, relevantFrom: task.relevantFrom ?? null, relevantTo: task.relevantTo ?? null });
+        await saveNote({ clientId, cycleId: noteCycle, content: task.content, source, relevantFrom: task.relevantFrom ?? null, relevantTo: task.relevantTo ?? null });
         const window = task.relevantFrom || task.relevantTo ? ` (relevant ${task.relevantFrom ?? '…'}–${task.relevantTo ?? '…'})` : '';
         replyParts.push(`• Noted: ${task.content}${window}`);
         break;

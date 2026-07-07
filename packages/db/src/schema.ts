@@ -8,6 +8,7 @@ import {
   boolean,
   integer,
   numeric,
+  doublePrecision,
   jsonb,
   uniqueIndex,
   index,
@@ -56,6 +57,11 @@ export const clients = pgTable('clients', {
   settings: jsonb('settings').$type<Record<string, unknown>>().default({}).notNull(),
   verifiedDomain: text('verified_domain'),
   contentCycleEnabled: boolean('content_cycle_enabled').notNull().default(false),
+  // Client location for the weekly session's weather audit (migration 0064).
+  // Nullable — a session skips the weather pass entirely when these are unset.
+  lat:          doublePrecision('lat'),
+  lon:          doublePrecision('lon'),
+  locationName: text('location_name'),
 });
 
 export type Client = typeof clients.$inferSelect;
@@ -997,10 +1003,14 @@ export const planInputs = pgTable(
     type:             text('type').notNull(),                     // 'note' | 'idea' | 'next_cycle'
     content:          text('content').notNull(),
     // Notes are inert until integrated; relevance window (both nullable) + status
-    // scope when they matter (migration 0063). status: 'active' | 'archived'.
+    // scope when they matter (migration 0063). Lifecycle (migration 0064):
+    // 'active' → 'integrated' (a proposal consumed it) | 'expired' (relevant_to
+    // passed) | 'dismissed' (manual). `source` is where the note came from.
     relevantFrom:     date('relevant_from', { mode: 'string' }),
     relevantTo:       date('relevant_to', { mode: 'string' }),
     status:           text('status').notNull().default('active'),
+    source:           text('source').notNull().default('web'),         // 'web' | 'voice'
+    consumedByProposalId: uuid('consumed_by_proposal_id').references(() => agentProposals.id),
     sourceProposalId: uuid('source_proposal_id').references(() => agentProposals.id),
     createdAt:        timestamp('created_at').notNull().defaultNow(),
   },
