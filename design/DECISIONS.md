@@ -168,3 +168,72 @@ made in `AUDIT.md` §Ledger.
 ### D8 addendum — deletion gate
 The old `PlanApp.tsx` path is deleted **only after IVY-t completes one full production week on the
 new surface**, not at UAT sign-off.
+
+---
+
+## 7. Stage 1 — data foundations (2026-07-07)
+
+### Content-type mapping (mockup labels → real enum)
+`step_templates.content_type` and the whole checklist use the post **FORMAT** enum values, not the
+mockup labels. Reconciliation:
+
+| Mockup label | `content_cycle_posts.format` | Template |
+|---|---|---|
+| Reel | `reel` | Script & hook (4) · Shoot (3) · Edit (2) · Caption (1) |
+| Carousel | `carousel` | Source shots (3) · Design frames (2) · Caption (1) |
+| Single image | `single` | Source image (2) · Caption (1) |
+| — | `email` | none (email posts have no production checklist) |
+
+Step labels are the human strings; `lead_days` is the number in parentheses.
+
+### Timezone
+No per-tenant timezone is stored — `clients` has only `lat`/`lon`/`location_name` (for the weather
+audit), not a tz. So "today" for at-risk / bucket derivations defaults to **Europe/London**
+(`resolveTodayIso()` in `app/src/lib/steps.ts`). The pure derivations in `checklist.ts` take `today`
+as an argument, so this default is the only place tz is assumed and is trivial to revisit if a
+per-tenant tz is ever added.
+
+### Migration authoring & the down convention
+- Migrations `0066–0068` are **hand-authored SQL** in the existing `0050–0065` style (idempotent
+  guards, manual-psql header), added to `schema.ts` for the ORM. `drizzle-kit generate` is **not**
+  run — the drizzle journal froze at `0026` and generating would mis-diff. (Reconciliation of a
+  pre-existing repo state, not a new choice.)
+- **Paired `.down.sql`** files are a new convention for this repo, approved for Stage 1. They exist
+  for **local verification and emergency rollback only** — never applied casually against a shared
+  DB. The forward runner (`migrate.ts`) is unchanged and still forward-only.
+
+### Ledger: `plan_activity` (recap of AUDIT §3)
+Manual writes and approved agent proposals both append to `plan_activity` as one ordered stream,
+tagged `origin` (`user`/`agent`) with `ref_proposal_id` set for agent rows. Not the `agent_proposals`
+table — that requires `conversation_id`+`message_id` FKs a manual drag has no business inventing.
+Emission is centralised in `mutations.ts`/`steps.ts` inside a `db.transaction`, so the ledger row
+commits atomically with the write. Append-only is enforced by a DB trigger (0068), not convention.
+
+### Batched query shape (no N+1)
+`loadPlanPosts` runs its existing single posts query, then **one** `SELECT … FROM post_steps WHERE
+post_id IN (<all post ids>) ORDER BY post_id, sort, created_at` (`listStepsForPosts`), grouped in
+memory and folded into each `PlanPost.steps`. Two queries total for a month, regardless of post
+count. `applied()` (the mutation response builder) reuses `loadPlanPosts`, so every write response
+carries fresh steps at the same cost.
+
+### API / behaviour choices
+- **`checklist:generate` → `POST /api/posts/:id/checklist/generate`.** Next.js file routing can't
+  express a `:` segment, so the path uses `/checklist/generate`. Idempotency: **409** `checklist_exists`
+  if the post already has steps (chosen over silent no-op so a double-click is visible); 422
+  `no_template` for a format with no template (e.g. `email`).
+- **Step ticks are ledgered** (`step_completed` / `step_uncompleted`, origin user) — cheap now,
+  painful to backfill. Individual step add/remove are **not** ledgered (only ticks + generate), to
+  match the Stage 1 scope. Checklist generation emits `checklist_generated`.
+
+### Known gap (deferred, not a deviation from intent)
+A **rewrite** proposal (`kind:'rewrite'`) applies by enqueuing an async BullMQ shape job — no post
+row changes at approve time — so no ledger row is written on approval. The eventual caption write
+happens later in the shape worker, which is out of Stage 1's listed write paths. When that worker's
+write is wired (a later stage), it should emit `caption_saved` with `origin:'agent'` +
+`ref_proposal_id`. Recorded so it isn't mistaken for a ledger hole.
+
+### Verification tooling
+`scripts/test-db.sh` stands up a disposable local Postgres (`pgvector/pgvector:pg17` — the schema
+has `vector` columns and the dev server is PG17), baselined from a **schema-only** `pg_dump` of the
+dev DB (read-only; the dump lives in gitignored `.test-db/` and is never committed). Migrations are
+applied on top, and the `plan_activity` integration test targets it via `TEST_DATABASE_URL`.
