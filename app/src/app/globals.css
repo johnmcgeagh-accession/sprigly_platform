@@ -16,3 +16,24 @@ button:focus-visible, input:focus-visible { outline: 2px solid #FF6F62; outline-
 @keyframes slideUp { from { transform: translateY(100%);} to { transform: translateY(0);} }
 @media (max-width:560px){ .planLabel{ display:none;} .planChips{ display:none !important;} }
 @media (prefers-reduced-motion: reduce){ *, .toast,.sheet{ animation:none !important; transition:none !important;} }
+
+/* ── Plan redesign (Stage 2) ─────────────────────────────────────────────────
+   Tailwind utilities for the flag-on surface. Preflight is disabled (see
+   tailwind.config.ts) so the flag-off PlanApp is untouched; the redesign gets a
+   small scoped reset here instead. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.plan-redesign { color-scheme: only light; font-family: var(--font-jakarta), system-ui, sans-serif; }
+.plan-redesign *, .plan-redesign *::before, .plan-redesign *::after { box-sizing: border-box; }
+.plan-redesign h1, .plan-redesign h2, .plan-redesign h3, .plan-redesign h4, .plan-redesign p { margin: 0; }
+.plan-redesign button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.plan-redesign textarea, .plan-redesign input { font: inherit; }
+.plan-redesign :focus-visible { outline: 2px solid #FF6F62; outline-offset: 2px; }
+
+@keyframes pr-railflash { 0%,100%{ background: transparent } 50%{ background: #FCE9E5 } }
+.pr-flash { animation: pr-railflash .9s ease-in-out 3; }
+@keyframes pr-micpulse { 0%,100%{ box-shadow: 0 0 0 0 rgba(232,119,102,.45) } 50%{ box-shadow: 0 0 0 9px rgba(232,119,102,0) } }
+.pr-pulse { animation: pr-micpulse 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce){ .pr-flash, .pr-pulse { animation: none !important; } }
