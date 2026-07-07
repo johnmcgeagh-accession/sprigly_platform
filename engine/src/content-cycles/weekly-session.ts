@@ -167,7 +167,7 @@ export async function runWeeklySession(job: WeeklySessionJob, deps: PlanningDeps
       if (f.type === 'clanger' || f.type === 'note_integration') {
         const post = posts.find((p) => p.id === f.postId);
         if (!post) continue;
-        const feedback = `Address this reviewer finding: "${f.trigger}". Rewrite the caption to fix it while keeping the post on-brand for this client (voice, register, sign-off, products). Do not change the topic beyond what the finding requires.`;
+        const feedback = `Address this reviewer finding: "${f.trigger}". Rewrite the caption to resolve it while keeping the post on-brand for this client (voice, register, sign-off, products). If the finding's rationale references the weather or season, weave that context in naturally so the post feels timely. Keep the post's core subject; make the smallest change that fully addresses the finding.`;
         const caption = await generateCaption(cycle, planPostFromRow(post), feedback, deps);
         // Quota: count the pre-generated rewrite at generation time.
         try { await db.insert(postEdits).values({ postId: post.id, cycleId, scope: 'post', instruction: f.trigger, captionBefore: post.caption ?? '', captionAfter: caption, passed: true }); } catch { /* audit best-effort */ }
@@ -182,7 +182,7 @@ export async function runWeeklySession(job: WeeklySessionJob, deps: PlanningDeps
           date: isoLabel(date), day: '', title: '', category: '', pillar: 'Weather', format: 'Static',
           postingTime: '', whoPosts: '', competitorInsight: '', draftCaption: '', notes: f.trigger, clientWritesOwn: false,
         };
-        const feedback = `Write a fresh, on-brand caption for a NEW ${cycle.channel} post responding to this timely weather opportunity: "${f.trigger}". Keep it in the client's voice; do not invent products or claims.`;
+        const feedback = `Write a fresh, on-brand caption for a NEW ${cycle.channel} post that speaks directly to the current weather and connects it to a genuine brand benefit — how the client's fabrics (e.g. organic GOTS cotton, linen) perform in these conditions. Weather trigger: "${f.trigger}". Keep it in the client's voice; do not invent products, certifications, or claims beyond what the brand actually offers.`;
         const caption = await generateCaption(cycle, skeleton, feedback, deps);
         specs.push({
           intent: 'add_post',

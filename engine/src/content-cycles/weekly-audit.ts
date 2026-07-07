@@ -69,7 +69,7 @@ export const WEEKLY_AUDIT_SYSTEM_PROMPT = `You audit ONE upcoming week of a clot
 
 Finding types:
 - "clanger": a concrete error in an existing post — a wrong/contradictory date reference, an off-brand or incorrect claim, or content that clashes with the actual forecast (e.g. a caption about a sunny picnic on a day flagged heavy rain). Reference the postId.
-- "weather_opportunity": a chance to add ONE timely post because of a NOTABLE weather flag that week (only the flags listed are notable — never invent weather). No postId.
+- "weather_opportunity": a NEW standalone post prompted by a notable weather flag that week — one that ties the conditions to a genuine brand benefit (e.g. natural fibres like organic cotton or linen in a heatwave; warmth and layering in a cold snap). Only the flags listed are notable — never invent weather. No postId.
 - "note_integration": an active note that should shape a specific existing post this week. Reference the postId and the noteId.
 - "date_conflict": a post scheduled on/around a known cycle date where the timing is wrong (e.g. a launch-day post scheduled the day after the launch). Reference the postId and give "toDate" (ISO 'YYYY-MM-DD') — the corrected date.
 
@@ -77,6 +77,8 @@ Each finding: { "type", "severity": "fix" | "suggest", "postId"?, "noteId"?, "to
 
 Rules:
 - Only raise weather_opportunity when a notable weather flag is present in the input. If no flags are listed, raise none.
+- When a notable weather flag IS present, you SHOULD raise a weather_opportunity for a new post — even if you also raise a note_integration or clanger on an existing post. A standalone weather post and an edit to an existing post are complementary, not alternatives; do not fold the weather angle into an existing-post edit instead of proposing the new post.
+- A note_integration or clanger whose trigger cites the weather should say so in its trigger, so the rewrite reflects those conditions.
 - Only raise note_integration for a note actually listed in ACTIVE NOTES, and cite its id.
 - Every finding's trigger must cite the specific forecast day, note, or date — no vague findings.
 - If nothing is wrong and nothing matures this week, return {"findings": []}.
