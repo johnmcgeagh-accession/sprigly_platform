@@ -67,6 +67,38 @@ export async function enqueueShape(payload: ShapePayload): Promise<EnqueueResult
   }
 }
 
+export interface WeeklySessionPayload {
+  type:      'weekly-session';
+  clientId:  string;
+  cycleId:   string;
+  weekStart: string;   // Monday, 'YYYY-MM-DD'
+}
+
+export const weeklySessionJobId = (cycleId: string, weekStart: string) => `weekly_${cycleId}_${weekStart}`;
+
+/** Enqueue a weekly planning session for a cycle+week. Dedups on the deterministic
+ *  jobId so a manual re-trigger while one is in flight returns busy. */
+export async function enqueueWeeklySession(payload: WeeklySessionPayload): Promise<EnqueueResult> {
+  const queue = getQueue();
+  if (!queue) return { error: 'Server not configured for background jobs (REDIS_URL missing).' };
+  const jobId = weeklySessionJobId(payload.cycleId, payload.weekStart);
+  try {
+    const existing = await queue.getJob(jobId);
+    if (existing) {
+      const state = await existing.getState();
+      if (state === 'completed' || state === 'failed' || state === 'unknown') {
+        try { await existing.remove(); } catch { /* best-effort */ }
+      } else {
+        return { busy: true, jobId };
+      }
+    }
+    await queue.add('weekly-session', payload, { jobId, attempts: 1, removeOnComplete: { age: 86400, count: 100 }, removeOnFail: { age: 86400 } });
+    return { jobId };
+  } catch (err) {
+    return { error: String(err) };
+  }
+}
+
 export type JobView =
   | { status: 'pending' }
   | { status: 'done'; changedPostIds: string[]; summary: string }

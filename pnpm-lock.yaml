@@ -176,6 +176,9 @@ importers:
       '@sprigly/sources':
         specifier: workspace:*
         version: link:../packages/sources
+      '@sprigly/weather':
+        specifier: workspace:*
+        version: link:../packages/weather
       '@sprigly/web-search':
         specifier: workspace:*
         version: link:../packages/web-search

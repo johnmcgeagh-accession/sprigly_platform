@@ -1024,3 +1024,29 @@ export const planInputs = pgTable(
 );
 export type PlanInputRow    = typeof planInputs.$inferSelect;
 export type NewPlanInputRow = typeof planInputs.$inferInsert;
+
+// ─── weekly_sessions ────────────────────────────────────────────────────────
+// One row per weekly planning session run (migration 0065): the audit findings,
+// how many were actioned vs reported-only, and its status. The proposals it
+// creates carry the matching change_set_id.
+
+export const weeklySessions = pgTable(
+  'weekly_sessions',
+  {
+    id:            uuid('id').primaryKey().defaultRandom(),
+    clientId:      uuid('client_id').notNull().references(() => clients.id),
+    cycleId:       uuid('cycle_id').notNull().references(() => contentCycles.id),
+    weekStart:     date('week_start', { mode: 'string' }).notNull(),   // Monday, 'YYYY-MM-DD'
+    changeSetId:   uuid('change_set_id'),                              // groups the proposals it created
+    findings:      jsonb('findings').$type<unknown>(),
+    actionedCount: integer('actioned_count').notNull().default(0),
+    skippedCount:  integer('skipped_count').notNull().default(0),
+    status:        text('status').notNull().default('proposed'),       // 'proposed' | 'quiet' | 'failed'
+    createdAt:     timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    clientWeekIdx: index('weekly_sessions_client_week_idx').on(t.clientId, t.weekStart),
+  }),
+);
+export type WeeklySessionRow    = typeof weeklySessions.$inferSelect;
+export type NewWeeklySessionRow = typeof weeklySessions.$inferInsert;

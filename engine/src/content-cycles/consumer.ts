@@ -38,6 +38,8 @@ import { extractVoiceDeltasForCycle } from './extract.js';
 import { applyVoiceDeltasForCycle } from './apply.js';
 import { runPlanningForCycle } from './planning.js';
 import { runShapeForCycle, type ShapeJob } from './shape.js';
+import { runWeeklySession, type WeeklySessionJob } from './weekly-session.js';
+import { runWeeklySessionTick } from './weekly-cron.js';
 import { runIgTrawlJob } from '../ig-producer.js';
 import { requestEmailStub } from './stubs.js';
 import { runContentCycleTick } from './scheduler.js';
@@ -62,6 +64,8 @@ type ContentCycleJob =
   | { type: 'ig-trawl';        clientId: string; channel: string; dataMonth: string }
   | { type: 'request-email';   clientId: string; channel: string; dataMonth: string }
   | { type: 'scheduler-tick' }
+  | { type: 'weekly-session-tick' }
+  | WeeklySessionJob
   | ShapeJob;
 
 export function createContentCycleConsumer(
@@ -162,6 +166,18 @@ export function createContentCycleConsumer(
         case 'scheduler-tick':
           logger.info(logCtx, 'content-cycles: starting scheduler-tick job');
           await runContentCycleTick({ db, queue, logger });
+          break;
+
+        case 'weekly-session':
+          logger.info({ ...logCtx, clientId: data.clientId, cycleId: data.cycleId, weekStart: data.weekStart }, 'content-cycles: starting weekly-session job');
+          return await runWeeklySession(data, {
+            db, encProvider, googleClientId, googleClientSecret,
+            model, prompts, audit, logger,
+          });
+
+        case 'weekly-session-tick':
+          logger.info(logCtx, 'content-cycles: starting weekly-session-tick job');
+          await runWeeklySessionTick({ db, queue, logger });
           break;
 
         default:

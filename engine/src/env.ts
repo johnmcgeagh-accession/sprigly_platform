@@ -35,4 +35,11 @@ export const env = z.object({
     .string()
     .optional()
     .transform((v) => (v === undefined ? true : !/^(false|0|no|off)$/i.test(v.trim()))),
+  // Weekly planning session cron. OFF by default (unset = disabled) until trusted;
+  // set to a truthy string to register the Monday 06:00 tick. Explicit coercion so
+  // "false"/"0"/"off" stay off.
+  WEEKLY_SESSION_CRON_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v === undefined ? false : /^(true|1|yes|on)$/i.test(v.trim()))),
 }).parse(process.env);

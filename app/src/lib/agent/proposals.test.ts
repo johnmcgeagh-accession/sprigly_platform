@@ -18,6 +18,8 @@ const h = vi.hoisted(() => ({
   patch: vi.fn(),
   softDelete: vi.fn(),
   add: vi.fn(),
+  addGen: vi.fn(),
+  markNote: vi.fn(),
   enqueue: vi.fn(),
   usage: { used: 0, limit: 30, unlimited: false } as Record<string, unknown>,
   blocked: false,
@@ -55,7 +57,9 @@ vi.mock('../mutations', () => ({
   patchPost: (...a: unknown[]) => h.patch(...a),
   softDeletePost: (...a: unknown[]) => h.softDelete(...a),
   addDraft: (...a: unknown[]) => h.add(...a),
+  addGeneratedPost: (...a: unknown[]) => h.addGen(...a),
 }));
+vi.mock('./notes', () => ({ markNoteIntegrated: (...a: unknown[]) => h.markNote(...a) }));
 vi.mock('../queue', () => ({ enqueueShape: (...a: unknown[]) => h.enqueue(...a) }));
 vi.mock('../usage', () => ({
   getUsageForCycle: async () => h.usage,
@@ -78,7 +82,7 @@ const moveRow = { id: 'prop-1', clientId: CLIENT, intent: 'move_post', summary: 
 beforeEach(() => {
   h.updateWheres.length = 0; h.selectWheres.length = 0; h.claimQueue.length = 0;
   h.currentRow = null; h.listRows = [];
-  h.patch.mockReset(); h.softDelete.mockReset(); h.add.mockReset(); h.enqueue.mockReset();
+  h.patch.mockReset(); h.softDelete.mockReset(); h.add.mockReset(); h.addGen.mockReset(); h.markNote.mockReset(); h.enqueue.mockReset();
   h.blocked = false; h.usage = { used: 0, limit: 30, unlimited: false };
 });
 
@@ -141,6 +145,28 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     const r = await approveProposal(CLIENT, 'prop-1', 'client');
     expect(r.proposal?.status).toBe('failed');
     expect(h.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('a weekly-session apply_caption approval patches the caption deterministically and marks the note integrated', async () => {
+    h.claimQueue = [[{ ...moveRow, intent: 'rewrite_post', payload: { kind: 'apply_caption', cycleId: 'cycle-1', postId: 'post-9', caption: 'New warmer caption', noteId: 'note-7' } }]];
+    const r = await approveProposal(CLIENT, 'prop-1', 'client');
+    expect(r.proposal?.status).toBe('applied');
+    expect(h.patch).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-9', { caption: 'New warmer caption' });
+    expect(h.markNote).toHaveBeenCalledWith(CLIENT, 'note-7', 'prop-1');
+    expect(h.enqueue).not.toHaveBeenCalled();   // pre-generated — no second generation
+  });
+
+  it('an apply_caption with no noteId does not touch notes', async () => {
+    h.claimQueue = [[{ ...moveRow, intent: 'rewrite_post', payload: { kind: 'apply_caption', cycleId: 'cycle-1', postId: 'post-9', caption: 'x', noteId: null } }]];
+    await approveProposal(CLIENT, 'prop-1', 'client');
+    expect(h.markNote).not.toHaveBeenCalled();
+  });
+
+  it('a weekly-session add_generated approval inserts the pre-generated draft', async () => {
+    h.claimQueue = [[{ ...moveRow, intent: 'add_post', payload: { kind: 'add_generated', cycleId: 'cycle-1', date: '2026-07-15', channel: 'instagram', format: 'single', pillar: 'Weather', caption: 'Heatwave edit' } }]];
+    const r = await approveProposal(CLIENT, 'prop-1', 'client');
+    expect(r.proposal?.status).toBe('applied');
+    expect(h.addGen).toHaveBeenCalledWith(CLIENT, 'cycle-1', { channel: 'instagram', date: '2026-07-15', format: 'single', pillar: 'Weather', caption: 'Heatwave edit' });
   });
 
   it('a double-approve does NOT re-apply (status guard)', async () => {

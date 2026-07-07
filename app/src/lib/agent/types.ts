@@ -43,7 +43,13 @@ export type ProposalPayload =
   | { kind: 'move';    cycleId: string; postId: string; toDate: string }
   | { kind: 'delete';  cycleId: string; postId: string }
   | { kind: 'rewrite'; cycleId: string; postId: string; instruction: string }
-  | { kind: 'add';     cycleId: string; date: string; channel: string | null };
+  | { kind: 'add';     cycleId: string; date: string; channel: string | null }
+  // Weekly session — pre-generated content applied deterministically on approve
+  // (no second generation). apply_caption carries the full rewritten caption;
+  // add_generated carries a whole new validated draft. noteId (when set) is the
+  // note this rewrite integrates, marked integrated on approval.
+  | { kind: 'apply_caption'; cycleId: string; postId: string; caption: string; noteId?: string | null }
+  | { kind: 'add_generated'; cycleId: string; date: string; channel: string; format: string; pillar: string; caption: string };
 
 export const ACTION_TO_KIND: Record<MutatingAction, ProposalPayload['kind']> = {
   move_post: 'move', delete_post: 'delete', rewrite_post: 'rewrite', add_post: 'add',

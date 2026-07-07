@@ -11,9 +11,10 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { db, agentProposals, contentCycles } from '@sprigly/db';
 import type { AgentProposalRow } from '@sprigly/db';
-import { patchPost, softDeletePost, addDraft } from '../mutations';
+import { patchPost, softDeletePost, addDraft, addGeneratedPost } from '../mutations';
 import { enqueueShape } from '../queue';
 import { getUsageForCycle, isRewriteBlocked } from '../usage';
+import { markNoteIntegrated } from './notes';
 import type { MutatingAction, ProposalPayload, ProposalView } from './types';
 
 const view = (r: Pick<AgentProposalRow, 'id' | 'intent' | 'summary' | 'status' | 'changeSetId'>): ProposalView =>
@@ -123,6 +124,13 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
     } else if (payload.kind === 'add') {
       const channel = payload.channel ?? await cycleChannel(row.clientId, payload.cycleId);
       await addDraft(row.clientId, payload.cycleId, channel, payload.date);
+    } else if (payload.kind === 'apply_caption') {
+      // Weekly-session pre-generated rewrite: apply the already-validated caption
+      // deterministically (no second generation), and mark any integrated note.
+      await patchPost(row.clientId, payload.cycleId, payload.postId, { caption: payload.caption });
+      if (payload.noteId) await markNoteIntegrated(row.clientId, payload.noteId, id);
+    } else if (payload.kind === 'add_generated') {
+      await addGeneratedPost(row.clientId, payload.cycleId, { channel: payload.channel, date: payload.date, format: payload.format, pillar: payload.pillar, caption: payload.caption });
     }
     await setStatus(clientId, id, 'applied', null, true);
     return { proposal: view({ ...row, status: 'applied' }) };

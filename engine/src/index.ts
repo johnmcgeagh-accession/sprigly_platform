@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createCalendarConsumer } from './calendar-consumer.js';
 import { createContentCycleConsumer } from './content-cycles/consumer.js';
+import { registerWeeklySessionCron } from './content-cycles/weekly-cron.js';
 import { runVoiceBatchMerge } from './voice-batch-merge.js';
 import {
   spriglyBlogPostWorkflow,
@@ -238,6 +239,10 @@ void contentCyclesQueue.add(
   { repeat: { pattern: '0 5 * * *', tz: 'Europe/London' } },
 );
 logger.info('Content-cycle scheduler tick registered (daily 05:00 Europe/London)');
+
+// Register the weekly planning session cron (Monday 06:00 Europe/London) — ONLY
+// when WEEKLY_SESSION_CRON_ENABLED is set. Off by default until trusted.
+void registerWeeklySessionCron(contentCyclesQueue, env.WEEKLY_SESSION_CRON_ENABLED, logger);
 
 const consumer = createConsumer(
   db,

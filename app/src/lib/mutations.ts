@@ -102,6 +102,32 @@ export async function addDraft(clientId: string, cycleId: string, channel: strin
   return applied(clientId, cycleId, created ? [created.id] : [], 'Added a draft post.');
 }
 
+/** Insert a post with pre-generated content (weekly session's weather draft).
+ *  Unlike addDraft (blank placeholder), this carries a real caption/format/pillar. */
+export async function addGeneratedPost(
+  clientId: string, cycleId: string,
+  spec: { channel: string; date: string; format: string; pillar: string; caption: string },
+): Promise<ShapeResult> {
+  const [maxRow] = await db
+    .select({ position: contentCyclePosts.position })
+    .from(contentCyclePosts)
+    .where(and(eq(contentCyclePosts.cycleId, cycleId), eq(contentCyclePosts.clientId, clientId)))
+    .orderBy(desc(contentCyclePosts.position))
+    .limit(1);
+  const position = (maxRow?.position ?? 0) + 1;
+
+  const format = FORMATS.has(spec.format as PostFormat) ? spec.format : 'single';
+  const [created] = await db
+    .insert(contentCyclePosts)
+    .values({
+      clientId, cycleId, channel: spec.channel,
+      scheduledDate: spec.date, format, pillar: spec.pillar, caption: spec.caption,
+      status: 'new', position, sourceMeta: {},
+    })
+    .returning({ id: contentCyclePosts.id });
+  return applied(clientId, cycleId, created ? [created.id] : [], 'Added the post.');
+}
+
 /** Soft-delete (recoverable; reconciliation can still see it). Owned-scope only. */
 export async function softDeletePost(clientId: string, cycleId: string, postId: string): Promise<ShapeResult | null> {
   const row = await ownedPost(clientId, cycleId, postId);

@@ -57,6 +57,7 @@
     "@sprigly/model-client": "workspace:*",
     "@sprigly/oauth-tokens": "workspace:*",
     "@sprigly/prompts": "workspace:*",
+    "@sprigly/weather": "workspace:*",
     "@sprigly/web-search": "workspace:*"
   },
   "devDependencies": {
