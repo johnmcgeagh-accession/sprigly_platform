@@ -33,3 +33,6 @@ engine/eval-results/
 .env*
 .env.prod
 .bkup.env.local
+
+# Disposable local test DB — schema dump baseline (never commit; may contain schema only)
+.test-db/
