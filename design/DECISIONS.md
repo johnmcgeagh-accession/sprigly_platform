@@ -237,3 +237,58 @@ write is wired (a later stage), it should emit `caption_saved` with `origin:'age
 has `vector` columns and the dev server is PG17), baselined from a **schema-only** `pg_dump` of the
 dev DB (read-only; the dump lives in gitignored `.test-db/` and is never committed). Migrations are
 applied on top, and the `plan_activity` integration test targets it via `TEST_DATABASE_URL`.
+
+---
+
+## 8. Stage 2 — responsive rebuild (2026-07-07)
+
+### Architecture
+One implementation, real layout split: `PlanRoot` (client) measures `(min-width:1080px)` and
+renders `<PlanDesktop>` or `<PlanMobile>`, both driven by one `usePlanData` hook + one component
+set (`app/src/components/plan/`). `today` is resolved once server-side (`resolveTodayIso()` in
+`PlanRedesign`) and passed down, so the client never imports the server-only `steps.ts`; all
+derivations import the Stage 1 pure `checklist.ts`.
+
+### Tailwind
+Preflight **disabled** so adding Tailwind doesn't disturb the flag-off `PlanApp` (inline styles);
+the redesign gets a scoped `.plan-redesign` reset + `color-scheme: only light` in globals.css.
+Mockup `:root` tokens live in `tailwind.config.ts` (text hierarchy reuses Tailwind's native
+slate-700/600 which match `--slate`/`--slate-600` exactly). Fonts self-hosted via `next/font`.
+
+### Component inventory & mockup deltas
+Built: PostChip, ProgressRing, ChecklistItem, Sheet, Drawer, Scrim (heavy+soft), Toast,
+SegmentedControl, MonthWheelPicker, ProposalCard, NoteRow, ExtractionSummary, plus a shared
+`PostEditor` (used by the desktop drawer AND mobile sheet) and ChannelIcon/FormatIcon.
+- **No post title field exists** → PostChip/timeline title = the caption's first sentence, else
+  `pillar` (recorded; the mockups' rich titles were fake data).
+- **Tags fully omitted** (D2): no editor chips, card pills, or swipe "Add tag". Mobile swipe-right
+  is **Move only** (date-picker sheet), matching D2/D6 (no publish/approve-lock this stage).
+- **Review dot** on a chip = `status==='new'` → NEW badge, else a coral dot when the post is
+  at-risk OR `reviewState==='preserved_edit_orphan'`.
+- **ExtractionSummary renders the REAL agent turn** — each proposal as an "Action → Approvals"
+  row plus Sprigly's `message` (which covers answered questions / captured notes). The mockups'
+  keyword classifier is not ported.
+
+### Async "Shape this post" (deviation 3) — how pending is shown
+`shape()` adds the post id to a `shapingIds` set, POSTs `/api/posts/:id/shape`, and on a
+`{mode:'pending', jobId}` response polls `/api/jobs/:jobId`. While pending, the editor's shape
+input + chips are disabled and the note reads "Sprigly is rewriting this in your voice — it'll
+appear here when it's ready." The **caption textarea is never mutated on submit**; the rewritten
+caption swaps in when the job completes (or on the next `/api/plan` refresh), then the textarea
+syncs to it.
+
+### Endpoint reconciliation vs AUDIT.md (no mismatches — clarifications)
+Mirrored `PlanApp`'s proven client contracts exactly: agent POST body is
+`{instruction, selectedPostId, conversationId}` (not `{message}`), response `{conversationId,
+message, proposals}`; structural writes return `ShapeResult{mode:'applied',posts,summary}`;
+`/api/posts/:id/shape` → `{mode,jobId}` (async); steps endpoints return `{steps}`;
+`checklist/generate` → 200 `{steps}` / 409 `checklist_exists` / 422 `no_template` (email hides
+the generate button). Month chevrons switch to the adjacent **cycle**, Today → home cycle, the
+wheel picker jumps to a cycle by month (cycles are the month unit). No new fetches for rings or
+Tasks — `PlanPost.steps` arrives batched.
+
+### For the next stage
+Every interactive element carries a stable `data-testid` (e.g. `post-chip`, `nav-tasks`,
+`agent-send`, `swipe-card`, `step-toggle`, `proposal-approve`) so the Playwright harness has
+anchors. Verified visually via a temporary seeded preview route (removed before commit) with
+Playwright screenshots of both breakpoints.
