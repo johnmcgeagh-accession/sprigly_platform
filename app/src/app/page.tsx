@@ -1,8 +1,10 @@
 import { eq } from 'drizzle-orm';
-import { db, clients, contentCycles } from '@sprigly/db';
+import { db, clients, clientConfigs, contentCycles } from '@sprigly/db';
 import { getSession } from '@/lib/auth';
 import { loadPlanPosts, loadCycleList } from '@/lib/plan';
+import { readPlanRedesignFlag } from '@/lib/flags';
 import PlanApp from '@/components/PlanApp';
+import PlanRedesign from '@/components/PlanRedesign';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,6 +30,25 @@ export default async function Page() {
   const cycles = home
     ? await loadCycleList(session.clientId, home.channel, session.cycleId)
     : [];
+
+  // Render fork behind the per-tenant plan_redesign flag (default off). Flag-off tenants
+  // get the existing PlanApp untouched; flag-on tenants get the redesign shell.
+  const [cfg] = await db
+    .select({ settings: clientConfigs.settings })
+    .from(clientConfigs)
+    .where(eq(clientConfigs.clientId, session.clientId))
+    .limit(1);
+
+  if (readPlanRedesignFlag(cfg?.settings)) {
+    return (
+      <PlanRedesign
+        clientName={client?.name ?? 'your'}
+        posts={posts}
+        cycles={cycles}
+        homeCycleId={session.cycleId}
+      />
+    );
+  }
 
   return (
     <PlanApp
