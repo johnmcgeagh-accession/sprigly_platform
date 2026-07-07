@@ -1050,3 +1050,76 @@ export const weeklySessions = pgTable(
 );
 export type WeeklySessionRow    = typeof weeklySessions.$inferSelect;
 export type NewWeeklySessionRow = typeof weeklySessions.$inferInsert;
+
+// ─── post_steps ───────────────────────────────────────────────────────────────
+// Production checklist for a content_cycle_post (redesign Stage 1, migration 0066).
+// One row per step. Derivations — due_date = scheduled_date − lead_days, at-risk,
+// and the done/total ring — are COMPUTED in app code (app/src/lib/checklist.ts),
+// never stored. created_by records whether the agent or the user added the step.
+// Cascade-deletes with its post. updated_at is bumped by the shared 0050 trigger.
+export type StepActor = 'agent' | 'user';
+
+export const postSteps = pgTable(
+  'post_steps',
+  {
+    id:        uuid('id').primaryKey().defaultRandom(),
+    postId:    uuid('post_id').notNull().references(() => contentCyclePosts.id, { onDelete: 'cascade' }),
+    label:     text('label').notNull(),
+    leadDays:  integer('lead_days').notNull(),
+    done:      boolean('done').notNull().default(false),
+    doneAt:    timestamp('done_at', { withTimezone: true }),
+    sort:      integer('sort').notNull().default(0),
+    createdBy: text('created_by').notNull().default('user'),   // 'agent' | 'user' (CHECK in 0066)
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    postIdx: index('post_steps_post_id_idx').on(t.postId),
+  }),
+);
+export type PostStepRow    = typeof postSteps.$inferSelect;
+export type NewPostStepRow = typeof postSteps.$inferInsert;
+
+// ─── step_templates ─────────────────────────────────────────────────────────
+// Default checklist per content-type (redesign Stage 1, migration 0067). content_type
+// uses the post FORMAT enum values ('reel' | 'carousel' | 'single'), NOT the mockup
+// labels — see design/DECISIONS.md §Content-type mapping. steps is the ordered
+// template that POST /checklist/generate instantiates into post_steps.
+export interface StepTemplateEntry { label: string; leadDays: number }
+
+export const stepTemplates = pgTable('step_templates', {
+  contentType: text('content_type').primaryKey(),                        // a post FORMAT value
+  steps:       jsonb('steps').$type<StepTemplateEntry[]>().notNull(),
+});
+export type StepTemplateRow    = typeof stepTemplates.$inferSelect;
+export type NewStepTemplateRow = typeof stepTemplates.$inferInsert;
+
+// ─── plan_activity ──────────────────────────────────────────────────────────
+// Append-only ledger of plan changes (redesign Stage 1, AUDIT.md §3, migration 0068).
+// ONE ordered stream regardless of actor: manual edits insert origin='user'; approved
+// agent proposals insert origin='agent' + ref_proposal_id. Append-only is enforced at
+// the DB layer by a BEFORE UPDATE OR DELETE trigger (0068), not just by convention —
+// there is intentionally no update/delete helper. post_id is ON DELETE SET NULL so the
+// history survives a (hard) post delete.
+export type ActivityOrigin = 'user' | 'agent';
+
+export const planActivity = pgTable(
+  'plan_activity',
+  {
+    id:            uuid('id').primaryKey().defaultRandom(),
+    clientId:      uuid('client_id').notNull().references(() => clients.id),
+    cycleId:       uuid('cycle_id').references(() => contentCycles.id),         // nullable
+    postId:        uuid('post_id').references(() => contentCyclePosts.id, { onDelete: 'set null' }),
+    origin:        text('origin').notNull(),                                    // 'user' | 'agent' (CHECK in 0068)
+    action:        text('action').notNull(),                                    // 'rescheduled' | 'caption_saved' | …
+    refProposalId: uuid('ref_proposal_id').references(() => agentProposals.id),  // set when origin='agent'
+    payload:       jsonb('payload').$type<Record<string, unknown>>(),
+    createdAt:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    clientCreatedIdx: index('plan_activity_client_created_idx').on(t.clientId, t.createdAt),
+    postIdx:          index('plan_activity_post_id_idx').on(t.postId),
+  }),
+);
+export type PlanActivityRow    = typeof planActivity.$inferSelect;
+export type NewPlanActivityRow = typeof planActivity.$inferInsert;
