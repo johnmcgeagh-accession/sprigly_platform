@@ -12,6 +12,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import { db, agentProposals, contentCycles } from '@sprigly/db';
 import type { AgentProposalRow } from '@sprigly/db';
 import { patchPost, softDeletePost, addDraft, addGeneratedPost, addGeneratingPost } from '../mutations';
+import type { ActivityActor } from '../activity';
 import { enqueueShape } from '../queue';
 import { getUsageForCycle, isRewriteBlocked } from '../usage';
 import { startPostGeneration } from '../post-generation';
@@ -106,6 +107,9 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
 
   const payload = row.payload as unknown as ProposalPayload;
   let genJobId: string | undefined;   // add-with-instruction: the caption-generation job to poll
+  // Approved agent changes land in the plan_activity ledger as origin='agent', tagged
+  // with this proposal id — one ordered stream with the user's direct edits (AUDIT §3).
+  const agentActor: ActivityActor = { origin: 'agent', refProposalId: id };
   try {
     if (payload.kind === 'rewrite') {
       const usage = await getUsageForCycle(row.clientId, payload.cycleId);
@@ -120,9 +124,9 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
     }
 
     if (payload.kind === 'move') {
-      await patchPost(row.clientId, payload.cycleId, payload.postId, { date: payload.toDate });
+      await patchPost(row.clientId, payload.cycleId, payload.postId, { date: payload.toDate }, agentActor);
     } else if (payload.kind === 'delete') {
-      await softDeletePost(row.clientId, payload.cycleId, payload.postId);
+      await softDeletePost(row.clientId, payload.cycleId, payload.postId, agentActor);
     } else if (payload.kind === 'add') {
       const channel = payload.channel ?? await cycleChannel(row.clientId, payload.cycleId);
       const instruction = payload.instruction?.trim();
@@ -131,19 +135,19 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
         // generate the caption async. Quota is checked/counted by the shape job.
         // Quota-block or enqueue failure leaves the post in a failed state (not the
         // default placeholder) — the approval still succeeds because the post exists.
-        const { postId } = await addGeneratingPost(row.clientId, payload.cycleId, { channel, date: payload.date, instruction });
+        const { postId } = await addGeneratingPost(row.clientId, payload.cycleId, { channel, date: payload.date, instruction }, agentActor);
         const gen = await startPostGeneration(row.clientId, payload.cycleId, postId, instruction);
         if ('jobId' in gen) genJobId = gen.jobId;
       } else {
-        await addDraft(row.clientId, payload.cycleId, channel, payload.date);
+        await addDraft(row.clientId, payload.cycleId, channel, payload.date, agentActor);
       }
     } else if (payload.kind === 'apply_caption') {
       // Weekly-session pre-generated rewrite: apply the already-validated caption
       // deterministically (no second generation), and mark any integrated note.
-      await patchPost(row.clientId, payload.cycleId, payload.postId, { caption: payload.caption });
+      await patchPost(row.clientId, payload.cycleId, payload.postId, { caption: payload.caption }, agentActor);
       if (payload.noteId) await markNoteIntegrated(row.clientId, payload.noteId, id);
     } else if (payload.kind === 'add_generated') {
-      await addGeneratedPost(row.clientId, payload.cycleId, { channel: payload.channel, date: payload.date, format: payload.format, pillar: payload.pillar, caption: payload.caption });
+      await addGeneratedPost(row.clientId, payload.cycleId, { channel: payload.channel, date: payload.date, format: payload.format, pillar: payload.pillar, caption: payload.caption }, agentActor);
     }
     await setStatus(clientId, id, 'applied', null, true);
     return { proposal: view({ ...row, status: 'applied' }), ...(genJobId ? { jobId: genJobId } : {}) };

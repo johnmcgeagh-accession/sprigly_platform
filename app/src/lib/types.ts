@@ -17,6 +17,21 @@ export type PostStatus  = 'planned' | 'edited' | 'new' | 'generating' | 'generat
 // review badges read from one field. null = pre-existing / not yet classified.
 export type ReviewState = 'preserved_edit' | 'preserved_edit_orphan' | 'regenerated';
 
+// A production-checklist step on a post (redesign Stage 1). Derivations (due date,
+// at-risk, ring) are computed client/server-side from these fields, never stored —
+// see app/src/lib/checklist.ts.
+export type StepActor = 'agent' | 'user';
+
+export interface PostStepView {
+  id:        string;
+  label:     string;
+  leadDays:  number;
+  done:      boolean;
+  doneAt:    string | null;   // ISO timestamp, null while not done
+  sort:      number;
+  createdBy: StepActor;
+}
+
 export interface PlanPost {
   id:          string;
   cycleId:     string;
@@ -28,6 +43,7 @@ export interface PlanPost {
   caption:     string;
   status:      PostStatus;
   reviewState: ReviewState | null;
+  steps:       PostStepView[];   // production checklist, batched in (empty if none)
   script?:     string | null;
   overlay?:    string | null;
   // Async add-post-with-instruction (carried on source_meta): the instruction that

@@ -12,6 +12,7 @@
  */
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { db, contentCycles, contentCyclePosts } from '@sprigly/db';
+import { listStepsForPosts } from '@/lib/steps';
 import type {
   CycleSummary, PlanPost, PostChannel, PostFormat, PostStatus, ReviewState,
 } from './types.js';
@@ -48,6 +49,9 @@ export async function loadPlanPosts(clientId: string, cycleId: string): Promise<
     ))
     .orderBy(asc(contentCyclePosts.position), asc(contentCyclePosts.scheduledDate));
 
+  // Batch the checklist for every post in ONE query (no N+1), then fold it in.
+  const stepsByPost = await listStepsForPosts(rows.map((r) => r.id));
+
   return rows.map((r) => ({
     id:          r.id,
     cycleId:     r.cycleId,
@@ -59,6 +63,7 @@ export async function loadPlanPosts(clientId: string, cycleId: string): Promise<
     caption:     r.caption ?? '',
     status:      (STATUSES.has(r.status as PostStatus) ? r.status : 'planned') as PostStatus,
     reviewState: (r.reviewState && REVIEW_STATES.has(r.reviewState as ReviewState) ? r.reviewState : null) as ReviewState | null,
+    steps:       stepsByPost.get(r.id) ?? [],
     script:      r.script ?? null,
     overlay:     r.overlay ?? null,
     pendingInstruction: metaStr(r.sourceMeta, 'pendingInstruction'),

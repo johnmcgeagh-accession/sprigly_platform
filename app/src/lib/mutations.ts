@@ -11,6 +11,7 @@ import { db, contentCyclePosts } from '@sprigly/db';
 import type { ContentCyclePostRow } from '@sprigly/db';
 import { loadPlanPosts } from '@/lib/plan';
 import { resolveRevert } from '@/lib/revert';
+import { recordActivity, USER_ACTOR, type ActivityActor, type ActivityAction } from '@/lib/activity';
 import type { ShapeResult, PostFormat } from '@/lib/types';
 
 const FORMATS = new Set<PostFormat>(['reel', 'carousel', 'single', 'email']);
@@ -54,8 +55,9 @@ export interface PostPatch {
 }
 
 /** PATCH a post: date / format / pillar / position / caption. Flips status to
- *  'edited' (keeps 'new' for an added draft). Returns null if not owned. */
-export async function patchPost(clientId: string, cycleId: string, postId: string, patch: PostPatch): Promise<ShapeResult | null> {
+ *  'edited' (keeps 'new' for an added draft). Returns null if not owned. Records a
+ *  plan_activity row (origin from `actor`, default user) atomically with the write. */
+export async function patchPost(clientId: string, cycleId: string, postId: string, patch: PostPatch, actor: ActivityActor = USER_ACTOR): Promise<ShapeResult | null> {
   const row = await ownedPost(clientId, cycleId, postId);
   if (!row) return null;
 
@@ -68,14 +70,29 @@ export async function patchPost(clientId: string, cycleId: string, postId: strin
   if (typeof patch.position === 'number' && Number.isFinite(patch.position)) set.position = Math.trunc(patch.position);
   if (typeof patch.caption === 'string')  set.caption = patch.caption;
 
-  await db.update(contentCyclePosts).set(set).where(scopedPost(clientId, cycleId, postId));
+  // Ledger action reflects the primary field changed, so the history reads legibly.
+  const action: ActivityAction =
+    patch.date !== undefined     ? 'rescheduled'
+    : patch.caption !== undefined ? 'caption_saved'
+    : patch.format !== undefined  ? 'format_changed'
+    : patch.position !== undefined ? 'reordered'
+    : 'post_updated';
+  const payload: Record<string, unknown> = {};
+  if (patch.date !== undefined)   { payload['from'] = row.scheduledDate; payload['to'] = patch.date; }
+  if (patch.format !== undefined) { payload['fromFormat'] = row.format; payload['toFormat'] = patch.format; }
+
+  await db.transaction(async (tx) => {
+    await tx.update(contentCyclePosts).set(set).where(scopedPost(clientId, cycleId, postId));
+    await recordActivity(tx, { clientId, cycleId, postId, action, actor, payload });
+  });
 
   const what = patch.date ? 'Moved it.' : patch.format ? 'Changed the format.' : patch.caption !== undefined ? 'Saved your caption.' : patch.position !== undefined ? 'Reordered.' : 'Updated.';
   return applied(clientId, cycleId, [postId], what);
 }
 
-/** Add a draft post (status 'new', placeholder caption) at a given date. */
-export async function addDraft(clientId: string, cycleId: string, channel: string, date: string): Promise<ShapeResult> {
+/** Add a draft post (status 'new', placeholder caption) at a given date. Records a
+ *  post_created ledger row atomically. */
+export async function addDraft(clientId: string, cycleId: string, channel: string, date: string, actor: ActivityActor = USER_ACTOR): Promise<ShapeResult> {
   // place it last
   const [maxRow] = await db
     .select({ position: contentCyclePosts.position })
@@ -85,21 +102,26 @@ export async function addDraft(clientId: string, cycleId: string, channel: strin
     .limit(1);
   const position = (maxRow?.position ?? 0) + 1;
 
-  const [created] = await db
-    .insert(contentCyclePosts)
-    .values({
-      clientId, cycleId, channel,
-      scheduledDate: date,
-      format:        'single',
-      pillar:        'New idea',
-      caption:       DRAFT_PLACEHOLDER,
-      status:        'new',
-      position,
-      sourceMeta:    {},   // no original → revert removes it
-    })
-    .returning({ id: contentCyclePosts.id });
+  let newId: string | null = null;
+  await db.transaction(async (tx) => {
+    const [created] = await tx
+      .insert(contentCyclePosts)
+      .values({
+        clientId, cycleId, channel,
+        scheduledDate: date,
+        format:        'single',
+        pillar:        'New idea',
+        caption:       DRAFT_PLACEHOLDER,
+        status:        'new',
+        position,
+        sourceMeta:    {},   // no original → revert removes it
+      })
+      .returning({ id: contentCyclePosts.id });
+    newId = created?.id ?? null;
+    if (newId) await recordActivity(tx, { clientId, cycleId, postId: newId, action: 'post_created', actor, payload: { date } });
+  });
 
-  return applied(clientId, cycleId, created ? [created.id] : [], 'Added a draft post.');
+  return applied(clientId, cycleId, newId ? [newId] : [], 'Added a draft post.');
 }
 
 /** Insert a post with pre-generated content (weekly session's weather draft).
@@ -107,6 +129,7 @@ export async function addDraft(clientId: string, cycleId: string, channel: strin
 export async function addGeneratedPost(
   clientId: string, cycleId: string,
   spec: { channel: string; date: string; format: string; pillar: string; caption: string },
+  actor: ActivityActor = USER_ACTOR,
 ): Promise<ShapeResult> {
   const [maxRow] = await db
     .select({ position: contentCyclePosts.position })
@@ -117,15 +140,20 @@ export async function addGeneratedPost(
   const position = (maxRow?.position ?? 0) + 1;
 
   const format = FORMATS.has(spec.format as PostFormat) ? spec.format : 'single';
-  const [created] = await db
-    .insert(contentCyclePosts)
-    .values({
-      clientId, cycleId, channel: spec.channel,
-      scheduledDate: spec.date, format, pillar: spec.pillar, caption: spec.caption,
-      status: 'new', position, sourceMeta: {},
-    })
-    .returning({ id: contentCyclePosts.id });
-  return applied(clientId, cycleId, created ? [created.id] : [], 'Added the post.');
+  let newId: string | null = null;
+  await db.transaction(async (tx) => {
+    const [created] = await tx
+      .insert(contentCyclePosts)
+      .values({
+        clientId, cycleId, channel: spec.channel,
+        scheduledDate: spec.date, format, pillar: spec.pillar, caption: spec.caption,
+        status: 'new', position, sourceMeta: {},
+      })
+      .returning({ id: contentCyclePosts.id });
+    newId = created?.id ?? null;
+    if (newId) await recordActivity(tx, { clientId, cycleId, postId: newId, action: 'post_created', actor, payload: { date: spec.date, format } });
+  });
+  return applied(clientId, cycleId, newId ? [newId] : [], 'Added the post.');
 }
 
 /** Insert a post that is being generated async from an instruction. It occupies
@@ -135,6 +163,7 @@ export async function addGeneratedPost(
 export async function addGeneratingPost(
   clientId: string, cycleId: string,
   spec: { channel: string; date: string; instruction: string },
+  actor: ActivityActor = USER_ACTOR,
 ): Promise<{ postId: string }> {
   const [maxRow] = await db
     .select({ position: contentCyclePosts.position })
@@ -144,16 +173,21 @@ export async function addGeneratingPost(
     .limit(1);
   const position = (maxRow?.position ?? 0) + 1;
 
-  const [created] = await db
-    .insert(contentCyclePosts)
-    .values({
-      clientId, cycleId, channel: spec.channel,
-      scheduledDate: spec.date, format: 'single', pillar: 'New idea', caption: '',
-      status: 'generating', position,
-      sourceMeta: { pendingInstruction: spec.instruction },
-    })
-    .returning({ id: contentCyclePosts.id });
-  return { postId: created!.id };
+  let newId = '';
+  await db.transaction(async (tx) => {
+    const [created] = await tx
+      .insert(contentCyclePosts)
+      .values({
+        clientId, cycleId, channel: spec.channel,
+        scheduledDate: spec.date, format: 'single', pillar: 'New idea', caption: '',
+        status: 'generating', position,
+        sourceMeta: { pendingInstruction: spec.instruction },
+      })
+      .returning({ id: contentCyclePosts.id });
+    newId = created!.id;
+    await recordActivity(tx, { clientId, cycleId, postId: newId, action: 'post_created', actor, payload: { date: spec.date, generating: true } });
+  });
+  return { postId: newId };
 }
 
 /** Mark a post as generating (retry): status 'generating', clears any prior error,
@@ -174,31 +208,39 @@ export async function markPostGenerationFailed(clientId: string, cycleId: string
   await db.update(contentCyclePosts).set({ status: 'generation_failed', sourceMeta: meta }).where(scopedPost(clientId, cycleId, postId));
 }
 
-/** Soft-delete (recoverable; reconciliation can still see it). Owned-scope only. */
-export async function softDeletePost(clientId: string, cycleId: string, postId: string): Promise<ShapeResult | null> {
+/** Soft-delete (recoverable; reconciliation can still see it). Owned-scope only.
+ *  Records a post_deleted ledger row atomically. */
+export async function softDeletePost(clientId: string, cycleId: string, postId: string, actor: ActivityActor = USER_ACTOR): Promise<ShapeResult | null> {
   const row = await ownedPost(clientId, cycleId, postId);
   if (!row) return null;
-  await db.update(contentCyclePosts).set({ deletedAt: new Date() }).where(scopedPost(clientId, cycleId, postId));
+  await db.transaction(async (tx) => {
+    await tx.update(contentCyclePosts).set({ deletedAt: new Date() }).where(scopedPost(clientId, cycleId, postId));
+    await recordActivity(tx, { clientId, cycleId, postId, action: 'post_deleted', actor });
+  });
   return applied(clientId, cycleId, [postId], 'Removed it.');
 }
 
 /** Revert: a drafted ('new') post is removed; otherwise restore the original
  *  values captured in source_meta.original and clear the 'edited' status. */
-export async function revertPost(clientId: string, cycleId: string, postId: string): Promise<ShapeResult | null> {
+export async function revertPost(clientId: string, cycleId: string, postId: string, actor: ActivityActor = USER_ACTOR): Promise<ShapeResult | null> {
   const row = await ownedPost(clientId, cycleId, postId);
   if (!row) return null;
 
   // Decision is pure (source_meta.original is the baseline — never touched by an
   // edit or regen, so revert always returns to the generated starting point).
   const decision = resolveRevert(row);
-  if (decision.action === 'remove') {
-    await db.update(contentCyclePosts).set({ deletedAt: new Date() }).where(scopedPost(clientId, cycleId, postId));
-    return applied(clientId, cycleId, [postId], 'Removed the draft.');
-  }
-  if (decision.action === 'clear') {
-    await db.update(contentCyclePosts).set({ status: 'planned' }).where(scopedPost(clientId, cycleId, postId));
-    return applied(clientId, cycleId, [postId], 'Reverted.');
-  }
-  await db.update(contentCyclePosts).set(decision.values).where(scopedPost(clientId, cycleId, postId));
-  return applied(clientId, cycleId, [postId], 'Reverted to the original.');
+  const set =
+    decision.action === 'remove' ? { deletedAt: new Date() }
+    : decision.action === 'clear' ? { status: 'planned' as const }
+    : decision.values;
+  const summary =
+    decision.action === 'remove' ? 'Removed the draft.'
+    : decision.action === 'clear' ? 'Reverted.'
+    : 'Reverted to the original.';
+
+  await db.transaction(async (tx) => {
+    await tx.update(contentCyclePosts).set(set).where(scopedPost(clientId, cycleId, postId));
+    await recordActivity(tx, { clientId, cycleId, postId, action: 'post_reverted', actor, payload: { result: decision.action } });
+  });
+  return applied(clientId, cycleId, [postId], summary);
 }

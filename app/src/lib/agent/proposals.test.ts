@@ -119,7 +119,7 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     const r = await approveProposal(CLIENT, 'prop-1', 'client');
     expect(r.proposal?.status).toBe('applied');
     expect(h.patch).toHaveBeenCalledTimes(1);
-    expect(h.patch).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-9', { date: '2026-09-14' });
+    expect(h.patch).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-9', { date: '2026-09-14' }, { origin: 'agent', refProposalId: 'prop-1' });
   });
 
   it('the claim UPDATE is scoped by clientId AND guarded on status=pending', async () => {
@@ -135,7 +135,7 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     h.claimQueue = [[{ ...moveRow, intent: 'delete_post', payload: { kind: 'delete', cycleId: 'cycle-1', postId: 'post-9' } }]];
     const r = await approveProposal(CLIENT, 'prop-1', 'client');
     expect(r.proposal?.status).toBe('applied');
-    expect(h.softDelete).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-9');
+    expect(h.softDelete).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-9', { origin: 'agent', refProposalId: 'prop-1' });
   });
 
   it('a rewrite approval enqueues a shape job and returns its jobId', async () => {
@@ -158,7 +158,7 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     h.claimQueue = [[{ ...moveRow, intent: 'rewrite_post', payload: { kind: 'apply_caption', cycleId: 'cycle-1', postId: 'post-9', caption: 'New warmer caption', noteId: 'note-7' } }]];
     const r = await approveProposal(CLIENT, 'prop-1', 'client');
     expect(r.proposal?.status).toBe('applied');
-    expect(h.patch).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-9', { caption: 'New warmer caption' });
+    expect(h.patch).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-9', { caption: 'New warmer caption' }, { origin: 'agent', refProposalId: 'prop-1' });
     expect(h.markNote).toHaveBeenCalledWith(CLIENT, 'note-7', 'prop-1');
     expect(h.enqueue).not.toHaveBeenCalled();   // pre-generated — no second generation
   });
@@ -173,14 +173,14 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     h.claimQueue = [[{ ...moveRow, intent: 'add_post', payload: { kind: 'add_generated', cycleId: 'cycle-1', date: '2026-07-15', channel: 'instagram', format: 'single', pillar: 'Weather', caption: 'Heatwave edit' } }]];
     const r = await approveProposal(CLIENT, 'prop-1', 'client');
     expect(r.proposal?.status).toBe('applied');
-    expect(h.addGen).toHaveBeenCalledWith(CLIENT, 'cycle-1', { channel: 'instagram', date: '2026-07-15', format: 'single', pillar: 'Weather', caption: 'Heatwave edit' });
+    expect(h.addGen).toHaveBeenCalledWith(CLIENT, 'cycle-1', { channel: 'instagram', date: '2026-07-15', format: 'single', pillar: 'Weather', caption: 'Heatwave edit' }, { origin: 'agent', refProposalId: 'prop-1' });
   });
 
   it('an add_post WITH an instruction inserts the post and enqueues generation (jobId returned)', async () => {
     h.claimQueue = [[{ ...moveRow, intent: 'add_post', payload: { kind: 'add', cycleId: 'cycle-1', date: '2026-07-15', channel: 'instagram', instruction: 'a post about the linen restock' } }]];
     const r = await approveProposal(CLIENT, 'prop-1', 'client');
     expect(r.proposal?.status).toBe('applied');
-    expect(h.addGenerating).toHaveBeenCalledWith(CLIENT, 'cycle-1', { channel: 'instagram', date: '2026-07-15', instruction: 'a post about the linen restock' });
+    expect(h.addGenerating).toHaveBeenCalledWith(CLIENT, 'cycle-1', { channel: 'instagram', date: '2026-07-15', instruction: 'a post about the linen restock' }, { origin: 'agent', refProposalId: 'prop-1' });
     expect(h.startGen).toHaveBeenCalledTimes(1);
     expect(h.startGen).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-new', 'a post about the linen restock');
     expect(r.jobId).toBe('shape_cycle-1_post-new');
@@ -191,7 +191,7 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     h.claimQueue = [[{ ...moveRow, intent: 'add_post', payload: { kind: 'add', cycleId: 'cycle-1', date: '2026-07-15', channel: 'instagram' } }]];
     const r = await approveProposal(CLIENT, 'prop-1', 'client');
     expect(r.proposal?.status).toBe('applied');
-    expect(h.add).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'instagram', '2026-07-15');
+    expect(h.add).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'instagram', '2026-07-15', { origin: 'agent', refProposalId: 'prop-1' });
     expect(h.addGenerating).not.toHaveBeenCalled();
     expect(h.startGen).not.toHaveBeenCalled();
     expect(r.jobId).toBeUndefined();

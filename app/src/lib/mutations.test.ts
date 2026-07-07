@@ -24,21 +24,25 @@ vi.mock('drizzle-orm', () => ({
 }));
 
 // Fake db: columns resolve to their own name; update().set().where() records the
-// WHERE; select() returns queued rows; insert() records values.
+// WHERE; select() returns queued rows; insert() records values. transaction() runs
+// its callback with the same fake handle (writes + ledger commit together), and
+// planActivity is a name marker (recordActivity's insert is recorded like any other).
 vi.mock('@sprigly/db', () => {
   const contentCyclePosts = new Proxy({}, { get: (_t, prop) => String(prop) });
+  const planActivity = new Proxy({}, { get: (_t, prop) => String(prop) });
   const selectChain: Record<string, unknown> = {
     from() { return selectChain; },
     where() { return selectChain; },
     orderBy() { return selectChain; },
     limit() { return Promise.resolve(h.selectResults.shift() ?? []); },
   };
-  const db = {
+  const db: Record<string, unknown> = {
     select: () => selectChain,
     update: () => ({ set: () => ({ where: (cond: unknown) => { h.updateWheres.push(cond); return Promise.resolve(); } }) }),
     insert: () => ({ values: (v: unknown) => { h.insertValues.push(v); return { returning: () => Promise.resolve(h.insertResults.shift() ?? []) }; } }),
+    transaction: (fn: (tx: unknown) => unknown) => Promise.resolve(fn(db)),
   };
-  return { db, contentCyclePosts };
+  return { db, contentCyclePosts, planActivity };
 });
 
 vi.mock('@/lib/plan', () => ({ loadPlanPosts: async () => [] }));
