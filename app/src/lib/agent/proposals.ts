@@ -11,9 +11,10 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { db, agentProposals, contentCycles } from '@sprigly/db';
 import type { AgentProposalRow } from '@sprigly/db';
-import { patchPost, softDeletePost, addDraft, addGeneratedPost } from '../mutations';
+import { patchPost, softDeletePost, addDraft, addGeneratedPost, addGeneratingPost } from '../mutations';
 import { enqueueShape } from '../queue';
 import { getUsageForCycle, isRewriteBlocked } from '../usage';
+import { startPostGeneration } from '../post-generation';
 import { markNoteIntegrated } from './notes';
 import type { MutatingAction, ProposalPayload, ProposalView } from './types';
 
@@ -104,6 +105,7 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
   if (!row) return { proposal: await currentView(clientId, id) }; // already resolved / not owned
 
   const payload = row.payload as unknown as ProposalPayload;
+  let genJobId: string | undefined;   // add-with-instruction: the caption-generation job to poll
   try {
     if (payload.kind === 'rewrite') {
       const usage = await getUsageForCycle(row.clientId, payload.cycleId);
@@ -123,7 +125,18 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
       await softDeletePost(row.clientId, payload.cycleId, payload.postId);
     } else if (payload.kind === 'add') {
       const channel = payload.channel ?? await cycleChannel(row.clientId, payload.cycleId);
-      await addDraft(row.clientId, payload.cycleId, channel, payload.date);
+      const instruction = payload.instruction?.trim();
+      if (instruction) {
+        // Add-with-instruction: insert the post NOW so it takes its slot, then
+        // generate the caption async. Quota is checked/counted by the shape job.
+        // Quota-block or enqueue failure leaves the post in a failed state (not the
+        // default placeholder) — the approval still succeeds because the post exists.
+        const { postId } = await addGeneratingPost(row.clientId, payload.cycleId, { channel, date: payload.date, instruction });
+        const gen = await startPostGeneration(row.clientId, payload.cycleId, postId, instruction);
+        if ('jobId' in gen) genJobId = gen.jobId;
+      } else {
+        await addDraft(row.clientId, payload.cycleId, channel, payload.date);
+      }
     } else if (payload.kind === 'apply_caption') {
       // Weekly-session pre-generated rewrite: apply the already-validated caption
       // deterministically (no second generation), and mark any integrated note.
@@ -133,7 +146,7 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
       await addGeneratedPost(row.clientId, payload.cycleId, { channel: payload.channel, date: payload.date, format: payload.format, pillar: payload.pillar, caption: payload.caption });
     }
     await setStatus(clientId, id, 'applied', null, true);
-    return { proposal: view({ ...row, status: 'applied' }) };
+    return { proposal: view({ ...row, status: 'applied' }), ...(genJobId ? { jobId: genJobId } : {}) };
   } catch (err) {
     await setStatus(clientId, id, 'failed', String(err), false);
     return { proposal: view({ ...row, status: 'failed' }) };

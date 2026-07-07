@@ -28,7 +28,7 @@ Task actions:
 - "move_post": reschedule an existing post. Fields: postId or selector; toDate (ISO 'YYYY-MM-DD').
 - "delete_post": remove an existing post. Fields: postId or selector.
 - "rewrite_post": change the WORDING of an existing post's caption. Fields: postId or selector; instruction (the change to make).
-- "add_post": add a new post. Fields: toDate (ISO, optional); channel ('instagram'|'email', optional).
+- "add_post": add a new post. Fields: toDate (ISO, optional); channel ('instagram'|'email', optional); instruction (what the post should be about, optional — include it whenever the message says what to post; omit only for a bare "add a post" with no topic).
 - "add_note": remember a fact/instruction for the plan (not an edit to one existing post). Fields: content; targetMonth ('YYYY-MM', optional); relevantFrom/relevantTo (ISO dates, optional, if the note names a window).
 - "query": a question about the plan or brand knowledge. Fields: question.
 - "clarify": the request is too vague or a post reference is ambiguous. Fields: question (what you need to know).
@@ -111,7 +111,9 @@ function normalizeTask(raw: unknown): ParsedTask {
       return { action, ...postRef, instruction, reason };
     }
     case 'add_post':
-      return { action, toDate: isoDate(r.toDate), channel: r.channel === 'email' ? 'email' : r.channel === 'instagram' ? 'instagram' : null, reason };
+      // instruction = what the post should be about (optional). A bare add with no
+      // instruction stays a blank draft slot.
+      return { action, toDate: isoDate(r.toDate), channel: r.channel === 'email' ? 'email' : r.channel === 'instagram' ? 'instagram' : null, instruction: str(r.instruction) ?? str(r.content), reason };
     case 'add_note': {
       const content = str(r.content);
       if (!content) return clarify('What would you like me to note down?', reason);

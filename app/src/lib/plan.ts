@@ -17,7 +17,7 @@ import type {
 } from './types.js';
 
 const FORMATS  = new Set<PostFormat>(['reel', 'carousel', 'single', 'email']);
-const STATUSES = new Set<PostStatus>(['planned', 'edited', 'new']);
+const STATUSES = new Set<PostStatus>(['planned', 'edited', 'new', 'generating', 'generation_failed']);
 const REVIEW_STATES = new Set<ReviewState>(['preserved_edit', 'preserved_edit_orphan', 'regenerated']);
 
 const MONTH_NAMES = [
@@ -61,7 +61,16 @@ export async function loadPlanPosts(clientId: string, cycleId: string): Promise<
     reviewState: (r.reviewState && REVIEW_STATES.has(r.reviewState as ReviewState) ? r.reviewState : null) as ReviewState | null,
     script:      r.script ?? null,
     overlay:     r.overlay ?? null,
+    pendingInstruction: metaStr(r.sourceMeta, 'pendingInstruction'),
+    generationError:    metaStr(r.sourceMeta, 'generationError'),
   }));
+}
+
+/** Read a string field off a post's source_meta jsonb (null if absent/non-string). */
+function metaStr(sourceMeta: unknown, key: string): string | null {
+  if (!sourceMeta || typeof sourceMeta !== 'object') return null;
+  const v = (sourceMeta as Record<string, unknown>)[key];
+  return typeof v === 'string' && v.trim() ? v : null;
 }
 
 /**

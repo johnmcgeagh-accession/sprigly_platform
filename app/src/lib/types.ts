@@ -6,7 +6,11 @@
 
 export type PostChannel = 'instagram' | 'email';
 export type PostFormat  = 'reel' | 'carousel' | 'single' | 'email';
-export type PostStatus  = 'planned' | 'edited' | 'new';
+// 'generating' / 'generation_failed' carry an async add-post-with-instruction:
+// the post occupies its slot immediately while a shape job writes the caption
+// (generating) or after that job failed (generation_failed, instruction preserved
+// for retry). Both are transient — they resolve to 'new' on success.
+export type PostStatus  = 'planned' | 'edited' | 'new' | 'generating' | 'generation_failed';
 
 // Regen-merge provenance (migration 0059), orthogonal to `status`. Carried on the
 // post so the future orphan accept/remove affordance and the switcher's per-month
@@ -26,6 +30,10 @@ export interface PlanPost {
   reviewState: ReviewState | null;
   script?:     string | null;
   overlay?:    string | null;
+  // Async add-post-with-instruction (carried on source_meta): the instruction that
+  // generates/regenerates this post, and the last generation error (if failed).
+  pendingInstruction?: string | null;
+  generationError?:    string | null;
 }
 
 // ── Month switcher (slice 1) ──────────────────────────────────────────────────

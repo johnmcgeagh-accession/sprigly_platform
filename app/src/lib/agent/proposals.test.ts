@@ -19,6 +19,8 @@ const h = vi.hoisted(() => ({
   softDelete: vi.fn(),
   add: vi.fn(),
   addGen: vi.fn(),
+  addGenerating: vi.fn(),
+  startGen: vi.fn(),
   markNote: vi.fn(),
   enqueue: vi.fn(),
   usage: { used: 0, limit: 30, unlimited: false } as Record<string, unknown>,
@@ -58,7 +60,9 @@ vi.mock('../mutations', () => ({
   softDeletePost: (...a: unknown[]) => h.softDelete(...a),
   addDraft: (...a: unknown[]) => h.add(...a),
   addGeneratedPost: (...a: unknown[]) => h.addGen(...a),
+  addGeneratingPost: (...a: unknown[]) => h.addGenerating(...a),
 }));
+vi.mock('../post-generation', () => ({ startPostGeneration: (...a: unknown[]) => h.startGen(...a) }));
 vi.mock('./notes', () => ({ markNoteIntegrated: (...a: unknown[]) => h.markNote(...a) }));
 vi.mock('../queue', () => ({ enqueueShape: (...a: unknown[]) => h.enqueue(...a) }));
 vi.mock('../usage', () => ({
@@ -82,7 +86,10 @@ const moveRow = { id: 'prop-1', clientId: CLIENT, intent: 'move_post', summary: 
 beforeEach(() => {
   h.updateWheres.length = 0; h.selectWheres.length = 0; h.claimQueue.length = 0;
   h.currentRow = null; h.listRows = [];
-  h.patch.mockReset(); h.softDelete.mockReset(); h.add.mockReset(); h.addGen.mockReset(); h.markNote.mockReset(); h.enqueue.mockReset();
+  h.patch.mockReset(); h.softDelete.mockReset(); h.add.mockReset(); h.addGen.mockReset();
+  h.addGenerating.mockReset().mockResolvedValue({ postId: 'post-new' });
+  h.startGen.mockReset().mockResolvedValue({ jobId: 'shape_cycle-1_post-new' });
+  h.markNote.mockReset(); h.enqueue.mockReset();
   h.blocked = false; h.usage = { used: 0, limit: 30, unlimited: false };
 });
 
@@ -167,6 +174,36 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     const r = await approveProposal(CLIENT, 'prop-1', 'client');
     expect(r.proposal?.status).toBe('applied');
     expect(h.addGen).toHaveBeenCalledWith(CLIENT, 'cycle-1', { channel: 'instagram', date: '2026-07-15', format: 'single', pillar: 'Weather', caption: 'Heatwave edit' });
+  });
+
+  it('an add_post WITH an instruction inserts the post and enqueues generation (jobId returned)', async () => {
+    h.claimQueue = [[{ ...moveRow, intent: 'add_post', payload: { kind: 'add', cycleId: 'cycle-1', date: '2026-07-15', channel: 'instagram', instruction: 'a post about the linen restock' } }]];
+    const r = await approveProposal(CLIENT, 'prop-1', 'client');
+    expect(r.proposal?.status).toBe('applied');
+    expect(h.addGenerating).toHaveBeenCalledWith(CLIENT, 'cycle-1', { channel: 'instagram', date: '2026-07-15', instruction: 'a post about the linen restock' });
+    expect(h.startGen).toHaveBeenCalledTimes(1);
+    expect(h.startGen).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-new', 'a post about the linen restock');
+    expect(r.jobId).toBe('shape_cycle-1_post-new');
+    expect(h.add).not.toHaveBeenCalled();   // not the blank-draft path
+  });
+
+  it('a BARE add_post (no instruction) inserts a blank draft, no generation', async () => {
+    h.claimQueue = [[{ ...moveRow, intent: 'add_post', payload: { kind: 'add', cycleId: 'cycle-1', date: '2026-07-15', channel: 'instagram' } }]];
+    const r = await approveProposal(CLIENT, 'prop-1', 'client');
+    expect(r.proposal?.status).toBe('applied');
+    expect(h.add).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'instagram', '2026-07-15');
+    expect(h.addGenerating).not.toHaveBeenCalled();
+    expect(h.startGen).not.toHaveBeenCalled();
+    expect(r.jobId).toBeUndefined();
+  });
+
+  it('a double-approve of an add-with-instruction inserts + enqueues ONCE (status guard)', async () => {
+    h.claimQueue = [[{ ...moveRow, intent: 'add_post', payload: { kind: 'add', cycleId: 'cycle-1', date: '2026-07-15', channel: 'instagram', instruction: 'x' } }], []];
+    h.currentRow = { id: 'prop-1', intent: 'add_post', summary: 's', status: 'applied', changeSetId: 'cs-1' };
+    await approveProposal(CLIENT, 'prop-1', 'client');
+    await approveProposal(CLIENT, 'prop-1', 'client');
+    expect(h.addGenerating).toHaveBeenCalledTimes(1);
+    expect(h.startGen).toHaveBeenCalledTimes(1);
   });
 
   it('a double-approve does NOT re-apply (status guard)', async () => {

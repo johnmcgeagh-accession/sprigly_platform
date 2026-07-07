@@ -128,6 +128,52 @@ export async function addGeneratedPost(
   return applied(clientId, cycleId, created ? [created.id] : [], 'Added the post.');
 }
 
+/** Insert a post that is being generated async from an instruction. It occupies
+ *  its slot immediately (status 'generating', empty caption — the UI shows a
+ *  working state, never the default placeholder). The instruction is kept on
+ *  source_meta so a failed generation can be retried. Returns the new post id. */
+export async function addGeneratingPost(
+  clientId: string, cycleId: string,
+  spec: { channel: string; date: string; instruction: string },
+): Promise<{ postId: string }> {
+  const [maxRow] = await db
+    .select({ position: contentCyclePosts.position })
+    .from(contentCyclePosts)
+    .where(and(eq(contentCyclePosts.cycleId, cycleId), eq(contentCyclePosts.clientId, clientId)))
+    .orderBy(desc(contentCyclePosts.position))
+    .limit(1);
+  const position = (maxRow?.position ?? 0) + 1;
+
+  const [created] = await db
+    .insert(contentCyclePosts)
+    .values({
+      clientId, cycleId, channel: spec.channel,
+      scheduledDate: spec.date, format: 'single', pillar: 'New idea', caption: '',
+      status: 'generating', position,
+      sourceMeta: { pendingInstruction: spec.instruction },
+    })
+    .returning({ id: contentCyclePosts.id });
+  return { postId: created!.id };
+}
+
+/** Mark a post as generating (retry): status 'generating', clears any prior error,
+ *  keeps/refreshes the instruction. Owned-scope only; null if not found. */
+export async function markPostGenerating(clientId: string, cycleId: string, postId: string, instruction: string): Promise<{ postId: string } | null> {
+  const row = await ownedPost(clientId, cycleId, postId);
+  if (!row) return null;
+  const meta = { ...((row.sourceMeta ?? {}) as Record<string, unknown>), pendingInstruction: instruction, generationError: null };
+  await db.update(contentCyclePosts).set({ status: 'generating', sourceMeta: meta }).where(scopedPost(clientId, cycleId, postId));
+  return { postId };
+}
+
+/** Mark a post's generation as failed, preserving the instruction + the reason. */
+export async function markPostGenerationFailed(clientId: string, cycleId: string, postId: string, error: string): Promise<void> {
+  const row = await ownedPost(clientId, cycleId, postId);
+  if (!row) return;
+  const meta = { ...((row.sourceMeta ?? {}) as Record<string, unknown>), generationError: error };
+  await db.update(contentCyclePosts).set({ status: 'generation_failed', sourceMeta: meta }).where(scopedPost(clientId, cycleId, postId));
+}
+
 /** Soft-delete (recoverable; reconciliation can still see it). Owned-scope only. */
 export async function softDeletePost(clientId: string, cycleId: string, postId: string): Promise<ShapeResult | null> {
   const row = await ownedPost(clientId, cycleId, postId);

@@ -60,6 +60,19 @@ describe('ambiguous / dictated / question fixtures', () => {
 });
 
 describe('validation + resilience', () => {
+  it('captures an add_post instruction (what the post is about)', async () => {
+    const model = fakeModel(JSON.stringify({ tasks: [{ action: 'add_post', toDate: '2026-07-15', channel: 'instagram', instruction: 'the linen restock landing this week', reason: 'add a post about the linen restock' }] }));
+    const [t] = await parseTasks('add a post this week about the linen restock', CTX, model);
+    expect(t!.action).toBe('add_post');
+    expect(t!.instruction).toBe('the linen restock landing this week');
+  });
+
+  it('a bare add_post carries no instruction', async () => {
+    const [t] = await parseTasks('add a post on friday', CTX, fakeModel(JSON.stringify({ tasks: [{ action: 'add_post', toDate: '2026-07-17' }] })));
+    expect(t!.action).toBe('add_post');
+    expect(t!.instruction ?? null).toBeNull();
+  });
+
   it('a move with no post reference becomes clarify', async () => {
     const [t] = await parseTasks('move it', CTX, fakeModel(JSON.stringify({ tasks: [{ action: 'move_post', toDate: '2026-09-04' }] })));
     expect(t!.action).toBe('clarify');

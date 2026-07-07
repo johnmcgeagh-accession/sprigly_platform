@@ -65,6 +65,7 @@ const iso = (y: number, mZero: number, day: number) => `${y}-${String(mZero + 1)
 interface VPost {
   id: string; date: Date; format: PostFormat; pillar: string;
   caption: string; status: PostStatus; script: string | null;
+  pendingInstruction: string | null; generationError: string | null;
 }
 
 export default function PlanApp({ clientName, posts: initial, cycles, homeCycleId }: {
@@ -183,9 +184,11 @@ export default function PlanApp({ clientName, posts: initial, cycles, homeCycleI
       setLastReply((lr) => (lr ? { ...lr, proposals: lr.proposals.map((p) => (p.id === id ? d.proposal : p)) } : lr));
       if (action === 'approve') {
         flash('Change approved.');
-        // move/delete/add applied synchronously; rewrite enqueued a job to poll.
+        // move/delete/add applied synchronously; a rewrite or an add-with-instruction
+        // enqueued a caption job — poll it, then reload to show the result (or its
+        // failed state). reloadPlan first so a new post shows its 'writing…' state.
         await reloadPlan();
-        if (d.jobId) { await pollOne(d.jobId); await refreshUsage(); }
+        if (d.jobId) { await pollOne(d.jobId); await reloadPlan(); await refreshUsage(); }
       } else {
         flash('Dismissed.');
       }
@@ -236,7 +239,7 @@ export default function PlanApp({ clientName, posts: initial, cycles, homeCycleI
 
   const vposts = useMemo<VPost[]>(
     () => [...posts]
-      .map((p) => ({ id: p.id, date: parseISO(p.date), format: p.format, pillar: p.pillar, caption: p.caption, status: p.status, script: p.script ?? null }))
+      .map((p) => ({ id: p.id, date: parseISO(p.date), format: p.format, pillar: p.pillar, caption: p.caption, status: p.status, script: p.script ?? null, pendingInstruction: p.pendingInstruction ?? null, generationError: p.generationError ?? null }))
       .sort((a, b) => a.date.getTime() - b.date.getTime()),
     [posts],
   );
@@ -273,6 +276,23 @@ export default function PlanApp({ clientName, posts: initial, cycles, homeCycleI
         flash(r.summary ?? 'Sprigly is rewriting this…');
         await pollOne(r.jobId);
         setRewritingId(null);
+        await refreshUsage();
+      }
+    } catch { flash('Network error — please try again.'); }
+  }
+
+  /** Retry a failed async generation: re-run using the preserved instruction. */
+  async function retryGeneration(id: string): Promise<void> {
+    if (readOnly) return;
+    try {
+      const res = await fetch(`/api/posts/${id}/retry-generation`, { method: 'POST' });
+      if (!res.ok) { flash('Could not retry that — please try again.'); return; }
+      const r = (await res.json()) as { mode?: string; summary?: string; jobId?: string };
+      if (r.mode === 'blocked') { flash(r.summary ?? 'You’ve reached this month’s AI-change limit.'); await reloadPlan(); await refreshUsage(); return; }
+      if (r.mode === 'pending' && r.jobId) {
+        await reloadPlan();               // show the 'writing…' state
+        await pollOne(r.jobId);
+        await reloadPlan();               // show the filled caption (or failed state)
         await refreshUsage();
       }
     } catch { flash('Network error — please try again.'); }
@@ -378,7 +398,7 @@ export default function PlanApp({ clientName, posts: initial, cycles, homeCycleI
           <section style={{ flex: 1, padding: '28px 30px 132px' }}>
             {readOnly
               ? <ReadOnlyDetail post={sel} />
-              : <Detail post={sel} busy={busy} rewriting={rewritingId === sel?.id} onSetFormat={setFormat} onSaveCaption={saveCaption} onRemove={remove} onRevert={revert} onShape={shapePost} />}
+              : <Detail post={sel} busy={busy} rewriting={rewritingId === sel?.id} onSetFormat={setFormat} onSaveCaption={saveCaption} onRemove={remove} onRevert={revert} onShape={shapePost} onRetry={retryGeneration} />}
           </section>
         )}
       </div>
@@ -391,7 +411,7 @@ export default function PlanApp({ clientName, posts: initial, cycles, homeCycleI
             </div>
             {readOnly
               ? <ReadOnlyDetail post={sel} />
-              : <Detail post={sel} busy={busy} rewriting={rewritingId === sel?.id} onSetFormat={setFormat} onSaveCaption={saveCaption} onRemove={remove} onRevert={revert} onShape={shapePost} />}
+              : <Detail post={sel} busy={busy} rewriting={rewritingId === sel?.id} onSetFormat={setFormat} onSaveCaption={saveCaption} onRemove={remove} onRevert={revert} onShape={shapePost} onRetry={retryGeneration} />}
           </div>
         </div>
       )}
@@ -511,7 +531,13 @@ function SprigRow({ post, first, last, selected, onClick }: { post: VPost; first
           <span style={{ color: C.line }}>·</span>
           <span style={{ color: C.muted }}>{post.pillar}</span>
         </div>
-        <p style={{ margin: 0, fontSize: 13.5, color: C.muted, lineHeight: 1.45, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{post.caption.replace(/\n+/g, ' ')}</p>
+        {post.status === 'generating'
+          ? <p style={{ margin: 0, fontSize: 13, color: C.coralDeep, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <span className="spin" style={{ width: 12, height: 12, border: '2px solid #FFD9D4', borderTopColor: C.coralDeep, borderRadius: '50%', display: 'inline-block' }} /> Sprigly is writing this…
+            </p>
+          : post.status === 'generation_failed'
+          ? <p style={{ margin: 0, fontSize: 13, color: '#B42318' }}>Couldn’t write this one — open it to retry.</p>
+          : <p style={{ margin: 0, fontSize: 13.5, color: C.muted, lineHeight: 1.45, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{post.caption.replace(/\n+/g, ' ')}</p>}
       </div>
     </button>
   );
@@ -519,10 +545,11 @@ function SprigRow({ post, first, last, selected, onClick }: { post: VPost; first
 
 /* ---------------- detail (editable) ---------------- */
 
-function Detail({ post, busy, rewriting, onSetFormat, onSaveCaption, onRemove, onRevert, onShape }: {
+function Detail({ post, busy, rewriting, onSetFormat, onSaveCaption, onRemove, onRevert, onShape, onRetry }: {
   post: VPost | null; busy: boolean; rewriting: boolean;
   onSetFormat: (id: string, f: PostFormat) => void; onSaveCaption: (id: string, c: string) => void;
   onRemove: (id: string) => void; onRevert: (id: string) => void; onShape: (id: string, instruction: string) => void;
+  onRetry: (id: string) => void;
 }) {
   const [draft, setDraft] = useState('');
   const [shapeText, setShapeText] = useState('');
@@ -544,9 +571,26 @@ function Detail({ post, busy, rewriting, onSetFormat, onSaveCaption, onRemove, o
         <span style={{ color: C.line }}>·</span>
         <span style={{ fontFamily: display, fontSize: 16, color: C.navy }}>{`${WK[post.date.getDay()]} ${MONTHS[post.date.getMonth()]} ${post.date.getDate()}`}</span>
         <StatusTag status={post.status} />
-        {post.status !== 'planned' && <button onClick={() => onRevert(post.id)} disabled={busy} style={{ marginLeft: 'auto', ...textBtn }}><Undo2 size={13} /> Revert</button>}
+        {post.status !== 'planned' && post.status !== 'generating' && post.status !== 'generation_failed' && <button onClick={() => onRevert(post.id)} disabled={busy} style={{ marginLeft: 'auto', ...textBtn }}><Undo2 size={13} /> Revert</button>}
       </div>
 
+      {post.status === 'generating' ? (
+        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 12, color: C.coralDeep, fontSize: 14, background: C.coralLt, borderRadius: 14, padding: '22px 18px' }}>
+          <span className="spin" style={{ width: 17, height: 17, border: '2px solid #FFD9D4', borderTopColor: C.coralDeep, borderRadius: '50%', display: 'inline-block', flex: '0 0 auto' }} />
+          <div>
+            <div style={{ fontWeight: 600 }}>Sprigly is writing this post…</div>
+            {post.pendingInstruction && <div style={{ fontSize: 12.5, color: C.muted, marginTop: 3 }}>“{post.pendingInstruction}”</div>}
+          </div>
+        </div>
+      ) : post.status === 'generation_failed' ? (
+        <div style={{ marginTop: 8, border: '1px solid #F3C9C4', background: '#FEF3F2', borderRadius: 14, padding: '18px' }}>
+          <div style={{ fontWeight: 600, color: '#B42318', fontSize: 14.5 }}>That one didn’t come through</div>
+          <p style={{ fontSize: 13, color: C.muted, margin: '6px 0 0' }}>{post.generationError || 'Generation didn’t complete.'}</p>
+          {post.pendingInstruction && <p style={{ fontSize: 13.5, color: C.navy, margin: '12px 0 0' }}>You asked for: “{post.pendingInstruction}”</p>}
+          <button onClick={() => onRetry(post.id)} disabled={busy} style={{ ...primaryBtn, padding: '0 16px', height: 38, marginTop: 14, opacity: busy ? 0.5 : 1 }}><Sparkles size={15} /> Try again</button>
+        </div>
+      ) : (
+      <>
       <Kicker>Caption</Kicker>
       <textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={9}
         style={{ width: '100%', marginTop: 9, background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, padding: '16px 18px', fontFamily: body, fontSize: 15, lineHeight: 1.62, color: C.navy, boxShadow: softShadow, resize: 'vertical', outline: 'none' }} />
@@ -585,6 +629,8 @@ function Detail({ post, busy, rewriting, onSetFormat, onSaveCaption, onRemove, o
           </>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }
@@ -935,6 +981,8 @@ function Toggle({ active, onClick, icon: Icon, label }: { active: boolean; onCli
 function StatusTag({ status }: { status: PostStatus }) {
   if (status === 'edited') return <Tag bg={C.tagBg} fg={C.muted}>edited</Tag>;
   if (status === 'new') return <Tag bg={C.coralLt} fg={C.coralDeep}>new</Tag>;
+  if (status === 'generating') return <Tag bg={C.coralLt} fg={C.coralDeep}>writing…</Tag>;
+  if (status === 'generation_failed') return <Tag bg="#FCE4E4" fg="#B42318">needs a retry</Tag>;
   return null;
 }
 function Tag({ children, bg, fg }: { children: React.ReactNode; bg: string; fg: string }) {

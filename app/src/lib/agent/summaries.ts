@@ -17,6 +17,8 @@ export function deleteSummary(post: PostLike, reason?: string | null): string {
 export function rewriteSummary(post: PostLike, reason?: string | null): string {
   return `Rewrite the caption for “${postTitle(post)}” (${fmtDate(post.date)})${ask(reason)}`;
 }
-export function addSummary(date: string, reason?: string | null): string {
-  return `Add a new post on ${fmtDate(date)}${ask(reason)}`;
+export function addSummary(date: string, reason?: string | null, instruction?: string | null, channel?: string | null): string {
+  const chan = channel ? `${channel} ` : '';
+  if (instruction && instruction.trim()) return `Add a ${chan}post on ${fmtDate(date)} — “${instruction.trim()}”`;
+  return `Add a new ${chan}post on ${fmtDate(date)}${ask(reason)}`;
 }

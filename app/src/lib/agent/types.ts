@@ -43,7 +43,7 @@ export type ProposalPayload =
   | { kind: 'move';    cycleId: string; postId: string; toDate: string }
   | { kind: 'delete';  cycleId: string; postId: string }
   | { kind: 'rewrite'; cycleId: string; postId: string; instruction: string }
-  | { kind: 'add';     cycleId: string; date: string; channel: string | null }
+  | { kind: 'add';     cycleId: string; date: string; channel: string | null; instruction?: string | null }
   // Weekly session — pre-generated content applied deterministically on approve
   // (no second generation). apply_caption carries the full rewritten caption;
   // add_generated carries a whole new validated draft. noteId (when set) is the

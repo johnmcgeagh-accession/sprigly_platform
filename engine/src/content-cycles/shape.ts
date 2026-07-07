@@ -101,48 +101,68 @@ export async function runShapeForCycle(job: ShapeJob, deps: PlanningDeps): Promi
   };
 
   const before = post.caption ?? '';
+  // A post inserted by an async add-post-with-instruction carries status
+  // 'generating'; a direct rewrite of an existing post does not.
+  const isGenerating = post.status === 'generating';
 
-  // 1. Instructed rewrite — frame the client's instruction as the change to make.
-  const feedback = `The client asked for this change: "${job.instruction.trim()}". Rewrite the caption to honour it while keeping the post on-brand for this client (voice, register, sign-off, products).`;
-  let revised = await regeneratePost(planPost, feedback, repairCtx);
-
-  // 2. Same validation loop planning uses (mechanical gate → voice/register critic).
-  const gate = await applyCodeGate([revised], repairCtx);
-  if (gate.acceptedWithWarning.length > 0) {
-    throw new Error('Could not produce a clean caption for that change — left it unchanged.');
-  }
-  const critic = await applyCritic(gate.rows, criticCtx, repairCtx);
-  if (critic.acceptedWithWarning.length > 0) {
-    throw new Error('Could not get that change on-brand — left the caption as it was.');
-  }
-  revised = critic.rows[0] ?? revised;
-
-  // 3. HARD catalogue grounding (rewrite invalid product/colourway pairings).
-  let finalCaption = revised.draftCaption ?? before;
-  if (ctx.catalogue) {
-    const idx = indexCatalogue(ctx.catalogue as Catalogue, ctx.structuredBrief);
-    finalCaption = applyCatalogueValidation(finalCaption, '', idx).caption;
-  }
-
-  // 4. Write caption + status, PRESERVING source_meta (incl. original baseline).
-  await db.update(contentCyclePosts)
-    .set({ caption: finalCaption, status: 'edited' })
-    .where(and(
-      eq(contentCyclePosts.id, post.id),
-      eq(contentCyclePosts.cycleId, job.cycleId),
-      eq(contentCyclePosts.clientId, job.clientId),
-    ));
-
-  // 5. Audit (best-effort; never fails the job).
   try {
-    await db.insert(postEdits).values({
-      postId: post.id, cycleId: job.cycleId, scope: job.scope,
-      instruction: job.instruction, captionBefore: before, captionAfter: finalCaption, passed: true,
-    });
-  } catch (err) {
-    logger.warn({ ...logCtx, err: String(err) }, 'shape: post_edits audit write failed — non-fatal');
-  }
+    // 1. Instructed rewrite — frame the client's instruction as the change to make.
+    const feedback = `The client asked for this change: "${job.instruction.trim()}". Rewrite the caption to honour it while keeping the post on-brand for this client (voice, register, sign-off, products).`;
+    let revised = await regeneratePost(planPost, feedback, repairCtx);
 
-  logger.info({ ...logCtx }, 'shape: caption reshaped and validated');
-  return { changedPostIds: [post.id], summary: 'Updated the caption.' };
+    // 2. Same validation loop planning uses (mechanical gate → voice/register critic).
+    const gate = await applyCodeGate([revised], repairCtx);
+    if (gate.acceptedWithWarning.length > 0) {
+      throw new Error('Could not produce a clean caption for that change — left it unchanged.');
+    }
+    const critic = await applyCritic(gate.rows, criticCtx, repairCtx);
+    if (critic.acceptedWithWarning.length > 0) {
+      throw new Error('Could not get that change on-brand — left the caption as it was.');
+    }
+    revised = critic.rows[0] ?? revised;
+
+    // 3. HARD catalogue grounding (rewrite invalid product/colourway pairings).
+    let finalCaption = revised.draftCaption ?? before;
+    if (ctx.catalogue) {
+      const idx = indexCatalogue(ctx.catalogue as Catalogue, ctx.structuredBrief);
+      finalCaption = applyCatalogueValidation(finalCaption, '', idx).caption;
+    }
+
+    // 4. Write caption + status, PRESERVING source_meta (incl. original baseline).
+    //    A generated new post becomes a normal 'new' draft with content; a rewrite
+    //    of an existing post stays 'edited'.
+    await db.update(contentCyclePosts)
+      .set({ caption: finalCaption, status: isGenerating ? 'new' : 'edited' })
+      .where(and(
+        eq(contentCyclePosts.id, post.id),
+        eq(contentCyclePosts.cycleId, job.cycleId),
+        eq(contentCyclePosts.clientId, job.clientId),
+      ));
+
+    // 5. Audit (best-effort; never fails the job).
+    try {
+      await db.insert(postEdits).values({
+        postId: post.id, cycleId: job.cycleId, scope: job.scope,
+        instruction: job.instruction, captionBefore: before, captionAfter: finalCaption, passed: true,
+      });
+    } catch (err) {
+      logger.warn({ ...logCtx, err: String(err) }, 'shape: post_edits audit write failed — non-fatal');
+    }
+
+    logger.info({ ...logCtx }, 'shape: caption reshaped and validated');
+    return { changedPostIds: [post.id], summary: 'Updated the caption.' };
+  } catch (err) {
+    // A failed async generation must not linger as 'generating' or fall back to a
+    // placeholder — surface an explicit failed state, instruction preserved.
+    if (isGenerating) {
+      await db.update(contentCyclePosts)
+        .set({ status: 'generation_failed', sourceMeta: { ...sm, generationError: err instanceof Error ? err.message : String(err) } })
+        .where(and(
+          eq(contentCyclePosts.id, post.id),
+          eq(contentCyclePosts.cycleId, job.cycleId),
+          eq(contentCyclePosts.clientId, job.clientId),
+        ));
+    }
+    throw err;
+  }
 }

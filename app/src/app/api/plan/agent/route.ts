@@ -133,7 +133,7 @@ export async function POST(req: Request) {
       }
       case 'add_post': {
         const date = task.toDate ?? defaultAddDate(posts, today);
-        await propose('add_post', { kind: 'add', cycleId, date, channel: task.channel ?? null }, addSummary(date, task.reason));
+        await propose('add_post', { kind: 'add', cycleId, date, channel: task.channel ?? null, instruction: task.instruction ?? null }, addSummary(date, task.reason, task.instruction, task.channel));
         break;
       }
       case 'add_note': {
