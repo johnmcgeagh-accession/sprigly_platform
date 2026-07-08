@@ -5,7 +5,7 @@ import type { PlanData } from './usePlanData';
 import { Drawer, Scrim, Sheet } from './primitives';
 import { PostEditor } from './PostEditor';
 import { PostChip, ProposalCard, NoteRow, ExtractionSummary, monthDayLabel, postTitle } from './pieces';
-import { planTasks, lateCount, doneStepCount, viewedMonth } from './derive';
+import { planTasks, lateCount, viewedMonth } from './derive';
 import {
   SprigMark, ChevronLeft, ChevronRight, CalendarIcon, TimelineIcon, TasksIcon, ApprovalsIcon,
   NotesIcon, MicIcon, SendIcon, SparkIcon, FormatIcon, FORMAT_LABEL,
@@ -74,25 +74,30 @@ export function PlanDesktop({ data }: { data: PlanData }) {
             {view === 'calendar' && (
               <div className="mr-0.5 flex items-center gap-1.5">
                 <button data-testid="prev-month" disabled={!prevCycle} onClick={() => prevCycle && data.switchCycle(prevCycle.cycleId)} aria-label="Previous month"
-                  className="flex h-[34px] w-[34px] items-center justify-center rounded-full border border-line bg-surface text-slate-700 shadow-card disabled:opacity-40"><ChevronLeft className="h-[15px] w-[15px]" /></button>
+                  className="flex h-[34px] w-[34px] items-center justify-center rounded-full border border-line bg-surface text-slate-700 shadow-card disabled:cursor-not-allowed disabled:opacity-40"><ChevronLeft className="h-[15px] w-[15px]" /></button>
                 <button data-testid="next-month" disabled={!nextCycle} onClick={() => nextCycle && data.switchCycle(nextCycle.cycleId)} aria-label="Next month"
-                  className="flex h-[34px] w-[34px] items-center justify-center rounded-full border border-line bg-surface text-slate-700 shadow-card disabled:opacity-40"><ChevronRight className="h-[15px] w-[15px]" /></button>
+                  className="flex h-[34px] w-[34px] items-center justify-center rounded-full border border-line bg-surface text-slate-700 shadow-card disabled:cursor-not-allowed disabled:opacity-40"><ChevronRight className="h-[15px] w-[15px]" /></button>
               </div>
             )}
             <span className="font-serif text-[26px] text-slate-700">
               {view === 'calendar' ? `${MONTHS[month]} ${year}` : view === 'timeline' ? 'Timeline' : view === 'tasks' ? 'Tasks' : view === 'approvals' ? 'Approvals' : 'Notes'}
             </span>
-            <span className="text-[13px] font-bold text-muted">
-              {view === 'calendar' ? `${posts.length} posts` : view === 'timeline' ? 'Oldest first · coral line marks today' : view === 'tasks' ? 'What to create, worked back from each date' : view === 'approvals' ? 'Sprigly suggested these — approve to apply, or discard' : 'Things you’ve said that shape future planning'}
-            </span>
+            {/* Calendar drops the post count — it's already in the rail badge + summary card. */}
+            {view !== 'calendar' && (
+              <span className="text-[13px] font-bold text-muted">
+                {view === 'timeline' ? 'Oldest first · coral line marks today' : view === 'tasks' ? 'What to create, worked back from each date' : view === 'approvals' ? 'Sprigly suggested these — approve to apply, or discard' : 'Things you’ve said that shape future planning'}
+              </span>
+            )}
             <span className="flex-1" />
             {view === 'calendar' && (
               <button data-testid="today-btn" onClick={() => data.switchCycle(data.homeCycleId)} className="rounded-full border border-line bg-surface px-[15px] py-[7px] text-[12.5px] font-bold text-slate-600 shadow-card">Today</button>
             )}
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-[34px] pb-10 pt-2" data-testid="plan-body">
-            {view === 'calendar' && <CalendarView data={data} year={year} month={month} selId={selId} onSelect={select} />}
+          {/* pb clears the fixed FAB (bottom-[34px] + 60px tall) so the last calendar row
+              never sits under it, even at 900px-height viewports. */}
+          <div className="min-h-0 flex-1 overflow-y-auto px-[34px] pb-28 pt-2" data-testid="plan-body">
+            {view === 'calendar' && <CalendarView data={data} year={year} month={month} selId={selId} onSelect={select} onNavigate={setView} />}
             {view === 'timeline' && <TimelineView data={data} selId={selId} onSelect={select} />}
             {view === 'tasks' && <TasksView data={data} onSelect={select} />}
             {view === 'approvals' && <ApprovalsView data={data} />}
@@ -124,7 +129,15 @@ export function PlanDesktop({ data }: { data: PlanData }) {
               <span className="text-[17px] font-extrabold text-coral">+</span>{!railCollapsed && <span>Add a post</span>}
             </button>
           )}
-          {!railCollapsed && <div className="mt-auto p-2 text-[12px] leading-relaxed text-muted">Share link · view-only<br />Unlimited edits</div>}
+          {/* One true line: the session edits its home cycle (unlimited, until the cycle
+              month ends); sibling cycles open read-only. See design/DECISIONS.md §14. */}
+          {!railCollapsed && (
+            <div className="mt-auto p-2 text-[12px] leading-relaxed text-muted">
+              {data.readOnly
+                ? 'Shared plan · read-only preview'
+                : `Shared plan · unlimited edits until ${new Date(year, month + 1, 0).getDate()} ${MONTHS[month]!.slice(0, 3)}`}
+            </div>
+          )}
         </aside>
       </div>
 
@@ -169,7 +182,7 @@ export function PlanDesktop({ data }: { data: PlanData }) {
 
 /* ── views ─────────────────────────────────────────────────────────────────── */
 
-function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; year: number; month: number; selId: string | null; onSelect: (id: string) => void }) {
+function CalendarView({ data, year, month, selId, onSelect, onNavigate }: { data: PlanData; year: number; month: number; selId: string | null; onSelect: (id: string) => void; onNavigate?: (view: View) => void }) {
   const [over, setOver] = useState<number | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const first = new Date(year, month, 1);
@@ -186,10 +199,14 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
       </div>
       <div className="grid grid-cols-7 gap-3" data-testid="calendar-grid">
         {lead > 0 && (
-          <div className="flex items-start rounded-2xl border border-dashed border-[#E6E2DD] p-4" style={{ gridColumn: `span ${lead}` }} data-testid="month-summary">
+          <div className="flex items-start rounded-2xl border border-line bg-surface p-4 shadow-card" style={{ gridColumn: `span ${lead}` }} data-testid="month-summary">
             <div>
               <div className="font-serif text-[19px] text-slate-700">{data.posts.length} posts planned</div>
-              <div className={`mt-1 text-[12.5px] font-bold ${riskN ? 'text-amber-deep' : 'text-muted'}`}>{riskN ? `${riskN} behind schedule — see Tasks` : 'On track'}</div>
+              <div className={`mt-1 text-[12.5px] font-bold ${riskN ? 'text-amber-deep' : 'text-muted'}`}>
+                {riskN ? (
+                  <>{riskN} behind schedule — <button data-testid="summary-see-tasks" onClick={() => onNavigate?.('tasks')} className="font-extrabold text-amber-deep underline underline-offset-2 hover:no-underline">see Tasks</button></>
+                ) : 'On track'}
+              </div>
             </div>
           </div>
         )}
@@ -264,10 +281,7 @@ function TasksView({ data, onSelect }: { data: PlanData; onSelect: (id: string) 
   ];
   return (
     <div className="mx-auto max-w-[820px]" data-testid="tasks-board">
-      <div className="my-2 flex items-center justify-between rounded-2xl border border-line bg-surface px-[22px] py-[18px] shadow-card">
-        <div className="font-serif text-[28px] leading-none text-slate-700">{total}<span className="ml-1.5 font-sans text-[13px] font-bold text-muted">to create this month</span></div>
-        <div className="text-right text-[13px] font-extrabold text-slate-700">{doneStepCount(data.posts)} done<small className="mt-0.5 block text-[11px] font-bold text-muted">across {data.posts.length} posts</small></div>
-      </div>
+      {/* Summary card removed (John): redundant with the section counts + rail badge. */}
       {sections.map(([key, label, items]) => items.length > 0 && (
         <div key={key}>
           <div className="flex items-center gap-2.5 px-1 pb-2.5 pt-5"><span className={`text-[12px] font-extrabold uppercase tracking-[.06em] ${key === 'overdue' ? 'text-danger' : key === 'week' ? 'text-slate-700' : 'text-muted'}`}>{label}</span><span className={`rounded-full px-2 py-px text-[11px] font-extrabold ${key === 'overdue' ? 'bg-[#F7E1D7] text-danger' : 'bg-[#ECEAE6] text-slate-600'}`}>{items.length}</span></div>

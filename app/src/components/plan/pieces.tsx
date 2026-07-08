@@ -22,12 +22,19 @@ export function monthDayLabel(iso: string): string {
   return `${DAY[(dt.getDay() + 6) % 7]} ${MON[m! - 1]} ${d}`;
 }
 
-/** A human title for a post — the caption's first sentence, else the pillar. No
- *  dedicated title field exists in the backend (recorded delta). */
+/** True when a post has no real caption yet (a draft idea). */
+export function isUntitled(p: PlanPost): boolean {
+  const cap = (p.caption || '').trim();
+  return !cap || cap.startsWith('Draft idea');
+}
+
+/** A human title for a post — the caption's first sentence. No dedicated title field
+ *  exists in the backend (recorded delta). Untitled drafts return 'Untitled' (chips
+ *  render the fuller "Untitled — tap to draft" affordance themselves). */
 export function postTitle(p: PlanPost): string {
   const cap = (p.caption || '').trim();
   if (cap && !cap.startsWith('Draft idea')) return cap.split(/(?<=[.!?])\s/)[0]!.slice(0, 90);
-  return p.pillar || 'New idea';
+  return 'Untitled';
 }
 
 /** done/total progress ring; amber when a step is overdue, coral when complete. */
@@ -72,7 +79,9 @@ export function PostChip({ post, selected, today, onClick, draggable, onDragStar
         <ChannelIcon channel={post.channel} className="h-[13px] w-[13px]" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block overflow-hidden leading-[1.3] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">{postTitle(post)}</span>
+        <span className="block overflow-hidden leading-[1.3] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+          {isUntitled(post) ? <span className="font-semibold italic text-muted">Untitled — tap to draft</span> : postTitle(post)}
+        </span>
         <span className="mt-0.5 block text-[10px] font-bold uppercase tracking-[.04em] text-muted">{FORMAT_LABEL[post.format]}</span>
       </span>
       {post.status === 'new'

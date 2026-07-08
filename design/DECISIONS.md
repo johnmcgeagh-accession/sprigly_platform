@@ -565,3 +565,39 @@ curved leaves meeting at a pointed top, stem below (from `studio/svg_logos/
 sprigly-mark-coral.svg`), brand coral #E87766. Used in the topbar/brand row on both
 layouts. Favicon (`app/src/app/icon.svg`) already shipped the real mark geometry; aligned
 its fill to the mark colour #E87766.
+
+---
+
+## 14. Calendar polish + month-nav (2026-07-08)
+
+### Session / cycle model (drove the month-nav answer)
+The magic-link token is cycle-scoped (`app_magic_link_tokens.cycle_id`), but the session is
+**not strictly one-cycle**. The existing read path (`GET /api/plan?cycleId=`, guarded by
+`isCycleReadableByClient`) already serves **any same-client cycle READ-ONLY**, while WRITE
+scope stays the session's home cycle. `loadCycleList` builds the switcher from the client's
+qualifying cycles (same channel, ≥1 live post, not out_of_sync). So month-nav is legitimate —
+the chevrons were "silent" only because the seed had a single cycle.
+- **Kept the chevrons** (the sibling-cycles-in-session branch): seeded an adjacent **August**
+  cycle for tenant A (3 posts, read-only) so nav is exercisable; chevrons are **`disabled`
+  (native → visual + aria) at the boundary**, never a silent no-op; e2e covers the
+  July→August→July round-trip incl. boundary-disabled + read-only assertions.
+- Navigating to a sibling opens it **read-only** (no add controls); the home cycle stays
+  editable. `Today` returns to the home cycle.
+
+### Footer capability copy
+The old "Share link · view-only / Unlimited edits" contradicted itself. Replaced with one true
+line reflecting the **viewed** cycle's actual capability:
+- editable home cycle → **"Shared plan · unlimited edits until {cycle-month end}"** (e.g. "…until 31 Jul");
+- read-only sibling → **"Shared plan · read-only preview"**.
+
+### Other polish
+- Calendar **month-summary** is now a solid card (white, `--line` border, `shadow-card`) so it
+  no longer shares the dashed empty-cell language; **"see Tasks"** is a real button that
+  switches to the Tasks view.
+- Header **drops the "N posts" count** for the calendar (already in the rail badge + summary card).
+- Chip **fallback title** for captionless drafts is now **"Untitled — tap to draft"** (muted
+  italic) instead of the pillar; `postTitle()` returns 'Untitled' for tooltips/secondary uses.
+- **FAB clearance**: plan scroll area padding `pb-10 → pb-28` so the fixed FAB never overlaps the
+  last calendar row at 900px-height viewports.
+- **Tasks-view summary card removed** (desktop + mobile) per John — redundant with the section
+  counts and the rail badge.

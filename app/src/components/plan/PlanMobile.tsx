@@ -6,7 +6,7 @@ import type { PlanData } from './usePlanData';
 import { Scrim, Sheet, SegmentedControl } from './primitives';
 import { MonthWheelPicker } from './MonthWheelPicker';
 import { PostEditor } from './PostEditor';
-import { ProgressRing, postTitle } from './pieces';
+import { ProgressRing, postTitle, isUntitled } from './pieces';
 import { planTasks, lateCount, viewedMonth } from './derive';
 import {
   SprigMark, ChevronLeft, ChevronRight, MicIcon, FORMAT_LABEL, TrashIcon, ImageIcon, CalendarIcon, CloseIcon,
@@ -85,6 +85,12 @@ export function PlanMobile({ data }: { data: PlanData }) {
 
   const pickDay = (iso: string) => { setSelectedDay(iso); if (mode === 'plan') requestAnimationFrame(() => scrollToDay(iso)); };
 
+  // Month nav walks the client's sibling cycles; disable (not silently no-op) at the ends.
+  const sortedCycles = useMemo(() => [...data.cycles].sort((a, b) => a.displayMonth.localeCompare(b.displayMonth)), [data.cycles]);
+  const cycIdx = sortedCycles.findIndex((c) => c.cycleId === data.viewedCycleId);
+  const prevCycle = cycIdx > 0 ? sortedCycles[cycIdx - 1] : null;
+  const nextCycle = cycIdx >= 0 && cycIdx < sortedCycles.length - 1 ? sortedCycles[cycIdx + 1] : null;
+
   return (
     <div className="flex h-[100dvh] flex-col bg-bg text-slate-700" data-testid="plan-mobile">
       {/* locked chrome */}
@@ -95,11 +101,11 @@ export function PlanMobile({ data }: { data: PlanData }) {
             <div className="flex h-[34px] w-[34px] items-center justify-center rounded-full bg-gradient-to-br from-[#F3C6BC] to-coral text-[13px] font-extrabold text-white shadow-[0_2px_8px_rgba(232,119,102,.35)]">{data.clientName.slice(0, 2).toUpperCase()}</div>
           </div>
           <div className="mt-0.5 flex items-center justify-center gap-[18px]">
-            <button data-testid="prev-month" aria-label="Previous month" onClick={() => { const p = [...data.cycles].sort((a, b) => a.displayMonth.localeCompare(b.displayMonth)); const i = p.findIndex((c) => c.cycleId === data.viewedCycleId); if (i > 0) data.switchCycle(p[i - 1]!.cycleId); }}
-              className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-surface text-slate-700 shadow-card"><ChevronLeft className="h-4 w-4" /></button>
+            <button data-testid="prev-month" aria-label="Previous month" disabled={!prevCycle} onClick={() => prevCycle && data.switchCycle(prevCycle.cycleId)}
+              className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-surface text-slate-700 shadow-card disabled:cursor-not-allowed disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
             <button data-testid="month-label" onClick={() => setPickerOpen(true)} className="flex items-center gap-2 font-serif text-[30px] leading-none text-slate-700">{MONTHS_FULL[month]} {year} <span className="translate-y-0.5 text-sm text-coral">▾</span></button>
-            <button data-testid="next-month" aria-label="Next month" onClick={() => { const p = [...data.cycles].sort((a, b) => a.displayMonth.localeCompare(b.displayMonth)); const i = p.findIndex((c) => c.cycleId === data.viewedCycleId); if (i >= 0 && i < p.length - 1) data.switchCycle(p[i + 1]!.cycleId); }}
-              className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-surface text-slate-700 shadow-card"><ChevronRight className="h-4 w-4" /></button>
+            <button data-testid="next-month" aria-label="Next month" disabled={!nextCycle} onClick={() => nextCycle && data.switchCycle(nextCycle.cycleId)}
+              className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-surface text-slate-700 shadow-card disabled:cursor-not-allowed disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
           </div>
         </div>
         {/* week strip */}
@@ -272,7 +278,9 @@ function SwipeCard({ post, data, onEdit, onMove }: { post: PlanPost; data: PlanD
             <CardMenu onEdit={onEdit} onMove={onMove} onDelete={() => { if (!data.readOnly) data.removePost(post.id); }} />
           </span>
         </div>
-        <h4 className="mb-1.5 text-[17px] font-extrabold leading-tight tracking-tight text-slate-700">{postTitle(post)}</h4>
+        <h4 className="mb-1.5 text-[17px] font-extrabold leading-tight tracking-tight text-slate-700">
+          {isUntitled(post) ? <span className="font-semibold italic text-muted">Untitled — tap to draft</span> : postTitle(post)}
+        </h4>
         <p className="mb-1 text-[13.5px] leading-normal text-slate-600">{post.caption || 'Draft idea — tell Sprigly what this post should be about.'}</p>
         {post.status === 'new' && <span className="text-[11px] font-bold text-slate-700">NEW</span>}
       </div>
@@ -283,14 +291,11 @@ function SwipeCard({ post, data, onEdit, onMove }: { post: PlanPost; data: PlanD
 function MobileTasks({ data, onOpen }: { data: PlanData; onOpen: (id: string) => void }) {
   const groups = planTasks(data.posts, data.today);
   const total = groups.overdue.length + groups.next7.length + groups.later.length;
-  const done = data.posts.reduce((n, p) => n + p.steps.filter((s) => s.done).length, 0);
   const secs: [string, string, typeof groups.overdue][] = [['overdue', 'Overdue', groups.overdue], ['today', 'Due today', groups.next7.filter((t) => t.due === data.today)], ['week', 'This week', groups.next7.filter((t) => t.due !== data.today).concat(groups.later)]];
   return (
     <div data-testid="mobile-tasks">
-      <div className="mx-[18px] mt-3 flex items-center justify-between rounded-[18px] border border-line bg-gradient-to-br from-white to-[#FBEEEA] px-[18px] py-3.5 shadow-card">
-        <div className="font-serif text-[26px] leading-none text-slate-700">{total}<span className="ml-1.5 font-sans text-[13px] font-bold text-muted">to create</span></div>
-        <div className="text-right text-[13px] font-extrabold text-slate-700">{done} done<small className="mt-0.5 block text-[11px] font-bold text-muted">this month</small></div>
-      </div>
+      {/* Summary card removed (John): redundant with section counts + the rail badge. */}
+      <div className="pt-3" />
       {total === 0 && <div className="mx-8 my-11 text-center"><span className="mb-2 block font-serif text-[22px] text-slate-700">All caught up ✨</span><span className="text-[14px] leading-relaxed text-muted">Every post has what it needs.</span></div>}
       {secs.map(([key, label, items]) => items.length > 0 && (
         <div key={key}>

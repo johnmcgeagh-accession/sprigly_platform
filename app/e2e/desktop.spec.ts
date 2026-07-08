@@ -133,3 +133,25 @@ test('shape pending → disabled + pending copy → caption swaps on completion'
   await expect(cap).not.toHaveValue(before, { timeout: 8000 });
   await expect(cap).toHaveValue(/quietly working/);
 });
+
+test('month nav: round-trips to the adjacent August cycle and disables at boundaries', async ({ page }) => {
+  // July is the home cycle and the earliest — prev is disabled, next available.
+  await expect(page.getByText('July 2026')).toBeVisible();
+  await expect(page.getByTestId('prev-month')).toBeDisabled();
+  await expect(page.getByTestId('next-month')).toBeEnabled();
+
+  // Forward to August: a read-only sibling with its own posts, no editing controls.
+  await page.getByTestId('next-month').click();
+  await expect(page.getByText('August 2026')).toBeVisible();
+  await expect(page.getByTestId('post-chip')).toHaveCount(3);
+  await expect(page.getByTestId('add-post')).toHaveCount(0);
+  // August is the far boundary — next disabled, prev available.
+  await expect(page.getByTestId('next-month')).toBeDisabled();
+  await expect(page.getByTestId('prev-month')).toBeEnabled();
+
+  // Back to July (home, editable again).
+  await page.getByTestId('prev-month').click();
+  await expect(page.getByText('July 2026')).toBeVisible();
+  await expect(page.getByTestId('post-chip')).toHaveCount(12);
+  await expect(page.getByTestId('add-post')).toBeVisible();
+});

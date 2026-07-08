@@ -28,6 +28,9 @@ const CONV   = '44444444-4444-4444-8444-444444444444';
 const MSG    = '55555555-5555-4555-8555-555555555555';
 const PROP   = '66666666-6666-4666-8666-666666666666';
 const P = (n: number) => `33333333-3333-4333-8333-${String(n).padStart(12, '0')}`;
+// Adjacent August cycle for tenant A (read-only sibling; exercises month-nav).
+const CYCLE_AUG = '99999999-9999-4999-8999-999999999999';
+const PA = (n: number) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(n).padStart(12, '0')}`;
 const TOKEN = 'e2e0000000000000000000000000000000000000000';
 // Tenant B: a second, isolated tenant with an EMPTY current cycle and no notes.
 const CLIENT_B = '77777777-7777-4777-8777-777777777777';
@@ -89,6 +92,24 @@ async function main() {
         doneAt: done ? new Date('2026-07-01T09:00:00Z') : null, sort: i, createdBy: 'agent',
       });
     }
+  }
+
+  // An adjacent August cycle (same client + channel) so month-nav is exercisable — it
+  // opens READ-ONLY (only the home July cycle is editable). A few posts so it qualifies
+  // for the switcher list (loadCycleList needs liveCount > 0).
+  await db.insert(contentCycles).values({ id: CYCLE_AUG, clientId: CLIENT, channel: 'instagram', cycleMonth: '2026-08', status: 'active' });
+  const AUG: [string, string, keyof typeof tpl, string, string][] = [
+    [PA(1), '2026-08-04', 'single',   'Product', 'August opener — the linen restock is live.'],
+    [PA(2), '2026-08-12', 'reel',     'Style',   'Three ways to wear the new midi.'],
+    [PA(3), '2026-08-21', 'carousel', 'Origin',  'Where the August fabrics come from.'],
+  ];
+  let augPos = 0;
+  for (const [id, date, format, pillar, caption] of AUG) {
+    augPos += 1;
+    await db.insert(contentCyclePosts).values({
+      id, clientId: CLIENT, cycleId: CYCLE_AUG, channel: 'instagram',
+      scheduledDate: date, format, pillar, caption, status: 'planned', position: augPos, sourceMeta: {},
+    });
   }
 
   // One pending agent proposal: move P7 (16 Jul) → 27 Jul.
