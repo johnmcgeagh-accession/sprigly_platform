@@ -31,7 +31,7 @@ DEV_ENV="${ROOT}/.env.local"
 URL="postgresql://postgres:${PGPASS}@127.0.0.1:${PORT}/${DBNAME}"
 
 # Applied on top of the dev baseline, in order. migrate:down reverses this list.
-NEW=(0066_post_steps 0067_step_templates 0068_plan_activity)
+NEW=(0066_post_steps 0067_step_templates 0068_plan_activity 0069_ui_events)
 
 psql_run() { PGPASSWORD="$PGPASS" psql -v ON_ERROR_STOP=1 -q -h 127.0.0.1 -p "$PORT" -U postgres -d "$DBNAME" "$@"; }
 

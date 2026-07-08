@@ -21,6 +21,7 @@ MODE="${1:-full}"; shift || true
 up()       { "$ROOT/scripts/test-db.sh" up; }
 seed()     { pnpm --filter @sprigly/db build >/dev/null; pnpm --filter @sprigly/db exec tsx src/seed-e2e.ts; }
 run()      { pnpm --filter @sprigly/app exec playwright test "$@"; }
+run_prod() { pnpm --filter @sprigly/app exec playwright test --config=playwright.prod.config.ts "$@"; }
 teardown() { "$ROOT/scripts/test-db.sh" destroy; }
 
 case "$MODE" in
@@ -30,8 +31,15 @@ case "$MODE" in
     teardown
     exit "$code"
     ;;
+  prod)                     # prod-mode smoke (next build && next start, fakes off)
+    up; seed
+    set +e; run_prod "$@"; code=$?; set -e
+    teardown
+    exit "$code"
+    ;;
   no-teardown) up; seed; run "$@" ;;
   seed)        seed ;;
   test)        run "$@" ;;
-  *) echo "usage: e2e.sh [full|no-teardown|seed|test] [playwright args]"; exit 1 ;;
+  test:prod)   run_prod "$@" ;;   # reuse a running container + prod app
+  *) echo "usage: e2e.sh [full|prod|no-teardown|seed|test|test:prod] [playwright args]"; exit 1 ;;
 esac

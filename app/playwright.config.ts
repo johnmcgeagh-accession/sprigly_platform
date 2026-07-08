@@ -10,6 +10,7 @@ import { join } from 'node:path';
  */
 const CONTAINER_DB = 'postgresql://postgres:postgres@127.0.0.1:55432/sprigly_test';
 const STATE = join(__dirname, 'e2e', '.auth', 'state.json');
+const STATE_B = join(__dirname, 'e2e', '.auth', 'state-b.json');
 
 export default defineConfig({
   testDir: './e2e',
@@ -27,17 +28,24 @@ export default defineConfig({
   },
   projects: [
     { name: 'setup', testMatch: /auth\.setup\.ts/ },
+    { name: 'setup-b', testMatch: /auth-b\.setup\.ts/ },
     {
       name: 'desktop',
-      testMatch: /(common|desktop)\.spec\.ts/,
+      testMatch: /(common|desktop|a11y)\.spec\.ts/,
       dependencies: ['setup'],
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 }, storageState: STATE },
     },
     {
       name: 'mobile',
-      testMatch: /(common|mobile)\.spec\.ts/,
+      testMatch: /(common|mobile|a11y)\.spec\.ts/,
       dependencies: ['setup'],
       use: { ...devices['Pixel 5'], viewport: { width: 390, height: 844 }, storageState: STATE },
+    },
+    {
+      name: 'tenant-b',
+      testMatch: /(empty|security)\.spec\.ts/,
+      dependencies: ['setup-b'],
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 }, storageState: STATE_B },
     },
   ],
   webServer: {

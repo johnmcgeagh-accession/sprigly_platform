@@ -29,6 +29,10 @@ const MSG    = '55555555-5555-4555-8555-555555555555';
 const PROP   = '66666666-6666-4666-8666-666666666666';
 const P = (n: number) => `33333333-3333-4333-8333-${String(n).padStart(12, '0')}`;
 const TOKEN = 'e2e0000000000000000000000000000000000000000';
+// Tenant B: a second, isolated tenant with an EMPTY current cycle and no notes.
+const CLIENT_B = '77777777-7777-4777-8777-777777777777';
+const CYCLE_B  = '88888888-8888-4888-8888-888888888888';
+const TOKEN_B  = 'e2e1000000000000000000000000000000000000000';
 
 const tpl = {
   reel: [['Script & hook', 4], ['Shoot', 3], ['Edit', 2], ['Caption', 1]],
@@ -107,12 +111,20 @@ async function main() {
     clientId: CLIENT, cycleId: CYCLE, token: TOKEN, expiresAt: new Date('2027-01-01T00:00:00Z'),
   });
 
+  // Tenant B — empty current cycle, no notes/posts/proposals. Powers the empty-state and
+  // cross-tenant-isolation tests. plan_redesign is on so its session lands on the redesign.
+  await db.insert(clients).values({ id: CLIENT_B, name: 'Beta Co', slug: 'e2e-beta-co', status: 'active' });
+  await db.insert(clientConfigs).values({ clientId: CLIENT_B, settings: { plan_redesign: true } });
+  await db.insert(contentCycles).values({ id: CYCLE_B, clientId: CLIENT_B, channel: 'instagram', cycleMonth: '2026-07', status: 'active' });
+  await db.insert(appMagicLinkTokens).values({ clientId: CLIENT_B, cycleId: CYCLE_B, token: TOKEN_B, expiresAt: new Date('2027-01-01T00:00:00Z') });
+
   const authDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'app', 'e2e', '.auth');
   mkdirSync(authDir, { recursive: true });
   writeFileSync(join(authDir, 'token.txt'), TOKEN, 'utf8');
+  writeFileSync(join(authDir, 'token-b.txt'), TOKEN_B, 'utf8');
 
   // eslint-disable-next-line no-console
-  console.log(`seeded ${POSTS.length} posts, token=${TOKEN}`);
+  console.log(`seeded ${POSTS.length} posts (tenant A) + empty tenant B; tokens written`);
   await sql.end();
 }
 
