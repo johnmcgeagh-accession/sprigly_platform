@@ -292,3 +292,59 @@ Every interactive element carries a stable `data-testid` (e.g. `post-chip`, `nav
 `agent-send`, `swipe-card`, `step-toggle`, `proposal-approve`) so the Playwright harness has
 anchors. Verified visually via a temporary seeded preview route (removed before commit) with
 Playwright screenshots of both breakpoints.
+
+---
+
+## 9. Stage 3 — Playwright e2e harness (2026-07-08)
+
+### One command
+`pnpm e2e` → `scripts/e2e.sh full`: `test-db.sh up` (pg17 container + dev schema dump +
+migrations) → seed → Playwright (its `webServer` starts `next dev`) → teardown. Partial modes for
+local iteration: `bash scripts/e2e.sh no-teardown | seed | test` (reuse a running container/app).
+
+### The fake-agent gating (hard gate)
+All e2e fakes live in `app/src/lib/e2e-fake.ts` behind `e2eFakeEnabled()` =
+`SPRIGLY_E2E_FAKE === '1' && NODE_ENV !== 'production'`. **Both** conditions must hold, so a leaked
+env var can never activate them in a real deploy. The fakes sit at SERVICE boundaries, never the
+HTTP routes — the agent route, task parser, proposal persistence, and approve path stay real:
+- `getModelClient()` returns a canned `ModelClient` (no Bedrock) that emits a tasks JSON derived
+  from the instruction (it reads a post id straight out of the week digest already in the prompt).
+- `enqueueShape()`/`readShapeJob()` skip Redis/BullMQ: enqueue writes a canned caption to the post,
+  read reports `done` — so "shape pending → caption swaps" is deterministic.
+- `resolveTodayIso()` and the agent route's `today` honour a non-prod `PLAN_TODAY` so derivations
+  are stable in CI (frozen 2026-07-08).
+- `GET /api/e2e/activity` is a test-only ledger read, 404 unless the gate is on.
+
+### Deviation from "next start"
+The spec said run the app under test with `next start`, but `next start` forces
+`NODE_ENV=production`, which the hard gate deliberately excludes. So the e2e app runs via
+**`next dev`** (development) — the only way the gate can be satisfied without weakening it. This is
+the intended safety trade recorded here.
+
+### Determinism
+`packages/db/src/seed-e2e.ts` (run like `migrate.ts`, from the db package, to avoid root-tsconfig
+path quirks) seeds one tenant (`plan_redesign` on), a July-2026 cycle, 12 fixed-id posts across
+formats/statuses (incl. one email + three empty-checklist posts), steps in mixed done/at-risk
+states, one pending proposal, and three voice `plan_inputs`. Reset is `TRUNCATE clients CASCADE`
+(one statement — handles FK order AND bypasses plan_activity's append-only *row* trigger, which
+blocks DELETE; `step_templates` has no FK to clients so the migration seed survives). Tests
+`reseed()` in `beforeEach` because the desktop and mobile projects share one container.
+
+### Session
+Magic-link only (no Clerk): the seed mints a fixed token into `app_magic_link_tokens` and writes it
+to `app/e2e/.auth/token.txt`; a Playwright `setup` project visits `/p/<token>` once and saves the
+storageState every test reuses.
+
+### Coverage & runtime
+Two projects (desktop 1440×900, mobile 390×844), 20 tests + the auth setup, ~26s warm. Covers
+month render/rings/summary/counts, drag-reschedule (native DnD via dispatched events) + ledger,
+caption save→EDITED→revert + ledger, checklist generate/409/email-hidden/tick→ring→Tasks + ledger,
+agent ask (stubbed) → extraction → Approvals → approve (origin=agent + ref_proposal_id) / discard,
+shape pending→swap, mobile axis-lock / swipe reveal / Move round-trip / scroll-spy (tap + manual).
+
+### Gaps (couldn't be tested as specified)
+- **"Month with no posts" and the Notes empty-state** aren't covered: the seeded session is scoped
+  to one cycle that has posts + notes, and empty cycles are filtered out of the switcher, so those
+  states aren't reachable without a second empty tenant + its own token/session. Approvals empty
+  state IS covered (by clearing the queue). A future add: a second seeded empty tenant.
+- Visual-regression snapshots deferred to Stage 5 (noted as a possible add), per scope.
