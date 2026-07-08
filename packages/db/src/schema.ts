@@ -1123,3 +1123,25 @@ export const planActivity = pgTable(
 );
 export type PlanActivityRow    = typeof planActivity.$inferSelect;
 export type NewPlanActivityRow = typeof planActivity.$inferInsert;
+
+// ─── ui_events ────────────────────────────────────────────────────────────────
+// Minimal product telemetry for the plan surface (redesign Stage 5, migration 0069).
+// Deliberately SEPARATE from plan_activity: plan_activity is the plan-mutation ledger
+// (what changed, by whom); ui_events is analytics (what the client did in the UI —
+// view switches, approvals, agent asks, step ticks, shape requests). Append-only by
+// use; not trigger-enforced (it isn't a source of truth).
+export const uiEvents = pgTable(
+  'ui_events',
+  {
+    id:        uuid('id').primaryKey().defaultRandom(),
+    clientId:  uuid('client_id').notNull().references(() => clients.id),
+    event:     text('event').notNull(),
+    payload:   jsonb('payload').$type<Record<string, unknown>>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    clientCreatedIdx: index('ui_events_client_created_idx').on(t.clientId, t.createdAt),
+  }),
+);
+export type UiEventRow    = typeof uiEvents.$inferSelect;
+export type NewUiEventRow = typeof uiEvents.$inferInsert;
