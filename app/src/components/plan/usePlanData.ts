@@ -40,6 +40,9 @@ export function usePlanData(init: PlanDataInit) {
   const [hookGenerating, setHookGenerating] = useState<Set<string>>(new Set());
   const [hookCandidates, setHookCandidates] = useState<Map<string, string[]>>(new Map());
   const [hookError, setHookError] = useState<Map<string, string>>(new Map());
+  // Script generation (Stage 6, reels): per-post generating flag + errors.
+  const [scriptGenerating, setScriptGenerating] = useState<Set<string>>(new Set());
+  const [scriptError, setScriptError] = useState<Map<string, string>>(new Map());
   const [flashView, setFlashView] = useState<string | null>(null);
   const conversationId = useRef<string | null>(null);
 
@@ -96,6 +99,7 @@ export function usePlanData(init: PlanDataInit) {
   const reschedule = useCallback((id: string, dateIso: string) => call(`/api/posts/${id}`, 'PATCH', { date: dateIso }), [call]);
   const saveCaption = useCallback((id: string, caption: string) => call(`/api/posts/${id}`, 'PATCH', { caption }), [call]);
   const saveHook = useCallback((id: string, hook: string) => call(`/api/posts/${id}`, 'PATCH', { hook }), [call]);
+  const saveScript = useCallback((id: string, script: string) => call(`/api/posts/${id}`, 'PATCH', { script }), [call]);
 
   const clearHookCandidates = useCallback((id: string) => {
     setHookCandidates((m) => { if (!m.has(id)) return m; const n = new Map(m); n.delete(id); return n; });
@@ -213,6 +217,29 @@ export function usePlanData(init: PlanDataInit) {
     if (instr) void shape(id, instr);
   }, [shape]);
 
+  /** Generate a reel script (async job writes the script onto the post; pollJob reloads). */
+  const generateScript = useCallback(async (id: string, lengthSeconds: number) => {
+    if (readOnly || scriptGenerating.has(id)) return;
+    setScriptError((m) => { const n = new Map(m); n.delete(id); return n; });
+    setScriptGenerating((s) => new Set(s).add(id));
+    try {
+      const res = await fetch('/api/plan/script', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ targetPostId: id, lengthSeconds }) });
+      if (!res.ok) {
+        setScriptError((m) => new Map(m).set(id, res.status === 422 ? 'Add a hook and caption first.' : 'Couldn’t start the script.'));
+        return;
+      }
+      const r = (await res.json()) as { mode?: string; jobId?: string; summary?: string };
+      if (r.mode === 'noop') { flash(r.summary ?? 'Already writing a script.'); return; }
+      if (r.mode === 'pending' && r.jobId) {
+        const status = await pollJob(r.jobId);
+        if (status === 'error' || status === 'timeout') {
+          setScriptError((m) => new Map(m).set(id, status === 'timeout' ? 'That’s taking longer than expected.' : 'Couldn’t write the script — try again.'));
+        }
+      }
+    } catch { setScriptError((m) => new Map(m).set(id, 'Network error — please try again.')); }
+    finally { setScriptGenerating((s) => { const n = new Set(s); n.delete(id); return n; }); }
+  }, [readOnly, scriptGenerating, flash, pollJob]);
+
   /** Talk to your plan → real agent extraction; proposals land in Approvals. */
   const ask = useCallback(async (instruction: string, selectedPostId: string | null): Promise<AgentReply | null> => {
     if (readOnly || !instruction.trim() || agentBusy) return null;
@@ -280,11 +307,13 @@ export function usePlanData(init: PlanDataInit) {
     busy, switching, shapingIds, proposalBusy, agentBusy, agentReply, agentError,
     shapeErrors, loadError, flashView, toast,
     hookGenerating, hookCandidates, hookError,
+    scriptGenerating, scriptError,
     // actions
     reschedule, saveCaption, revert, removePost, addPost,
     generateChecklist, addStep, toggleStep, shape, retryShape, ask, decide, switchCycle,
     refreshProposals, refreshNotes, setAgentReply, setAgentError, flash, track,
     saveHook, generateHooks, clearHookCandidates,
+    saveScript, generateScript,
   };
 }
 

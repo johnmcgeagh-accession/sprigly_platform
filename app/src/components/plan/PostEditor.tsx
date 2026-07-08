@@ -14,6 +14,8 @@ const SHAPES = [['Make it softer', 'make it softer'], ['Make it shorter', 'make 
 export function PostEditor({ post, data, onClose }: { post: PlanPost; data: PlanData; onClose: () => void }) {
   const [caption, setCaption] = useState(post.caption);
   const [hook, setHook] = useState(post.hook ?? '');
+  const [script, setScript] = useState(post.script ?? '');
+  const [len, setLen] = useState(post.scriptLengthSeconds ?? 30);
   const [shapeText, setShapeText] = useState('');
   const [adding, setAdding] = useState(false);
   const lastId = useRef(post.id);
@@ -21,10 +23,11 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
   // Reset the textarea when the selected post changes or its caption is replaced
   // (e.g. a shape job landed) — but not on every keystroke.
   useEffect(() => {
-    if (lastId.current !== post.id) { lastId.current = post.id; setCaption(post.caption); setHook(post.hook ?? ''); setShapeText(''); }
-  }, [post.id, post.caption, post.hook]);
+    if (lastId.current !== post.id) { lastId.current = post.id; setCaption(post.caption); setHook(post.hook ?? ''); setScript(post.script ?? ''); setLen(post.scriptLengthSeconds ?? 30); setShapeText(''); }
+  }, [post.id, post.caption, post.hook, post.script, post.scriptLengthSeconds]);
   useEffect(() => { setCaption(post.caption); }, [post.caption]);
   useEffect(() => { setHook(post.hook ?? ''); }, [post.hook]);
+  useEffect(() => { setScript(post.script ?? ''); }, [post.script]);
 
   const ring = ringOf(post.steps);
   const dirty = caption !== post.caption;
@@ -37,6 +40,11 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
   const hookCandidates = data.hookCandidates.get(post.id) ?? [];
   const hookGenerating = data.hookGenerating.has(post.id);
   const hookErr = data.hookError.get(post.id);
+  // Scripts: reels only.
+  const showScript = post.format === 'reel';
+  const scriptDirty = script !== (post.script ?? '');
+  const scriptGenerating = data.scriptGenerating.has(post.id);
+  const scriptErr = data.scriptError.get(post.id);
 
   const submitShape = (instruction: string) => { if (!instruction.trim()) return; void data.shape(post.id, instruction); setShapeText(''); };
 
@@ -73,7 +81,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
             )}
           </div>
           <input
-            data-testid="editor-hook" value={hook} onChange={(e) => setHook(e.target.value)} readOnly={data.readOnly}
+            data-testid="editor-hook" aria-label="Hook" value={hook} onChange={(e) => setHook(e.target.value)} readOnly={data.readOnly}
             placeholder="The line that stops the scroll — write one or generate options."
             className="w-full rounded-xl border border-line p-3 text-[15px] text-slate-700 outline-none focus:border-coral disabled:opacity-60"
           />
@@ -120,6 +128,53 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
           </button>
         )}
       </div>
+
+      {/* script (reels) — needs a hook + caption first */}
+      {showScript && (
+        <div className="mt-[26px]" data-testid="script-section">
+          <span className="mb-[9px] block text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">Script</span>
+          {!post.hook ? (
+            <div className="rounded-xl border border-dashed border-line p-3.5 text-[13.5px] text-muted" data-testid="script-needs-hook">
+              Add or generate a <b className="font-bold text-slate-700">hook</b> first — the script opens on it.
+            </div>
+          ) : (
+            <>
+              <div className="mb-2.5 flex items-center gap-2" data-testid="script-length">
+                <span className="mr-1 text-[11.5px] font-bold text-muted">Length</span>
+                {[15, 30, 60, 90].map((s) => (
+                  <button key={s} data-testid={`length-${s}`} onClick={() => setLen(s)} aria-pressed={len === s}
+                    className={`rounded-full px-3 py-1.5 text-[12.5px] font-bold ${len === s ? 'bg-slate-700 text-white' : 'border border-line text-slate-600 hover:bg-line-soft'}`}>{s}s</button>
+                ))}
+              </div>
+              {!data.readOnly && (
+                <button data-testid="generate-script" onClick={() => data.generateScript(post.id, len)} disabled={scriptGenerating || !caption.trim()}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-coral px-3.5 py-2 text-[12.5px] font-extrabold text-coral-on-tint disabled:opacity-50">
+                  <SparkIcon className="h-3.5 w-3.5" />{scriptGenerating ? 'Writing…' : post.script ? 'Regenerate script' : '✨ Generate script'}
+                </button>
+              )}
+              {scriptErr && (
+                <div data-testid="script-error" role="alert" className="mt-2 text-[12.5px] font-semibold text-danger">
+                  {scriptErr} <button onClick={() => data.generateScript(post.id, len)} className="font-extrabold underline">Retry</button>
+                </div>
+              )}
+              {post.script && (
+                <>
+                  <textarea
+                    data-testid="editor-script" aria-label="Script" value={script} onChange={(e) => setScript(e.target.value)} readOnly={data.readOnly}
+                    className="mt-2.5 min-h-[170px] w-full resize-y rounded-2xl border border-line p-4 text-[14px] leading-relaxed text-slate-700 outline-none focus:border-coral disabled:opacity-60"
+                  />
+                  {!data.readOnly && scriptDirty && (
+                    <button data-testid="script-save" onClick={() => data.saveScript(post.id, script)}
+                      className="mt-2.5 inline-flex items-center gap-1.5 rounded-[11px] bg-coral-cta px-4 py-2 text-[13px] font-extrabold text-white">
+                      <CheckIcon className="h-3.5 w-3.5" />Save script
+                    </button>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* when — the keyboard-accessible alternative to drag-reschedule */}
       <label className="mt-[22px] block">

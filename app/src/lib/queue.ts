@@ -5,7 +5,7 @@
  * no @sprigly/workflows here — enqueue + read only.
  */
 import { Queue } from 'bullmq';
-import { e2eFakeEnabled, E2E_SHAPED_CAPTION, E2E_HOOK_CANDIDATES } from '@/lib/e2e-fake';
+import { e2eFakeEnabled, E2E_SHAPED_CAPTION, E2E_HOOK_CANDIDATES, E2E_SCRIPT_TEXT } from '@/lib/e2e-fake';
 
 export interface ShapePayload {
   type:         'shape';
@@ -15,6 +15,7 @@ export interface ShapePayload {
   targetPostId: string;
   instruction:  string;
   source:       'web' | 'voice';
+  proposalId?:  string;   // set when this rewrite applied an approved proposal (ledger ref)
 }
 
 function getQueue(): Queue | null {
@@ -132,6 +133,67 @@ export async function readHookJob(jobId: string): Promise<HookJobView> {
     return { status: 'done', candidates: rv.candidates ?? [] };
   }
   if (state === 'failed') return { status: 'error', summary: job.failedReason || 'Could not generate hooks.' };
+  return { status: 'pending' };
+}
+
+// ── Script generation (Stage 6, reels only) ────────────────────────────────────
+export interface ScriptPayload {
+  type:          'script';
+  clientId:      string;
+  cycleId:       string;
+  targetPostId:  string;
+  lengthSeconds: number;   // 15 | 30 | 60 | 90
+}
+export const scriptJobId = (cycleId: string, postId: string) => `script_${cycleId}_${postId}`;
+
+/** Enqueue a script job. The worker writes the script onto the post (like shape), so the
+ *  poll returns 'done' and the plan re-reads. Fake path writes the canned script + length
+ *  straight onto the post so the e2e loop is deterministic without Redis/Bedrock. */
+export async function enqueueScriptJob(payload: ScriptPayload): Promise<EnqueueResult> {
+  if (e2eFakeEnabled()) {
+    const { db, contentCyclePosts } = await import('@sprigly/db');
+    const { and, eq } = await import('drizzle-orm');
+    await db.update(contentCyclePosts)
+      .set({ script: E2E_SCRIPT_TEXT, scriptLengthSeconds: payload.lengthSeconds })
+      .where(and(eq(contentCyclePosts.id, payload.targetPostId), eq(contentCyclePosts.clientId, payload.clientId)));
+    return { jobId: scriptJobId(payload.cycleId, payload.targetPostId) };
+  }
+  const queue = getQueue();
+  if (!queue) return { error: 'Server not configured for background jobs (REDIS_URL missing).' };
+  const jobId = scriptJobId(payload.cycleId, payload.targetPostId);
+  try {
+    const existing = await queue.getJob(jobId);
+    if (existing) {
+      const state = await existing.getState();
+      if (state === 'completed' || state === 'failed' || state === 'unknown') {
+        try { await existing.remove(); } catch { /* best-effort */ }
+      } else {
+        return { busy: true, jobId };
+      }
+    }
+    await queue.add('script', payload, { jobId, attempts: 1, removeOnComplete: { age: 3600, count: 1000 }, removeOnFail: { age: 3600 } });
+    return { jobId };
+  } catch (err) {
+    return { error: String(err) };
+  }
+}
+
+/** Read a script job's state (the script is written onto the post, like shape). */
+export async function readScriptJob(jobId: string): Promise<JobView> {
+  if (e2eFakeEnabled()) {
+    const postId = jobId.split('_').slice(2).join('_');
+    return { status: 'done', changedPostIds: [postId], summary: 'Wrote your reel script.' };
+  }
+  const queue = getQueue();
+  if (!queue) return { status: 'error', summary: 'Background jobs unavailable.' };
+  const job = await queue.getJob(jobId);
+  if (!job) return { status: 'gone' };
+  const state = await job.getState();
+  if (state === 'completed') {
+    const rv = (job.returnvalue ?? {}) as { changedPostIds?: string[]; summary?: string };
+    return { status: 'done', changedPostIds: rv.changedPostIds ?? [], summary: rv.summary ?? 'Wrote your reel script.' };
+  }
+  if (state === 'failed') return { status: 'error', summary: job.failedReason || 'Could not write the script.' };
   return { status: 'pending' };
 }
 

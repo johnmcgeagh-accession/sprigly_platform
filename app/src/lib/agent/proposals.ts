@@ -117,7 +117,7 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
         await setStatus(clientId, id, 'failed', `You’ve used all ${usage.limit} AI changes this month.`, false);
         return { proposal: view({ ...row, status: 'failed' }) };
       }
-      const r = await enqueueShape({ type: 'shape', scope: 'post', clientId: row.clientId, cycleId: payload.cycleId, targetPostId: payload.postId, instruction: payload.instruction, source: 'web' });
+      const r = await enqueueShape({ type: 'shape', scope: 'post', clientId: row.clientId, cycleId: payload.cycleId, targetPostId: payload.postId, instruction: payload.instruction, source: 'web', proposalId: id });
       if ('error' in r) throw new Error(r.error);
       await setStatus(clientId, id, 'applied', null, true);
       return { proposal: view({ ...row, status: 'applied' }), jobId: r.jobId };

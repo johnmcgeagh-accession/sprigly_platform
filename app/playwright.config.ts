@@ -31,7 +31,7 @@ export default defineConfig({
     { name: 'setup-b', testMatch: /auth-b\.setup\.ts/ },
     {
       name: 'desktop',
-      testMatch: /(common|desktop|a11y|session|hooks)\.spec\.ts/,
+      testMatch: /(common|desktop|a11y|session|hooks|scripts)\.spec\.ts/,
       dependencies: ['setup'],
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 }, storageState: STATE },
     },

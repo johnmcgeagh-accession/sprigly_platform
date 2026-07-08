@@ -39,6 +39,7 @@ import { applyVoiceDeltasForCycle } from './apply.js';
 import { runPlanningForCycle } from './planning.js';
 import { runShapeForCycle, type ShapeJob } from './shape.js';
 import { runHookForPost, type HookJob } from './hook.js';
+import { runScriptForPost, type ScriptJob } from './script.js';
 import { runWeeklySession, type WeeklySessionJob } from './weekly-session.js';
 import { runWeeklySessionTick } from './weekly-cron.js';
 import { runIgTrawlJob } from '../ig-producer.js';
@@ -68,7 +69,8 @@ type ContentCycleJob =
   | { type: 'weekly-session-tick' }
   | WeeklySessionJob
   | ShapeJob
-  | HookJob;
+  | HookJob
+  | ScriptJob;
 
 export function createContentCycleConsumer(
   db:                 Db,
@@ -128,6 +130,13 @@ export function createContentCycleConsumer(
           logger.info({ ...logCtx, cycleId: data.cycleId, postId: data.targetPostId }, 'content-cycles: starting hook job');
           // Returns { candidates } → BullMQ job.returnvalue → read by GET /api/jobs/:id.
           return await runHookForPost(data, {
+            db, encProvider, googleClientId, googleClientSecret,
+            model, prompts, audit, logger,
+          });
+
+        case 'script':
+          logger.info({ ...logCtx, cycleId: data.cycleId, postId: data.targetPostId }, 'content-cycles: starting script job');
+          return await runScriptForPost(data, {
             db, encProvider, googleClientId, googleClientSecret,
             model, prompts, audit, logger,
           });

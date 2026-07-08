@@ -15,6 +15,7 @@ import type { Catalogue } from '../catalogue/parse-catalogue.js';
 import { indexCatalogue, applyCatalogueValidation } from '../catalogue/validate-catalogue.js';
 import { assembleShapeContext } from './planning.js';
 import type { PlanningDeps } from './planning.js';
+import { recordPlanActivity } from './ledger.js';
 import {
   regeneratePost, applyCodeGate, applyCritic,
   type PlanPostRow, type PlanRepairContext, type CriticContext, type RegisterMap,
@@ -30,6 +31,7 @@ export interface ShapeJob {
   targetPostId: string;
   instruction:  string;
   source:       'web' | 'voice';
+  proposalId?:  string;   // set when this rewrite applied an approved proposal (ledger ref)
 }
 
 export interface ShapeResultData { changedPostIds: string[]; summary: string; }
@@ -147,6 +149,17 @@ export async function runShapeForCycle(job: ShapeJob, deps: PlanningDeps): Promi
       });
     } catch (err) {
       logger.warn({ ...logCtx, err: String(err) }, 'shape: post_edits audit write failed — non-fatal');
+    }
+
+    // 5b. Plan-activity ledger (deviation-3): an agent-authored caption. origin=agent,
+    //     ref_proposal_id set when this rewrite applied an approved proposal.
+    try {
+      await recordPlanActivity(db, {
+        clientId: cycle.clientId, cycleId: job.cycleId, postId: post.id,
+        action: 'caption_saved', actor: { origin: 'agent', refProposalId: job.proposalId ?? null },
+      });
+    } catch (err) {
+      logger.warn({ ...logCtx, err: String(err) }, 'shape: plan_activity ledger write failed — non-fatal');
     }
 
     logger.info({ ...logCtx }, 'shape: caption reshaped and validated');

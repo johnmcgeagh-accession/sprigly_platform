@@ -5,7 +5,7 @@
  */
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
-import { readShapeJob, readHookJob } from '@/lib/queue';
+import { readShapeJob, readHookJob, readScriptJob } from '@/lib/queue';
 import { loadPlanPosts } from '@/lib/plan';
 
 export const runtime = 'nodejs';
@@ -26,11 +26,14 @@ export async function GET(_req: Request, { params }: { params: { jobId: string }
     return NextResponse.json({ status: 'pending' });
   }
 
-  if (!params.jobId.startsWith(`shape_${session.cycleId}_`)) {
+  const isShape = params.jobId.startsWith(`shape_${session.cycleId}_`);
+  const isScript = params.jobId.startsWith(`script_${session.cycleId}_`);
+  if (!isShape && !isScript) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
 
-  const job = await readShapeJob(params.jobId);
+  // Both shape and script write onto the post, so 'done' re-reads the plan.
+  const job = isScript ? await readScriptJob(params.jobId) : await readShapeJob(params.jobId);
   if (job.status === 'done') {
     const posts = await loadPlanPosts(session.clientId, session.cycleId);
     return NextResponse.json({ status: 'done', posts, changedPostIds: job.changedPostIds, summary: job.summary });
