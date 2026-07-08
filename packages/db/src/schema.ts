@@ -846,7 +846,9 @@ export const contentCyclePosts = pgTable(
     pillar:        text('pillar'),
     caption:       text('caption'),
     status:        text('status').notNull().default('planned'),        // 'planned'|'edited'|'new'
+    hook:          text('hook'),                                       // reel/carousel hook — null until generated (migration 0070)
     script:        text('script'),                                     // reel script — null until generated
+    scriptLengthSeconds: integer('script_length_seconds'),            // 15|30|60|90 — target for the script (migration 0070)
     overlay:       text('overlay'),                                    // null until generated
     position:      integer('position').notNull().default(0),           // explicit order within the cycle
     sourceMeta:    jsonb('source_meta').$type<Record<string, unknown>>(), // lossless CSV columns
@@ -1145,3 +1147,26 @@ export const uiEvents = pgTable(
 );
 export type UiEventRow    = typeof uiEvents.$inferSelect;
 export type NewUiEventRow = typeof uiEvents.$inferInsert;
+
+// ─── hook_patterns ────────────────────────────────────────────────────────────
+// Structural-template library for hook generation (migration 0070). `pattern` keeps
+// {slot} placeholders — the generation prompt shows the model the STRUCTURE, never the
+// example's content. Selection reads active=true only (retiring = an UPDATE, not deploy).
+export const hookPatterns = pgTable(
+  'hook_patterns',
+  {
+    id:        uuid('id').primaryKey().defaultRandom(),
+    name:      text('name').notNull(),
+    category:  text('category').notNull(),
+    pattern:   text('pattern').notNull(),
+    example:   text('example').notNull(),
+    formats:   text('formats').array().notNull().default([]),
+    active:    boolean('active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    activeIdx: index('hook_patterns_active_idx').on(t.active),
+  }),
+);
+export type HookPatternRow    = typeof hookPatterns.$inferSelect;
+export type NewHookPatternRow = typeof hookPatterns.$inferInsert;

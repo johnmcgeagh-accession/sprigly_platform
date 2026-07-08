@@ -601,3 +601,46 @@ line reflecting the **viewed** cycle's actual capability:
   last calendar row at 900px-height viewports.
 - **Tasks-view summary card removed** (desktop + mobile) per John — redundant with the section
   counts and the rail badge.
+
+---
+
+## 15. Stage 6 — foundation + John's visual pass (2026-07-08)
+
+### Visual (token + component)
+- **Page background `bg`: white → soft cool grey `#F3F4F6`** (John, from a reference image) so
+  white `surface` cards read as cards again. Cards unchanged.
+- **"Add a post" is now a filled brand-coral CTA** (`bg-coral` #E87766 + white text/glyph), per John's
+  explicit directive + reference image — a prominent CTA, not a bordered white card.
+  - **Brand-vs-AA exception (flagged for John):** white on brand coral #E87766 is **2.89:1** — below
+    AA, and no coral bright enough to read as the mark can clear it (the brightest AA-safe coral is
+    ~#C94E39, a deep brick that no longer reads as the brand). Honoured John's brand directive
+    verbatim and **scoped a documented axe exclusion for that single CTA node** (`a11y.spec.ts`); every
+    other surface still holds AA. One-line switch to a deeper AA-safe coral if John prefers strict AA.
+- **Dropped the calendar summary risk line** ("N behind schedule — see Tasks") entirely (John) — the
+  summary card now shows only "N posts planned"; `see Tasks`, `onNavigate`, and `riskN` removed.
+- **Chip fallback copy** shortened "Untitled — tap to draft" → **"Untitled draft"** (muted italic) so it
+  doesn't clamp illegibly on narrow chips; the full affordance stays in the editor.
+
+### Migration 0070 (hooks/scripts foundation)
+`content_cycle_posts` + `hook`, `script` (pre-existing, `IF NOT EXISTS`), `script_length_seconds`;
+new **`hook_patterns`** table (id, name, category, pattern-with-{slots}, example, formats[], active,
+created_at) seeded with the **42 patterns from `design/reference/hook-patterns-seed.md`** — verified:
+42 rows, 10 categories, slots + apostrophes intact, seed idempotent (only-when-empty), up→down→up
+clean on the container. Selection reads `active=true` only (retire = UPDATE, not deploy). Mapped in
+the Drizzle schema; added to `scripts/test-db.sh`.
+
+### Discovery (informs the generation build)
+- **Voice-context loader = `assembleShapeContext(cycle, deps)`** in `engine/src/content-cycles/planning.ts`
+  (returns `voiceMd`, vocab, pillars, register, historic posts). It lives in the **engine worker**, not
+  the app — so hook/script generation must run through the engine (a new job type) or a shared
+  extraction, NOT be duplicated in the app. **This means "sync hooks in the app" is the wrong shape** —
+  reusing the loader without duplication implies the async shape-job pattern for hooks too.
+- **`prompt_templates` IS the live convention** — `packages/prompts` `DbPromptResolver` resolves
+  generation prompts from the `prompt_templates` table. New hook/script generation prompts belong there.
+
+### Stage-6 generation features — status
+Hook generation, script generation, format-editing, and deviation-3 closure are **not built in this
+pass**. They are a large app+engine build (new engine job types + Bedrock + fake-gate extensions +
+async UI + e2e) that can't be completed and verified to the 3× gate in one sitting. The 0070 schema +
+seed + the discovery above are the foundation so that build is app/engine code only (no further UAT
+migration). See `design/UAT-PROMOTION.md` for the deployable scope.

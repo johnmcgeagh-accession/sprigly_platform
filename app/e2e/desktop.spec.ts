@@ -12,7 +12,7 @@ test('month renders: post count, rail counts, summary card', async ({ page }) =>
   await expect(page.getByTestId('nav-calendar')).toContainText('12');
   await expect(page.getByTestId('nav-tasks')).toContainText('late');
   await expect(page.getByTestId('nav-notes')).toContainText('3');
-  await expect(page.getByTestId('month-summary')).toContainText('behind schedule');
+  await expect(page.getByTestId('month-summary')).toContainText('12 posts planned');
 });
 
 test('rings: editor shows correct done/total for a fully-done checklist', async ({ page }) => {

@@ -80,7 +80,7 @@ export function PostChip({ post, selected, today, onClick, draggable, onDragStar
       </span>
       <span className="min-w-0 flex-1">
         <span className="block overflow-hidden leading-[1.3] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
-          {isUntitled(post) ? <span className="font-semibold italic text-muted">Untitled — tap to draft</span> : postTitle(post)}
+          {isUntitled(post) ? <span className="font-semibold italic text-muted">Untitled draft</span> : postTitle(post)}
         </span>
         <span className="mt-0.5 block text-[10px] font-bold uppercase tracking-[.04em] text-muted">{FORMAT_LABEL[post.format]}</span>
       </span>

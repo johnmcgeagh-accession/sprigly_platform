@@ -97,7 +97,7 @@ export function PlanDesktop({ data }: { data: PlanData }) {
           {/* pb clears the fixed FAB (bottom-[34px] + 60px tall) so the last calendar row
               never sits under it, even at 900px-height viewports. */}
           <div className="min-h-0 flex-1 overflow-y-auto px-[34px] pb-28 pt-2" data-testid="plan-body">
-            {view === 'calendar' && <CalendarView data={data} year={year} month={month} selId={selId} onSelect={select} onNavigate={setView} />}
+            {view === 'calendar' && <CalendarView data={data} year={year} month={month} selId={selId} onSelect={select} />}
             {view === 'timeline' && <TimelineView data={data} selId={selId} onSelect={select} />}
             {view === 'tasks' && <TasksView data={data} onSelect={select} />}
             {view === 'approvals' && <ApprovalsView data={data} />}
@@ -125,8 +125,8 @@ export function PlanDesktop({ data }: { data: PlanData }) {
           <div className="my-3 h-px bg-line" />
           {!data.readOnly && (
             <button data-testid="add-post" onClick={() => data.addPost(iso(Math.min(new Date(year, month + 1, 0).getDate(), 15)))}
-              className={`flex w-full items-center gap-2.5 rounded-xl border border-line bg-surface px-3 py-[11px] text-[14px] font-extrabold text-slate-700 shadow-card hover:border-[#DED9D3] ${railCollapsed ? 'justify-center px-0' : ''}`}>
-              <span className="text-[17px] font-extrabold text-coral">+</span>{!railCollapsed && <span>Add a post</span>}
+              className={`flex w-full items-center gap-2.5 rounded-xl bg-coral px-3 py-[11px] text-[14px] font-extrabold text-white shadow-coral hover:bg-coral-strong ${railCollapsed ? 'justify-center px-0' : ''}`}>
+              <span className="text-[17px] font-extrabold text-white">+</span>{!railCollapsed && <span>Add a post</span>}
             </button>
           )}
           {/* One true line: the session edits its home cycle (unlimited, until the cycle
@@ -182,7 +182,7 @@ export function PlanDesktop({ data }: { data: PlanData }) {
 
 /* ── views ─────────────────────────────────────────────────────────────────── */
 
-function CalendarView({ data, year, month, selId, onSelect, onNavigate }: { data: PlanData; year: number; month: number; selId: string | null; onSelect: (id: string) => void; onNavigate?: (view: View) => void }) {
+function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; year: number; month: number; selId: string | null; onSelect: (id: string) => void }) {
   const [over, setOver] = useState<number | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const first = new Date(year, month, 1);
@@ -190,7 +190,6 @@ function CalendarView({ data, year, month, selId, onSelect, onNavigate }: { data
   const dim = new Date(year, month + 1, 0).getDate();
   const isoOf = (day: number) => `${year}-${pad(month + 1)}-${pad(day)}`;
   const postsOn = (day: number) => data.posts.filter((p) => p.date === isoOf(day));
-  const riskN = data.posts.filter((p) => p.steps.some((s) => !s.done)).length && lateCount(data.posts, data.today);
 
   return (
     <>
@@ -199,15 +198,8 @@ function CalendarView({ data, year, month, selId, onSelect, onNavigate }: { data
       </div>
       <div className="grid grid-cols-7 gap-3" data-testid="calendar-grid">
         {lead > 0 && (
-          <div className="flex items-start rounded-2xl border border-line bg-surface p-4 shadow-card" style={{ gridColumn: `span ${lead}` }} data-testid="month-summary">
-            <div>
-              <div className="font-serif text-[19px] text-slate-700">{data.posts.length} posts planned</div>
-              <div className={`mt-1 text-[12.5px] font-bold ${riskN ? 'text-amber-deep' : 'text-muted'}`}>
-                {riskN ? (
-                  <>{riskN} behind schedule — <button data-testid="summary-see-tasks" onClick={() => onNavigate?.('tasks')} className="font-extrabold text-amber-deep underline underline-offset-2 hover:no-underline">see Tasks</button></>
-                ) : 'On track'}
-              </div>
-            </div>
+          <div className="flex items-center rounded-2xl border border-line bg-surface p-4 shadow-card" style={{ gridColumn: `span ${lead}` }} data-testid="month-summary">
+            <div className="font-serif text-[19px] text-slate-700">{data.posts.length} posts planned</div>
           </div>
         )}
         {Array.from({ length: dim }, (_, i) => i + 1).map((day) => {

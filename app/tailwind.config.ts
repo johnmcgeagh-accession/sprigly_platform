@@ -17,9 +17,9 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Brand palette (2026-07 alignment): the cream/warm-gray wash was dropped —
-        // the page background is now pure white. See design/DECISIONS.md §13.
-        bg: '#FFFFFF',
+        // Page background: a soft cool light-grey (John, Stage 6) so white surface cards
+        // read as cards again. Cards stay #FFFFFF. See design/DECISIONS.md §13/§15.
+        bg: '#F3F4F6',
         surface: '#FFFFFF',
         // Dual-coral is deliberate: coral is the primary/mark, coral-strong the strong
         // interactive variant (and the HTML theme-color). Recorded in DECISIONS §13.
