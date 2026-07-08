@@ -644,3 +644,15 @@ pass**. They are a large app+engine build (new engine job types + Bedrock + fake
 async UI + e2e) that can't be completed and verified to the 3× gate in one sitting. The 0070 schema +
 seed + the discovery above are the foundation so that build is app/engine code only (no further UAT
 migration). See `design/UAT-PROMOTION.md` for the deployable scope.
+
+### §15 correction (John's Stage-6b review) — no axe exclusion
+The brand-coral-CTA axe exclusion is **removed**. New standing rule, recorded alongside the
+coral-text rule (§13): **white-on-coral text is banned at every size below AA-large** (white on
+#E87766 = 2.89, on #FF6F62 = 2.73 — both fail; nothing bright enough to read as the brand clears it).
+- **"Add a post" ships AA-safe** as the active-nav palette: `coral-tint` fill + `coral` border +
+  slate-700 label + `coral-on-tint` glyph (all ≥4.5:1), zero axe exclusions.
+- Alternative offered to John (screenshotted): deep AA-safe coral `#C24C34` + white text (4.80:1) —
+  a stronger, more distinct CTA if the tint reads too quiet. One-token swap.
+- The dark-slate FAB (`slate-700` + white) is unaffected — white on #334155 = 10.35.
+- **Background** shipped WARM `#F5F4F2` (original mockup value) instead of the cool `#F3F4F6` — the
+  cool grey clashed in the warm/coral palette. One-token swap if John prefers cool.

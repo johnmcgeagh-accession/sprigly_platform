@@ -2,15 +2,10 @@ import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { SEED, reseed } from './helpers';
 
-/** Serious/critical axe violations on the current page (empty = pass).
- *
- *  DOCUMENTED EXCEPTION: the "Add a post" CTA is brand coral (#E87766) + white text per
- *  John's explicit Stage-6 directive. White-on-brand-coral is 2.89:1 — below AA, and no
- *  coral bright enough to read as the brand mark can clear it. It's excluded from the axe
- *  contrast check as a conscious brand-vs-AA trade for the primary CTA (see DECISIONS §15);
- *  every other surface still holds AA. Flip to an AA-safe deeper coral to remove this. */
+/** Serious/critical axe violations on the current page (empty = pass). No exclusions —
+ *  every surface, including the "Add a post" CTA, holds WCAG AA. */
 async function seriousViolations(page: Page) {
-  const { violations } = await new AxeBuilder({ page }).exclude('[data-testid="add-post"]').analyze();
+  const { violations } = await new AxeBuilder({ page }).analyze();
   return violations
     .filter((v) => v.impact === 'serious' || v.impact === 'critical')
     .map((v) => ({ id: v.id, impact: v.impact, nodes: v.nodes.length }));

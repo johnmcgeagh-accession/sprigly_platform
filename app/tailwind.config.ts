@@ -17,9 +17,10 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Page background: a soft cool light-grey (John, Stage 6) so white surface cards
-        // read as cards again. Cards stay #FFFFFF. See design/DECISIONS.md §13/§15.
-        bg: '#F3F4F6',
+        // Page background: a soft WARM light-grey so white surface cards read as cards in
+        // the warm (coral) palette. #F5F4F2 is the original mockup value; #F3F4F6 (cool)
+        // was John's first pick but clashed warm. Cards stay #FFFFFF. See DECISIONS §15.
+        bg: '#F5F4F2',
         surface: '#FFFFFF',
         // Dual-coral is deliberate: coral is the primary/mark, coral-strong the strong
         // interactive variant (and the HTML theme-color). Recorded in DECISIONS §13.
