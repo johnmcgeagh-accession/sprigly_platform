@@ -469,3 +469,42 @@ e2e, which never uses the `dev` script.)
   nothing. To remove the noise: delete the stray `~/package-lock.json` (not part of any project).
   A cosmetic realignment (`pnpm install` to bump `@next/swc-*` to 14.2.35) would also stop it but
   needs network and wasn't done here to avoid pre-UAT lockfile churn.
+
+---
+
+## 12. Design-alignment pass — Tailwind scoped-reset specificity bug (2026-07-08)
+
+A systematic screenshot comparison against the reference mockups (desktop 1440×900,
+mobile 390×844) found the redesign had drifted from Stage 2 — but the cause was a single
+CSS bug, not many separate ones.
+
+**Root cause.** `globals.css` scoped the redesign's base reset as unlayered
+`.plan-redesign button { background: none; border: none; color: inherit; font: inherit }`.
+That selector's specificity (0,1,1) **outranks every single-class Tailwind utility (0,1,0)**,
+so on every button in the redesign the utilities for background / border / color / font
+were silently overridden. And because preflight is disabled globally, there was no
+`border-style: solid` default, so `border-*` utilities set a width but rendered nothing.
+Measured symptoms: rail active-nav pill, "Add a post", the agent FAB, "Ask Sprigly",
+"Save caption", the shape button and the editor/agent close circles all had **transparent**
+backgrounds; done checklist boxes weren't coral; the "+ Add step" dashed pill, the empty-day
+add-`+` dashed pills, calendar-cell and chip borders, and the Tasks overdue left-accent bars
+had no border.
+
+**Fix.** Move the scoped resets into `@layer base` and scope them with `:where(.plan-redesign)`,
+which contributes **zero** specificity — so the reset sits at type-selector level (≤ 0,1,0)
+and Tailwind utilities always win (this is exactly how Tailwind's own preflight stays
+overridable). Re-added preflight's border reset (`border-width:0; border-style:solid;
+border-color:#ECEAE6`) under the same scope so `border-*` utilities render. One ~15-line
+change in `globals.css`; no component edits were needed — every affected surface (calendar,
+editor, agent, tasks, mobile feed) realigned at once. e2e 31/31, axe 0 serious on both
+layouts, type-check + build clean.
+
+**Excluded as recorded decisions (not "fixed"):** editor Scheduled-date field (Stage 5
+keyboard reschedule), mobile card ⋯ menu (Stage 5 swipe alternative), disabled voice/mic
+entry points, caption-first-sentence titles, darkened muted/coral-deep/amber-deep text
+(Stage 5 WCAG trade), "Media — coming soon" (upload out of scope).
+
+**Ambiguous (left as-is, flagged not changed):** the reference mobile cards show a status
+pill (Scheduled / Draft) rendered via the same `.tag` mechanism that D2 removed; the app
+omits it. Could be intentional (part of the tags removal) or drift — not changed pending a
+call. Trivial: the empty-day add affordance uses a full-width "＋" (U+FF0B) vs the ref "+".

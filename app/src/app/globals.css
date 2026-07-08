@@ -25,12 +25,27 @@ button:focus-visible, input:focus-visible { outline: 2px solid #FF6F62; outline-
 @tailwind components;
 @tailwind utilities;
 
-.plan-redesign { color-scheme: only light; font-family: var(--font-jakarta), system-ui, sans-serif; }
-.plan-redesign *, .plan-redesign *::before, .plan-redesign *::after { box-sizing: border-box; }
-.plan-redesign h1, .plan-redesign h2, .plan-redesign h3, .plan-redesign h4, .plan-redesign p { margin: 0; }
-.plan-redesign button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.plan-redesign textarea, .plan-redesign input { font: inherit; }
-.plan-redesign :focus-visible { outline: 2px solid #FF6F62; outline-offset: 2px; }
+/* Scoped base resets for the flag-on surface. These MUST live in @layer base so that
+   Tailwind UTILITIES override them — an unlayered `.plan-redesign button` (specificity
+   0,1,1) otherwise silently beats bg/border/color/font utilities (0,1,0) on every
+   button. Preflight is disabled globally, so we also re-add its border reset
+   (width:0; style:solid) here — without it `border-*` utilities set a width but no
+   style and render nothing. */
+@layer base {
+  :where(.plan-redesign) { color-scheme: only light; font-family: var(--font-jakarta), system-ui, sans-serif; }
+  :where(.plan-redesign) *, :where(.plan-redesign) *::before, :where(.plan-redesign) *::after {
+    box-sizing: border-box;
+    border-width: 0; border-style: solid; border-color: #ECEAE6;
+  }
+  :where(.plan-redesign) :is(h1, h2, h3, h4, p) { margin: 0; }
+  :where(.plan-redesign) button {
+    font: inherit; color: inherit;
+    background-color: transparent; background-image: none;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  :where(.plan-redesign) :is(textarea, input) { font: inherit; }
+  .plan-redesign :focus-visible { outline: 2px solid #FF6F62; outline-offset: 2px; }
+}
 
 @keyframes pr-railflash { 0%,100%{ background: transparent } 50%{ background: #FCE9E5 } }
 .pr-flash { animation: pr-railflash .9s ease-in-out 3; }
