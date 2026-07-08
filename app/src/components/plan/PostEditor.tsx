@@ -37,12 +37,12 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
       {/* header */}
       <div className="mb-[22px] mt-1.5 flex flex-wrap items-center gap-[11px]">
         <span className="inline-flex items-center gap-[7px] rounded-[9px] border border-line bg-line-soft px-[11px] py-[7px] text-[13px] font-extrabold text-slate-700">
-          <FormatIcon format={post.format} className="h-[15px] w-[15px] text-coral" />{FORMAT_LABEL[post.format]}
+          <FormatIcon format={post.format} className="h-[15px] w-[15px] text-coral-deep" />{FORMAT_LABEL[post.format]}
         </span>
         <span className="text-[13.5px] font-bold text-muted">{stateLabel}</span>
         <span className="font-serif text-[17px] text-slate-700">{monthDayLabel(post.date)}</span>
         {post.status === 'new'
-          ? <span className="rounded-[5px] border border-coral px-[5px] py-px text-[9.5px] font-extrabold tracking-[.06em] text-coral">NEW</span>
+          ? <span className="rounded-[5px] border border-coral px-[5px] py-px text-[9.5px] font-extrabold tracking-[.06em] text-coral-deep">NEW</span>
           : post.status === 'edited' && <span className="rounded-[5px] border border-line px-[5px] py-px text-[9.5px] font-extrabold tracking-[.06em] text-slate-600">EDITED</span>}
         {!data.readOnly && (
           <button data-testid="editor-revert" onClick={() => data.revert(post.id)}
@@ -53,7 +53,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
       </div>
 
       {/* caption */}
-      <span className="mb-[9px] block text-[11px] font-extrabold uppercase tracking-[.08em] text-coral">Caption</span>
+      <span className="mb-[9px] block text-[11px] font-extrabold uppercase tracking-[.08em] text-coral-deep">Caption</span>
       <textarea
         data-testid="editor-caption" value={caption} onChange={(e) => setCaption(e.target.value)}
         readOnly={data.readOnly}
@@ -73,6 +73,17 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
         )}
       </div>
 
+      {/* when — the keyboard-accessible alternative to drag-reschedule */}
+      <label className="mt-[22px] block">
+        <span className="mb-[9px] block text-[11px] font-extrabold uppercase tracking-[.08em] text-coral-deep">Scheduled date</span>
+        <input
+          type="date" data-testid="editor-date" value={post.date} disabled={data.readOnly}
+          aria-label="Scheduled date"
+          onChange={(e) => { if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) data.reschedule(post.id, e.target.value); }}
+          className="rounded-[13px] border border-line px-[15px] py-3 text-[14.5px] text-slate-700 outline-none focus:border-coral disabled:opacity-60"
+        />
+      </label>
+
       {/* media placeholder (upload out of scope this stage) */}
       <div data-testid="media-placeholder" className="mb-1.5 mt-[22px] flex min-h-[92px] items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-[#E1DCD6] bg-[#FAF9F7] text-[13.5px] font-semibold text-muted">
         <FormatIcon format={post.format} className="h-[18px] w-[18px] opacity-60" />
@@ -80,8 +91,8 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
       </div>
 
       {/* checklist */}
-      <span className="mt-[22px] block text-[11px] font-extrabold uppercase tracking-[.08em] text-coral">
-        Checklist {ring.total > 0 && <span className="ml-1.5 text-[11px] font-extrabold normal-case tracking-normal text-coral">{ring.done}/{ring.total} done</span>}
+      <span className="mt-[22px] block text-[11px] font-extrabold uppercase tracking-[.08em] text-coral-deep">
+        Checklist {ring.total > 0 && <span className="ml-1.5 text-[11px] font-extrabold normal-case tracking-normal text-coral-deep">{ring.done}/{ring.total} done</span>}
       </span>
       <div data-testid="editor-checklist" className="mt-0.5 flex flex-col gap-2">
         {post.steps.length > 0
@@ -94,16 +105,16 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
         {!data.readOnly && !isEmail && (
           post.steps.length > 0
             ? <button data-testid="editor-add-step" onClick={() => { setAdding(true); data.addStep(post.id, { label: 'Get approval', leadDays: 1 }).finally(() => setAdding(false)); }} disabled={adding}
-                className="mt-0.5 self-start rounded-full border border-dashed border-coral px-3.5 py-2 text-[12.5px] font-extrabold text-coral disabled:opacity-50">+ Add step</button>
+                className="mt-0.5 self-start rounded-full border border-dashed border-coral px-3.5 py-2 text-[12.5px] font-extrabold text-coral-deep disabled:opacity-50">+ Add step</button>
             : <button data-testid="editor-generate" onClick={() => data.generateChecklist(post.id)}
-                className="mt-0.5 self-start rounded-full border border-dashed border-coral px-3.5 py-2 text-[12.5px] font-extrabold text-coral">✨ Build checklist</button>
+                className="mt-0.5 self-start rounded-full border border-dashed border-coral px-3.5 py-2 text-[12.5px] font-extrabold text-coral-deep">✨ Build checklist</button>
         )}
       </div>
 
       {/* shape this post (async) */}
       {!data.readOnly && (
         <div className="mt-[26px]">
-          <span className="mb-[9px] block text-[11px] font-extrabold uppercase tracking-[.08em] text-coral">Shape this post</span>
+          <span className="mb-[9px] block text-[11px] font-extrabold uppercase tracking-[.08em] text-coral-deep">Shape this post</span>
           <div className="flex gap-2.5">
             <input
               data-testid="shape-input" value={shapeText} disabled={shaping}
@@ -111,9 +122,9 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
               placeholder="Make it softer · shorter · warmer · more about the fabric…"
               className="flex-1 rounded-[13px] border border-line px-[15px] py-3 text-[14.5px] text-slate-700 outline-none focus:border-coral disabled:opacity-60"
             />
-            <button data-testid="shape-go" disabled={shaping} onClick={() => submitShape(shapeText || 'warmer tone')}
-              className="flex w-[50px] flex-none items-center justify-center rounded-[13px] bg-coral-tint text-coral disabled:opacity-50">
-              <SparkIcon className="h-5 w-5" />
+            <button data-testid="shape-go" disabled={shaping} onClick={() => submitShape(shapeText || 'warmer tone')} aria-label="Shape this post"
+              className="flex w-[50px] flex-none items-center justify-center rounded-[13px] bg-coral-tint text-coral-deep disabled:opacity-50">
+              <SparkIcon className="h-5 w-5" aria-hidden="true" />
             </button>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -122,11 +133,18 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
                 className="rounded-full border border-line bg-surface px-[15px] py-2 text-[13px] font-bold text-slate-700 shadow-card hover:border-[#DED9D3] disabled:opacity-50">{label}</button>
             ))}
           </div>
-          <p data-testid="shape-note" className="mt-3.5 text-[12.5px] leading-relaxed text-muted">
-            {shaping
-              ? 'Sprigly is rewriting this in your voice — it’ll appear here when it’s ready.'
-              : 'Sprigly rewrites it in your voice and checks it before it lands. Revert always returns to the original.'}
-          </p>
+          {data.shapeErrors.get(post.id) ? (
+            <div data-testid="shape-error" role="alert" className="mt-3.5 flex items-center gap-3 text-[12.5px] leading-relaxed text-danger">
+              <span>{data.shapeErrors.get(post.id)}</span>
+              <button data-testid="shape-retry" onClick={() => data.retryShape(post.id)} className="font-extrabold text-coral-deep underline">Retry</button>
+            </div>
+          ) : (
+            <p data-testid="shape-note" className="mt-3.5 text-[12.5px] leading-relaxed text-muted">
+              {shaping
+                ? 'Sprigly is rewriting this in your voice — it’ll appear here when it’s ready.'
+                : 'Sprigly rewrites it in your voice and checks it before it lands. Revert always returns to the original.'}
+            </p>
+          )}
         </div>
       )}
     </div>

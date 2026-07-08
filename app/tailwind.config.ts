@@ -22,8 +22,15 @@ const config: Config = {
         coral: '#E87766',
         'coral-strong': '#FF6F62',
         'coral-tint': '#FCE9E5',
+        // A11y (Stage 5): the mockup coral (#E87766) fails WCAG AA as small TEXT on
+        // white (2.9:1). coral-deep is the accessible coral used for coral *text*;
+        // backgrounds/borders/icons keep the brand coral.
+        'coral-deep': '#B04830',
         ink: '#1B2430',
-        muted: '#8A94A3',
+        // Darkened from the mockup's #8A94A3 to clear 4.5:1 on the app backgrounds.
+        muted: '#5C6470',
+        // Accessible amber-dark for "at risk / late" text (was #B77400, ~3.4:1).
+        'amber-deep': '#7A5200',
         line: '#ECEAE6',
         'line-soft': '#F1EFEC',
         'amber-tint': '#FDF0D8',

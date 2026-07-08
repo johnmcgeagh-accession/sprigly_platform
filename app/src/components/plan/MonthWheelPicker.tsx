@@ -50,7 +50,7 @@ export function MonthWheelPicker({ show, year, month, onDone, onClose }: {
   return (
     <>
       <Scrim show={show} onClick={onClose} />
-      <Sheet show={show} onClose={onClose} testid="month-picker" className="px-5 pb-6 pt-0">
+      <Sheet show={show} onClose={onClose} testid="month-picker" className="px-5 pb-6 pt-0" label="Jump to month">
         <h3 className="mb-1 mt-1.5 text-center font-serif text-xl text-slate-700">Jump to month</h3>
         <div className="relative my-2.5 flex h-[196px] gap-2.5 before:absolute before:inset-x-0 before:top-1/2 before:z-0 before:h-11 before:-translate-y-1/2 before:rounded-xl before:bg-coral-tint before:content-['']">
           <Wheel items={MONTHS} index={month} wheelRef={mRef} />

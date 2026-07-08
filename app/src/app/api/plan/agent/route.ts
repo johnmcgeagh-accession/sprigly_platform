@@ -27,6 +27,7 @@ import { createProposal } from '@/lib/agent/proposals';
 import { saveNote } from '@/lib/agent/notes';
 import { answerQuery } from '@/lib/agent/query';
 import { e2eTodayDate } from '@/lib/e2e-fake';
+import { allowRequest } from '@/lib/rate-limit';
 import type { AgentTurnResponse, ParsedTask, ProposalView } from '@/lib/agent/types';
 
 export const runtime = 'nodejs';
@@ -64,6 +65,12 @@ export async function POST(req: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'no_session' }, { status: 401 });
   const { clientId, cycleId } = session;
+
+  // Interim per-share-link rate limit (see design/DECISIONS.md). Keyed by the token's
+  // scope; the client surfaces the 429 as an inline "too quickly" message.
+  if (!allowRequest(`agent:${clientId}:${cycleId}`)) {
+    return NextResponse.json({ error: 'rate_limited' }, { status: 429 });
+  }
 
   let instruction = '';
   let conversationId: string | undefined;

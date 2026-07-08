@@ -32,6 +32,10 @@ export function usePlanData(init: PlanDataInit) {
   const [proposalBusy, setProposalBusy] = useState<string | null>(null);
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentReply, setAgentReply] = useState<AgentReply | null>(null);
+  const [agentError, setAgentError] = useState<string | null>(null);
+  const [shapeErrors, setShapeErrors] = useState<Map<string, string>>(new Map());
+  const [loadError, setLoadError] = useState<null | 'proposals' | 'notes'>(null);
+  const lastShapeInstruction = useRef<Map<string, string>>(new Map());
   const [flashView, setFlashView] = useState<string | null>(null);
   const conversationId = useRef<string | null>(null);
 
@@ -43,11 +47,26 @@ export function usePlanData(init: PlanDataInit) {
     toastTimer.current = setTimeout(() => setToast(null), 3000);
   }, []);
 
+  /** Fire-and-forget UI telemetry (ui_events). Never blocks or throws. */
+  const track = useCallback((event: string, payload?: Record<string, unknown>) => {
+    void fetch('/api/plan/events', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ event, payload }) }).catch(() => {});
+  }, []);
+
   const refreshProposals = useCallback(async () => {
-    try { const r = await fetch('/api/plan/proposals?status=pending'); if (r.ok) setProposals(((await r.json()) as { proposals: ProposalView[] }).proposals); } catch { /* non-fatal */ }
+    try {
+      const r = await fetch('/api/plan/proposals?status=pending');
+      if (!r.ok) throw new Error(String(r.status));
+      setProposals(((await r.json()) as { proposals: ProposalView[] }).proposals);
+      setLoadError((e) => (e === 'proposals' ? null : e));
+    } catch { setLoadError('proposals'); }
   }, []);
   const refreshNotes = useCallback(async () => {
-    try { const r = await fetch('/api/plan/notes'); if (r.ok) setNotes(((await r.json()) as { notes: NoteView[] }).notes); } catch { /* non-fatal */ }
+    try {
+      const r = await fetch('/api/plan/notes');
+      if (!r.ok) throw new Error(String(r.status));
+      setNotes(((await r.json()) as { notes: NoteView[] }).notes);
+      setLoadError((e) => (e === 'notes' ? null : e));
+    } catch { setLoadError('notes'); }
   }, []);
   const refreshPlan = useCallback(async () => {
     try { const r = await fetch('/api/plan'); if (r.ok) setPosts(((await r.json()) as { posts: PlanPost[] }).posts); } catch { /* non-fatal */ }
@@ -106,48 +125,71 @@ export function usePlanData(init: PlanDataInit) {
     if (readOnly) return;
     try {
       const res = await fetch(`/api/posts/${id}/steps/${stepId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ done }) });
-      if (res.ok) setPostSteps(id, ((await res.json()) as { steps: PostStepView[] }).steps);
+      if (res.ok) { setPostSteps(id, ((await res.json()) as { steps: PostStepView[] }).steps); if (done) track('checklist_step_completed', { postId: id, stepId }); }
     } catch { flash('Network error — please try again.'); }
-  }, [readOnly, flash, setPostSteps]);
+  }, [readOnly, flash, setPostSteps, track]);
 
-  /** Poll a shape job until it settles, then swap posts in. */
-  const pollJob = useCallback(async (jobId: string) => {
+  /** Poll a shape job until it settles; returns the terminal status. */
+  const pollJob = useCallback(async (jobId: string): Promise<'done' | 'error' | 'gone' | 'timeout'> => {
     for (let i = 0; i < 30; i++) {
       await new Promise((r) => setTimeout(r, 1600));
       let j: { status: string; posts?: PlanPost[]; summary?: string };
       try { const res = await fetch(`/api/jobs/${jobId}`); if (!res.ok) continue; j = (await res.json()) as typeof j; } catch { continue; }
-      if (j.status === 'done') { if (j.posts) setPosts(j.posts); flash(j.summary ?? 'Updated the caption.'); return; }
-      if (j.status === 'error') { flash(j.summary ?? 'Could not make that change — left it as it was.'); return; }
-      if (j.status === 'gone') { await refreshPlan(); return; }
+      if (j.status === 'done') { if (j.posts) setPosts(j.posts); flash(j.summary ?? 'Updated the caption.'); return 'done'; }
+      if (j.status === 'error') { return 'error'; }
+      if (j.status === 'gone') { await refreshPlan(); return 'gone'; }
     }
-    flash('Still working — give it a moment, then refresh.');
+    return 'timeout';
   }, [flash, refreshPlan]);
 
+  const clearShapeError = useCallback((id: string) => {
+    setShapeErrors((m) => { if (!m.has(id)) return m; const n = new Map(m); n.delete(id); return n; });
+  }, []);
+
   /** "Shape this post": async via the shape job (deviation 3). Marks the post pending
-   *  rather than mutating the caption; completion arrives on the next data refresh. */
+   *  rather than mutating the caption; a job failure resolves to a per-post error note
+   *  with retry (never a stuck spinner). */
   const shape = useCallback(async (id: string, instruction: string) => {
     if (readOnly || !instruction.trim() || shapingIds.has(id)) return;
+    lastShapeInstruction.current.set(id, instruction);
+    clearShapeError(id);
+    track('shape_requested', { postId: id });
     setShapingIds((s) => new Set(s).add(id));
     try {
       const res = await fetch(`/api/posts/${id}/shape`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ instruction }) });
-      if (!res.ok) { flash('Could not start that change — please try again.'); return; }
+      if (!res.ok) { setShapeErrors((m) => new Map(m).set(id, 'Couldn’t start that rewrite.')); return; }
       const r = (await res.json()) as { mode?: string; summary?: string; jobId?: string };
       if (r.mode === 'blocked') { flash(r.summary ?? 'You’ve reached this month’s AI-change limit.'); return; }
-      if (r.mode === 'pending' && r.jobId) { flash(r.summary ?? 'Sprigly is rewriting this…'); await pollJob(r.jobId); }
-    } catch { flash('Network error — please try again.'); }
+      if (r.mode === 'noop') { flash(r.summary ?? 'Still finishing the last change to this post.'); return; }
+      if (r.mode === 'pending' && r.jobId) {
+        flash(r.summary ?? 'Sprigly is rewriting this…');
+        const status = await pollJob(r.jobId);
+        if (status === 'error' || status === 'timeout') {
+          setShapeErrors((m) => new Map(m).set(id, status === 'timeout' ? 'That’s taking longer than expected.' : 'Couldn’t make that change — left it as it was.'));
+        }
+      }
+    } catch { setShapeErrors((m) => new Map(m).set(id, 'Network error — please try again.')); }
     finally { setShapingIds((s) => { const n = new Set(s); n.delete(id); return n; }); }
-  }, [readOnly, shapingIds, flash, pollJob]);
+  }, [readOnly, shapingIds, flash, pollJob, clearShapeError, track]);
+
+  /** Retry the last shape instruction for a post. */
+  const retryShape = useCallback((id: string) => {
+    const instr = lastShapeInstruction.current.get(id);
+    if (instr) void shape(id, instr);
+  }, [shape]);
 
   /** Talk to your plan → real agent extraction; proposals land in Approvals. */
   const ask = useCallback(async (instruction: string, selectedPostId: string | null): Promise<AgentReply | null> => {
     if (readOnly || !instruction.trim() || agentBusy) return null;
     setAgentBusy(true);
+    setAgentError(null);
     try {
       const res = await fetch('/api/plan/agent', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ instruction, selectedPostId, conversationId: conversationId.current }),
       });
-      if (!res.ok) { flash('Something went wrong — please try again.'); return null; }
+      if (res.status === 429) { setAgentError('You’re sending changes too quickly — give it a few seconds and try again.'); return null; }
+      if (!res.ok) { setAgentError('Something went wrong — your message is still here, try again.'); return null; }
       const r = (await res.json()) as AgentTurn;
       conversationId.current = r.conversationId;
       const created = r.proposals ?? [];
@@ -157,11 +199,12 @@ export function usePlanData(init: PlanDataInit) {
         setProposals((cur) => [...created.filter((p) => !cur.some((c) => c.id === p.id)), ...cur]);
         setFlashView('approvals'); setTimeout(() => setFlashView(null), 2800);
       } else { flash(r.message); }
+      track('agent_ask_submitted', { proposals: created.length });
       void refreshNotes();
       return reply;
-    } catch { flash('Network error — please try again.'); return null; }
+    } catch { setAgentError('Network error — your message is still here, try again.'); return null; }
     finally { setAgentBusy(false); }
-  }, [readOnly, agentBusy, flash, refreshNotes]);
+  }, [readOnly, agentBusy, flash, refreshNotes, track]);
 
   const decide = useCallback(async (id: string, action: 'approve' | 'reject') => {
     if (proposalBusy) return;
@@ -171,6 +214,7 @@ export function usePlanData(init: PlanDataInit) {
       if (!res.ok) { flash('Could not update that — please try again.'); return; }
       const d = (await res.json()) as { jobId?: string };
       setProposals((cur) => cur.filter((p) => p.id !== id));
+      track(action === 'approve' ? 'proposal_approved' : 'proposal_discarded', { id });
       if (action === 'approve') {
         flash('Change approved.');
         await refreshPlan();
@@ -178,7 +222,7 @@ export function usePlanData(init: PlanDataInit) {
       } else { flash('Dismissed.'); }
     } catch { flash('Network error — please try again.'); }
     finally { setProposalBusy(null); }
-  }, [proposalBusy, flash, refreshPlan, pollJob]);
+  }, [proposalBusy, flash, refreshPlan, pollJob, track]);
 
   /** Switch the rendered cycle (read-only for non-home). */
   const switchCycle = useCallback(async (cycleId: string) => {
@@ -198,11 +242,12 @@ export function usePlanData(init: PlanDataInit) {
     posts, cycles, proposals, notes, today: init.today, clientName: init.clientName,
     homeCycleId: init.homeCycleId, viewedCycleId, readOnly,
     // status
-    busy, switching, shapingIds, proposalBusy, agentBusy, agentReply, flashView, toast,
+    busy, switching, shapingIds, proposalBusy, agentBusy, agentReply, agentError,
+    shapeErrors, loadError, flashView, toast,
     // actions
     reschedule, saveCaption, revert, removePost, addPost,
-    generateChecklist, addStep, toggleStep, shape, ask, decide, switchCycle,
-    setAgentReply, flash,
+    generateChecklist, addStep, toggleStep, shape, retryShape, ask, decide, switchCycle,
+    refreshProposals, refreshNotes, setAgentReply, setAgentError, flash, track,
   };
 }
 
