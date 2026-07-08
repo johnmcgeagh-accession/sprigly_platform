@@ -420,3 +420,52 @@ proposal_approved/discarded, agent_ask_submitted, checklist_step_completed, shap
 `toHaveScreenshot` visual snapshots — skipped per the "only if cheap / skip if flaky" allowance;
 pixel snapshots across two form factors + fonts are flake-prone and axe + Lighthouse already gate
 the visual/a11y surface. A future stage can add them with an animation-disabled config.
+
+---
+
+## 11. Local-dev workflow + token-rejection fix (2026-07-08)
+
+### Root cause of "seeded magic-link token rejected as expired" (P1)
+**Not** a validation/clock/single-use bug. The app's `dev` npm script is
+`sh -c 'set -a && . ../.env.local && set +a && next dev'` — the `set -a && . ../.env.local`
+**re-exports `DATABASE_URL` (the Railway dev DB), clobbering the container URL** passed on the
+command line. So `DATABASE_URL="$(test-db.sh url)" … pnpm --filter @sprigly/app dev` runs the app
+against **Railway**, where the seeded token doesn't exist → `verifyLink`'s `if (!row) return null`
+(auth.ts) fires → `/p/[token]` redirects to `/expired`. Manual SQL updates hit the container, not
+Railway, so they had no effect. The Playwright suite passes because its webServer runs `next dev`
+**directly** with `env.DATABASE_URL = CONTAINER_DB` (no `.env.local` sourcing). Fix is at the
+**workflow** layer (`pnpm dev:local`), not the route — token validation was correct all along.
+
+### `pnpm dev:local`
+`scripts/dev-local.sh`: ensures the test container is up (creates it if absent), reseeds, and starts
+`next dev` **directly** (bypassing the `.env.local`-sourcing `dev` script) with
+`DATABASE_URL=<container>`, `SPRIGLY_E2E_FAKE=1`, `PLAN_TODAY=2026-07-08`. Prints clickable
+magic-link URLs for tenant A and B. `pnpm dev:local --reseed` resets data while the app keeps
+running and reprints URLs.
+- **Bind host = LAN IP** (`-H $(ipconfig getifaddr en0)`), falling back to localhost with no network.
+  Reason: Next dev pins the `/p/[token]` redirect to the **bound** host (not the `Host` header), so
+  `-H 0.0.0.0` would redirect to `0.0.0.0` and break the session cookie; binding the LAN IP yields
+  one URL that works from **both** the Mac's browser and a phone. (The `/p` route is unchanged.)
+- Seeded local tokens are long-lived (**2035** expiry) and exist only in the disposable container —
+  gated like the other fakes (the seed is never a production path).
+
+### Regression test
+`e2e/session.spec.ts`: visits `/p/<token>` twice with a gap, both landing on the plan (not
+`/expired`) and the resulting session authorizing an API read — guards the validation-side symptom
+class (single-use / rotation / clock rejection). (The env-level root cause isn't reproducible in
+e2e, which never uses the `dev` script.)
+
+### Housekeeping
+- **Seed NOTICE silenced:** `SET client_min_messages TO warning` at the top of the seed session
+  removes the "truncate cascades to …" wall.
+- **Next lockfile warning — verdict: benign, now explained.** `next dev` emits
+  "Found lockfile missing swc dependencies, patching… / Failed to patch lockfile /
+  Cannot read properties of undefined (reading 'os')". Cause: a **stray
+  `/Users/johnmcgeagh/package-lock.json`** in the home dir — Next's `findUp('package-lock.json')`
+  walks up from the app dir and finds it (this repo uses pnpm-lock.yaml), decides the lockfile is
+  "missing swc deps" (the pinned `@next/swc-*@14.2.33` vs `next@14.2.35` skew), and tries to patch
+  it by fetching npm metadata, which fails (offline/registry) → the caught `os` crash. **SWC is
+  installed and working** (`@next/swc-darwin-arm64@14.2.33`); dev/build/e2e all succeed. It affects
+  nothing. To remove the noise: delete the stray `~/package-lock.json` (not part of any project).
+  A cosmetic realignment (`pnpm install` to bump `@next/swc-*` to 14.2.35) would also stop it but
+  needs network and wasn't done here to avoid pre-UAT lockfile churn.

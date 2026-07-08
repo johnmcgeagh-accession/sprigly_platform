@@ -60,6 +60,9 @@ const POSTS: Row[] = [
 ];
 
 async function main() {
+  // Silence the "truncate cascades to …" NOTICE wall for this seed session.
+  await sql`SET client_min_messages TO warning`;
+
   // Reset: TRUNCATE the tenant tree in one shot. CASCADE handles FK order and — unlike
   // DELETE — bypasses plan_activity's append-only row trigger. step_templates has no FK
   // to clients, so the migration seed survives. The e2e container holds only this tenant.
@@ -108,7 +111,7 @@ async function main() {
 
   // Magic-link token → session for the Playwright auth setup.
   await db.insert(appMagicLinkTokens).values({
-    clientId: CLIENT, cycleId: CYCLE, token: TOKEN, expiresAt: new Date('2027-01-01T00:00:00Z'),
+    clientId: CLIENT, cycleId: CYCLE, token: TOKEN, expiresAt: new Date('2035-01-01T00:00:00Z'),
   });
 
   // Tenant B — empty current cycle, no notes/posts/proposals. Powers the empty-state and
@@ -116,7 +119,7 @@ async function main() {
   await db.insert(clients).values({ id: CLIENT_B, name: 'Beta Co', slug: 'e2e-beta-co', status: 'active' });
   await db.insert(clientConfigs).values({ clientId: CLIENT_B, settings: { plan_redesign: true } });
   await db.insert(contentCycles).values({ id: CYCLE_B, clientId: CLIENT_B, channel: 'instagram', cycleMonth: '2026-07', status: 'active' });
-  await db.insert(appMagicLinkTokens).values({ clientId: CLIENT_B, cycleId: CYCLE_B, token: TOKEN_B, expiresAt: new Date('2027-01-01T00:00:00Z') });
+  await db.insert(appMagicLinkTokens).values({ clientId: CLIENT_B, cycleId: CYCLE_B, token: TOKEN_B, expiresAt: new Date('2035-01-01T00:00:00Z') });
 
   const authDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'app', 'e2e', '.auth');
   mkdirSync(authDir, { recursive: true });
