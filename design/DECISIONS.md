@@ -348,3 +348,75 @@ shape pending→swap, mobile axis-lock / swipe reveal / Move round-trip / scroll
   states aren't reachable without a second empty tenant + its own token/session. Approvals empty
   state IS covered (by clearing the queue). A future add: a second seeded empty tenant.
 - Visual-regression snapshots deferred to Stage 5 (noted as a possible add), per scope.
+
+---
+
+## 10. Stage 5 — hardening (2026-07-08)
+
+### Accessibility
+- **Keyboard paths for every pointer-only action:** drag-reschedule → a labelled editor date input
+  (`editor-date`); mobile swipe → a per-card overflow ⋯ menu (Edit/Move/Delete, `card-menu`);
+  calendar chips are role=button + Enter/Space; empty-day ＋ get aria-labels.
+- **Focus management:** Sheet/Drawer trap focus (`useFocusTrap`), Escape closes the top layer
+  (stopPropagation), focus returns to the opener on close. Closed dialogs use the `inert` property
+  (removed from the a11y tree + tab order — fixes aria-hidden-focus and off-screen tabbing).
+- **ARIA:** SegmentedControl = tablist/tab + aria-selected; week-strip days = buttons with
+  aria-pressed + a label carrying the date + post count; ProgressRing = role=img
+  aria-label "N of M steps done"; ProposalCard actions labelled with the proposal text; icon-only
+  buttons (shape, mic, chevrons) labelled; toast = aria-live=polite; each dialog has an accessible
+  name (label / labelledBy).
+- **prefers-reduced-motion:** a scoped reset drops all redesign transitions/animations (sheet/drawer
+  slides → instant, ring animation, rail flash, mic pulse, segmented-pill slide).
+- **Visible focus:** a global coral `:focus-visible` outline on `.plan-redesign`.
+- **Colour-contrast deviation from the mockups (a11y-mandated):** the mockup palette failed WCAG AA
+  as small text — `muted #8A94A3 → #5C6470`; coral **text** uses a new `coral-deep #B04830`
+  (backgrounds/borders/icons keep brand coral `#E87766`); amber-dark `#B77400 → amber-deep #7A5200`;
+  overdue text → `danger`. Recorded as an intentional look-vs-a11y trade (Stage 2 said "resemble",
+  Stage 5 requires AA).
+- **axe** (`@axe-core/playwright`, `a11y.spec.ts`): **0 serious/critical** on desktop
+  calendar+editor+agent and mobile feed+editor.
+
+### Performance (Lighthouse, prod-mode app, session cookie)
+- **Desktop: performance 100, accessibility 100. Mobile: performance 97, accessibility 100.** Both
+  clear ≥90 / ≥95. **CLS 0**, TBT 0 ms, LCP ~2.4 s (mobile). Rings/chips reserve dimensions (no CLS
+  on the batched step load). Fonts self-hosted with `display: swap`. Month payload is 2 queries
+  (posts + batched steps), no waterfall.
+- **Bundle:** `/` route 28.4 kB (Stage 2) → **30.3 kB (+1.9 kB)** for focus-trap, error states,
+  telemetry + rate-limit clients, and the overflow menu.
+
+### Error & empty states
+- Every client fetch failure → toast; Approvals/Notes get an inline **Retry** pane (never a blank
+  pane). Agent failure → inline error in the sheet, **input preserved** (429 has its own copy).
+  Shape-job failure → a per-post error note with **Retry** (not a stuck spinner) — driven by the
+  job API's `error`/`timeout` status. Share-link invalid/expired → the branded `/expired` page
+  (no redirect loop; `/` renders a message, not a redirect).
+- A **second seeded tenant** (empty cycle, no notes) closes the Stage 3 gaps as e2e tests:
+  month-with-no-posts (summary + dashed adds) and Notes empty state.
+
+### Security
+- **Cross-tenant isolation** (`security.spec.ts`, tenant B): B cannot read tenant A's cycle (403),
+  cannot mutate A's posts/steps/revert/generate (404), cannot approve A's proposal (no mutation),
+  and sees only its own empty notes/activity.
+- **/api/e2e/\* + fakes inert in prod:** gated on `NODE_ENV !== 'production'`; the prod-smoke test
+  asserts `/api/e2e/activity` → **404** under `next start`.
+- **Rate limit (interim):** no mechanism existed; added an in-process token-bucket on the agent
+  route keyed by `${clientId}:${cycleId}` (8 burst, 1 token / 3 s → ~20/min), 429 surfaced inline.
+  Per-instance, not distributed — a durable Redis limiter is a later item. See `lib/rate-limit.ts`.
+- **Token space:** seeded e2e tokens (`e2e0…`, `e2e1…`) live only in the disposable e2e container,
+  never in the prod DB; even in one DB, real tokens are 32 random bytes (base64url), so a collision
+  with the fixed seed values is ~2⁻²⁵⁶. No collision risk.
+
+### Prod-mode smoke
+`pnpm e2e:prod` → `next build && next start` on :3300, fakes off. 6 tests (boot, magic-link session,
+month render + rings, caption save, checklist tick, /api/e2e 404). ~6 s warm.
+
+### Telemetry
+No analytics existed → added a minimal server-side **`ui_events`** table (migration 0069),
+**separate from plan_activity** (plan_activity = plan-mutation ledger/source-of-truth; ui_events =
+analytics). Client fires `POST /api/plan/events` (allow-listed, best-effort) for: view_switched,
+proposal_approved/discarded, agent_ask_submitted, checklist_step_completed, shape_requested.
+
+### Skipped (optional)
+`toHaveScreenshot` visual snapshots — skipped per the "only if cheap / skip if flaky" allowance;
+pixel snapshots across two form factors + fonts are flake-prone and axe + Lighthouse already gate
+the visual/a11y surface. A future stage can add them with an animation-disabled config.
