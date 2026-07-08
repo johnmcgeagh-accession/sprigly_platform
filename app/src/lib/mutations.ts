@@ -52,6 +52,9 @@ export interface PostPatch {
   pillar?:   string;
   position?: number;
   caption?:  string;   // free-text edit (structural). Instructed rewrites are Phase 3.
+  hook?:     string;   // reel/carousel hook — free-text edit or a picked candidate (Stage 6)
+  script?:   string;   // reel script — free-text edit of the generated script (Stage 6)
+  scriptLengthSeconds?: number;  // 15|30|60|90
 }
 
 /** PATCH a post: date / format / pillar / position / caption. Flips status to
@@ -69,11 +72,16 @@ export async function patchPost(clientId: string, cycleId: string, postId: strin
   if (typeof patch.pillar === 'string')   set.pillar = patch.pillar;
   if (typeof patch.position === 'number' && Number.isFinite(patch.position)) set.position = Math.trunc(patch.position);
   if (typeof patch.caption === 'string')  set.caption = patch.caption;
+  if (typeof patch.hook === 'string')     set.hook = patch.hook;
+  if (typeof patch.script === 'string')   set.script = patch.script;
+  if (typeof patch.scriptLengthSeconds === 'number' && [15, 30, 60, 90].includes(patch.scriptLengthSeconds)) set.scriptLengthSeconds = patch.scriptLengthSeconds;
 
   // Ledger action reflects the primary field changed, so the history reads legibly.
   const action: ActivityAction =
     patch.date !== undefined     ? 'rescheduled'
     : patch.caption !== undefined ? 'caption_saved'
+    : patch.hook !== undefined    ? 'hook_saved'
+    : patch.script !== undefined  ? 'script_saved'
     : patch.format !== undefined  ? 'format_changed'
     : patch.position !== undefined ? 'reordered'
     : 'post_updated';

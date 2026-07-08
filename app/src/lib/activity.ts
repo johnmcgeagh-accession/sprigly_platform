@@ -18,6 +18,8 @@ export type ActivityAction =
   | 'post_created'
   | 'rescheduled'
   | 'caption_saved'
+  | 'hook_saved'
+  | 'script_saved'
   | 'format_changed'
   | 'reordered'
   | 'post_updated'

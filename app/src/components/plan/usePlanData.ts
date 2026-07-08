@@ -36,6 +36,10 @@ export function usePlanData(init: PlanDataInit) {
   const [shapeErrors, setShapeErrors] = useState<Map<string, string>>(new Map());
   const [loadError, setLoadError] = useState<null | 'proposals' | 'notes'>(null);
   const lastShapeInstruction = useRef<Map<string, string>>(new Map());
+  // Hook generation (Stage 6): per-post generating flag, returned candidates, and errors.
+  const [hookGenerating, setHookGenerating] = useState<Set<string>>(new Set());
+  const [hookCandidates, setHookCandidates] = useState<Map<string, string[]>>(new Map());
+  const [hookError, setHookError] = useState<Map<string, string>>(new Map());
   const [flashView, setFlashView] = useState<string | null>(null);
   const conversationId = useRef<string | null>(null);
 
@@ -91,6 +95,37 @@ export function usePlanData(init: PlanDataInit) {
 
   const reschedule = useCallback((id: string, dateIso: string) => call(`/api/posts/${id}`, 'PATCH', { date: dateIso }), [call]);
   const saveCaption = useCallback((id: string, caption: string) => call(`/api/posts/${id}`, 'PATCH', { caption }), [call]);
+  const saveHook = useCallback((id: string, hook: string) => call(`/api/posts/${id}`, 'PATCH', { hook }), [call]);
+
+  const clearHookCandidates = useCallback((id: string) => {
+    setHookCandidates((m) => { if (!m.has(id)) return m; const n = new Map(m); n.delete(id); return n; });
+  }, []);
+
+  /** Generate 3 hook candidates for a reel/carousel post (async job → poll → candidates,
+   *  not written to the post — the user picks one, then Saves). */
+  const generateHooks = useCallback(async (id: string) => {
+    if (readOnly || hookGenerating.has(id)) return;
+    setHookError((m) => { const n = new Map(m); n.delete(id); return n; });
+    setHookGenerating((s) => new Set(s).add(id));
+    try {
+      const res = await fetch('/api/plan/hooks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ targetPostId: id }) });
+      if (!res.ok) { setHookError((m) => new Map(m).set(id, 'Couldn’t start hook generation.')); return; }
+      const r = (await res.json()) as { mode?: string; jobId?: string; summary?: string };
+      if (r.mode === 'noop') { flash(r.summary ?? 'Already generating hooks.'); return; }
+      if (r.mode === 'pending' && r.jobId) {
+        for (let i = 0; i < 30; i++) {
+          await new Promise((done) => setTimeout(done, 1200));
+          let j: { status: string; candidates?: string[] };
+          try { const p = await fetch(`/api/jobs/${r.jobId}`); if (!p.ok) continue; j = (await p.json()) as typeof j; } catch { continue; }
+          if (j.status === 'done')  { setHookCandidates((m) => new Map(m).set(id, j.candidates ?? [])); return; }
+          if (j.status === 'error') { setHookError((m) => new Map(m).set(id, 'Couldn’t generate hooks — try again.')); return; }
+          if (j.status === 'gone')  { setHookError((m) => new Map(m).set(id, 'Hook generation was lost — try again.')); return; }
+        }
+        setHookError((m) => new Map(m).set(id, 'That’s taking longer than expected.'));
+      }
+    } catch { setHookError((m) => new Map(m).set(id, 'Network error — please try again.')); }
+    finally { setHookGenerating((s) => { const n = new Set(s); n.delete(id); return n; }); }
+  }, [readOnly, hookGenerating, flash]);
   const revert = useCallback((id: string) => call(`/api/posts/${id}/revert`, 'POST'), [call]);
   const removePost = useCallback((id: string) => call(`/api/posts/${id}`, 'DELETE'), [call]);
   const addPost = useCallback((dateIso: string) => call('/api/posts', 'POST', { date: dateIso }), [call]);
@@ -244,10 +279,12 @@ export function usePlanData(init: PlanDataInit) {
     // status
     busy, switching, shapingIds, proposalBusy, agentBusy, agentReply, agentError,
     shapeErrors, loadError, flashView, toast,
+    hookGenerating, hookCandidates, hookError,
     // actions
     reschedule, saveCaption, revert, removePost, addPost,
     generateChecklist, addStep, toggleStep, shape, retryShape, ask, decide, switchCycle,
     refreshProposals, refreshNotes, setAgentReply, setAgentError, flash, track,
+    saveHook, generateHooks, clearHookCandidates,
   };
 }
 

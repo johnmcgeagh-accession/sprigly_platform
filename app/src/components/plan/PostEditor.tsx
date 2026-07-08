@@ -13,6 +13,7 @@ const SHAPES = [['Make it softer', 'make it softer'], ['Make it shorter', 'make 
  *  Revert, delete, checklist (tick / add / generate), and async "Shape this post". */
 export function PostEditor({ post, data, onClose }: { post: PlanPost; data: PlanData; onClose: () => void }) {
   const [caption, setCaption] = useState(post.caption);
+  const [hook, setHook] = useState(post.hook ?? '');
   const [shapeText, setShapeText] = useState('');
   const [adding, setAdding] = useState(false);
   const lastId = useRef(post.id);
@@ -20,15 +21,22 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
   // Reset the textarea when the selected post changes or its caption is replaced
   // (e.g. a shape job landed) — but not on every keystroke.
   useEffect(() => {
-    if (lastId.current !== post.id) { lastId.current = post.id; setCaption(post.caption); setShapeText(''); }
-  }, [post.id, post.caption]);
+    if (lastId.current !== post.id) { lastId.current = post.id; setCaption(post.caption); setHook(post.hook ?? ''); setShapeText(''); }
+  }, [post.id, post.caption, post.hook]);
   useEffect(() => { setCaption(post.caption); }, [post.caption]);
+  useEffect(() => { setHook(post.hook ?? ''); }, [post.hook]);
 
   const ring = ringOf(post.steps);
   const dirty = caption !== post.caption;
+  const hookDirty = hook !== (post.hook ?? '');
   const shaping = data.shapingIds.has(post.id);
   const stateLabel = post.status === 'new' ? 'New idea' : post.status === 'edited' ? 'Edited' : 'Draft';
   const isEmail = post.format === 'email';
+  // Hooks: reels + carousels only (product decision).
+  const showHook = post.format === 'reel' || post.format === 'carousel';
+  const hookCandidates = data.hookCandidates.get(post.id) ?? [];
+  const hookGenerating = data.hookGenerating.has(post.id);
+  const hookErr = data.hookError.get(post.id);
 
   const submitShape = (instruction: string) => { if (!instruction.trim()) return; void data.shape(post.id, instruction); setShapeText(''); };
 
@@ -51,6 +59,46 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
           </button>
         )}
       </div>
+
+      {/* hook (reels + carousels) — above the caption */}
+      {showHook && (
+        <div className="mb-[22px]" data-testid="hook-section">
+          <div className="mb-[9px] flex items-center justify-between">
+            <span className="text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">Hook</span>
+            {!data.readOnly && (
+              <button data-testid="generate-hooks" onClick={() => data.generateHooks(post.id)} disabled={hookGenerating}
+                className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-coral px-3 py-1.5 text-[12px] font-extrabold text-coral-on-tint disabled:opacity-50">
+                <SparkIcon className="h-3.5 w-3.5" />{hookGenerating ? 'Generating…' : '✨ Generate hooks'}
+              </button>
+            )}
+          </div>
+          <input
+            data-testid="editor-hook" value={hook} onChange={(e) => setHook(e.target.value)} readOnly={data.readOnly}
+            placeholder="The line that stops the scroll — write one or generate options."
+            className="w-full rounded-xl border border-line p-3 text-[15px] text-slate-700 outline-none focus:border-coral disabled:opacity-60"
+          />
+          {hookErr && (
+            <div data-testid="hook-error" role="alert" className="mt-2 text-[12.5px] font-semibold text-danger">
+              {hookErr} <button onClick={() => data.generateHooks(post.id)} className="font-extrabold underline">Retry</button>
+            </div>
+          )}
+          {hookCandidates.length > 0 && (
+            <div data-testid="hook-candidates" className="mt-2.5 flex flex-col gap-2">
+              <span className="text-[11.5px] font-bold text-muted">Tap one to use it:</span>
+              {hookCandidates.map((c, i) => (
+                <button key={i} data-testid="hook-candidate" onClick={() => { setHook(c); data.clearHookCandidates(post.id); }}
+                  className="rounded-xl border border-line bg-line-soft px-3.5 py-2.5 text-left text-[14px] leading-snug text-slate-700 hover:border-coral hover:bg-coral-tint">{c}</button>
+              ))}
+            </div>
+          )}
+          {!data.readOnly && hookDirty && (
+            <button data-testid="hook-save" onClick={() => data.saveHook(post.id, hook)}
+              className="mt-2.5 inline-flex items-center gap-1.5 rounded-[11px] bg-coral-cta px-4 py-2 text-[13px] font-extrabold text-white">
+              <CheckIcon className="h-3.5 w-3.5" />Save hook
+            </button>
+          )}
+        </div>
+      )}
 
       {/* caption */}
       <span className="mb-[9px] block text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">Caption</span>

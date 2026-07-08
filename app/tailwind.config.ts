@@ -27,6 +27,10 @@ const config: Config = {
         coral: '#E87766',
         'coral-strong': '#FF6F62',
         'coral-tint': '#FCE9E5',
+        // AA-safe filled-coral for primary CTAs/saves carrying WHITE text (white on
+        // #C24C34 = 4.80:1). Brand coral #E87766 fails white text (2.89); use this when a
+        // filled coral button needs white text. See DECISIONS §15.
+        'coral-cta': '#C24C34',
         // Coral TEXT rule (supersedes Stage 5 coral-deep): coral is never used for small
         // text. These two tokens are the ONLY coral text allowed, each with a hard
         // constraint baked into the name:

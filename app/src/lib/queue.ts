@@ -5,7 +5,7 @@
  * no @sprigly/workflows here — enqueue + read only.
  */
 import { Queue } from 'bullmq';
-import { e2eFakeEnabled, E2E_SHAPED_CAPTION } from '@/lib/e2e-fake';
+import { e2eFakeEnabled, E2E_SHAPED_CAPTION, E2E_HOOK_CANDIDATES } from '@/lib/e2e-fake';
 
 export interface ShapePayload {
   type:         'shape';
@@ -77,6 +77,62 @@ export async function enqueueShape(payload: ShapePayload): Promise<EnqueueResult
   } catch (err) {
     return { error: String(err) };
   }
+}
+
+// ── Hook generation (Stage 6, reels + carousels) ───────────────────────────────
+export interface HookPayload {
+  type:         'hook';
+  clientId:     string;
+  cycleId:      string;
+  targetPostId: string;
+}
+export const hookJobId = (cycleId: string, postId: string) => `hook_${cycleId}_${postId}`;
+
+export type HookJobView =
+  | { status: 'pending' }
+  | { status: 'done'; candidates: string[] }
+  | { status: 'error'; summary: string }
+  | { status: 'gone' };
+
+/** Enqueue a hook-generation job. Candidates are returned via the job (NOT written to
+ *  the post — the user picks + saves). Fake path returns a jobId; readHookJob returns the
+ *  canned candidates so the e2e loop is deterministic without Redis/Bedrock. */
+export async function enqueueHookJob(payload: HookPayload): Promise<EnqueueResult> {
+  if (e2eFakeEnabled()) return { jobId: hookJobId(payload.cycleId, payload.targetPostId) };
+  const queue = getQueue();
+  if (!queue) return { error: 'Server not configured for background jobs (REDIS_URL missing).' };
+  const jobId = hookJobId(payload.cycleId, payload.targetPostId);
+  try {
+    const existing = await queue.getJob(jobId);
+    if (existing) {
+      const state = await existing.getState();
+      if (state === 'completed' || state === 'failed' || state === 'unknown') {
+        try { await existing.remove(); } catch { /* best-effort */ }
+      } else {
+        return { busy: true, jobId };
+      }
+    }
+    await queue.add('hook', payload, { jobId, attempts: 1, removeOnComplete: { age: 3600, count: 1000 }, removeOnFail: { age: 3600 } });
+    return { jobId };
+  } catch (err) {
+    return { error: String(err) };
+  }
+}
+
+/** Read a hook job's candidates. Fake path returns the canned set immediately. */
+export async function readHookJob(jobId: string): Promise<HookJobView> {
+  if (e2eFakeEnabled()) return { status: 'done', candidates: E2E_HOOK_CANDIDATES };
+  const queue = getQueue();
+  if (!queue) return { status: 'error', summary: 'Background jobs unavailable.' };
+  const job = await queue.getJob(jobId);
+  if (!job) return { status: 'gone' };
+  const state = await job.getState();
+  if (state === 'completed') {
+    const rv = (job.returnvalue ?? {}) as { candidates?: string[] };
+    return { status: 'done', candidates: rv.candidates ?? [] };
+  }
+  if (state === 'failed') return { status: 'error', summary: job.failedReason || 'Could not generate hooks.' };
+  return { status: 'pending' };
 }
 
 export interface WeeklySessionPayload {

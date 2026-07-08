@@ -38,6 +38,7 @@ import { extractVoiceDeltasForCycle } from './extract.js';
 import { applyVoiceDeltasForCycle } from './apply.js';
 import { runPlanningForCycle } from './planning.js';
 import { runShapeForCycle, type ShapeJob } from './shape.js';
+import { runHookForPost, type HookJob } from './hook.js';
 import { runWeeklySession, type WeeklySessionJob } from './weekly-session.js';
 import { runWeeklySessionTick } from './weekly-cron.js';
 import { runIgTrawlJob } from '../ig-producer.js';
@@ -66,7 +67,8 @@ type ContentCycleJob =
   | { type: 'scheduler-tick' }
   | { type: 'weekly-session-tick' }
   | WeeklySessionJob
-  | ShapeJob;
+  | ShapeJob
+  | HookJob;
 
 export function createContentCycleConsumer(
   db:                 Db,
@@ -118,6 +120,14 @@ export function createContentCycleConsumer(
           logger.info({ ...logCtx, cycleId: data.cycleId, postId: data.targetPostId, scope: data.scope }, 'content-cycles: starting shape job');
           // Return the result so BullMQ sets job.returnvalue (read by GET /api/jobs/:id).
           return await runShapeForCycle(data, {
+            db, encProvider, googleClientId, googleClientSecret,
+            model, prompts, audit, logger,
+          });
+
+        case 'hook':
+          logger.info({ ...logCtx, cycleId: data.cycleId, postId: data.targetPostId }, 'content-cycles: starting hook job');
+          // Returns { candidates } → BullMQ job.returnvalue → read by GET /api/jobs/:id.
+          return await runHookForPost(data, {
             db, encProvider, googleClientId, googleClientSecret,
             model, prompts, audit, logger,
           });

@@ -74,3 +74,18 @@ function between(s: string, delim: string): string {
  *  deterministic without Redis/Bedrock. */
 export const E2E_SHAPED_CAPTION =
   'We’ve been quietly working on this one and it’s finally ready to share. Come and see it — link in bio.';
+
+/** The 3 hook candidates a faked hook job returns — deterministic for e2e. */
+export const E2E_HOOK_CANDIDATES = [
+  'The real reason this top sold out twice — and it isn’t the fabric.',
+  'Stop washing linen like cotton. Do this instead.',
+  'POV: you’re the friend whose outfit everyone quietly asks about.',
+];
+
+/** The structured script a faked script job writes (reel), deterministic for e2e. */
+export const E2E_SCRIPT_TEXT =
+  'HOOK: The real reason this top sold out twice — and it isn’t the fabric.\n\n' +
+  'BEAT 1 (0–5s) — Close-up on the weave, hands turning the fabric to the light.\n' +
+  'BEAT 2 (5–20s) — Cut to the studio: why we chose this cloth, one honest sentence.\n' +
+  'BEAT 3 (20–27s) — The top on a real body, moving.\n\n' +
+  'CTA: Back in stock this week — link in bio.';

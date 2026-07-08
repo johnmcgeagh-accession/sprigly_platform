@@ -44,7 +44,9 @@ export interface PlanPost {
   status:      PostStatus;
   reviewState: ReviewState | null;
   steps:       PostStepView[];   // production checklist, batched in (empty if none)
+  hook?:       string | null;    // reel/carousel hook (Stage 6)
   script?:     string | null;
+  scriptLengthSeconds?: number | null;  // 15|30|60|90 (Stage 6)
   overlay?:    string | null;
   // Async add-post-with-instruction (carried on source_meta): the instruction that
   // generates/regenerates this post, and the last generation error (if failed).
