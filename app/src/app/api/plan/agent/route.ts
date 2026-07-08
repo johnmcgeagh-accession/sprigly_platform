@@ -26,6 +26,7 @@ import { ensureConversation, appendMessage } from '@/lib/agent/conversation';
 import { createProposal } from '@/lib/agent/proposals';
 import { saveNote } from '@/lib/agent/notes';
 import { answerQuery } from '@/lib/agent/query';
+import { e2eTodayDate } from '@/lib/e2e-fake';
 import type { AgentTurnResponse, ParsedTask, ProposalView } from '@/lib/agent/types';
 
 export const runtime = 'nodejs';
@@ -83,7 +84,7 @@ export async function POST(req: Request) {
   const userMessageId = await appendMessage({ conversationId: convId, role: 'user', content: instruction, source, metadata: userMeta });
 
   const posts = await loadPlanPosts(clientId, cycleId);
-  const today = new Date();
+  const today = e2eTodayDate() ?? new Date();
 
   // ── Parse (the only entry point) ──────────────────────────────────────────
   let tasks: ParsedTask[];

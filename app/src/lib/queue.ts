@@ -5,6 +5,7 @@
  * no @sprigly/workflows here — enqueue + read only.
  */
 import { Queue } from 'bullmq';
+import { e2eFakeEnabled, E2E_SHAPED_CAPTION } from '@/lib/e2e-fake';
 
 export interface ShapePayload {
   type:         'shape';
@@ -40,6 +41,17 @@ export type EnqueueResult =
  *  already active/waiting, returns `{ busy: true, jobId }` WITHOUT enqueuing —
  *  the caller decides how to tell the user. */
 export async function enqueueShape(payload: ShapePayload): Promise<EnqueueResult> {
+  if (e2eFakeEnabled()) {
+    // e2e: no Redis/Bedrock. Write the canned caption straight onto the post so a
+    // subsequent poll returns 'done' with the swapped caption. Dynamic imports keep
+    // @sprigly/db out of this module's top level (the offline queue.test never loads it).
+    const { db, contentCyclePosts } = await import('@sprigly/db');
+    const { and, eq } = await import('drizzle-orm');
+    await db.update(contentCyclePosts)
+      .set({ caption: E2E_SHAPED_CAPTION, status: 'edited' })
+      .where(and(eq(contentCyclePosts.id, payload.targetPostId), eq(contentCyclePosts.clientId, payload.clientId)));
+    return { jobId: shapeJobId(payload.cycleId, payload.targetPostId) };
+  }
   const queue = getQueue();
   if (!queue) return { error: 'Server not configured for background jobs (REDIS_URL missing).' };
   const jobId = shapeJobId(payload.cycleId, payload.targetPostId);
@@ -107,6 +119,11 @@ export type JobView =
 
 /** Read a shape job's state + returnvalue from BullMQ. */
 export async function readShapeJob(jobId: string): Promise<JobView> {
+  if (e2eFakeEnabled()) {
+    // The fake enqueue already applied the caption; report done immediately.
+    const postId = jobId.split('_').slice(2).join('_');
+    return { status: 'done', changedPostIds: [postId], summary: 'Rewritten in your voice.' };
+  }
   const queue = getQueue();
   if (!queue) return { status: 'error', summary: 'Background jobs unavailable.' };
   const job = await queue.getJob(jobId);

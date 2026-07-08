@@ -9,11 +9,14 @@
  */
 import { createModelClientFromEnv, type ModelClient } from '@sprigly/model-client';
 import { createEmbeddingClientFromEnv, type EmbeddingClient } from '@sprigly/embedding-client';
+import { e2eFakeEnabled, makeFakeModelClient } from '@/lib/e2e-fake';
 
 let modelClient: ModelClient | null = null;
 let embeddingClient: EmbeddingClient | null = null;
 
 export function getModelClient(): ModelClient {
+  // e2e (non-prod, flag set): a canned client — never calls Bedrock.
+  if (e2eFakeEnabled()) return makeFakeModelClient();
   if (!modelClient) modelClient = createModelClientFromEnv();
   return modelClient;
 }

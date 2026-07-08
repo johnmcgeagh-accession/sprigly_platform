@@ -9,6 +9,7 @@ import { db, postSteps, stepTemplates, contentCyclePosts } from '@sprigly/db';
 import type { PostStepRow } from '@sprigly/db';
 import type { PostStepView, StepActor } from './types.js';
 import { recordActivity, USER_ACTOR, type ActivityActor } from '@/lib/activity';
+import { e2eTodayIso } from '@/lib/e2e-fake';
 
 /**
  * "Today" for at-risk / bucket derivations, in the tenant's timezone. No per-tenant
@@ -17,6 +18,8 @@ import { recordActivity, USER_ACTOR, type ActivityActor } from '@/lib/activity';
  * 'YYYY-MM-DD'. Impure by design; the derivations in checklist.ts take this as input.
  */
 export function resolveTodayIso(timeZone = 'Europe/London'): string {
+  const frozen = e2eTodayIso();   // non-prod e2e override, else null
+  if (frozen) return frozen;
   return new Intl.DateTimeFormat('en-CA', {
     timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(new Date());

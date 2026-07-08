@@ -107,7 +107,7 @@ export function PlanMobile({ data }: { data: PlanData }) {
           {week.map((iso, i) => {
             const dt = fromIso(iso); const selD = iso === selectedDay; const isToday = iso === today;
             return (
-              <button key={iso} data-testid="week-day" data-date={iso} onClick={() => pickDay(iso)}
+              <button key={iso} data-testid="week-day" data-date={iso} data-selected={selD} onClick={() => pickDay(iso)}
                 className={`relative flex flex-col items-center gap-1.5 rounded-2xl px-0 pb-2.5 pt-2 ${selD ? 'bg-surface shadow-card' : ''}`}>
                 <span className={`text-[11px] font-bold uppercase tracking-[.04em] ${selD ? 'text-coral' : 'text-muted'}`}>{DOW[i]}</span>
                 <span className={`flex h-[30px] w-[30px] items-center justify-center rounded-full text-[16px] font-bold ${selD ? 'bg-coral text-white' : 'text-slate-700'} ${isToday && !selD ? 'outline outline-2 outline-offset-1 outline-coral-tint' : ''}`}>{dt.getDate()}</span>
@@ -237,7 +237,7 @@ function SwipeCard({ post, data, onEdit, onMove }: { post: PlanPost; data: PlanD
       <div className="absolute inset-y-0 left-0 flex items-stretch">
         <button data-act onClick={() => { onMove(); close(); }} className="flex w-[78px] flex-col items-center justify-center gap-1.5 bg-coral text-[11px] font-bold text-white"><CalendarIcon className="h-5 w-5" />Move</button>
       </div>
-      <div ref={cardRef} onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end} onClick={tap}
+      <div ref={cardRef} data-testid="swipe-surface" onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end} onClick={tap}
         className="relative z-[2] rounded-[20px] border border-line bg-surface px-4 pb-3 pt-4 shadow-card [touch-action:pan-y] [will-change:transform] [transition:transform_.28s_cubic-bezier(.22,.61,.36,1)]">
         {ring.total > 0 && <span className="absolute right-3 top-3"><ProgressRing done={ring.done} total={ring.total} risk={risk} size={32} /></span>}
         <div className="mb-1.5 flex items-center gap-2 pr-10"><span className="rounded-md bg-coral-tint px-2 py-0.5 text-[10.5px] font-extrabold uppercase tracking-[.06em] text-coral">{FORMAT_LABEL[post.format]}</span></div>
