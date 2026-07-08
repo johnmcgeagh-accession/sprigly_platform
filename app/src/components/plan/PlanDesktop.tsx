@@ -123,12 +123,12 @@ export function PlanDesktop({ data }: { data: PlanData }) {
             {railBtn('notes', 'Notes', NotesIcon, notes.length, false, true)}
           </nav>
           <div className="my-3 h-px bg-line" />
-          {/* AA-safe coral CTA (John): coral-tint fill + coral border + slate label +
-              coral-on-tint glyph — the active-nav palette, all ≥4.5:1. No axe exclusion. */}
+          {/* CTA (John's pick B): deep AA-safe coral fill + white — white on #C24C34 = 4.80.
+              coral-cta is the ONLY coral allowed under white text, button fills only (§15). */}
           {!data.readOnly && (
             <button data-testid="add-post" onClick={() => data.addPost(iso(Math.min(new Date(year, month + 1, 0).getDate(), 15)))}
-              className={`flex w-full items-center gap-2.5 rounded-xl border border-coral bg-coral-tint px-3 py-[11px] text-[14px] font-extrabold text-slate-700 hover:bg-[#FADFD9] ${railCollapsed ? 'justify-center px-0' : ''}`}>
-              <span className="text-[17px] font-extrabold text-coral-on-tint">+</span>{!railCollapsed && <span>Add a post</span>}
+              className={`flex w-full items-center gap-2.5 rounded-xl bg-coral-cta px-3 py-[11px] text-[14px] font-extrabold text-white shadow-coral hover:brightness-105 ${railCollapsed ? 'justify-center px-0' : ''}`}>
+              <span className="text-[17px] font-extrabold text-white">+</span>{!railCollapsed && <span>Add a post</span>}
             </button>
           )}
           {/* One true line: the session edits its home cycle (unlimited, until the cycle
