@@ -12,6 +12,7 @@
     "db:generate": "pnpm --filter @sprigly/db generate",
     "db:migrate": "pnpm --filter @sprigly/db migrate",
     "db:seed": "pnpm --filter @sprigly/db seed",
+    "e2e": "bash scripts/e2e.sh full",
     "new-workflow": "tsx scripts/new-workflow.ts"
   },
   "devDependencies": {

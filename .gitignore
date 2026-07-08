@@ -36,3 +36,10 @@ engine/eval-results/
 
 # Disposable local test DB — schema dump baseline (never commit; may contain schema only)
 .test-db/
+
+# Playwright e2e
+app/e2e/.auth/
+app/test-results/
+app/playwright-report/
+app/blob-report/
+app/.playwright/
