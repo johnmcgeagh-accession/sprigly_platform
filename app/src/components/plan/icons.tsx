@@ -7,12 +7,14 @@ const svg = (children: React.ReactNode, vb = '0 0 24 24') => ({ className }: P) 
   <svg viewBox={vb} fill="none" className={className} aria-hidden="true">{children}</svg>
 );
 
+/** The real Sprigly mark (design/reference → studio/svg_logos/sprigly-mark-coral.svg):
+ *  two curved leaves meeting at a pointed top, stem below. Brand coral (non-text). */
 export function SprigMark({ className }: P) {
   return (
-    <svg viewBox="0 0 32 32" fill="none" className={className} aria-hidden="true">
-      <path d="M16 29V11" stroke="#E87766" strokeWidth="2.6" strokeLinecap="round" />
-      <path d="M16 15C16 9 19.5 5.5 27 5.5 27 12 23 15.5 16 15Z" fill="#FF6F62" />
-      <path d="M16 20C16 15.5 13 13 6.5 13.5 6.5 19 9.8 21.6 16 20Z" fill="#E87766" />
+    <svg viewBox="0 0 100 110" fill="#E87766" className={className} aria-hidden="true">
+      <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z" />
+      <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity="0.78" />
+      <line x1="50" y1="76" x2="50" y2="98" stroke="#E87766" strokeWidth="2.5" strokeLinecap="round" />
     </svg>
   );
 }

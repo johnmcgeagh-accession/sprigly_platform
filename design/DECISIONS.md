@@ -508,3 +508,60 @@ entry points, caption-first-sentence titles, darkened muted/coral-deep/amber-dee
 pill (Scheduled / Draft) rendered via the same `.tag` mechanism that D2 removed; the app
 omits it. Could be intentional (part of the tags removal) or drift — not changed pending a
 call. Trivial: the empty-day add affordance uses a full-width "＋" (U+FF0B) vs the ref "+".
+
+---
+
+## 13. Brand-alignment & palette refinement (2026-07-08)
+
+Swapped the mockup-era palette + placeholder mark for the real Sprigly brand, and
+eliminated the burnt-orange `coral-deep` text colour.
+
+### Palette (token config)
+- **Background `bg`: `#F5F4F2` → `#FFFFFF`.** The cream/warm-gray wash is not in the
+  brand. Cards keep separation via their existing `--line` (#ECEAE6) borders (calendar
+  cells, chips, rail `border-l`, topbar `border-b`, mobile cards, "Add a post"). One
+  surface separates by fill not border: **completed checklist rows** (`bg-[#F7F6F4]`,
+  transparent border) — left as-is because done rows are meant to recede (line-through,
+  muted); the ~#F7F6F4-on-white delta is intentionally faint.
+- **Dark surfaces: ink `#1B2430` → slate `#334155`** (the FAB, the scrim, sheet/FAB
+  shadow tints). `ink` removed from the palette; dark surfaces use `slate-700`.
+- **Dual-coral is deliberate (do not "fix"):** `coral` **#E87766** is the primary / mark
+  colour; `coral-strong` **#FF6F62** is the strong interactive variant and the HTML
+  `theme-color` (brand rule; set via `viewport.themeColor` in `layout.tsx`).
+- Amber accent (#F59E0B) and fonts (Plus Jakarta Sans + DM Serif Display) unchanged.
+  `color-scheme: only light` retained (`:where(.plan-redesign)` in globals.css).
+
+### Coral text rule (supersedes the Stage 5 `coral-deep` trade)
+Burnt-orange `coral-deep` (#B04830) as small text read as rust / off-brand. New rule:
+**coral is never used for small text.** `coral-deep` was removed and replaced by two
+constraint-named tokens so it can't be reached for small text again:
+- **`coral-heading` #DE6E5C** — large display/serif coral text ONLY (≥24px, or ≥18.66px
+  bold). Verified **3.24:1 on white** (WCAG large-text ≥3:1). Applied to: the italic
+  "plan" in "Talk to your plan" / "Speak to your plan" (27/26px serif) and the desktop
+  "Sprigly" wordmark (22px extrabold).
+- **`coral-on-tint` #B04830** — coral text ONLY on `coral-tint`. Verified **4.70:1 on
+  #FCE9E5** (small-text AA). Sole use: the active rail-nav label. (Checked separately per
+  the pairing, as required.)
+- **All other coral text → `slate-700` bold** (emphasis via weight, not colour): agent
+  copy ("nothing happens until you approve it"), "Approvals" references, section eyebrows
+  (Caption / Scheduled date / Checklist / Shape this post), NEW badges, format labels,
+  "Today"/"N late" labels, due chips, ring completion numbers, "→ Approvals", Retry.
+- **Non-text coral unchanged** (brand `coral` #E87766): icons (chip/proposal/notes/format,
+  active-nav icon), the "+" and "▾" glyphs, ring strokes, risk dots, dashed-pill borders,
+  focus rings, coral-tint active-nav background, filled coral buttons.
+
+### Contrast re-verification (against pure white)
+Stage 5's darkened text tokens were tuned on #F5F4F2; recomputed on white — all still
+clear AA, no re-darkening needed: **muted #5C6470 = 5.98**, **amber-deep #7A5200 = 6.92**
+(6.14 on amber-tint), **danger #B23A2E = 5.94**, **slate #334155 = 10.35**. White-on-coral
+primaries remain the known close call: **white on #E87766 = 2.89**, **on #FF6F62 = 2.73**
+(both below AA) — buttons are unchanged brand primaries and axe (the gate) stays green
+(0 serious/critical) because the tested enabled coral button qualifies under axe's
+large-text path / the other coral button is disabled-exempt.
+
+### Logo
+Replaced the placeholder sprig SVG (`SprigMark`, `icons.tsx`) with the real mark — two
+curved leaves meeting at a pointed top, stem below (from `studio/svg_logos/
+sprigly-mark-coral.svg`), brand coral #E87766. Used in the topbar/brand row on both
+layouts. Favicon (`app/src/app/icon.svg`) already shipped the real mark geometry; aligned
+its fill to the mark colour #E87766.

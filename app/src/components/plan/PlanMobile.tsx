@@ -97,7 +97,7 @@ export function PlanMobile({ data }: { data: PlanData }) {
           <div className="mt-0.5 flex items-center justify-center gap-[18px]">
             <button data-testid="prev-month" aria-label="Previous month" onClick={() => { const p = [...data.cycles].sort((a, b) => a.displayMonth.localeCompare(b.displayMonth)); const i = p.findIndex((c) => c.cycleId === data.viewedCycleId); if (i > 0) data.switchCycle(p[i - 1]!.cycleId); }}
               className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-surface text-slate-700 shadow-card"><ChevronLeft className="h-4 w-4" /></button>
-            <button data-testid="month-label" onClick={() => setPickerOpen(true)} className="flex items-center gap-2 font-serif text-[30px] leading-none text-slate-700">{MONTHS_FULL[month]} {year} <span className="translate-y-0.5 text-sm text-coral-deep">▾</span></button>
+            <button data-testid="month-label" onClick={() => setPickerOpen(true)} className="flex items-center gap-2 font-serif text-[30px] leading-none text-slate-700">{MONTHS_FULL[month]} {year} <span className="translate-y-0.5 text-sm text-coral">▾</span></button>
             <button data-testid="next-month" aria-label="Next month" onClick={() => { const p = [...data.cycles].sort((a, b) => a.displayMonth.localeCompare(b.displayMonth)); const i = p.findIndex((c) => c.cycleId === data.viewedCycleId); if (i >= 0 && i < p.length - 1) data.switchCycle(p[i + 1]!.cycleId); }}
               className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-surface text-slate-700 shadow-card"><ChevronRight className="h-4 w-4" /></button>
           </div>
@@ -111,7 +111,7 @@ export function PlanMobile({ data }: { data: PlanData }) {
             return (
               <button key={iso} data-testid="week-day" data-date={iso} data-selected={selD} aria-pressed={selD} aria-label={label} onClick={() => pickDay(iso)}
                 className={`relative flex flex-col items-center gap-1.5 rounded-2xl px-0 pb-2.5 pt-2 ${selD ? 'bg-surface shadow-card' : ''}`}>
-                <span aria-hidden="true" className={`text-[11px] font-bold uppercase tracking-[.04em] ${selD ? 'text-coral-deep' : 'text-muted'}`}>{DOW[i]}</span>
+                <span aria-hidden="true" className={`text-[11px] font-bold uppercase tracking-[.04em] ${selD ? 'text-slate-700' : 'text-muted'}`}>{DOW[i]}</span>
                 <span aria-hidden="true" className={`flex h-[30px] w-[30px] items-center justify-center rounded-full text-[16px] font-bold ${selD ? 'bg-coral text-white' : 'text-slate-700'} ${isToday && !selD ? 'outline outline-2 outline-offset-1 outline-coral-tint' : ''}`}>{dt.getDate()}</span>
                 {hasPosts(iso) && <span aria-hidden="true" className={`absolute bottom-1 h-[5px] w-[5px] rounded-full ${selD ? 'bg-slate-700' : 'bg-coral'}`} />}
               </button>
@@ -131,7 +131,7 @@ export function PlanMobile({ data }: { data: PlanData }) {
         {mode === 'plan'
           ? week.map((iso) => (
             <section key={iso} data-day={iso} className="px-[18px] pb-0.5 pt-3.5" data-testid="day-section">
-              <div className={`mx-0.5 mb-2.5 flex items-baseline gap-2 ${iso === selectedDay ? '[&_.big]:text-coral-deep' : ''}`}>
+              <div className={`mx-0.5 mb-2.5 flex items-baseline gap-2 ${iso === selectedDay ? '[&_.big]:text-slate-700' : ''}`}>
                 <span className="big font-serif text-[19px] text-slate-700">{iso === today ? 'Today' : `${DOW[(fromIso(iso).getDay() + 6) % 7]}, ${fromIso(iso).getDate()} ${MON[month]}`}</span>
                 <span className="text-[12px] font-semibold text-muted">{postsOn(iso).length ? `${postsOn(iso).length} post${postsOn(iso).length > 1 ? 's' : ''}` : 'Nothing planned'}</span>
               </div>
@@ -174,9 +174,9 @@ export function PlanMobile({ data }: { data: PlanData }) {
 
       {/* voice overlay — renders but disabled this stage */}
       {voiceOpen && (
-        <div data-testid="voice-overlay" className="fixed inset-0 z-[60] flex flex-col items-center bg-[radial-gradient(130%_82%_at_50%_24%,#fff,#F5F4F2_60%)]">
+        <div data-testid="voice-overlay" className="fixed inset-0 z-[60] flex flex-col items-center bg-[radial-gradient(130%_82%_at_50%_24%,#fff,#FFFFFF_60%)]">
           <button onClick={() => setVoiceOpen(false)} aria-label="Close" className="absolute right-[22px] top-14 flex h-[38px] w-[38px] items-center justify-center rounded-full bg-surface text-slate-700 shadow-card"><CloseIcon className="h-4 w-4" /></button>
-          <div className="mt-24 px-8 text-center"><div className="text-[12px] font-extrabold uppercase tracking-[.14em] text-coral-deep">Voice</div><div className="mt-2 font-serif text-[26px] leading-tight text-slate-700">Speak to your <em className="italic text-coral-deep">plan</em></div></div>
+          <div className="mt-24 px-8 text-center"><div className="text-[12px] font-extrabold uppercase tracking-[.14em] text-slate-700">Voice</div><div className="mt-2 font-serif text-[26px] leading-tight text-slate-700">Speak to your <em className="italic text-coral-heading">plan</em></div></div>
           <div className="flex flex-1 items-center justify-center"><div className="flex h-[98px] w-[98px] items-center justify-center rounded-full bg-gradient-to-br from-coral-strong to-coral opacity-60 shadow-[0_18px_40px_-10px_rgba(232,119,102,.7)]"><MicIcon className="h-[38px] w-[38px] text-white" /></div></div>
           <div className="w-full px-9 pb-24 text-center text-[15px] font-semibold text-muted">Voice arrives in a later stage.</div>
         </div>
@@ -266,7 +266,7 @@ function SwipeCard({ post, data, onEdit, onMove }: { post: PlanPost; data: PlanD
       <div ref={cardRef} data-testid="swipe-surface" onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end} onClick={tap}
         className="relative z-[2] rounded-[20px] border border-line bg-surface px-4 pb-3 pt-4 shadow-card [touch-action:pan-y] [will-change:transform] [transition:transform_.28s_cubic-bezier(.22,.61,.36,1)]">
         <div className="mb-1.5 flex items-center gap-2">
-          <span className="rounded-md bg-coral-tint px-2 py-0.5 text-[10.5px] font-extrabold uppercase tracking-[.06em] text-coral-deep">{FORMAT_LABEL[post.format]}</span>
+          <span className="rounded-md bg-coral-tint px-2 py-0.5 text-[10.5px] font-extrabold uppercase tracking-[.06em] text-slate-700">{FORMAT_LABEL[post.format]}</span>
           <span className="ml-auto flex items-center gap-2">
             {ring.total > 0 && <ProgressRing done={ring.done} total={ring.total} risk={risk} size={32} />}
             <CardMenu onEdit={onEdit} onMove={onMove} onDelete={() => { if (!data.readOnly) data.removePost(post.id); }} />
@@ -274,7 +274,7 @@ function SwipeCard({ post, data, onEdit, onMove }: { post: PlanPost; data: PlanD
         </div>
         <h4 className="mb-1.5 text-[17px] font-extrabold leading-tight tracking-tight text-slate-700">{postTitle(post)}</h4>
         <p className="mb-1 text-[13.5px] leading-normal text-slate-600">{post.caption || 'Draft idea — tell Sprigly what this post should be about.'}</p>
-        {post.status === 'new' && <span className="text-[11px] font-bold text-coral-deep">NEW</span>}
+        {post.status === 'new' && <span className="text-[11px] font-bold text-slate-700">NEW</span>}
       </div>
     </div>
   );
@@ -289,17 +289,17 @@ function MobileTasks({ data, onOpen }: { data: PlanData; onOpen: (id: string) =>
     <div data-testid="mobile-tasks">
       <div className="mx-[18px] mt-3 flex items-center justify-between rounded-[18px] border border-line bg-gradient-to-br from-white to-[#FBEEEA] px-[18px] py-3.5 shadow-card">
         <div className="font-serif text-[26px] leading-none text-slate-700">{total}<span className="ml-1.5 font-sans text-[13px] font-bold text-muted">to create</span></div>
-        <div className="text-right text-[13px] font-extrabold text-coral-deep">{done} done<small className="mt-0.5 block text-[11px] font-bold text-muted">this month</small></div>
+        <div className="text-right text-[13px] font-extrabold text-slate-700">{done} done<small className="mt-0.5 block text-[11px] font-bold text-muted">this month</small></div>
       </div>
       {total === 0 && <div className="mx-8 my-11 text-center"><span className="mb-2 block font-serif text-[22px] text-slate-700">All caught up ✨</span><span className="text-[14px] leading-relaxed text-muted">Every post has what it needs.</span></div>}
       {secs.map(([key, label, items]) => items.length > 0 && (
         <div key={key}>
-          <div className="flex items-center gap-2.5 px-5 pb-2 pt-4.5"><span className={`text-[12px] font-extrabold uppercase tracking-[.06em] ${key === 'overdue' ? 'text-danger' : key === 'today' ? 'text-coral-deep' : 'text-muted'}`}>{label}</span><span className="rounded-full bg-[#ECEAE6] px-2 py-px text-[11px] font-extrabold text-slate-600">{items.length}</span></div>
+          <div className="flex items-center gap-2.5 px-5 pb-2 pt-4.5"><span className={`text-[12px] font-extrabold uppercase tracking-[.06em] ${key === 'overdue' ? 'text-danger' : key === 'today' ? 'text-slate-700' : 'text-muted'}`}>{label}</span><span className="rounded-full bg-[#ECEAE6] px-2 py-px text-[11px] font-extrabold text-slate-600">{items.length}</span></div>
           {items.map((t) => (
             <div key={t.item.step.id} data-testid="task-row" onClick={() => onOpen(t.item.post.id)}
               className={`mx-[18px] mb-2 flex items-center gap-3 rounded-2xl border border-line bg-surface px-3.5 py-[13px] shadow-card ${t.bucket === 'overdue' ? 'border-l-[3px] border-l-amber-500' : ''}`}>
               <button data-testid="task-check" onClick={(e) => { e.stopPropagation(); data.toggleStep(t.item.post.id, t.item.step.id, true); }} aria-label="Mark done" className="h-6 w-6 flex-none rounded-full border-2 border-[#D9D6D1] bg-surface" />
-              <div className="min-w-0 flex-1"><div className="text-[14.5px] font-bold text-slate-700">{t.item.step.label}</div><div className="mt-0.5 flex items-center gap-1.5 overflow-hidden text-[12px] text-muted"><span className="flex-none rounded bg-coral-tint px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-[.05em] text-coral-deep">{FORMAT_LABEL[t.item.post.format]}</span><span className="overflow-hidden text-ellipsis whitespace-nowrap">{postTitle(t.item.post)}</span></div></div>
+              <div className="min-w-0 flex-1"><div className="text-[14.5px] font-bold text-slate-700">{t.item.step.label}</div><div className="mt-0.5 flex items-center gap-1.5 overflow-hidden text-[12px] text-muted"><span className="flex-none rounded bg-coral-tint px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-[.05em] text-slate-700">{FORMAT_LABEL[t.item.post.format]}</span><span className="overflow-hidden text-ellipsis whitespace-nowrap">{postTitle(t.item.post)}</span></div></div>
               <div className={`flex-none whitespace-nowrap text-[11px] font-extrabold ${t.bucket === 'overdue' ? 'text-danger' : 'text-muted'}`}>{t.bucket === 'overdue' ? 'Late' : `${MON[fromIso(t.due).getMonth()]} ${fromIso(t.due).getDate()}`}</div>
             </div>
           ))}

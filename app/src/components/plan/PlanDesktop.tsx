@@ -47,10 +47,10 @@ export function PlanDesktop({ data }: { data: PlanData }) {
       className={[
         'relative flex w-full items-center gap-[11px] rounded-xl px-3 py-[11px] text-left text-[14.5px] font-bold',
         railCollapsed ? 'justify-center px-0' : '',
-        view === v ? 'bg-coral-tint text-coral-deep' : 'text-slate-600 hover:bg-line-soft',
+        view === v ? 'bg-coral-tint text-coral-on-tint' : 'text-slate-600 hover:bg-line-soft',
       ].join(' ')}
     >
-      <Icon className={`h-[19px] w-[19px] flex-none ${view === v ? 'text-coral-deep' : 'text-muted'}`} />
+      <Icon className={`h-[19px] w-[19px] flex-none ${view === v ? 'text-coral' : 'text-muted'}`} />
       {!railCollapsed && <span className="flex-1">{label}</span>}
       {!railCollapsed && count > 0 && (
         <span className={`ml-auto rounded-full px-2 py-px text-[11px] font-extrabold ${warn ? 'bg-amber-tint text-amber-deep' : view === v ? 'bg-white text-slate-600' : 'bg-[#ECEAE6] text-slate-600'}`}>{warn ? `${count} late` : count}</span>
@@ -63,7 +63,7 @@ export function PlanDesktop({ data }: { data: PlanData }) {
     <div className="flex h-screen flex-col bg-bg text-slate-700" data-testid="plan-desktop">
       {/* topbar */}
       <header className="flex h-[66px] flex-none items-center justify-between border-b border-line bg-surface px-7">
-        <div className="flex items-center gap-2.5"><SprigMark className="h-[26px] w-[26px]" /><span className="text-[22px] font-extrabold tracking-tight text-coral-deep">Sprigly</span></div>
+        <div className="flex items-center gap-2.5"><SprigMark className="h-[26px] w-[26px]" /><span className="text-[22px] font-extrabold tracking-tight text-coral-heading">Sprigly</span></div>
         <span className="text-[12.5px] font-semibold text-muted">Plan workspace</span>
       </header>
 
@@ -103,7 +103,7 @@ export function PlanDesktop({ data }: { data: PlanData }) {
         {/* right rail */}
         <aside data-testid="rail" className={`order-2 flex flex-none flex-col gap-1.5 overflow-hidden border-l border-line bg-surface px-3.5 py-[18px] transition-[width] duration-300 ease-sheet ${railCollapsed ? 'w-[72px] px-3' : 'w-[224px]'}`}>
           <div className="mb-2.5 flex min-h-[40px] items-center justify-between gap-2">
-            {!railCollapsed && <div className="font-serif text-[19px] leading-tight text-slate-700">{data.clientName} · <em className="not-italic text-coral-deep">{MONTHS[month]}</em></div>}
+            {!railCollapsed && <div className="font-serif text-[19px] leading-tight text-slate-700">{data.clientName} · <em className="not-italic text-slate-700">{MONTHS[month]}</em></div>}
             <button data-testid="rail-toggle" onClick={() => setRailCollapsed((c) => !c)} aria-label="Collapse menu"
               className="flex h-10 w-10 flex-none items-center justify-center rounded-[11px] border border-line bg-surface text-slate-600 shadow-card">
               <ChevronRight className={`h-[17px] w-[17px] transition-transform duration-300 ${railCollapsed ? 'rotate-180' : ''}`} />
@@ -121,7 +121,7 @@ export function PlanDesktop({ data }: { data: PlanData }) {
           {!data.readOnly && (
             <button data-testid="add-post" onClick={() => data.addPost(iso(Math.min(new Date(year, month + 1, 0).getDate(), 15)))}
               className={`flex w-full items-center gap-2.5 rounded-xl border border-line bg-surface px-3 py-[11px] text-[14px] font-extrabold text-slate-700 shadow-card hover:border-[#DED9D3] ${railCollapsed ? 'justify-center px-0' : ''}`}>
-              <span className="text-[17px] font-extrabold text-coral-deep">+</span>{!railCollapsed && <span>Add a post</span>}
+              <span className="text-[17px] font-extrabold text-coral">+</span>{!railCollapsed && <span>Add a post</span>}
             </button>
           )}
           {!railCollapsed && <div className="mt-auto p-2 text-[12px] leading-relaxed text-muted">Share link · view-only<br />Unlimited edits</div>}
@@ -130,7 +130,7 @@ export function PlanDesktop({ data }: { data: PlanData }) {
 
       {/* agent FAB */}
       <button data-testid="agent-fab" onClick={() => setAgentOpen(true)}
-        className="fixed bottom-[34px] z-40 flex h-[60px] items-center gap-[11px] rounded-full bg-ink pl-[18px] pr-[22px] text-[15px] font-extrabold text-white shadow-[0_16px_34px_-10px_rgba(27,36,48,.55)]"
+        className="fixed bottom-[34px] z-40 flex h-[60px] items-center gap-[11px] rounded-full bg-slate-700 pl-[18px] pr-[22px] text-[15px] font-extrabold text-white shadow-[0_16px_34px_-10px_rgba(51,65,85,.55)]"
         style={{ right: (railCollapsed ? 72 : 224) + 22 }}>
         <span className="flex h-[34px] w-[34px] items-center justify-center rounded-full bg-coral"><SparkIcon className="h-[19px] w-[19px] text-white" /></span>
         Talk to your plan
@@ -147,8 +147,8 @@ export function PlanDesktop({ data }: { data: PlanData }) {
       <Scrim show={agentOpen} onClick={() => setAgentOpen(false)} />
       <Sheet show={agentOpen} onClose={() => setAgentOpen(false)} testid="agent-sheet" labelledBy="agent-sheet-title">
         <div className="mx-auto max-h-[82vh] w-full max-w-[940px] overflow-y-auto px-9 pb-9 pt-2">
-          <div className="mb-1 mt-1.5"><div className="text-[11px] font-extrabold uppercase tracking-[.14em] text-muted">Plan agent</div><div id="agent-sheet-title" className="font-serif text-[27px] text-slate-700">Talk to your <em className="italic text-coral-deep">plan</em></div></div>
-          <p className="mb-5 mt-1 max-w-[560px] text-[14px] font-semibold leading-snug text-muted">Ask in plain English. Sprigly proposes the change and <b className="text-coral-deep">nothing happens until you approve it</b>.</p>
+          <div className="mb-1 mt-1.5"><div className="text-[11px] font-extrabold uppercase tracking-[.14em] text-muted">Plan agent</div><div id="agent-sheet-title" className="font-serif text-[27px] text-slate-700">Talk to your <em className="italic text-coral-heading">plan</em></div></div>
+          <p className="mb-5 mt-1 max-w-[560px] text-[14px] font-semibold leading-snug text-muted">Ask in plain English. Sprigly proposes the change and <b className="text-slate-700">nothing happens until you approve it</b>.</p>
           <div className="flex items-center gap-2.5 rounded-2xl border-[1.5px] border-line bg-surface py-2 pl-[18px] pr-2 focus-within:border-coral">
             <input data-testid="agent-input" value={agentText} onChange={(e) => setAgentText(e.target.value)} aria-label="Ask Sprigly to change your plan"
               onKeyDown={(e) => { if (e.key === 'Enter') void submitAsk(); }}
@@ -160,7 +160,7 @@ export function PlanDesktop({ data }: { data: PlanData }) {
           </div>
           {data.agentError && <div data-testid="agent-error" role="alert" className="mt-3 text-[13px] font-semibold text-danger">{data.agentError}</div>}
           <ExtractionSummary reply={data.agentReply} />
-          <div className="mt-4 text-[12.5px] font-semibold text-muted">Suggestions land in <b className="text-coral-deep">Approvals</b> in the menu — nothing changes until you approve it there.</div>
+          <div className="mt-4 text-[12.5px] font-semibold text-muted">Suggestions land in <b className="text-slate-700">Approvals</b> in the menu — nothing changes until you approve it there.</div>
         </div>
       </Sheet>
     </div>
@@ -207,7 +207,7 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
                 'flex min-h-[148px] flex-col gap-[7px] rounded-2xl border p-[11px] transition',
                 isToday ? 'border-coral shadow-[0_0_0_3px_#FCE9E5]' : over === day ? 'border-coral bg-[#FFF7F5] shadow-[0_0_0_3px_#FCE9E5]' : 'border-line bg-surface',
               ].join(' ')}>
-              <div className={`px-[3px] py-px text-[13px] font-extrabold ${isToday ? 'text-coral-deep' : wknd ? 'text-muted' : 'text-slate-600'}`}>{day}</div>
+              <div className={`px-[3px] py-px text-[13px] font-extrabold ${isToday ? 'text-slate-700' : wknd ? 'text-muted' : 'text-slate-600'}`}>{day}</div>
               <div className="flex flex-col gap-1.5">
                 {dayPosts.map((p) => (
                   <PostChip key={p.id} post={p} today={data.today} selected={p.id === selId} onClick={() => onSelect(p.id)}
@@ -216,7 +216,7 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
               </div>
               {!data.readOnly && dayPosts.length === 0 && (
                 <button data-testid="add-on-day" onClick={() => data.addPost(isoOf(day))} aria-label={`Add a post on ${isoOf(day)}`}
-                  className="mt-auto rounded-[9px] border-[1.5px] border-dashed border-[#C9C3BB] py-0.5 text-center text-[15px] font-bold text-muted hover:border-[#EFC9BF] hover:bg-[#FFF9F7] hover:text-coral-deep">＋</button>
+                  className="mt-auto rounded-[9px] border-[1.5px] border-dashed border-[#C9C3BB] py-0.5 text-center text-[15px] font-bold text-muted hover:border-[#EFC9BF] hover:bg-[#FFF9F7] hover:text-coral">＋</button>
               )}
             </div>
           );
@@ -238,12 +238,12 @@ function TimelineView({ data, selId, onSelect }: { data: PlanData; selId: string
         const divider = !todayPlaced && p.date > data.today ? (todayPlaced = true, true) : false;
         return (
           <React.Fragment key={p.id}>
-            {divider && <div className="grid grid-cols-[40px_1fr] items-center gap-[18px] py-2"><span className="justify-self-center bg-bg px-2 py-0.5 text-[10.5px] font-extrabold uppercase tracking-[.1em] text-coral-deep">Today</span><span className="h-0.5 rounded bg-coral opacity-50" /></div>}
+            {divider && <div className="grid grid-cols-[40px_1fr] items-center gap-[18px] py-2"><span className="justify-self-center bg-bg px-2 py-0.5 text-[10.5px] font-extrabold uppercase tracking-[.1em] text-slate-700">Today</span><span className="h-0.5 rounded bg-coral opacity-50" /></div>}
             <div data-testid="timeline-item" onClick={() => onSelect(p.id)} className="grid cursor-pointer grid-cols-[40px_1fr] gap-[18px] py-1.5">
               <span className={`mx-auto mt-3.5 h-3.5 w-3.5 rounded-full border-[2.5px] border-coral ${past ? 'bg-coral' : 'bg-surface'}`} />
               <div className={`rounded-2xl border px-4 py-[11px] transition ${p.id === selId ? 'border-line bg-surface shadow-card' : 'border-transparent hover:border-line hover:bg-surface hover:shadow-card'}`}>
                 <div className="flex items-center gap-2.5"><span className="font-serif text-[19px] text-slate-700">{monthDayLabel(p.date)}</span>
-                  {p.status === 'new' ? <span className="rounded-[5px] bg-coral-tint px-1.5 py-px text-[9px] font-extrabold tracking-[.06em] text-coral-deep">NEW</span> : p.status === 'edited' && <span className="rounded-[5px] border border-line px-1.5 py-px text-[9px] font-bold tracking-[.06em] text-muted">EDITED</span>}
+                  {p.status === 'new' ? <span className="rounded-[5px] bg-coral-tint px-1.5 py-px text-[9px] font-extrabold tracking-[.06em] text-slate-700">NEW</span> : p.status === 'edited' && <span className="rounded-[5px] border border-line px-1.5 py-px text-[9px] font-bold tracking-[.06em] text-muted">EDITED</span>}
                 </div>
                 <div className="my-[7px] flex items-center gap-2 text-[14px] font-bold"><FormatIcon format={p.format} className="h-4 w-4 text-slate-600" /><span className="text-slate-700">{FORMAT_LABEL[p.format]}</span><span className="text-[#CFCBC5]">·</span><span className="font-semibold text-muted">{postTitle(p)}</span></div>
                 <div className="overflow-hidden text-[15.5px] leading-relaxed text-slate-600 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">{p.caption || 'Draft idea — tell Sprigly what this post should be about.'}</div>
@@ -266,11 +266,11 @@ function TasksView({ data, onSelect }: { data: PlanData; onSelect: (id: string) 
     <div className="mx-auto max-w-[820px]" data-testid="tasks-board">
       <div className="my-2 flex items-center justify-between rounded-2xl border border-line bg-surface px-[22px] py-[18px] shadow-card">
         <div className="font-serif text-[28px] leading-none text-slate-700">{total}<span className="ml-1.5 font-sans text-[13px] font-bold text-muted">to create this month</span></div>
-        <div className="text-right text-[13px] font-extrabold text-coral-deep">{doneStepCount(data.posts)} done<small className="mt-0.5 block text-[11px] font-bold text-muted">across {data.posts.length} posts</small></div>
+        <div className="text-right text-[13px] font-extrabold text-slate-700">{doneStepCount(data.posts)} done<small className="mt-0.5 block text-[11px] font-bold text-muted">across {data.posts.length} posts</small></div>
       </div>
       {sections.map(([key, label, items]) => items.length > 0 && (
         <div key={key}>
-          <div className="flex items-center gap-2.5 px-1 pb-2.5 pt-5"><span className={`text-[12px] font-extrabold uppercase tracking-[.06em] ${key === 'overdue' ? 'text-danger' : key === 'week' ? 'text-coral-deep' : 'text-muted'}`}>{label}</span><span className={`rounded-full px-2 py-px text-[11px] font-extrabold ${key === 'overdue' ? 'bg-[#F7E1D7] text-danger' : 'bg-[#ECEAE6] text-slate-600'}`}>{items.length}</span></div>
+          <div className="flex items-center gap-2.5 px-1 pb-2.5 pt-5"><span className={`text-[12px] font-extrabold uppercase tracking-[.06em] ${key === 'overdue' ? 'text-danger' : key === 'week' ? 'text-slate-700' : 'text-muted'}`}>{label}</span><span className={`rounded-full px-2 py-px text-[11px] font-extrabold ${key === 'overdue' ? 'bg-[#F7E1D7] text-danger' : 'bg-[#ECEAE6] text-slate-600'}`}>{items.length}</span></div>
           {items.map((t) => (
             <div key={t.item.step.id} data-testid="task-row" onClick={() => onSelect(t.item.post.id)}
               className={`mb-2 flex cursor-pointer items-center gap-3 rounded-[14px] border border-line bg-surface px-4 py-[13px] shadow-card ${t.bucket === 'overdue' ? 'border-l-[3px] border-l-amber-500' : ''}`}>
@@ -290,7 +290,7 @@ function TasksView({ data, onSelect }: { data: PlanData; onSelect: (id: string) 
 function RetryPane({ testid, label, onRetry }: { testid: string; label: string; onRetry: () => void }) {
   return (
     <div data-testid={testid} role="alert" className="rounded-xl border border-line bg-surface p-4 text-[13.5px] text-slate-600 shadow-card">
-      {label} <button onClick={onRetry} className="font-extrabold text-coral-deep underline">Retry</button>
+      {label} <button onClick={onRetry} className="font-extrabold text-slate-700 underline">Retry</button>
     </div>
   );
 }

@@ -17,19 +17,29 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        bg: '#F5F4F2',
+        // Brand palette (2026-07 alignment): the cream/warm-gray wash was dropped —
+        // the page background is now pure white. See design/DECISIONS.md §13.
+        bg: '#FFFFFF',
         surface: '#FFFFFF',
+        // Dual-coral is deliberate: coral is the primary/mark, coral-strong the strong
+        // interactive variant (and the HTML theme-color). Recorded in DECISIONS §13.
         coral: '#E87766',
         'coral-strong': '#FF6F62',
         'coral-tint': '#FCE9E5',
-        // A11y (Stage 5): the mockup coral (#E87766) fails WCAG AA as small TEXT on
-        // white (2.9:1). coral-deep is the accessible coral used for coral *text*;
-        // backgrounds/borders/icons keep the brand coral.
-        'coral-deep': '#B04830',
-        ink: '#1B2430',
-        // Darkened from the mockup's #8A94A3 to clear 4.5:1 on the app backgrounds.
+        // Coral TEXT rule (supersedes Stage 5 coral-deep): coral is never used for small
+        // text. These two tokens are the ONLY coral text allowed, each with a hard
+        // constraint baked into the name:
+        //  · coral-heading — large display/serif text ONLY (≥24px, or ≥18.66px bold).
+        //    #DE6E5C = 3.24:1 on white (WCAG large-text ≥3:1). Never for small text.
+        'coral-heading': '#DE6E5C',
+        //  · coral-on-tint — coral text ONLY on coral-tint (active-nav label).
+        //    #B04830 = 4.70:1 on #FCE9E5 (small-text AA). Never on white.
+        'coral-on-tint': '#B04830',
+        // slate #334155 (= slate-700) is the brand dark-surface colour; ink was dropped.
+        // Small coral emphasis text now uses slate — emphasis via weight, not colour.
+        // Text tokens below re-verified against pure white: muted 5.98, amber-deep 6.92,
+        // danger 5.94 — all still clear AA, no re-darkening needed.
         muted: '#5C6470',
-        // Accessible amber-dark for "at risk / late" text (was #B77400, ~3.4:1).
         'amber-deep': '#7A5200',
         line: '#ECEAE6',
         'line-soft': '#F1EFEC',
@@ -42,7 +52,7 @@ const config: Config = {
       },
       boxShadow: {
         card: '0 1px 2px rgba(51,65,85,.04), 0 6px 18px rgba(51,65,85,.06)',
-        sheet: '0 24px 60px -16px rgba(27,36,48,.34)',
+        sheet: '0 24px 60px -16px rgba(51,65,85,.34)',
         coral: '0 8px 20px -6px rgba(232,119,102,.55)',
       },
       transitionTimingFunction: {

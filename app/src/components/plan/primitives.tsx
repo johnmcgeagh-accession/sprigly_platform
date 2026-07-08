@@ -12,7 +12,7 @@ export function Scrim({ show, soft, onClick }: { show: boolean; soft?: boolean; 
       onClick={onClick}
       className={[
         'fixed inset-0 z-[60] transition-opacity duration-300',
-        soft ? 'bg-ink/15' : 'bg-ink/40 backdrop-blur-[2px]',
+        soft ? 'bg-slate-700/15' : 'bg-slate-700/40 backdrop-blur-[2px]',
         show ? 'opacity-100' : 'pointer-events-none opacity-0',
       ].join(' ')}
     />
@@ -63,7 +63,7 @@ export function Drawer({
       ref={ref} role="dialog" aria-modal="true" aria-labelledby={labelledBy} aria-label={labelledBy ? undefined : label} data-testid={testid} tabIndex={-1}
       className={[
         'fixed inset-y-0 right-0 z-[61] flex w-[min(560px,46vw)] flex-col border-l border-line bg-surface outline-none',
-        'shadow-[-24px_0_60px_-18px_rgba(27,36,48,0.3)] transition-transform duration-[400ms] ease-sheet',
+        'shadow-[-24px_0_60px_-18px_rgba(51,65,85,0.3)] transition-transform duration-[400ms] ease-sheet',
         show ? 'translate-x-0' : 'pointer-events-none translate-x-[103%]',
       ].join(' ')}
     >
@@ -82,7 +82,7 @@ export function Toast({ message }: { message: string | null }) {
     <div
       data-testid="toast" role="status" aria-live="polite" aria-atomic="true"
       className={[
-        'toast fixed bottom-[34px] left-1/2 z-[80] -translate-x-1/2 rounded-full bg-ink px-5 py-3',
+        'toast fixed bottom-[34px] left-1/2 z-[80] -translate-x-1/2 rounded-full bg-slate-700 px-5 py-3',
         'text-[13.5px] font-medium text-white shadow-sheet transition-all duration-200',
         message ? 'opacity-100' : 'pointer-events-none translate-y-3 opacity-0',
       ].join(' ')}

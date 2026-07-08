@@ -35,7 +35,7 @@ export function ProgressRing({ done, total, risk, size = 34 }: { done: number; t
   const r = 11, C = 2 * Math.PI * r, frac = total ? done / total : 0, off = C * (1 - frac);
   const complete = total > 0 && done === total;
   const stroke = complete ? '#E87766' : risk ? '#F59E0B' : '#E87766';
-  const num = complete ? 'text-coral-deep' : risk ? 'text-amber-deep' : 'text-slate-600';
+  const num = complete ? 'text-slate-700' : risk ? 'text-amber-deep' : 'text-slate-600';
   return (
     <span data-testid="progress-ring" role="img" aria-label={`${done} of ${total} steps done`}
       className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
@@ -68,7 +68,7 @@ export function PostChip({ post, selected, today, onClick, draggable, onDragStar
         selected ? 'border-coral shadow-[0_0_0_3px_rgba(232,119,102,.14)]' : 'border-line hover:border-[#DED9D3]',
       ].join(' ')}
     >
-      <span className="flex h-[22px] w-[22px] flex-none items-center justify-center rounded-[7px] bg-coral-tint text-coral-deep">
+      <span className="flex h-[22px] w-[22px] flex-none items-center justify-center rounded-[7px] bg-coral-tint text-coral">
         <ChannelIcon channel={post.channel} className="h-[13px] w-[13px]" />
       </span>
       <span className="min-w-0 flex-1">
@@ -76,7 +76,7 @@ export function PostChip({ post, selected, today, onClick, draggable, onDragStar
         <span className="mt-0.5 block text-[10px] font-bold uppercase tracking-[.04em] text-muted">{FORMAT_LABEL[post.format]}</span>
       </span>
       {post.status === 'new'
-        ? <span className="mt-0.5 flex-none rounded-[4px] border border-coral px-[3px] text-[8.5px] font-extrabold tracking-[.06em] text-coral-deep">NEW</span>
+        ? <span className="mt-0.5 flex-none rounded-[4px] border border-coral px-[3px] text-[8.5px] font-extrabold tracking-[.06em] text-slate-700">NEW</span>
         : (risk || post.reviewState === 'preserved_edit_orphan') && <span className="mt-[5px] h-1.5 w-1.5 flex-none rounded-full bg-coral" />}
     </div>
   );
@@ -105,7 +105,7 @@ export function ChecklistItem({ step, scheduledDate, today, onToggle, testid }: 
         {step.done && <CheckIcon className="h-3 w-3" />}
       </button>
       <span className={`flex-1 text-[14.5px] font-semibold ${step.done ? 'text-muted line-through' : 'text-slate-700'}`}>{step.label}</span>
-      <span className={`whitespace-nowrap text-[11.5px] font-extrabold ${late ? 'text-danger' : isToday ? 'text-coral-deep' : 'text-muted'}`}>{label}</span>
+      <span className={`whitespace-nowrap text-[11.5px] font-extrabold ${late ? 'text-danger' : isToday ? 'text-slate-700' : 'text-muted'}`}>{label}</span>
     </div>
   );
 }
@@ -117,7 +117,7 @@ export function ProposalCard({ proposal, onApprove, onDiscard, busy }: {
   return (
     <div data-testid="proposal-card" data-proposal-id={proposal.id}
       className="mb-[9px] flex items-center gap-3.5 rounded-[14px] border border-line bg-surface p-4 shadow-card">
-      <span className="flex h-9 w-9 flex-none items-center justify-center rounded-[10px] bg-coral-tint text-coral-deep">
+      <span className="flex h-9 w-9 flex-none items-center justify-center rounded-[10px] bg-coral-tint text-coral">
         <SparkIcon className="h-[18px] w-[18px]" />
       </span>
       <div className="flex-1 text-[14.5px] font-bold leading-snug text-slate-700">{proposal.summary}</div>
@@ -158,11 +158,11 @@ export function ExtractionSummary({ reply }: { reply: { message: string; proposa
       <div className="mb-2 text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-600">From your ask, Sprigly took</div>
       {reply.proposals.map((p) => (
         <div key={p.id} className="flex items-start gap-2.5 py-1.5 text-[13.5px] font-bold text-slate-700">
-          <span className="mt-[-2px] flex h-[26px] w-[26px] flex-none items-center justify-center rounded-lg bg-coral-tint text-coral-deep">
+          <span className="mt-[-2px] flex h-[26px] w-[26px] flex-none items-center justify-center rounded-lg bg-coral-tint text-coral">
             <SparkIcon className="h-3.5 w-3.5" />
           </span>
           <span className="min-w-0 flex-1">Action<em className="mt-px block whitespace-nowrap overflow-hidden text-ellipsis text-[12px] font-semibold not-italic text-muted">“{p.summary}”</em></span>
-          <span className="mt-1 whitespace-nowrap text-[11px] font-bold text-coral-deep">→ Approvals</span>
+          <span className="mt-1 whitespace-nowrap text-[11px] font-bold text-slate-700">→ Approvals</span>
         </div>
       ))}
       {reply.message && <p className="mt-1.5 text-[13px] leading-relaxed text-slate-600">{reply.message}</p>}
