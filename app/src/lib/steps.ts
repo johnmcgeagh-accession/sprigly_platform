@@ -173,3 +173,37 @@ export async function generateChecklist(
 
   return { status: 'created', steps: (await listStepsForPosts([postId])).get(postId) ?? [] };
 }
+
+/**
+ * REPLACE a post's checklist with its current format's template (Stage 6 format editing).
+ * Unlike generateChecklist, this deletes existing steps first. For a format with no
+ * template (email) it clears the checklist and returns 'no_template'. Ledgers
+ * checklist_generated (replaced=true).
+ */
+export async function regenerateChecklist(
+  clientId: string, cycleId: string, postId: string, actor: ActivityActor = USER_ACTOR,
+): Promise<GenerateResult> {
+  const format = await ownedPostFormat(clientId, cycleId, postId);
+  if (!format) return { status: 'not_found' };
+
+  const [template] = await db.select().from(stepTemplates).where(eq(stepTemplates.contentType, format)).limit(1);
+  if (!template || template.steps.length === 0) {
+    // No template for this format (e.g. email) — clear the checklist to match.
+    await db.delete(postSteps).where(eq(postSteps.postId, postId));
+    return { status: 'no_template' };
+  }
+
+  await db.transaction(async (tx) => {
+    await tx.delete(postSteps).where(eq(postSteps.postId, postId));
+    await tx.insert(postSteps).values(
+      template.steps.map((s, i) => ({ postId, label: s.label, leadDays: s.leadDays, sort: i, createdBy: actor.origin })),
+    );
+    await recordActivity(tx, {
+      clientId, cycleId, postId, actor,
+      action: 'checklist_generated',
+      payload: { format, count: template.steps.length, replaced: true },
+    });
+  });
+
+  return { status: 'created', steps: (await listStepsForPosts([postId])).get(postId) ?? [] };
+}

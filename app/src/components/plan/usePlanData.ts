@@ -100,6 +100,7 @@ export function usePlanData(init: PlanDataInit) {
   const saveCaption = useCallback((id: string, caption: string) => call(`/api/posts/${id}`, 'PATCH', { caption }), [call]);
   const saveHook = useCallback((id: string, hook: string) => call(`/api/posts/${id}`, 'PATCH', { hook }), [call]);
   const saveScript = useCallback((id: string, script: string) => call(`/api/posts/${id}`, 'PATCH', { script }), [call]);
+  const changeFormat = useCallback((id: string, format: string) => call(`/api/posts/${id}`, 'PATCH', { format }), [call]);
 
   const clearHookCandidates = useCallback((id: string) => {
     setHookCandidates((m) => { if (!m.has(id)) return m; const n = new Map(m); n.delete(id); return n; });
@@ -139,6 +140,16 @@ export function usePlanData(init: PlanDataInit) {
   const setPostSteps = useCallback((postId: string, steps: PostStepView[]) => {
     setPosts((cur) => cur.map((p) => (p.id === postId ? { ...p, steps } : p)));
   }, []);
+
+  /** Replace a post's checklist with its current format's template (after a format change). */
+  const regenerateChecklist = useCallback(async (id: string) => {
+    if (readOnly) return;
+    try {
+      const res = await fetch(`/api/posts/${id}/checklist/regenerate`, { method: 'POST' });
+      if (!res.ok) return;
+      setPostSteps(id, ((await res.json()) as { steps: PostStepView[] }).steps);
+    } catch { /* non-fatal */ }
+  }, [readOnly, setPostSteps]);
 
   const generateChecklist = useCallback(async (id: string) => {
     if (readOnly) return;
@@ -314,6 +325,7 @@ export function usePlanData(init: PlanDataInit) {
     refreshProposals, refreshNotes, setAgentReply, setAgentError, flash, track,
     saveHook, generateHooks, clearHookCandidates,
     saveScript, generateScript,
+    changeFormat, regenerateChecklist,
   };
 }
 

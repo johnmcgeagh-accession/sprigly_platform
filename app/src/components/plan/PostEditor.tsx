@@ -18,12 +18,27 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
   const [len, setLen] = useState(post.scriptLengthSeconds ?? 30);
   const [shapeText, setShapeText] = useState('');
   const [adding, setAdding] = useState(false);
+  const [pendingFormat, setPendingFormat] = useState<string | null>(null);
   const lastId = useRef(post.id);
+
+  // Format change: PATCH the format (format_changed ledger), then reconcile the checklist —
+  // silently regenerate when there's no progress to lose; else ask (keep / replace). Email
+  // has no template, so regenerate clears it.
+  const changeFormat = async (fmt: string) => {
+    if (fmt === post.format || data.readOnly) return;
+    const doneCount = post.steps.filter((s) => s.done).length;
+    await data.changeFormat(post.id, fmt);
+    if (fmt === 'email' || post.steps.length === 0 || doneCount === 0) {
+      await data.regenerateChecklist(post.id);
+    } else {
+      setPendingFormat(fmt);
+    }
+  };
 
   // Reset the textarea when the selected post changes or its caption is replaced
   // (e.g. a shape job landed) — but not on every keystroke.
   useEffect(() => {
-    if (lastId.current !== post.id) { lastId.current = post.id; setCaption(post.caption); setHook(post.hook ?? ''); setScript(post.script ?? ''); setLen(post.scriptLengthSeconds ?? 30); setShapeText(''); }
+    if (lastId.current !== post.id) { lastId.current = post.id; setCaption(post.caption); setHook(post.hook ?? ''); setScript(post.script ?? ''); setLen(post.scriptLengthSeconds ?? 30); setPendingFormat(null); setShapeText(''); }
   }, [post.id, post.caption, post.hook, post.script, post.scriptLengthSeconds]);
   useEffect(() => { setCaption(post.caption); }, [post.caption]);
   useEffect(() => { setHook(post.hook ?? ''); }, [post.hook]);
@@ -52,9 +67,22 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
     <div className="flex-1 overflow-y-auto px-[30px] pb-10 pt-[26px]" data-testid="post-editor">
       {/* header */}
       <div className="mb-[22px] mt-1.5 flex flex-wrap items-center gap-[11px]">
-        <span className="inline-flex items-center gap-[7px] rounded-[9px] border border-line bg-line-soft px-[11px] py-[7px] text-[13px] font-extrabold text-slate-700">
-          <FormatIcon format={post.format} className="h-[15px] w-[15px] text-coral" />{FORMAT_LABEL[post.format]}
-        </span>
+        {data.readOnly ? (
+          <span className="inline-flex items-center gap-[7px] rounded-[9px] border border-line bg-line-soft px-[11px] py-[7px] text-[13px] font-extrabold text-slate-700">
+            <FormatIcon format={post.format} className="h-[15px] w-[15px] text-coral" />{FORMAT_LABEL[post.format]}
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-[7px] rounded-[9px] border border-line bg-line-soft px-[11px] py-[6px] text-[13px] font-extrabold text-slate-700">
+            <FormatIcon format={post.format} className="h-[15px] w-[15px] text-coral" />
+            <select data-testid="format-select" aria-label="Post format" value={post.format} onChange={(e) => void changeFormat(e.target.value)}
+              className="cursor-pointer appearance-none bg-transparent pr-1 font-extrabold text-slate-700 outline-none focus-visible:underline">
+              <option value="reel">Reel</option>
+              <option value="carousel">Carousel</option>
+              <option value="single">Single image</option>
+              <option value="email">Email</option>
+            </select>
+          </span>
+        )}
         <span className="text-[13.5px] font-bold text-muted">{stateLabel}</span>
         <span className="font-serif text-[17px] text-slate-700">{monthDayLabel(post.date)}</span>
         {post.status === 'new'
@@ -67,6 +95,29 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
           </button>
         )}
       </div>
+
+      {/* format change with progress to lose → keep or replace the checklist */}
+      {pendingFormat && (
+        <div data-testid="format-confirm" role="dialog" aria-label="Replace the checklist?"
+          className="mb-[22px] rounded-2xl border border-line bg-line-soft p-4">
+          <p className="mb-3 text-[13.5px] font-semibold text-slate-700">
+            Switched to {FORMAT_LABEL[pendingFormat as keyof typeof FORMAT_LABEL]}. Keep your existing checklist, or replace it with the {FORMAT_LABEL[pendingFormat as keyof typeof FORMAT_LABEL]} template?
+          </p>
+          <div className="flex gap-2.5">
+            <button data-testid="format-replace" onClick={async () => { const p = pendingFormat; setPendingFormat(null); if (p) await data.regenerateChecklist(post.id); }}
+              className="rounded-[11px] bg-coral-cta px-4 py-2 text-[13px] font-extrabold text-white">Replace checklist</button>
+            <button data-testid="format-keep" onClick={() => setPendingFormat(null)}
+              className="rounded-[11px] border border-line bg-surface px-4 py-2 text-[13px] font-bold text-slate-600 hover:border-[#DED9D3]">Keep existing steps</button>
+          </div>
+        </div>
+      )}
+
+      {/* a hook/script value exists but is hidden for this format — reassure it's retained */}
+      {((post.hook && !showHook) || (post.script && !showScript)) && (
+        <div data-testid="hidden-fields-note" className="mb-4 rounded-lg bg-line-soft px-3 py-2 text-[12px] font-semibold text-muted">
+          Your saved {post.hook && !showHook ? 'hook' : ''}{post.hook && !showHook && post.script && !showScript ? ' and ' : ''}{post.script && !showScript ? 'script' : ''} {post.hook && !showHook && post.script && !showScript ? 'are' : 'is'} hidden for {FORMAT_LABEL[post.format]} — kept if you switch back.
+        </div>
+      )}
 
       {/* hook (reels + carousels) — above the caption */}
       {showHook && (

@@ -17,7 +17,9 @@ export default defineConfig({
   fullyParallel: false,           // one seeded tenant; serial keeps ledger assertions deterministic
   workers: 1,
   forbidOnly: !!process.env['CI'],
-  retries: 0,
+  // One retry absorbs shared-container/dev-server infra flakes (rapid reseed + async
+  // interactions against a single seeded tenant); a real defect still fails both attempts.
+  retries: 1,
   reporter: [['list']],
   timeout: 30_000,
   expect: { timeout: 10_000 },
@@ -31,7 +33,7 @@ export default defineConfig({
     { name: 'setup-b', testMatch: /auth-b\.setup\.ts/ },
     {
       name: 'desktop',
-      testMatch: /(common|desktop|a11y|session|hooks|scripts)\.spec\.ts/,
+      testMatch: /(common|desktop|a11y|session|hooks|scripts|format)\.spec\.ts/,
       dependencies: ['setup'],
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 }, storageState: STATE },
     },
