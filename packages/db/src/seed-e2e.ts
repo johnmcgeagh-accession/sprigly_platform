@@ -94,6 +94,15 @@ async function main() {
     }
   }
 
+  // Give the "The boxes have arrived" reel (P6) a saved hook + script so the editor's Shape
+  // target control (Caption | Hook | Script) and the agent refine flow are exercisable (§26).
+  await sql`
+    UPDATE content_cycle_posts
+       SET hook = 'The boxes have arrived, and we filmed the first look.',
+           script = E'HOOK: The boxes have arrived, and we filmed the first look.\n\nBEAT 1 (0-6s) — First cut of the tape, the first piece lifted out. (unboxing)\nBEAT 2 (6-20s) — A close look at the stitching and the colour in daylight. (macro)\n\nCTA: Comment ''samples'' to see them first.',
+           script_length_seconds = 30
+     WHERE id = ${P(6)}`;
+
   // An adjacent August cycle (same client + channel) so month-nav is exercisable — it
   // opens READ-ONLY (only the home July cycle is editable). A few posts so it qualifies
   // for the switcher list (loadCycleList needs liveCount > 0).

@@ -32,6 +32,9 @@ export interface ShapeJob {
   instruction:  string;
   source:       'web' | 'voice';
   proposalId?:  string;   // set when this rewrite applied an approved proposal (ledger ref)
+  // Which field the instruction refines. Default (absent) = caption → this handler. hook /
+  // script are dispatched to runFieldRefine (refine.ts) by the consumer (§26).
+  target?:      'caption' | 'hook' | 'script';
 }
 
 export interface ShapeResultData { changedPostIds: string[]; summary: string; }

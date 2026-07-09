@@ -2,13 +2,13 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { PlanPost } from '@/lib/types';
-import type { PlanData } from './usePlanData';
+import type { PlanData, ShapeTarget } from './usePlanData';
 import { ringOf } from '@/lib/checklist';
 import { ChecklistItem, monthDayLabel } from './pieces';
 import { FormatIcon, FORMAT_LABEL, RevertIcon, TrashIcon, SparkIcon } from './icons';
 import { FormatDropdown, DateField, prettyDate } from './pickers';
 import { useAutosave } from './useAutosave';
-import { DISABLED_PRIMARY } from './primitives';
+import { DISABLED_PRIMARY, SegmentedControl } from './primitives';
 
 /** One shared secondary-action treatment for the editor's generate/add buttons:
  *  solid slate (#334155) fill, white glyph/text, no dashed border, same pill radius
@@ -27,6 +27,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
   const [script, setScript] = useState(post.script ?? '');
   const [len, setLen] = useState(post.scriptLengthSeconds ?? 30);
   const [shapeText, setShapeText] = useState('');
+  const [shapeTarget, setShapeTarget] = useState<ShapeTarget>('caption');
   const [adding, setAdding] = useState(false);
   const [pendingFormat, setPendingFormat] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -76,7 +77,17 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
   const scriptGenerating = data.scriptGenerating.has(post.id);
   const scriptErr = data.scriptError.get(post.id);
 
-  const submitShape = (instruction: string) => { if (!instruction.trim()) return; void data.shape(post.id, instruction); setShapeText(''); };
+  // Shape targets (§26): the caption always, plus any hook/script that exists for this
+  // format. The control only shows when there's more than one; if the selected target
+  // stops applying (format change, field cleared), fall back to the caption default.
+  const hookAvail = showHook && !!post.hook;
+  const scriptAvail = showScript && !!post.script;
+  const shapeTargets: ShapeTarget[] = ['caption', ...(hookAvail ? (['hook'] as const) : []), ...(scriptAvail ? (['script'] as const) : [])];
+  useEffect(() => {
+    if ((shapeTarget === 'hook' && !hookAvail) || (shapeTarget === 'script' && !scriptAvail)) setShapeTarget('caption');
+  }, [hookAvail, scriptAvail, shapeTarget]);
+
+  const submitShape = (instruction: string) => { if (!instruction.trim()) return; void data.shape(post.id, instruction, shapeTarget); setShapeText(''); };
 
   return (
     <div className="flex-1 overflow-y-auto px-[30px] pb-10 pt-[26px]" data-testid="post-editor">
@@ -248,11 +259,19 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
       {!data.readOnly && (
         <div className="mt-[26px]">
           <span className="mb-[9px] block text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">Shape this post</span>
+          {/* target control — only when there's more than one field to refine (§26) */}
+          {shapeTargets.length > 1 && (
+            <div className="mb-2.5" data-testid="shape-target">
+              <SegmentedControl<ShapeTarget> value={shapeTarget} label="What to refine" onChange={setShapeTarget}
+                options={shapeTargets.map((t) => ({ value: t, label: t === 'caption' ? 'Caption' : t === 'hook' ? 'Hook' : 'Script' }))} />
+            </div>
+          )}
           <div className="flex gap-2.5">
             <input
               data-testid="shape-input" value={shapeText} disabled={shaping}
               onChange={(e) => setShapeText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submitShape(shapeText); }}
-              placeholder="Make it softer · shorter · warmer · more about the fabric…"
+              placeholder={shapeTarget === 'hook' ? 'Punchier · shorter · reword the opening…' : shapeTarget === 'script' ? 'Punchier · tighten the middle · rework the CTA…' : 'Make it softer · shorter · warmer · more about the fabric…'}
+              aria-label={`Refine the ${shapeTarget}`}
               className="flex-1 rounded-[13px] border border-line px-[15px] py-3 text-[14.5px] text-slate-700 outline-none focus:border-coral disabled:opacity-60"
             />
             <button data-testid="shape-go" disabled={shaping} onClick={() => submitShape(shapeText)} aria-label="Shape this post"
@@ -268,8 +287,10 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
           ) : (
             <p data-testid="shape-note" className="mt-3.5 text-[12.5px] leading-relaxed text-muted">
               {shaping
-                ? 'Sprigly is rewriting this in your voice — it’ll appear here when it’s ready.'
-                : 'Sprigly rewrites it in your voice and checks it before it lands. Revert always returns to the original.'}
+                ? `Sprigly is ${shapeTarget === 'caption' ? 'rewriting' : 'refining'} this in your voice. It’ll appear here when it’s ready.`
+                : shapeTarget === 'caption'
+                  ? 'Sprigly rewrites it in your voice and checks it before it lands. Revert always returns to the original.'
+                  : `Sprigly refines the ${shapeTarget} with the lightest touch and keeps the rest. Revert always returns to the original.`}
             </p>
           )}
         </div>

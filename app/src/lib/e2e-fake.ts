@@ -172,3 +172,12 @@ export const E2E_SCRIPT_TEXT =
   'BEAT 2 (5–20s) — Cut to the studio: why we chose this cloth, one honest sentence.\n' +
   'BEAT 3 (20–27s) — The top on a real body, moving.\n\n' +
   'CTA: Back in stock this week — link in bio.';
+
+/** The canned field text a faked REFINE job writes (§26) — distinct from the generated
+ *  text so an e2e can assert the field actually changed. */
+export const E2E_REFINED_HOOK = 'Sold out twice. The reason isn’t the fabric.';
+export const E2E_REFINED_SCRIPT =
+  'HOOK: Sold out twice. The reason isn’t the fabric.\n\n' +
+  'BEAT 1 (0–4s) — Hands turn the weave to the light. (macro)\n' +
+  'BEAT 2 (4–18s) — One honest line on why we chose this cloth. (studio)\n\n' +
+  'CTA: Back in stock this week. Link in bio.';

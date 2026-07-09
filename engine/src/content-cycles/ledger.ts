@@ -17,7 +17,7 @@ export interface WorkerActivityEntry {
   clientId: string;
   cycleId?: string | null;
   postId?: string | null;
-  action: 'caption_saved' | 'script_saved' | (string & {});
+  action: 'caption_saved' | 'hook_saved' | 'script_saved' | (string & {});
   actor: WorkerActor;
   payload?: Record<string, unknown> | null;
 }

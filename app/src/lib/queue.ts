@@ -5,7 +5,7 @@
  * no @sprigly/workflows here — enqueue + read only.
  */
 import { Queue } from 'bullmq';
-import { e2eFakeEnabled, E2E_SHAPED_CAPTION, E2E_HOOK_CANDIDATES, E2E_SCRIPT_TEXT } from '@/lib/e2e-fake';
+import { e2eFakeEnabled, E2E_SHAPED_CAPTION, E2E_HOOK_CANDIDATES, E2E_SCRIPT_TEXT, E2E_REFINED_HOOK, E2E_REFINED_SCRIPT } from '@/lib/e2e-fake';
 
 export interface ShapePayload {
   type:         'shape';
@@ -16,6 +16,7 @@ export interface ShapePayload {
   instruction:  string;
   source:       'web' | 'voice';
   proposalId?:  string;   // set when this rewrite applied an approved proposal (ledger ref)
+  target?:      'caption' | 'hook' | 'script';   // which field the instruction refines (§26)
 }
 
 function getQueue(): Queue | null {
@@ -43,14 +44,27 @@ export type EnqueueResult =
  *  the caller decides how to tell the user. */
 export async function enqueueShape(payload: ShapePayload): Promise<EnqueueResult> {
   if (e2eFakeEnabled()) {
-    // e2e: no Redis/Bedrock. Write the canned caption straight onto the post so a
-    // subsequent poll returns 'done' with the swapped caption. Dynamic imports keep
+    // e2e: no Redis/Bedrock. Write the canned text for the TARGET field straight onto the
+    // post so a subsequent poll returns 'done' with the swapped value. Dynamic imports keep
     // @sprigly/db out of this module's top level (the offline queue.test never loads it).
     const { db, contentCyclePosts } = await import('@sprigly/db');
     const { and, eq } = await import('drizzle-orm');
+    const set = payload.target === 'hook' ? { hook: E2E_REFINED_HOOK, status: 'edited' as const }
+      : payload.target === 'script' ? { script: E2E_REFINED_SCRIPT, status: 'edited' as const }
+      : { caption: E2E_SHAPED_CAPTION, status: 'edited' as const };
     await db.update(contentCyclePosts)
-      .set({ caption: E2E_SHAPED_CAPTION, status: 'edited' })
+      .set(set)
       .where(and(eq(contentCyclePosts.id, payload.targetPostId), eq(contentCyclePosts.clientId, payload.clientId)));
+    // Mirror the worker's ledger for the new refine path so e2e can assert it (the caption
+    // path's ledger is already covered elsewhere; only add hook/script here).
+    if (payload.target === 'hook' || payload.target === 'script') {
+      const { planActivity } = await import('@sprigly/db');
+      await db.insert(planActivity).values({
+        clientId: payload.clientId, cycleId: payload.cycleId, postId: payload.targetPostId,
+        origin: 'agent', action: payload.target === 'hook' ? 'hook_saved' : 'script_saved',
+        refProposalId: payload.proposalId ?? null,
+      });
+    }
     return { jobId: shapeJobId(payload.cycleId, payload.targetPostId) };
   }
   const queue = getQueue();

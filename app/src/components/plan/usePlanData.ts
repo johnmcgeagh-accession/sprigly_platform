@@ -7,6 +7,9 @@ import type { NoteView } from '@/lib/agent/notes';
 import { indexForecast, type WeatherDay, type WeatherWireDay } from '@/lib/weather';
 
 export interface AgentReply { message: string; proposals: ProposalView[] }
+
+/** Which field a Shape/refine instruction targets (§26). */
+export type ShapeTarget = 'caption' | 'hook' | 'script';
 interface AgentTurn { conversationId: string; message: string; proposals?: ProposalView[] }
 
 export interface PlanDataInit {
@@ -36,7 +39,7 @@ export function usePlanData(init: PlanDataInit) {
   const [agentError, setAgentError] = useState<string | null>(null);
   const [shapeErrors, setShapeErrors] = useState<Map<string, string>>(new Map());
   const [loadError, setLoadError] = useState<null | 'proposals' | 'notes'>(null);
-  const lastShapeInstruction = useRef<Map<string, string>>(new Map());
+  const lastShapeInstruction = useRef<Map<string, { instruction: string; target: ShapeTarget }>>(new Map());
   // Hook generation (Stage 6): per-post generating flag, returned candidates, and errors.
   const [hookGenerating, setHookGenerating] = useState<Set<string>>(new Set());
   const [hookCandidates, setHookCandidates] = useState<Map<string, string[]>>(new Map());
@@ -229,36 +232,37 @@ export function usePlanData(init: PlanDataInit) {
     setShapeErrors((m) => { if (!m.has(id)) return m; const n = new Map(m); n.delete(id); return n; });
   }, []);
 
-  /** "Shape this post": async via the shape job (deviation 3). Marks the post pending
-   *  rather than mutating the caption; a job failure resolves to a per-post error note
-   *  with retry (never a stuck spinner). */
-  const shape = useCallback(async (id: string, instruction: string) => {
+  /** "Shape this post": async via the shape job (deviation 3). `target` selects the field
+   *  (caption default; hook/script refine, §26). Marks the post pending rather than mutating
+   *  the field; a job failure resolves to a per-post error note with retry. */
+  const shape = useCallback(async (id: string, instruction: string, target: ShapeTarget = 'caption') => {
     if (readOnly || !instruction.trim() || shapingIds.has(id)) return;
-    lastShapeInstruction.current.set(id, instruction);
+    lastShapeInstruction.current.set(id, { instruction, target });
     clearShapeError(id);
-    track('shape_requested', { postId: id });
+    track('shape_requested', { postId: id, target });
     setShapingIds((s) => new Set(s).add(id));
     try {
-      const res = await fetch(`/api/posts/${id}/shape`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ instruction }) });
-      if (!res.ok) { setShapeErrors((m) => new Map(m).set(id, 'Couldn’t start that rewrite.')); return; }
+      const res = await fetch(`/api/posts/${id}/shape`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ instruction, target }) });
+      if (!res.ok) { setShapeErrors((m) => new Map(m).set(id, 'Couldn’t start that change.')); return; }
       const r = (await res.json()) as { mode?: string; summary?: string; jobId?: string };
       if (r.mode === 'blocked') { flash(r.summary ?? 'You’ve reached this month’s AI-change limit.'); return; }
       if (r.mode === 'noop') { flash(r.summary ?? 'Still finishing the last change to this post.'); return; }
+      if (r.mode === 'empty') { flash(r.summary ?? `There’s no ${target} on this post yet.`); return; }
       if (r.mode === 'pending' && r.jobId) {
         flash(r.summary ?? 'Sprigly is rewriting this…');
         const status = await pollJob(r.jobId);
         if (status === 'error' || status === 'timeout') {
-          setShapeErrors((m) => new Map(m).set(id, status === 'timeout' ? 'That’s taking longer than expected.' : 'Couldn’t make that change — left it as it was.'));
+          setShapeErrors((m) => new Map(m).set(id, status === 'timeout' ? 'That’s taking longer than expected.' : 'Couldn’t make that change. Left it as it was.'));
         }
       }
-    } catch { setShapeErrors((m) => new Map(m).set(id, 'Network error — please try again.')); }
+    } catch { setShapeErrors((m) => new Map(m).set(id, 'Network error. Please try again.')); }
     finally { setShapingIds((s) => { const n = new Set(s); n.delete(id); return n; }); }
   }, [readOnly, shapingIds, flash, pollJob, clearShapeError, track]);
 
-  /** Retry the last shape instruction for a post. */
+  /** Retry the last shape/refine instruction for a post (same target). */
   const retryShape = useCallback((id: string) => {
-    const instr = lastShapeInstruction.current.get(id);
-    if (instr) void shape(id, instr);
+    const last = lastShapeInstruction.current.get(id);
+    if (last) void shape(id, last.instruction, last.target);
   }, [shape]);
 
   /** Generate a reel script (async job writes the script onto the post; pollJob reloads). */

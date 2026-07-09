@@ -1217,3 +1217,46 @@ disabled:shadow-none'` in `primitives.tsx`, applied everywhere so the states can
   because its spinner is a white ring that a `line-soft` fill would swallow — "working" must stay
   visually distinct from "inactive". Disabled inputs (`disabled:opacity-60`) are unchanged — this is
   a button convention. Axe + e2e green.
+
+---
+
+## 26. Target-aware Shape — refine hooks + scripts (Part 1, 2026-07-09)
+
+Shape only rewrote captions ("make the script punchier" silently rewrote the caption). Made it
+target-aware: the editor's Shape input gains a **Caption | Hook | Script** segmented control (only
+the fields that exist and apply to the format; caption is the default), and the instruction refines
+the chosen field.
+
+### Job design — GENERALISED the shape job (not a sibling), with a lighter refine path
+The shape worker is deeply caption-specific: it reuses the planning generate+validate machinery
+(`regeneratePost` → `applyCodeGate` → `applyCritic` → catalogue grounding), which is right for a
+caption but wrong for a one-line hook or a timed script (the caption critic would reject them). So:
+- **The caption path is unchanged** — same `runShapeForCycle`, same gates, same behaviour.
+- **A `target` field was added to the shape job** (`ShapeJob.target?: 'caption'|'hook'|'script'`,
+  default caption). The consumer dispatches `target: hook|script` to a new lighter handler
+  `runFieldRefine` (`engine/.../refine.ts`); caption keeps `runShapeForCycle`. This **reuses ALL the
+  shape plumbing** — the same `shape` job type + deterministic `shape_<cycle>_<post>` jobId, the same
+  `GET /api/jobs` poll → `loadPlanPosts` reload → the editor's `pending → arrives → autosave`
+  resync (`useAutosave` `persisted` baseline). One job, one route, one poll path.
+- **`runFieldRefine`** takes the current field text + instruction + `assembleShapeContext` voice
+  (voiceMd); for **script** it also passes the hook, length and 2.2 words/second budget so a refined
+  script stays timed; for **hook** the prompt keeps it to ONE line so it can't drift into a caption.
+  The prompt instructs a **minimal-necessary edit, preserving what wasn't asked to change** — not a
+  rewrite-from-scratch. It writes the field (`status='edited'`), records a `post_edits` row (so a
+  refine counts against the AI cap like a caption shape), and ledgers `hook_saved` / `script_saved`,
+  origin agent — the established generation naming, no new action name needed.
+
+### Prompts — dedicated DB prompts (client-customisable, like generation)
+Caption "shape" has no dedicated prompt (it injects the instruction as repair feedback into the
+planning prompt). Hook/script GENERATION each have a dedicated DB prompt (`plan_hooks/generate`,
+`plan_scripts/generate`, §23). Following that convention, REFINE gets dedicated DB prompts
+`plan_hooks/refine` + `plan_scripts/refine` (migration **0073**, global rows, resolved via
+`DbPromptResolver` → client-customisable the same way, falls back to global). Not a code const.
+
+### Route + client
+`POST /api/posts/:id/shape` gained a `target` param; for hook/script it loads the post and guards
+field-exists + format (returns `mode:'empty'` defensively — the editor only offers a target whose
+field exists). `usePlanData.shape(id, instruction, target)` threads it through and stores it for
+retry. e2e (faked): the fake shape writes the target field (E2E_REFINED_HOOK / _SCRIPT) and mirrors
+the worker's `hook_saved`/`script_saved` ledger row so the editor e2e can assert pending → refined
+text lands → autosaved → ledger; hook refine stays one line; a caption-only post shows no control.

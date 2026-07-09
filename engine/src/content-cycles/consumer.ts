@@ -118,13 +118,19 @@ export function createContentCycleConsumer(
           });
           break;
 
-        case 'shape':
+        case 'shape': {
+          const shapeDeps = { db, encProvider, googleClientId, googleClientSecret, model, prompts, audit, logger };
+          // hook / script refine reuses the shape job (same jobId + poll), dispatched to the
+          // lighter minimal-edit path; caption keeps the full generate+validate machinery (§26).
+          if (data.target === 'hook' || data.target === 'script') {
+            logger.info({ ...logCtx, cycleId: data.cycleId, postId: data.targetPostId, target: data.target }, 'content-cycles: starting refine job');
+            const { runFieldRefine } = await import('./refine.js');
+            return await runFieldRefine(data, shapeDeps);
+          }
           logger.info({ ...logCtx, cycleId: data.cycleId, postId: data.targetPostId, scope: data.scope }, 'content-cycles: starting shape job');
           // Return the result so BullMQ sets job.returnvalue (read by GET /api/jobs/:id).
-          return await runShapeForCycle(data, {
-            db, encProvider, googleClientId, googleClientSecret,
-            model, prompts, audit, logger,
-          });
+          return await runShapeForCycle(data, shapeDeps);
+        }
 
         case 'hook':
           logger.info({ ...logCtx, cycleId: data.cycleId, postId: data.targetPostId }, 'content-cycles: starting hook job');
