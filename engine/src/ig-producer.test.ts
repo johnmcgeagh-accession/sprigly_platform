@@ -134,7 +134,7 @@ describe('field mapping', () => {
 // ── Account guard ─────────────────────────────────────────────────────────────
 
 describe('account guard', () => {
-  it('throws only when ZERO posts match the handle (all-foreign batch)', async () => {
+  it('returns account_mismatch (no file) when ZERO posts match the handle (all-foreign batch)', async () => {
     const posts = [
       makeApifyPost({ ownerUsername: 'completely_wrong_account' }),
       makeApifyPost({ ownerUsername: 'another_foreign_account' }),
@@ -144,18 +144,12 @@ describe('account guard', () => {
     const drive  = makeDrive();
     const logger = makeLogger();
 
-    await expect(
-      trawlInstagramPosts({ ...BASE_PARAMS, drive, apifyApiKey: 'key', logger }),
-    ).rejects.toThrow(/account mismatch/);
-
-    await expect(
-      trawlInstagramPosts({ ...BASE_PARAMS, drive, apifyApiKey: 'key', logger }),
-    ).rejects.toThrow(/ivy_thebrand/);
-
-    await expect(
-      trawlInstagramPosts({ ...BASE_PARAMS, drive, apifyApiKey: 'key', logger }),
-    ).rejects.toThrow(/completely_wrong_account/);
-
+    // The account guard reports a typed outcome ({ status: 'account_mismatch', detail })
+    // rather than throwing — a mismatch is a recorded, non-retried condition, not an error.
+    const outcome = await trawlInstagramPosts({ ...BASE_PARAMS, drive, apifyApiKey: 'key', logger });
+    expect(outcome.status).toBe('account_mismatch');
+    expect(outcome.detail).toContain('ivy_thebrand');            // the expected handle
+    expect(outcome.detail).toContain('completely_wrong_account'); // the foreign owners found
     expect(drive.createFile).not.toHaveBeenCalled();
   });
 

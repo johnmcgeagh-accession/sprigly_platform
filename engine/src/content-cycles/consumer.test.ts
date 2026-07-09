@@ -46,7 +46,14 @@ const schedulerTickMock   = runContentCycleTick         as ReturnType<typeof vi.
 
 const LOGGER        = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 const mockQueueAdd  = vi.fn().mockResolvedValue({ id: 'enqueued-job' });
-const MOCK_QUEUE    = { add: mockQueueAdd };
+// The ig-trawl → request-email chain calls queue.getJob(emailJobId) to clear a stale
+// completed/failed entry before re-enqueuing (BullMQ dedups against the completed set).
+// Default: no existing job (a fresh enqueue). Dedup-path tests override it per-call with
+// completedJob(). mockJobRemove is the spy the consumer's existingEmail.remove() hits.
+const mockJobRemove = vi.fn().mockResolvedValue(undefined);
+const mockQueueGetJob = vi.fn().mockResolvedValue(undefined);
+const completedJob = () => ({ getState: vi.fn().mockResolvedValue('completed'), remove: mockJobRemove });
+const MOCK_QUEUE    = { add: mockQueueAdd, getJob: mockQueueGetJob };
 
 function makeConsumer(apifyApiKey?: string) {
   return createContentCycleConsumer(
@@ -67,6 +74,8 @@ function makeConsumer(apifyApiKey?: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockQueueAdd.mockResolvedValue({ id: 'enqueued-job' });
+  mockQueueGetJob.mockResolvedValue(undefined); // default: no existing email job (fresh enqueue)
+  mockJobRemove.mockResolvedValue(undefined);
   makeConsumer();
 });
 
@@ -177,16 +186,19 @@ describe('ig-trawl → request-email chain', () => {
 
   it('uses a deterministic jobId so BullMQ deduplicates re-enqueues from trawl retries', async () => {
     igTrawlMock.mockResolvedValue(undefined);
-    // First enqueue (e.g. trawl attempt 1 succeeded after previous failure)
+    // First enqueue (e.g. trawl attempt 1 succeeded after previous failure) — no prior job.
     await capturedProcessor({
       data: { type: 'ig-trawl', clientId: 'c4', channel: 'instagram', dataMonth: '2026-07' },
       id: 'j8',
     });
-    // Second enqueue (e.g. trawl retry also succeeded — rare but possible)
+    // Second enqueue (trawl retry also succeeded): the first email job has completed, so the
+    // consumer finds it via getJob and clears it so the deterministic re-enqueue takes effect.
+    mockQueueGetJob.mockResolvedValueOnce(completedJob());
     await capturedProcessor({
       data: { type: 'ig-trawl', clientId: 'c4', channel: 'instagram', dataMonth: '2026-07' },
       id: 'j9',
     });
+    expect(mockJobRemove).toHaveBeenCalledOnce();   // stale completed entry cleared before re-add
     const jobIds = mockQueueAdd.mock.calls.map((c) => (c[2] as Record<string, unknown>)['jobId']);
     expect(jobIds[0]).toBe(jobIds[1]);   // same deterministic jobId both times
     expect(jobIds[0]).toBe(requestEmailJobId('c4', 'instagram', '2026-07'));
@@ -235,6 +247,10 @@ describe('full chain re-run on already-completed cycle', () => {
 
     vi.clearAllMocks();
     mockQueueAdd.mockResolvedValue({ id: 'enqueued-job' });
+    // On the re-run the email from the first pass has already completed ('requested'), so the
+    // consumer finds and clears that stale entry so the deterministic re-enqueue takes effect.
+    mockQueueGetJob.mockResolvedValue(completedJob());
+    mockJobRemove.mockResolvedValue(undefined);
 
     // Second pass (re-run of the same month)
     await capturedProcessor({
@@ -243,6 +259,8 @@ describe('full chain re-run on already-completed cycle', () => {
     });
     // Trawl ran again (refreshed Drive file)
     expect(igTrawlMock).toHaveBeenCalledOnce();
+    // The stale completed email entry was cleared before re-enqueue.
+    expect(mockJobRemove).toHaveBeenCalledOnce();
     // Email was re-enqueued with same deterministic jobId (BullMQ deduplicates if still pending)
     expect(mockQueueAdd).toHaveBeenCalledOnce();
     expect(mockQueueAdd.mock.calls[0][2]).toMatchObject({
