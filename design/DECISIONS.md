@@ -1109,3 +1109,88 @@ Any further client (or a v2 of Ivy's) is the same one-row insert — or John can
 admin prompt editor's "create client override" action; no schema or engine work. The prompt
 wording is a first draft from voice.md and is meant to be iterated (admin `saveNewVersion` bumps
 the version in place).
+
+---
+
+## 24. UAT round 2 — plan-agent hook/script vocabulary, format inference, generate_hook, focus (2026-07-09)
+
+Four UAT items on the plan agent. All app-side; **no migration, no engine/worker change**. Note:
+the instruction parser John called `agent-instructions.ts` is actually
+`app/src/lib/agent/task-parser.ts` (`TASK_PARSER_SYSTEM_PROMPT`); there is no `agent-instructions.ts`.
+
+### Part 1 — the parser now knows the product's own vocabulary
+The prompt predated Stage 6, so a hook/script clause drew a generic "what kind of hooks — email
+subject lines?" question. Added a **PRODUCT CONCEPTS** block to `TASK_PARSER_SYSTEM_PROMPT`
+defining hooks (reel/carousel opening lines from a pattern library, generated in the editor,
+stored on the post), scripts (timed reel scripts from hook+caption+length), checklists/steps, and
+formats (reel/carousel/single; email excluded), with the rule: a concept clause with no matching
+action → **product-aware guidance** in a `clarify` ("approve the post, then open it and use
+Generate hooks"), never a generic question. Scripts have no task yet → guidance to the editor's
+Generate script.
+
+### Part 2 — add_post infers the format from the ask
+`add_post` gained a `format` field (`reel|carousel|single`). Inference (an explicit word always
+wins): reel/video → reel; carousel/slides/swipe → carousel; post/photo/image/picture → single;
+**no signal → default single, made VISIBLE and correctable** — the proposal summary reads "Add a
+single image on … (say 'reel' or 'carousel' if you'd prefer)" so the default is fixable before
+approve, not discovered after. Email is never inferable — an "add an email" ask returns the
+product-aware "email posts aren't available here yet" (a clarify), not a proposal. The `add`
+proposal payload carries `format`; `addDraft` / `addGeneratingPost` gained a `format` param (was
+hardcoded `'single'`); the `post_created` ledger payload now records the format. The proposal row
++ summary always state the format explicitly.
+- **Checklist parity (verified, nothing to fix):** neither the editor create path (`POST
+  /api/posts` → `addDraft`) nor the agent create path auto-creates a checklist — checklists are
+  **on-demand and format-aware** (the editor's Build/Generate checklist reads the post's current
+  format's template). So setting the format correctly on create is exactly what makes the later
+  on-demand checklist the right one; the two create paths are already consistent.
+
+### Part 3 — generate_hook proposal, and the ordering-dependency mechanism (the decision)
+New `generate_hook` action + `{ kind:'generate_hook', cycleId, postId?|refProposalId? }` payload.
+"Create a reel about X with a good hook" decomposes into **two** independently-approvable proposals
+(add_post reel, then generate_hook). On approve, generate_hook enqueues the **existing** hook engine
+job (`enqueueHookJob`) for the target post; candidates surface in that post's hook UI exactly as a
+manual Generate hooks does (the client polls the hook job into `hookCandidates`).
+
+**Ordering mechanism — chosen: payload reference resolved at apply time, via the ledger (no new
+column).** The second proposal is created up front (so both rows show immediately) with
+`refProposalId` = the add proposal's id and `postId` null. At approve time the target is resolved
+by reading the `post_created` `plan_activity` row tagged with that `refProposalId` (the add already
+records `refProposalId` via the agent actor). The alternative — "create the second proposal only
+after the first applies" — was rejected because it can't show both rows at once, which the UX
+requires. **Out-of-order approval is handled gracefully, NOT made impossible:** approving the hook
+step before its create step resolves to "not ready", so the proposal is **un-claimed (left
+pending/approvable)** and the client shows "Approve the 'Add …' step first" — it never consumes or
+fails the proposal, so the user simply approves the create step then the hook step. (Implemented as
+claim-then-revert rather than a pre-claim read, so the non-generate_hook approve path is byte-
+identical and the mocked `proposals.test` is unaffected.)
+- **Single-image guard:** hooks are reels/carousels only. An ask for hooks on a single-image post
+  (existing, or a no-format create) yields a **question** ("Hooks apply to reels and carousels —
+  want me to make it a reel first?"), never a silent drop and never an invalid proposal.
+- **Mutation cap:** generate_hook is a first-class proposal (same create/approve/changeSet flow),
+  and on approve it is gated by the same monthly AI-change check as a rewrite (`isRewriteBlocked`) —
+  it counts against the cap like any AI proposal. The hook job's own emission is unchanged.
+
+### Part 4 — agent input double focus indicator + Ask Sprigly button
+The agent sheet input showed **two nested coral rectangles** on keyboard focus: the container's
+`focus-within:border-coral` PLUS a second ring from the global `input:focus-visible { outline … }`
+in `globals.css`. Root cause: that global rule is **unlayered**, so it beats the input's
+`.outline-none` utility (which lives in Tailwind's `utilities` layer) — unlayered normal always wins
+over a layered one, regardless of specificity. Fix: `focus-visible:!outline-none` on the inner input
+(the `!important` is required to beat the unlayered rule), leaving the container's `focus-within`
+border as the single indicator. A11y holds (focus stays clearly visible at the container level on
+both pointer and keyboard focus; axe green). Sweep: the only `focus-within` composite input in the
+redesign is this one — the shape/hook/caption/script inputs use a different direct `focus:border-coral`
+pattern (a single border, not the nested-container bug), so they were correctly left alone.
+- **Ask Sprigly button drift:** its idle-enabled fill was `bg-coral` (#E87766) with white text =
+  **2.89:1, failing AA** (the banned white-on-brand-coral, §15). Restored to `bg-coral-cta`
+  (#C24C34, white 4.80:1, AA) — the deep coral John expected. The pale look in his screenshot was
+  the `disabled:opacity-50` state over the already-too-light coral.
+
+### Verification
+Full Playwright e2e + axe green ×3; worker suite (203) + app/agent mocked suites green; type-check
++ build clean across app, engine, worker. New `agent.spec.ts` (desktop project) covers: Part 1
+guidance (hook-on-single + script), Part 2 format inference ×4 incl. the visible default note and
+the downstream created-post format, Part 3 compound two-row approve-in-order → reel + candidates,
+out-of-order graceful block, and the single-image question. The e2e fake gained deterministic
+format-worded / hook / script branches. New `proposals.test` cases cover generate_hook enqueue +
+the single-image block.

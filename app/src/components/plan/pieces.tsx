@@ -238,7 +238,7 @@ function cleanProse(msg: string): string {
  */
 export function ExtractionSummary({ reply, onDecide, busy }: {
   reply: { message: string; proposals: ProposalView[] } | null;
-  onDecide?: ((id: string, action: 'approve' | 'reject') => Promise<void>) | undefined;
+  onDecide?: ((id: string, action: 'approve' | 'reject') => Promise<boolean>) | undefined;
   busy?: boolean | undefined;
 }) {
   const [status, setStatus] = useState<Record<string, 'applied' | 'discarded'>>({});
@@ -250,7 +250,9 @@ export function ExtractionSummary({ reply, onDecide, busy }: {
   const decide = async (id: string, action: 'approve' | 'reject') => {
     if (!onDecide || pending) return;
     setPending(id);
-    try { await onDecide(id, action); setStatus((s) => ({ ...s, [id]: action === 'approve' ? 'applied' : 'discarded' })); }
+    // Only mark the row resolved when it actually applied — a `blocked` approve (ordering
+    // dependency not yet met) returns false and keeps the row approvable.
+    try { const ok = await onDecide(id, action); if (ok) setStatus((s) => ({ ...s, [id]: action === 'approve' ? 'applied' : 'discarded' })); }
     finally { setPending(null); }
   };
   const anyBusy = pending !== null || !!busy;

@@ -98,9 +98,11 @@ export async function patchPost(clientId: string, cycleId: string, postId: strin
   return applied(clientId, cycleId, [postId], what);
 }
 
-/** Add a draft post (status 'new', placeholder caption) at a given date. Records a
- *  post_created ledger row atomically. */
-export async function addDraft(clientId: string, cycleId: string, channel: string, date: string, actor: ActivityActor = USER_ACTOR): Promise<ShapeResult> {
+/** Add a draft post (status 'new', placeholder caption) at a given date. `format` is the
+ *  post's format (reel/carousel/single; default single — email is not creatable). Records
+ *  a post_created ledger row atomically. */
+export async function addDraft(clientId: string, cycleId: string, channel: string, date: string, actor: ActivityActor = USER_ACTOR, format = 'single'): Promise<ShapeResult> {
+  const fmt: PostFormat = FORMATS.has(format as PostFormat) && format !== 'email' ? (format as PostFormat) : 'single';
   // place it last
   const [maxRow] = await db
     .select({ position: contentCyclePosts.position })
@@ -117,7 +119,7 @@ export async function addDraft(clientId: string, cycleId: string, channel: strin
       .values({
         clientId, cycleId, channel,
         scheduledDate: date,
-        format:        'single',
+        format:        fmt,
         pillar:        'New idea',
         caption:       DRAFT_PLACEHOLDER,
         status:        'new',
@@ -126,7 +128,7 @@ export async function addDraft(clientId: string, cycleId: string, channel: strin
       })
       .returning({ id: contentCyclePosts.id });
     newId = created?.id ?? null;
-    if (newId) await recordActivity(tx, { clientId, cycleId, postId: newId, action: 'post_created', actor, payload: { date } });
+    if (newId) await recordActivity(tx, { clientId, cycleId, postId: newId, action: 'post_created', actor, payload: { date, format: fmt } });
   });
 
   return applied(clientId, cycleId, newId ? [newId] : [], 'Added a draft post.');
@@ -170,9 +172,10 @@ export async function addGeneratedPost(
  *  source_meta so a failed generation can be retried. Returns the new post id. */
 export async function addGeneratingPost(
   clientId: string, cycleId: string,
-  spec: { channel: string; date: string; instruction: string },
+  spec: { channel: string; date: string; instruction: string; format?: string | null },
   actor: ActivityActor = USER_ACTOR,
 ): Promise<{ postId: string }> {
+  const fmt: PostFormat = spec.format && FORMATS.has(spec.format as PostFormat) && spec.format !== 'email' ? (spec.format as PostFormat) : 'single';
   const [maxRow] = await db
     .select({ position: contentCyclePosts.position })
     .from(contentCyclePosts)
@@ -187,13 +190,13 @@ export async function addGeneratingPost(
       .insert(contentCyclePosts)
       .values({
         clientId, cycleId, channel: spec.channel,
-        scheduledDate: spec.date, format: 'single', pillar: 'New idea', caption: '',
+        scheduledDate: spec.date, format: fmt, pillar: 'New idea', caption: '',
         status: 'generating', position,
         sourceMeta: { pendingInstruction: spec.instruction },
       })
       .returning({ id: contentCyclePosts.id });
     newId = created!.id;
-    await recordActivity(tx, { clientId, cycleId, postId: newId, action: 'post_created', actor, payload: { date: spec.date, generating: true } });
+    await recordActivity(tx, { clientId, cycleId, postId: newId, action: 'post_created', actor, payload: { date: spec.date, format: fmt, generating: true } });
   });
   return { postId: newId };
 }

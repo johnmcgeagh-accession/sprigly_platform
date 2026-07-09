@@ -165,13 +165,17 @@ export function PlanDesktop({ data }: { data: PlanData }) {
           <div className="mb-1 mt-1.5"><div className="text-[11px] font-extrabold uppercase tracking-[.14em] text-muted">Plan agent</div><div id="agent-sheet-title" className="font-serif text-[27px] text-slate-700">Talk to your <em className="italic text-coral-heading">plan</em></div></div>
           <p className="mb-5 mt-1 max-w-[560px] text-[14px] font-semibold leading-snug text-muted">Ask in plain English. Sprigly proposes the change and <b className="text-slate-700">nothing happens until you approve it</b>.</p>
           <div className="flex items-center gap-2.5 rounded-2xl border-[1.5px] border-line bg-surface py-2 pl-[18px] pr-2 focus-within:border-coral">
+            {/* The container owns the focus indicator (focus-within:border-coral). The inner
+                input suppresses its own focus outline — including the global
+                `input:focus-visible` outline in globals.css, which is UNLAYERED and so needs
+                `!important` to beat — so there's a single coral frame, not two nested ones. */}
             <input data-testid="agent-input" value={agentText} onChange={(e) => setAgentText(e.target.value)} aria-label="Ask Sprigly to change your plan"
               onKeyDown={(e) => { if (e.key === 'Enter') void submitAsk(); }} disabled={data.agentBusy}
-              placeholder="Move the Tuesday post to Friday…" className="flex-1 bg-transparent py-2 text-[15.5px] text-slate-700 outline-none disabled:opacity-60" />
+              placeholder="Move the Tuesday post to Friday…" className="flex-1 bg-transparent py-2 text-[15.5px] text-slate-700 outline-none focus-visible:!outline-none disabled:opacity-60" />
             <button data-testid="agent-mic" disabled title="Voice arrives in a later stage" aria-label="Voice arrives in a later stage"
               className="flex h-[46px] w-[46px] flex-none cursor-not-allowed items-center justify-center rounded-xl bg-line-soft text-muted opacity-60"><MicIcon className="h-5 w-5" /></button>
             <button data-testid="agent-send" disabled={!agentText.trim() || data.agentBusy} onClick={() => void submitAsk()}
-              className="flex h-[46px] flex-none items-center justify-center gap-2 rounded-xl bg-coral px-[18px] text-[14px] font-extrabold text-white shadow-coral disabled:opacity-50">
+              className="flex h-[46px] flex-none items-center justify-center gap-2 rounded-xl bg-coral-cta px-[18px] text-[14px] font-extrabold text-white shadow-coral disabled:opacity-50">
               {data.agentBusy
                 ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden="true" />Sprigly is thinking…</>
                 : <><SendIcon className="h-[18px] w-[18px]" />Ask Sprigly</>}

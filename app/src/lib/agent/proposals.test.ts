@@ -23,6 +23,7 @@ const h = vi.hoisted(() => ({
   startGen: vi.fn(),
   markNote: vi.fn(),
   enqueue: vi.fn(),
+  enqueueHook: vi.fn(),
   usage: { used: 0, limit: 30, unlimited: false } as Record<string, unknown>,
   blocked: false,
 }));
@@ -37,6 +38,8 @@ vi.mock('@sprigly/db', () => {
   const table = (name: string) => new Proxy({ __table: name }, { get: (_t, p) => (p === '__table' ? name : String(p)) });
   const agentProposals = table('agent_proposals');
   const contentCycles = table('content_cycles');
+  const contentCyclePosts = table('content_cycle_posts');
+  const planActivity = table('plan_activity');
   const db = {
     update() {
       return { set() { return { where(cond: unknown) {
@@ -52,7 +55,7 @@ vi.mock('@sprigly/db', () => {
     },
     insert() { return { values() { return { returning: () => Promise.resolve([h.proposalInsertRow]) }; } }; },
   };
-  return { db, agentProposals, contentCycles };
+  return { db, agentProposals, contentCycles, contentCyclePosts, planActivity };
 });
 
 vi.mock('../mutations', () => ({
@@ -64,7 +67,7 @@ vi.mock('../mutations', () => ({
 }));
 vi.mock('../post-generation', () => ({ startPostGeneration: (...a: unknown[]) => h.startGen(...a) }));
 vi.mock('./notes', () => ({ markNoteIntegrated: (...a: unknown[]) => h.markNote(...a) }));
-vi.mock('../queue', () => ({ enqueueShape: (...a: unknown[]) => h.enqueue(...a) }));
+vi.mock('../queue', () => ({ enqueueShape: (...a: unknown[]) => h.enqueue(...a), enqueueHookJob: (...a: unknown[]) => h.enqueueHook(...a) }));
 vi.mock('../usage', () => ({
   getUsageForCycle: async () => h.usage,
   isRewriteBlocked: () => h.blocked,
@@ -90,6 +93,7 @@ beforeEach(() => {
   h.addGenerating.mockReset().mockResolvedValue({ postId: 'post-new' });
   h.startGen.mockReset().mockResolvedValue({ jobId: 'shape_cycle-1_post-new' });
   h.markNote.mockReset(); h.enqueue.mockReset();
+  h.enqueueHook.mockReset().mockResolvedValue({ jobId: 'hook_cycle-1_post-9' });
   h.blocked = false; h.usage = { used: 0, limit: 30, unlimited: false };
 });
 
@@ -180,7 +184,7 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     h.claimQueue = [[{ ...moveRow, intent: 'add_post', payload: { kind: 'add', cycleId: 'cycle-1', date: '2026-07-15', channel: 'instagram', instruction: 'a post about the linen restock' } }]];
     const r = await approveProposal(CLIENT, 'prop-1', 'client');
     expect(r.proposal?.status).toBe('applied');
-    expect(h.addGenerating).toHaveBeenCalledWith(CLIENT, 'cycle-1', { channel: 'instagram', date: '2026-07-15', instruction: 'a post about the linen restock' }, { origin: 'agent', refProposalId: 'prop-1' });
+    expect(h.addGenerating).toHaveBeenCalledWith(CLIENT, 'cycle-1', { channel: 'instagram', date: '2026-07-15', instruction: 'a post about the linen restock', format: 'single' }, { origin: 'agent', refProposalId: 'prop-1' });
     expect(h.startGen).toHaveBeenCalledTimes(1);
     expect(h.startGen).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-new', 'a post about the linen restock');
     expect(r.jobId).toBe('shape_cycle-1_post-new');
@@ -191,10 +195,29 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     h.claimQueue = [[{ ...moveRow, intent: 'add_post', payload: { kind: 'add', cycleId: 'cycle-1', date: '2026-07-15', channel: 'instagram' } }]];
     const r = await approveProposal(CLIENT, 'prop-1', 'client');
     expect(r.proposal?.status).toBe('applied');
-    expect(h.add).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'instagram', '2026-07-15', { origin: 'agent', refProposalId: 'prop-1' });
+    expect(h.add).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'instagram', '2026-07-15', { origin: 'agent', refProposalId: 'prop-1' }, 'single');
     expect(h.addGenerating).not.toHaveBeenCalled();
     expect(h.startGen).not.toHaveBeenCalled();
     expect(r.jobId).toBeUndefined();
+  });
+
+  it('a generate_hook for an existing reel enqueues the hook job and returns the target post', async () => {
+    h.claimQueue = [[{ ...moveRow, intent: 'generate_hook', payload: { kind: 'generate_hook', cycleId: 'cycle-1', postId: 'post-9' } }]];
+    h.currentRow = { format: 'reel', deletedAt: null };   // resolveHookTarget's post lookup
+    const r = await approveProposal(CLIENT, 'prop-1', 'client');
+    expect(r.proposal?.status).toBe('applied');
+    expect(h.enqueueHook).toHaveBeenCalledWith({ type: 'hook', clientId: CLIENT, cycleId: 'cycle-1', targetPostId: 'post-9' });
+    expect(r.hookPostId).toBe('post-9');
+    expect(r.jobId).toBe('hook_cycle-1_post-9');
+  });
+
+  it('a generate_hook for a single-image post does NOT enqueue and stays approvable (blocked)', async () => {
+    h.claimQueue = [[{ ...moveRow, intent: 'generate_hook', payload: { kind: 'generate_hook', cycleId: 'cycle-1', postId: 'post-9' } }]];
+    h.currentRow = { format: 'single', deletedAt: null };
+    const r = await approveProposal(CLIENT, 'prop-1', 'client');
+    expect(r.blocked).toBe(true);
+    expect(r.proposal?.status).toBe('pending');
+    expect(h.enqueueHook).not.toHaveBeenCalled();
   });
 
   it('a double-approve of an add-with-instruction inserts + enqueues ONCE (status guard)', async () => {

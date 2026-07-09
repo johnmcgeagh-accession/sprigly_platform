@@ -13,7 +13,7 @@ import { AGENT_MODEL } from './model';
 import type { ParsedTask, TaskActionType } from './types';
 
 const ACTIONS: readonly TaskActionType[] = [
-  'move_post', 'delete_post', 'rewrite_post', 'add_post', 'change_format', 'add_note', 'query', 'clarify',
+  'move_post', 'delete_post', 'rewrite_post', 'add_post', 'change_format', 'generate_hook', 'add_note', 'query', 'clarify',
 ];
 
 export interface ParserContext {
@@ -28,12 +28,26 @@ DECOMPOSE COMPOUND REQUESTS. A message can contain MANY requests joined by "and"
 
 If a clause expresses an intent you cannot map to one of the actions below, DO NOT drop it — emit a "clarify" task naming what you couldn't do, so the client sees it and can rephrase. Prefer proposing over dropping.
 
+PRODUCT CONCEPTS — this assistant's OWN vocabulary. These are defined features of the product; NEVER ask the client to explain them or offer generic interpretations of them ("what kind of hooks — email subject lines? ad copy?" is WRONG):
+- HOOKS: short opening lines for a REEL or CAROUSEL. They are generated in the post editor from a pattern library and stored on the post. A request to write/add/generate/come up with hooks for a reel or carousel is a "generate_hook" task. Hooks do NOT apply to single-image or email posts.
+- SCRIPTS: a short, timed reel SCRIPT (spoken beats + shot notes + a CTA), generated in the editor from a reel's hook + caption + a chosen length. There is no script task yet, so if the client asks to write a reel's script, do NOT ask what a script is — guide them with a "clarify": "Open the reel and use Generate script in the post editor (once it has a hook and caption)."
+- CHECKLISTS / STEPS: the per-post to-do list (shot list etc.), built from a per-format template in the editor.
+- FORMATS: a post is a reel, a carousel, or a single image. EMAIL is not an available format here.
+When a clause names one of these concepts and no task below fits, respond with product-aware guidance in a "clarify" (e.g. "approve the post, then open it and use Generate hooks") — never a generic clarifying question about a concept the product already defines.
+
 Task actions:
 - "move_post": reschedule an existing post. Fields: postId or selector; toDate (ISO 'YYYY-MM-DD').
 - "delete_post": remove an existing post. Fields: postId or selector.
 - "rewrite_post": change the WORDING of an existing post's caption. Fields: postId or selector; instruction (the change to make).
 - "change_format": change an existing post's FORMAT. Fields: postId or selector; format (one of 'reel'|'carousel'|'single'). Use this for "make it a carousel", "turn the Tuesday post into a reel", "switch that to a single image". (Email is not an available format — if the client asks to make something an email, emit a "clarify" saying email posts aren't supported here yet.)
-- "add_post": add a new post. Fields: toDate (ISO, optional); channel ('instagram'|'email', optional); instruction (what the post should be about, optional — include it whenever the message says what to post; omit only for a bare "add a post" with no topic).
+- "add_post": add a new post. Fields: toDate (ISO, optional); channel ('instagram'|'email', optional); format ('reel'|'carousel'|'single', optional — INFER from the wording, see below); instruction (what the post should be about, optional — include it whenever the message says what to post; omit only for a bare "add a post" with no topic).
+  FORMAT INFERENCE for add_post (an explicit format word always wins):
+    · "reel" or "video" → format "reel".
+    · "carousel", "slides", "swipe-through", "multiple photos/images" → format "carousel".
+    · "post", "photo", "image", "picture" → format "single".
+    · No format signal at all → OMIT format (it defaults to single image downstream, shown to the client so they can correct it before approving).
+    · EMAIL is never a format you infer. If the client asks to add an EMAIL post, do NOT emit add_post — emit a "clarify" saying email posts aren't available here yet.
+- "generate_hook": generate hook candidates for a REEL or CAROUSEL post — an existing one, OR one being created in this SAME message by a preceding add_post. Fields: postId or selector (OMIT them when the hooks are for a post you are creating in this same message — the ordering is handled downstream). Use this when the message asks to write/add/come up with a HOOK or hooks for a reel/carousel (e.g. "a reel about the heatwave with a good hook", "write some hooks for the Tuesday reel"). Do NOT emit generate_hook for a single-image or email post — hooks are a reels/carousels feature (downstream will offer to change the format).
 - "add_note": remember a fact/instruction for the plan (not an edit to one existing post). Fields: content; targetMonth ('YYYY-MM', optional); relevantFrom/relevantTo (ISO dates, optional, if the note names a window).
 - "query": a question about the plan or brand knowledge. Fields: question.
 - "clarify": the request is too vague, a post reference is ambiguous, or a clause can't be mapped to an action. Fields: question (what you need to know / what you couldn't do).
@@ -61,8 +75,29 @@ Message: "move the post on the 10th to the 11th and make it a carousel"  (a comp
 Message: "make the reel warmer"  (two reels in the digest)
 → {"tasks":[{"action":"clarify","question":"You have two reels this week — which one should I rewrite: Tuesday's or Friday's?","reason":"make the reel warmer"}]}
 
+Message: "add a reel about how hot it is this week"  (format word "reel" → format on the add)
+→ {"tasks":[{"action":"add_post","format":"reel","instruction":"How hot it is this week.","reason":"add a reel about how hot it is"}]}
+
+Message: "add a carousel showing five ways to style the linen dress on Saturday"
+→ {"tasks":[{"action":"add_post","format":"carousel","toDate":"<saturday ISO>","instruction":"Five ways to style the linen dress.","reason":"a carousel showing five ways to style the linen dress"}]}
+
+Message: "add a post about the restock"  (no format signal → omit format; defaults to single downstream)
+→ {"tasks":[{"action":"add_post","instruction":"The restock.","reason":"add a post about the restock"}]}
+
+Message: "create a reel about the heatwave with a good hook"  (create + hook → TWO tasks; the hook task omits the post reference)
+→ {"tasks":[{"action":"add_post","format":"reel","instruction":"The heatwave.","reason":"create a reel about the heatwave"},{"action":"generate_hook","reason":"with a good hook"}]}
+
+Message: "write some hooks for the Tuesday reel"  (existing reel → generate_hook with the reference)
+→ {"tasks":[{"action":"generate_hook","selector":"the Tuesday reel","reason":"write some hooks for the Tuesday reel"}]}
+
+Message: "can you add some hooks to that photo of the new jumper?"  (hooks named on a single-image post — still emit generate_hook; downstream offers to change the format)
+→ {"tasks":[{"action":"generate_hook","selector":"that photo of the new jumper","reason":"add some hooks to that photo"}]}
+
 Message: "what's our returns policy?"
 → {"tasks":[{"action":"query","question":"What is our returns policy?","reason":"what's our returns policy"}]}
+
+Message: "write the script for the Friday reel"  (scripts have no task yet → product-aware guidance, NOT a generic question)
+→ {"tasks":[{"action":"clarify","question":"Open the Friday reel and use Generate script in the post editor (once it has a hook and caption).","reason":"write the script for the Friday reel"}]}
 
 Message: "um so yeah can you like push the wednesday one back a couple days, to the friday i mean"
 → {"tasks":[{"action":"move_post","selector":"the Wednesday post","toDate":"<friday ISO>","reason":"push the Wednesday one to Friday"}]}`;
@@ -126,10 +161,22 @@ function normalizeTask(raw: unknown): ParsedTask {
       if (!format) return clarify('Which format should it be — reel, carousel or single image?', reason);
       return { action, ...postRef, format, reason };
     }
-    case 'add_post':
+    case 'add_post': {
+      // Email posts can't be created here (the format flow is reel/carousel/single only).
+      if (r.channel === 'email') return clarify('Email posts aren’t available here yet — I can add an Instagram reel, carousel or single image.', reason);
+      // format inferred from wording (reel/carousel/single); null when there's no signal
+      // (defaults to single image downstream, shown so the client can correct it).
+      const rawFmt = str(r.format)?.toLowerCase();
+      const format = rawFmt === 'reel' || rawFmt === 'carousel' || rawFmt === 'single' ? rawFmt : null;
       // instruction = what the post should be about (optional). A bare add with no
       // instruction stays a blank draft slot.
-      return { action, toDate: isoDate(r.toDate), channel: r.channel === 'email' ? 'email' : r.channel === 'instagram' ? 'instagram' : null, instruction: str(r.instruction) ?? str(r.content), reason };
+      return { action, toDate: isoDate(r.toDate), channel: r.channel === 'instagram' ? 'instagram' : null, format, instruction: str(r.instruction) ?? str(r.content), reason };
+    }
+    case 'generate_hook':
+      // Post reference is OPTIONAL: omit it when the hooks are for a post being created in the
+      // SAME message (a preceding add_post) — the route links it and resolves ordering at apply
+      // time. An existing-post reference (postId/selector) is resolved in the route.
+      return { action, ...postRef, reason };
     case 'add_note': {
       const content = str(r.content);
       if (!content) return clarify('What would you like me to note down?', reason);

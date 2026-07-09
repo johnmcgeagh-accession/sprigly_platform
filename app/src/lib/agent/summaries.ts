@@ -23,14 +23,24 @@ export function formatSummary(post: PostLike & { format?: string }, format: stri
   return `Change “${postTitle(post)}” (${fmtDate(post.date)}) to a ${FORMAT_LABEL[format] ?? format}${ask(reason)}`;
 }
 
-/** "a" vs "an" by the following word's sound (Instagram / email both take "an"). */
+/** "a" vs "an" by the following word's sound. */
 const article = (word: string) => (/^[aeiou]/i.test(word) ? 'an' : 'a');
-/** Display the channel as a proper noun. */
-const channelLabel = (channel: string) => (channel === 'instagram' ? 'Instagram' : channel);
 
-export function addSummary(date: string, reason?: string | null, instruction?: string | null, channel?: string | null): string {
-  // Grammatical article + capitalised channel: "Add an Instagram post…", "Add a post…".
-  const kind = channel ? `${article(channel)} ${channelLabel(channel)} post` : 'a post';
-  if (instruction && instruction.trim()) return `Add ${kind} on ${fmtDate(date)} — “${instruction.trim()}”`;
-  return `Add ${kind === 'a post' ? 'a new post' : kind} on ${fmtDate(date)}${ask(reason)}`;
+/**
+ * Add-post summary. The FORMAT is always stated explicitly (reel / carousel / single
+ * image). When the format was DEFAULTED (no signal in the ask), a visible, correctable
+ * hint is appended so the client sees and can change the default before approving —
+ * "…(say 'reel' or 'carousel' if you'd prefer)". (§24)
+ */
+export function addSummary(date: string, format: string, formatInferred: boolean, reason?: string | null, instruction?: string | null): string {
+  const label = FORMAT_LABEL[format] ?? format;            // 'reel' | 'carousel' | 'single image'
+  const head = `Add ${article(label)} ${label} on ${fmtDate(date)}`;
+  const base = instruction && instruction.trim() ? `${head} — “${instruction.trim()}”` : `${head}${ask(reason)}`;
+  return formatInferred ? base : `${base} (say “reel” or “carousel” if you’d prefer)`;
+}
+
+/** "Generate hooks for <target>" — target is the post title (existing) or the new
+ *  reel/carousel being created in the same ask. */
+export function generateHookSummary(target: string, reason?: string | null): string {
+  return `Generate hooks for ${target}${ask(reason)}`;
 }

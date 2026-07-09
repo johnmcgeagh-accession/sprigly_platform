@@ -52,12 +52,57 @@ export function makeFakeModelClient(): ModelClient {
   return { complete, completeStreaming: complete } as unknown as ModelClient;
 }
 
+/** Seeded post ids (see seed-e2e.ts): …0003 is a reel, …0001 a single image. */
+const E2E_REEL = '33333333-3333-4333-8333-000000000003';
+const E2E_SINGLE = '33333333-3333-4333-8333-000000000001';
+
+/** Best-effort topic extraction for a deterministic add_post instruction (about/of/showing …,
+ *  minus any trailing "with … hook" clause). e2e asserts on the format, not this text. */
+function fakeTopic(msg: string): string {
+  const noHook = msg.replace(/\s+(with|and)\s+.*hook.*$/i, '').trim();
+  const m = /(?:about|of|showing)\s+(.+)$/i.exec(noHook);
+  return (m?.[1] ?? noHook).replace(/[.?!]+$/, '').trim();
+}
+
 function fakeTasks(userMessage: string): Record<string, unknown>[] {
   const clientMsg = between(userMessage, '"""');
   const lower = clientMsg.toLowerCase();
   if (lower.includes('note') || lower.includes('remember')) {
     return [{ action: 'add_note', content: clientMsg.trim() || 'A note from the client.', reason: 'note that down' }];
   }
+
+  // Scripts have no task yet → product-aware guidance, never a generic question (§24 Part 1).
+  if (lower.includes('script')) {
+    return [{ action: 'clarify', question: 'Open the reel and use Generate script in the post editor (once it has a hook and caption).', reason: 'write the script' }];
+  }
+
+  const wantsHook = /\bhooks?\b/.test(lower);
+  // "add/create a <reel|carousel|post|photo|…>" = a create-a-post ask (Part 2 format inference).
+  const isCreate = /\b(add|create)\b\s+(?:a|an|another|some|the)?\s*(reel|carousel|single|post|photo|image|picture|video)\b/.test(lower);
+
+  if (isCreate) {
+    const format = /\b(reel|video)\b/.test(lower) ? 'reel'
+      : /\b(carousel|slides|swipe)\b/.test(lower) ? 'carousel'
+      : /\b(photo|image|picture)\b/.test(lower) ? 'single'
+      : null;                                   // no signal → route defaults to single (visible note)
+    // Pin to a free in-window July day so the created post is visible on the calendar for
+    // the e2e (defaultAddDate would land it in August, off-view).
+    const add: Record<string, unknown> = { action: 'add_post', toDate: '2026-07-15', instruction: fakeTopic(clientMsg), reason: clientMsg.trim() };
+    if (format) add.format = format;
+    // Compound "… with a good hook" → a second generate_hook task (no post ref → links to
+    // the add above at the route). For a single-image create the route turns it into
+    // product-aware guidance instead of a proposal.
+    return wantsHook ? [add, { action: 'generate_hook', reason: 'with a good hook' }] : [add];
+  }
+
+  // Hooks for an EXISTING post (no create verb). A "photo/image" reference targets the
+  // seeded single-image post (→ product-aware "hooks apply to reels/carousels"); otherwise
+  // the seeded reel (→ a valid generate_hook proposal).
+  if (wantsHook) {
+    const single = /\b(photo|image|picture|single)\b/.test(lower);
+    return [{ action: 'generate_hook', postId: single ? E2E_SINGLE : E2E_REEL, reason: 'generate hooks' }];
+  }
+
   const postId = UUID_RE.exec(userMessage)?.[0];
   if (postId) {
     // A compound "move … and make it a carousel" decomposes into TWO independently-

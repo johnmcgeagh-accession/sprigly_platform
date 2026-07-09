@@ -20,8 +20,8 @@ import type { PlanPost } from '@/lib/types';
 import { getModelClient, getEmbeddingClient } from '@/lib/agent/model';
 import { parseTasks } from '@/lib/agent/task-parser';
 import { getClientCycleMonths, resolveCycleForMonth, weekDigest } from '@/lib/agent/cycle-state';
-import { resolvePostSelector } from '@/lib/agent/selectors';
-import { moveSummary, deleteSummary, rewriteSummary, addSummary, formatSummary } from '@/lib/agent/summaries';
+import { resolvePostSelector, postTitle } from '@/lib/agent/selectors';
+import { moveSummary, deleteSummary, rewriteSummary, addSummary, formatSummary, generateHookSummary } from '@/lib/agent/summaries';
 import { ensureConversation, appendMessage } from '@/lib/agent/conversation';
 import { createProposal } from '@/lib/agent/proposals';
 import { saveNote } from '@/lib/agent/notes';
@@ -115,10 +115,17 @@ export async function POST(req: Request) {
   // action rows (with inline Approve/Discard) in the extraction block. The message
   // carries only the conversational parts (answers, notes, clarifications) as clean
   // prose, so there are no orphan "• …" bullets duplicating the rows. (UAT round 1.)
-  const propose = async (action: 'move_post' | 'delete_post' | 'rewrite_post' | 'add_post' | 'change_format', payload: Parameters<typeof createProposal>[0]['payload'], summary: string) => {
+  const propose = async (action: 'move_post' | 'delete_post' | 'rewrite_post' | 'add_post' | 'change_format' | 'generate_hook', payload: Parameters<typeof createProposal>[0]['payload'], summary: string) => {
     const pv = await createProposal({ clientId, conversationId: convId, messageId: userMessageId, changeSetId, action, payload, summary });
     proposals.push(pv);
+    return pv;
   };
+
+  // The most recent add_post proposal created in THIS turn — a generate_hook with no post
+  // reference (a compound "create a reel … with a hook") links to it, so the hook resolves
+  // against the post that add will create on approval.
+  let lastAdd: { proposalId: string; format: string; topic: string } | null = null;
+  const FMT_WORD: Record<string, string> = { reel: 'reel', carousel: 'carousel', single: 'single image', email: 'email' };
 
   for (const task of tasks) {
     switch (task.action) {
@@ -152,7 +159,36 @@ export async function POST(req: Request) {
       }
       case 'add_post': {
         const date = task.toDate ?? defaultAddDate(posts, today);
-        await propose('add_post', { kind: 'add', cycleId, date, channel: task.channel ?? null, instruction: task.instruction ?? null }, addSummary(date, task.reason, task.instruction, task.channel));
+        // Inferred format from the ask (Part 2); no signal → default single, shown as a
+        // correctable note in the summary so the client can change it before approving.
+        const inferred = task.format === 'reel' || task.format === 'carousel' || task.format === 'single';
+        const format = inferred ? task.format! : 'single';
+        const pv = await propose('add_post',
+          { kind: 'add', cycleId, date, channel: task.channel ?? null, instruction: task.instruction ?? null, format },
+          addSummary(date, format, inferred, task.reason, task.instruction));
+        lastAdd = { proposalId: pv.id, format, topic: task.instruction?.trim() || task.reason?.trim() || 'the new post' };
+        break;
+      }
+      case 'generate_hook': {
+        // Existing-post reference → validate it's a reel/carousel, else guide (never a
+        // silent drop or an invalid proposal).
+        if (task.postId || task.selector) {
+          const post = resolvePost(task, posts);
+          if (!post) { replyParts.push(whichPost(task.reason)); break; }
+          if (post.format !== 'reel' && post.format !== 'carousel') {
+            replyParts.push(`Hooks apply to reels and carousels — “${postTitle(post)}” is ${FMT_WORD[post.format] === 'single image' ? 'a single image' : `an ${FMT_WORD[post.format]}`}. Want me to make it a reel first, then add hooks?`);
+            break;
+          }
+          await propose('generate_hook', { kind: 'generate_hook', cycleId, postId: post.id }, generateHookSummary(`“${postTitle(post)}”`, task.reason));
+          break;
+        }
+        // No reference → link to the reel/carousel being created in this same ask.
+        if (!lastAdd) { replyParts.push('Which post should I generate hooks for? Name its date, or ask me to create the reel first.'); break; }
+        if (lastAdd.format !== 'reel' && lastAdd.format !== 'carousel') {
+          replyParts.push(`Hooks apply to reels and carousels. Want me to make “${lastAdd.topic}” a reel so I can add hooks?`);
+          break;
+        }
+        await propose('generate_hook', { kind: 'generate_hook', cycleId, refProposalId: lastAdd.proposalId }, generateHookSummary(`the new reel “${lastAdd.topic}”`, task.reason));
         break;
       }
       case 'add_note': {

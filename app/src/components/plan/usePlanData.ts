@@ -321,23 +321,44 @@ export function usePlanData(init: PlanDataInit) {
     } finally { clearTimeout(ceiling); setAgentBusy(false); }
   }, [readOnly, agentBusy, flash, refreshNotes, track]);
 
-  const decide = useCallback(async (id: string, action: 'approve' | 'reject') => {
-    if (proposalBusy) return;
+  /** Poll an agent-enqueued hook job and surface its candidates in the target post's hook
+   *  UI — exactly as a manual "Generate hooks" does (the editor reads hookCandidates). */
+  const pollHookInto = useCallback(async (postId: string, jobId: string): Promise<void> => {
+    for (let i = 0; i < 30; i++) {
+      let j: { status: string; candidates?: string[] };
+      try { const p = await fetch(`/api/jobs/${jobId}`); if (!p.ok) { await new Promise((r) => setTimeout(r, 1200)); continue; } j = (await p.json()) as typeof j; }
+      catch { await new Promise((r) => setTimeout(r, 1200)); continue; }
+      if (j.status === 'done') { setHookCandidates((m) => new Map(m).set(postId, j.candidates ?? [])); return; }
+      if (j.status === 'error' || j.status === 'gone') return;
+      await new Promise((r) => setTimeout(r, 1200));
+    }
+  }, []);
+
+  /** Approve/reject a proposal. Returns whether it was APPLIED — a `blocked` approve (an
+   *  ordering dependency not yet met) is NOT consumed, so the caller keeps the row
+   *  actionable. */
+  const decide = useCallback(async (id: string, action: 'approve' | 'reject'): Promise<boolean> => {
+    if (proposalBusy) return false;
     setProposalBusy(id);
     try {
       const res = await fetch(`/api/plan/proposals/${id}/${action}`, { method: 'POST' });
-      if (!res.ok) { flash('Could not update that — please try again.'); return; }
-      const d = (await res.json()) as { jobId?: string };
+      if (!res.ok) { flash('Could not update that — please try again.'); return false; }
+      const d = (await res.json()) as { jobId?: string; hookPostId?: string; blocked?: boolean; message?: string };
+      // Blocked = a dependency wasn't met (e.g. approve hooks before the create step). The
+      // proposal is untouched — leave the row so it can be approved after its prerequisite.
+      if (d.blocked) { flash(d.message ?? 'Approve the earlier step first, then this one.'); return false; }
       setProposals((cur) => cur.filter((p) => p.id !== id));
       track(action === 'approve' ? 'proposal_approved' : 'proposal_discarded', { id });
       if (action === 'approve') {
         flash('Change approved.');
         await refreshPlan();
-        if (d.jobId) { await pollJob(d.jobId); await refreshPlan(); }
+        if (d.hookPostId && d.jobId) { void pollHookInto(d.hookPostId, d.jobId); }   // hooks surface in the post's hook UI
+        else if (d.jobId) { await pollJob(d.jobId); await refreshPlan(); }
       } else { flash('Dismissed.'); }
-    } catch { flash('Network error — please try again.'); }
+      return true;
+    } catch { flash('Network error — please try again.'); return false; }
     finally { setProposalBusy(null); }
-  }, [proposalBusy, flash, refreshPlan, pollJob, track]);
+  }, [proposalBusy, flash, refreshPlan, pollJob, pollHookInto, track]);
 
   /** Switch the rendered cycle (read-only for non-home). */
   const switchCycle = useCallback(async (cycleId: string) => {
