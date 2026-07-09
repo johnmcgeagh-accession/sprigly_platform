@@ -32,6 +32,17 @@ export async function getClientCycleMonths(clientId: string, homeCycleId: string
     .join('\n');
 }
 
+/** This cycle's plan month ('YYYY-MM'), or null if the row is missing. Scoped to the
+ *  client (defense-in-depth) even though the session cycleId is already trusted. */
+export async function getCycleMonth(clientId: string, cycleId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ month: contentCycles.cycleMonth })
+    .from(contentCycles)
+    .where(and(eq(contentCycles.clientId, clientId), eq(contentCycles.id, cycleId)))
+    .limit(1);
+  return row?.month ?? null;
+}
+
 /** Resolve a 'YYYY-MM' to one of the client's cycle ids, or null if none exists. */
 export async function resolveCycleForMonth(clientId: string, month: string): Promise<string | null> {
   const [row] = await db

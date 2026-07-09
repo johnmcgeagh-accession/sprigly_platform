@@ -19,7 +19,7 @@ import { loadPlanPosts } from '@/lib/plan';
 import type { PlanPost } from '@/lib/types';
 import { getModelClient, getEmbeddingClient } from '@/lib/agent/model';
 import { parseTasks } from '@/lib/agent/task-parser';
-import { getClientCycleMonths, resolveCycleForMonth, weekDigest } from '@/lib/agent/cycle-state';
+import { getClientCycleMonths, getCycleMonth, resolveCycleForMonth, weekDigest } from '@/lib/agent/cycle-state';
 import { loadProductIndex } from '@/lib/agent/catalogue';
 import { resolvePostSelector, postTitle } from '@/lib/agent/selectors';
 import { moveSummary, deleteSummary, rewriteSummary, addSummary, formatSummary, generateHookSummary, refineSummary } from '@/lib/agent/summaries';
@@ -62,6 +62,16 @@ function defaultAddDate(posts: PlanPost[], today: Date): string {
 const whichPost = (reason?: string | null) =>
   `I couldn’t tell which post you meant${reason ? ` for “${reason.trim()}”` : ''}. Could you name its date?`;
 
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+/** 'YYYY-MM' or 'YYYY-MM-DD' → 'August 2026' (falls back to the raw string). */
+const monthName = (iso: string): string => {
+  const m = /^(\d{4})-(\d{2})/.exec(iso);
+  return m ? `${MONTH_NAMES[Number(m[2]) - 1] ?? iso} ${m[1]}` : iso;
+};
+
 export async function POST(req: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'no_session' }, { status: 401 });
@@ -93,6 +103,10 @@ export async function POST(req: Request) {
 
   const posts = await loadPlanPosts(clientId, cycleId);
   const today = e2eTodayDate() ?? new Date();
+  // The session cycle's plan month ('YYYY-MM'). Every loaded post belongs to this
+  // cycle, so it's the month a move must stay within — a cross-month move would
+  // re-date the post while leaving its cycleId here, orphaning it (see move_post).
+  const cycleMonth = await getCycleMonth(clientId, cycleId);
 
   // ── Parse (the only entry point) ──────────────────────────────────────────
   let tasks: ParsedTask[];
@@ -138,6 +152,13 @@ export async function POST(req: Request) {
         const post = resolvePost(task, posts);
         if (!post) { replyParts.push(whichPost(task.reason)); break; }
         if (!task.toDate) { replyParts.push(`Move “${post.caption?.split('\n')[0] || post.pillar}” to when?${task.reason ? ` (you asked: “${task.reason}”)` : ''}`); break; }
+        // A move into another month would re-date the post but leave it in this cycle,
+        // orphaning it. Refuse (statement, not a question) until cross-month moves — which
+        // need a cycle reassignment — are supported. Same-month moves are unaffected.
+        if (cycleMonth && task.toDate.slice(0, 7) !== cycleMonth) {
+          replyParts.push(`That would move the post into ${monthName(task.toDate)} — moving posts to a different month isn’t available yet.`);
+          break;
+        }
         await propose('move_post', { kind: 'move', cycleId, postId: post.id, toDate: task.toDate }, moveSummary(post, task.toDate, task.reason));
         break;
       }

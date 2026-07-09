@@ -20,6 +20,17 @@ const FORMAT_WORDS: Record<string, PostFormat> = {
 const WK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+// Generic reference words stripped before caption matching, so "the Mabel post"
+// keys on "mabel" and a filler word like "post" can't drag in every caption. Format
+// nouns are here too — those are handled by the format branch above; if they reach the
+// caption fallback they didn't identify a post, so they must not match caption prose.
+const SELECTOR_STOPWORDS = new Set([
+  'the', 'a', 'an', 'this', 'that', 'these', 'those', 'my', 'our', 'your', 'their',
+  'post', 'posts', 'one', 'ones', 'its', 'for', 'and', 'about', 'with', 'please',
+  'reel', 'reels', 'video', 'carousel', 'carousels', 'gallery', 'image', 'images',
+  'photo', 'photos', 'single',
+]);
+
 /** 'YYYY-MM-DD' → local Date (avoid UTC day-shift). */
 export function parseISO(d: string): Date {
   const [y, m, day] = d.split('-').map(Number);
@@ -70,6 +81,21 @@ function resolveTargets(text: string, posts: PlanPost[]): PlanPost[] {
       const hits = posts.filter((p) => (p.pillar || '').toLowerCase().startsWith(w));
       if (hits.length) return hits;
     }
+  }
+  // Last-resort fallback: a distinctive word from the reference (e.g. a product name
+  // like "Mabel") matched against post CAPTION text, since products live in the caption
+  // — not the pillar. Only reached when every branch above found nothing, so references
+  // that already resolve are unchanged. Each significant reference token is tried in
+  // order; the first token with hits wins, and its FULL hit set is returned — so a
+  // caption word matching two posts still returns both, and resolvePostSelector() nulls
+  // on ambiguity rather than guessing.
+  const captionTokens = Array.from(new Set(
+    t.split(/\W+/).filter((w) => w.length >= 3 && !SELECTOR_STOPWORDS.has(w)),
+  ));
+  for (const w of captionTokens) {
+    const re = new RegExp(`\\b${w}\\b`);
+    const hits = posts.filter((p) => re.test((p.caption || '').toLowerCase()));
+    if (hits.length) return hits;
   }
   return [];
 }
