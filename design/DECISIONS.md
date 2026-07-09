@@ -829,3 +829,78 @@ Delete / Cancel) — no single-tap destruction. e2e covers cancel-keeps / confir
 - **Pending John's pick:** shipped the coral treatment; an alternative conventional-destructive
   treatment (white fill, red #B23A2E border + text) was screenshotted for comparison. One-class
   swap if he prefers it. (Both clear AA: coral-cta white 4.80:1; #B23A2E on white 5.94:1.)
+
+---
+
+## 20. Final polish pass — pickers, email-out, delete B, worker tests (2026-07-09)
+
+John's last edits before UAT promotion. App is `PostEditor.tsx` + a new `pickers.tsx`
+(shared components); the worker changes are test-only.
+
+### Styled controls replace the OS-native ones (`pickers.tsx`)
+- **Format dropdown** replaces the native `<select>`: the chip gains a ▾ chevron at rest
+  (so it reads as changeable) and opens a custom `role="listbox"` popover (white, `--line`
+  border, `shadow-card`, format icon + label per option, coral check on the current one).
+  Keyboard: arrows/Home/End move option focus, Enter/Space select, Escape closes and returns
+  focus to the trigger; outside-click closes. Same component desktop + mobile.
+- **Date picker** replaces the native `<input type=date>`: a branded `CalendarPicker` in the
+  plan calendar's language (serif month heading, chevron month-nav, Mon–Su grid, muted
+  out-of-month days, coral circle on the selected day, ring on today). Keyboard: arrows move
+  the focused day (shifting month at edges), Home/End week ends, PageUp/Down month, Enter/Space
+  select, Escape closes. `role="grid"`/`row`/`gridcell` with per-day `aria-label` + `aria-current`.
+  **One date-picking experience** — the desktop "Scheduled date" popover and the mobile
+  swipe-right "Move" sheet both render the same `CalendarPicker`; selecting PATCHes immediately
+  (ledgered `rescheduled`), no separate text input (the popover's ARIA + arrow-keys is the
+  keyboard path).
+
+### Email excluded from the plan-surface flow
+The email workflow isn't built, so **Email is removed from the format selector** — no post can
+be switched TO email. Existing email posts (the seed has one) still render and show their Email
+chip, and the selector on them offers only the three real formats (**switch away allowed, back
+not**). The server-side 422/`no_template` handling for email posts is untouched. Revisit when the
+email workflow stage lands.
+
+### Delete = treatment B (John's pick) — coral is never destructive
+The bottom-pinned "Delete post" switched from the coral fill to the **conventional destructive
+treatment: white fill, `danger` #B23A2E border + text + trash glyph** (5.94:1). The confirm-step
+"Delete post" is a filled `bg-danger` + white (5.94:1). Placement, full width, and the two-step
+confirm are unchanged. **New standing rule (alongside §13/§15's coral-text rules): coral is
+never used for destructive actions — destructive = `danger` #B23A2E.** (Supersedes §19's coral-cta
+delete.)
+
+### Other editor tidy-ups
+- **Duplicate "Edited" removed:** the header's status *word* span (New idea / Edited / Draft) is
+  gone; only the NEW / EDITED pill remains (a 'planned' post shows no badge, matching D2's
+  no-tags stance).
+- **Media section removed** from the editor (desktop + mobile) — the "coming soon" placeholder
+  returns only if/when publishing lands. Removed outright (no dormant render).
+- **Shape suggestion pills removed** (Make it softer / shorter / Warmer tone) — the free-text
+  Shape input + go button stands alone; empty input no longer submits a 'warmer tone' default.
+
+### Worker test-drift fixed (test-only; production untouched)
+Two deterministic pre-existing worker-test failures (both: a test asserting old behaviour after
+the production code was refactored to a typed, non-throwing contract) — fixed the **tests**, not
+production:
+- **`consumer.test.ts` (6 tests):** `consumer.ts` calls `queue.getJob(emailJobId)` to clear a
+  stale completed/failed email entry before the deterministic re-enqueue (real BullMQ dedup),
+  but `MOCK_QUEUE` only stubbed `add`. Added a controllable `getJob` stub: **default → `undefined`
+  (fresh enqueue)**; the two dedup-intent tests (deterministic-jobId re-enqueue, and the full
+  chain re-run "already requested") override it with a **completed job** and now also assert the
+  stale entry's `remove()` is called — so the dedup-remove path is actually covered. No existing
+  assertion changed (the consumer always calls `add` after the guard); the completed-job cases are
+  additive.
+- **`ig-producer.test.ts` (1 test):** the account-guard returns a typed
+  `IgTrawlOutcome { status: 'account_mismatch', detail }` (a recorded, non-retried condition), but
+  the test still asserted a *throw*. Updated it to assert the resolved outcome (`status`, `detail`
+  cites the expected handle + foreign owners, no file written) — the real production behaviour.
+  This surfaced only when the suite runs with `DATABASE_URL` set (the file imports a DB-validated
+  module); offline it never loaded. **Worker suite now fully green (204/204 with the container DB).**
+
+### e2e
+Format specs drive the custom dropdown (open trigger → click option) and add coverage that the
+menu excludes Email and an existing email post still renders/only-switches-away. The mobile Move
+and a new desktop date-picker test select via the `CalendarPicker`. New assertions that the media
+section and shape pills are gone. **Toast-vs-axe flake fixed properly:** the format-confirm axe
+scan now waits for the status toast to reach full opacity before analyzing — axe was catching the
+toast mid-fade (a blended `#ebebec`-on-`#89909a` = 2.7 transient; the toast is white-on-slate
+10.35:1 at rest). Investigated, not absorbed (§18's rule).
