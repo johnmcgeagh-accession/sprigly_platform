@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { PlanPost } from '@/lib/types';
 import type { PlanData } from './usePlanData';
 import { ringOf } from '@/lib/checklist';
 import { ChecklistItem, ProgressRing, monthDayLabel } from './pieces';
-import { FormatIcon, FORMAT_LABEL, RevertIcon, TrashIcon, SparkIcon, CheckIcon } from './icons';
+import { FormatIcon, FORMAT_LABEL, RevertIcon, TrashIcon, SparkIcon } from './icons';
 
 const SHAPES = [['Make it softer', 'make it softer'], ['Make it shorter', 'make it shorter'], ['Warmer tone', 'warmer tone']] as const;
 
@@ -15,7 +15,54 @@ const SHAPES = [['Make it softer', 'make it softer'], ['Make it shorter', 'make 
  *  precedent, not the banned white-on-coral. The dashed style is retained ONLY for
  *  "empty slot" affordances (calendar add-pills), never for a button. */
 const SECONDARY_BTN =
-  'inline-flex items-center gap-1.5 self-start rounded-full bg-slate-700 px-3.5 py-2 text-[12.5px] font-extrabold text-white disabled:opacity-50';
+  'inline-flex flex-none items-center gap-1.5 rounded-full bg-slate-700 px-3.5 py-2 text-[12.5px] font-extrabold text-white disabled:opacity-50';
+
+/**
+ * Debounced + on-blur autosave for a text field. One PATCH (→ one ledger row) per
+ * *settled* edit, never per keystroke: a save fires `delay` ms after the last change,
+ * or immediately on blur/unmount. `persisted` is the server truth — when it changes
+ * from outside (a candidate pick, a shape job, a reload, switching post) it becomes the
+ * new baseline and is never echoed back. `markSaved` lets a caller (candidate pick)
+ * record a value it already persisted so the debounce doesn't double-save it.
+ */
+function useAutosave(value: string, persisted: string, save: (v: string) => void, enabled: boolean, delay = 1500) {
+  const savedRef = useRef(persisted);
+  const valueRef = useRef(value);
+  const saveRef = useRef(save);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  valueRef.current = value;
+  saveRef.current = save;
+
+  // External change to the persisted value → new baseline (don't autosave it back).
+  useEffect(() => { savedRef.current = persisted; }, [persisted]);
+
+  const flush = useCallback(() => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    const v = valueRef.current;
+    if (!enabled || v === savedRef.current) return;
+    savedRef.current = v;
+    saveRef.current(v);
+  }, [enabled]);
+
+  // Debounce a save `delay` after the last change.
+  useEffect(() => {
+    if (!enabled || value === savedRef.current) return;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => { timer.current = null; flush(); }, delay);
+    return () => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } };
+  }, [value, enabled, delay, flush]);
+
+  // Flush a pending edit on unmount (e.g. drawer closed via Escape before a blur).
+  const flushRef = useRef(flush); flushRef.current = flush;
+  useEffect(() => () => { flushRef.current(); }, []);
+
+  const markSaved = useCallback((v: string) => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    savedRef.current = v;
+  }, []);
+
+  return { flush, markSaved };
+}
 
 /** The editor body shared by the desktop drawer and the mobile sheet. Caption save,
  *  Revert, delete, checklist (tick / add / generate), and async "Shape this post". */
@@ -27,6 +74,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
   const [shapeText, setShapeText] = useState('');
   const [adding, setAdding] = useState(false);
   const [pendingFormat, setPendingFormat] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const lastId = useRef(post.id);
 
   // Format change: PATCH the format (format_changed ledger), then reconcile the checklist —
@@ -46,15 +94,21 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
   // Reset the textarea when the selected post changes or its caption is replaced
   // (e.g. a shape job landed) — but not on every keystroke.
   useEffect(() => {
-    if (lastId.current !== post.id) { lastId.current = post.id; setCaption(post.caption); setHook(post.hook ?? ''); setScript(post.script ?? ''); setLen(post.scriptLengthSeconds ?? 30); setPendingFormat(null); setShapeText(''); }
+    if (lastId.current !== post.id) { lastId.current = post.id; setCaption(post.caption); setHook(post.hook ?? ''); setScript(post.script ?? ''); setLen(post.scriptLengthSeconds ?? 30); setPendingFormat(null); setShapeText(''); setConfirmDelete(false); }
   }, [post.id, post.caption, post.hook, post.script, post.scriptLengthSeconds]);
   useEffect(() => { setCaption(post.caption); }, [post.caption]);
   useEffect(() => { setHook(post.hook ?? ''); }, [post.hook]);
   useEffect(() => { setScript(post.script ?? ''); }, [post.script]);
 
+  // Autosave: caption / typed hook / script all persist on blur + ~1.5s idle (one
+  // ledger row per settled edit). Candidate picks persist immediately (below) and mark
+  // the hook autosave baseline so the debounce doesn't save it a second time.
+  const editable = !data.readOnly;
+  const capAuto = useAutosave(caption, post.caption, useCallback((v: string) => data.saveCaption(post.id, v), [data, post.id]), editable);
+  const hookAuto = useAutosave(hook, post.hook ?? '', useCallback((v: string) => data.saveHook(post.id, v), [data, post.id]), editable);
+  const scriptAuto = useAutosave(script, post.script ?? '', useCallback((v: string) => data.saveScript(post.id, v), [data, post.id]), editable);
+
   const ring = ringOf(post.steps);
-  const dirty = caption !== post.caption;
-  const hookDirty = hook !== (post.hook ?? '');
   const shaping = data.shapingIds.has(post.id);
   const stateLabel = post.status === 'new' ? 'New idea' : post.status === 'edited' ? 'Edited' : 'Draft';
   const isEmail = post.format === 'email';
@@ -65,7 +119,6 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
   const hookErr = data.hookError.get(post.id);
   // Scripts: reels only.
   const showScript = post.format === 'reel';
-  const scriptDirty = script !== (post.script ?? '');
   const scriptGenerating = data.scriptGenerating.has(post.id);
   const scriptErr = data.scriptError.get(post.id);
 
@@ -73,8 +126,9 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
 
   return (
     <div className="flex-1 overflow-y-auto px-[30px] pb-10 pt-[26px]" data-testid="post-editor">
-      {/* header */}
-      <div className="mb-[22px] mt-1.5 flex flex-wrap items-center gap-[11px]">
+      {/* header — pr-12 reserves the drawer/sheet ✕ (absolute, top-right) its own slot so
+          Revert can't slide under it; the format/date/badges wrap before Revert clips. */}
+      <div className="mb-[22px] mt-1.5 flex flex-wrap items-center gap-[11px] pr-12">
         {data.readOnly ? (
           <span className="inline-flex items-center gap-[7px] rounded-[9px] border border-line bg-line-soft px-[11px] py-[7px] text-[13px] font-extrabold text-slate-700">
             <FormatIcon format={post.format} className="h-[15px] w-[15px] text-coral" />{FORMAT_LABEL[post.format]}
@@ -140,7 +194,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
             )}
           </div>
           <input
-            data-testid="editor-hook" aria-label="Hook" value={hook} onChange={(e) => setHook(e.target.value)} readOnly={data.readOnly}
+            data-testid="editor-hook" aria-label="Hook" value={hook} onChange={(e) => setHook(e.target.value)} onBlur={hookAuto.flush} readOnly={data.readOnly}
             placeholder="The line that stops the scroll — write one or generate options."
             className="w-full rounded-xl border border-line p-3 text-[15px] text-slate-700 outline-none focus:border-coral disabled:opacity-60"
           />
@@ -153,47 +207,36 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
             <div data-testid="hook-candidates" className="mt-2.5 flex flex-col gap-2">
               <span className="text-[11.5px] font-bold text-muted">Tap one to use it — it saves straight away:</span>
               {hookCandidates.map((c, i) => (
-                <button key={i} data-testid="hook-candidate" onClick={() => { setHook(c); data.clearHookCandidates(post.id); data.saveHook(post.id, c); }}
+                <button key={i} data-testid="hook-candidate" onClick={() => { setHook(c); data.clearHookCandidates(post.id); data.saveHook(post.id, c); hookAuto.markSaved(c); }}
                   className="rounded-xl border border-line bg-line-soft px-3.5 py-2.5 text-left text-[14px] leading-snug text-slate-700 hover:border-coral hover:bg-coral-tint">{c}</button>
               ))}
             </div>
           )}
-          {/* Manual typing keeps the explicit-save path (a pick autosaves, so this is
-              only reachable after an edit to the field — hookDirty is false after a pick). */}
-          {!data.readOnly && hookDirty && (
-            <button data-testid="hook-save" onClick={() => data.saveHook(post.id, hook)}
-              className="mt-2.5 inline-flex items-center gap-1.5 rounded-[11px] bg-coral-cta px-4 py-2 text-[13px] font-extrabold text-white">
-              <CheckIcon className="h-3.5 w-3.5" />Save hook
-            </button>
-          )}
         </div>
       )}
 
-      {/* caption */}
+      {/* caption — autosaves on blur + idle (no Save button) */}
       <span className="mb-[9px] block text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">Caption</span>
       <textarea
-        data-testid="editor-caption" value={caption} onChange={(e) => setCaption(e.target.value)}
+        data-testid="editor-caption" value={caption} onChange={(e) => setCaption(e.target.value)} onBlur={capAuto.flush}
         readOnly={data.readOnly}
         placeholder="Draft idea — tell Sprigly what this post should be about and it’ll write the caption."
         className="min-h-[200px] w-full resize-y rounded-2xl border border-line p-4 text-[15.5px] leading-relaxed text-slate-700 outline-none focus:border-coral"
       />
-      <div className="mt-3.5 flex items-center justify-between">
-        <button data-testid="editor-save" disabled={!dirty || data.readOnly} onClick={() => data.saveCaption(post.id, caption)}
-          className="inline-flex items-center gap-2 rounded-[13px] bg-coral px-5 py-3 text-[14.5px] font-extrabold text-white shadow-coral disabled:opacity-50 disabled:shadow-none">
-          <CheckIcon className="h-4 w-4" />Save caption
-        </button>
-        {!data.readOnly && (
-          <button data-testid="editor-remove" onClick={() => { data.removePost(post.id); onClose(); }}
-            className="inline-flex items-center gap-1.5 p-2 text-[13.5px] font-bold text-danger hover:underline">
-            <TrashIcon className="h-[15px] w-[15px]" />Remove post
-          </button>
-        )}
-      </div>
 
-      {/* script (reels) — needs a hook + caption first */}
+      {/* script (reels) — needs a hook + caption first. Generate lives on the header row
+          (right-aligned, matching Hook); the length picker stays below. Autosaves. */}
       {showScript && (
         <div className="mt-[26px]" data-testid="script-section">
-          <span className="mb-[9px] block text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">Script</span>
+          <div className="mb-[9px] flex items-center justify-between gap-3">
+            <span className="text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">Script</span>
+            {!data.readOnly && post.hook && (
+              <button data-testid="generate-script" onClick={() => data.generateScript(post.id, len)} disabled={scriptGenerating || !caption.trim()}
+                className={SECONDARY_BTN}>
+                <SparkIcon className="h-3.5 w-3.5" />{scriptGenerating ? 'Writing…' : post.script ? 'Regenerate script' : 'Generate script'}
+              </button>
+            )}
+          </div>
           {!post.hook ? (
             <div className="rounded-xl border border-dashed border-line p-3.5 text-[13.5px] text-muted" data-testid="script-needs-hook">
               Add or generate a <b className="font-bold text-slate-700">hook</b> first — the script opens on it.
@@ -207,30 +250,16 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
                     className={`rounded-full px-3 py-1.5 text-[12.5px] font-bold ${len === s ? 'bg-slate-700 text-white' : 'border border-line text-slate-600 hover:bg-line-soft'}`}>{s}s</button>
                 ))}
               </div>
-              {!data.readOnly && (
-                <button data-testid="generate-script" onClick={() => data.generateScript(post.id, len)} disabled={scriptGenerating || !caption.trim()}
-                  className={SECONDARY_BTN}>
-                  <SparkIcon className="h-3.5 w-3.5" />{scriptGenerating ? 'Writing…' : post.script ? 'Regenerate script' : 'Generate script'}
-                </button>
-              )}
               {scriptErr && (
                 <div data-testid="script-error" role="alert" className="mt-2 text-[12.5px] font-semibold text-danger">
                   {scriptErr} <button onClick={() => data.generateScript(post.id, len)} className="font-extrabold underline">Retry</button>
                 </div>
               )}
               {post.script && (
-                <>
-                  <textarea
-                    data-testid="editor-script" aria-label="Script" value={script} onChange={(e) => setScript(e.target.value)} readOnly={data.readOnly}
-                    className="mt-2.5 min-h-[170px] w-full resize-y rounded-2xl border border-line p-4 text-[14px] leading-relaxed text-slate-700 outline-none focus:border-coral disabled:opacity-60"
-                  />
-                  {!data.readOnly && scriptDirty && (
-                    <button data-testid="script-save" onClick={() => data.saveScript(post.id, script)}
-                      className="mt-2.5 inline-flex items-center gap-1.5 rounded-[11px] bg-coral-cta px-4 py-2 text-[13px] font-extrabold text-white">
-                      <CheckIcon className="h-3.5 w-3.5" />Save script
-                    </button>
-                  )}
-                </>
+                <textarea
+                  data-testid="editor-script" aria-label="Script" value={script} onChange={(e) => setScript(e.target.value)} onBlur={scriptAuto.flush} readOnly={data.readOnly}
+                  className="mt-2.5 min-h-[170px] w-full resize-y rounded-2xl border border-line p-4 text-[14px] leading-relaxed text-slate-700 outline-none focus:border-coral disabled:opacity-60"
+                />
               )}
             </>
           )}
@@ -254,25 +283,26 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
         <span>{post.format === 'reel' ? 'Video preview — coming soon.' : 'Media — drop an image (coming soon).'}</span>
       </div>
 
-      {/* checklist */}
-      <span className="mt-[22px] block text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">
-        Checklist {ring.total > 0 && <span className="ml-1.5 text-[11px] font-extrabold normal-case tracking-normal text-slate-700">{ring.done}/{ring.total} done</span>}
-      </span>
-      <div data-testid="editor-checklist" className="mt-0.5 flex flex-col gap-2">
+      {/* checklist — add/build button lives on the header row (matches Hook/Script) */}
+      <div className="mt-[22px] flex items-center justify-between gap-3">
+        <span className="text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">
+          Checklist {ring.total > 0 && <span className="ml-1.5 text-[11px] font-extrabold normal-case tracking-normal text-slate-700">{ring.done}/{ring.total} done</span>}
+        </span>
+        {!data.readOnly && !isEmail && (
+          post.steps.length > 0
+            ? <button data-testid="editor-add-step" onClick={() => { setAdding(true); data.addStep(post.id, { label: 'Get approval', leadDays: 1 }).finally(() => setAdding(false)); }} disabled={adding}
+                className={SECONDARY_BTN}>+ Add step</button>
+            : <button data-testid="editor-generate" onClick={() => data.generateChecklist(post.id)}
+                className={SECONDARY_BTN}><SparkIcon className="h-3.5 w-3.5" />Build checklist</button>
+        )}
+      </div>
+      <div data-testid="editor-checklist" className="mt-2 flex flex-col gap-2">
         {post.steps.length > 0
           ? post.steps.map((s) => (
             <ChecklistItem key={s.id} step={s} scheduledDate={post.date} today={data.today}
               onToggle={data.readOnly ? undefined : () => data.toggleStep(post.id, s.id, !s.done)} />
           ))
           : <div className="py-1 text-[13.5px] text-muted">{isEmail ? 'No checklist for this format.' : 'No steps yet — build a checklist from the type, or add one.'}</div>}
-
-        {!data.readOnly && !isEmail && (
-          post.steps.length > 0
-            ? <button data-testid="editor-add-step" onClick={() => { setAdding(true); data.addStep(post.id, { label: 'Get approval', leadDays: 1 }).finally(() => setAdding(false)); }} disabled={adding}
-                className={`mt-0.5 ${SECONDARY_BTN}`}>+ Add step</button>
-            : <button data-testid="editor-generate" onClick={() => data.generateChecklist(post.id)}
-                className={`mt-0.5 ${SECONDARY_BTN}`}><SparkIcon className="h-3.5 w-3.5" />Build checklist</button>
-        )}
       </div>
 
       {/* shape this post (async) */}
@@ -308,6 +338,33 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
                 ? 'Sprigly is rewriting this in your voice — it’ll appear here when it’s ready.'
                 : 'Sprigly rewrites it in your voice and checks it before it lands. Revert always returns to the original.'}
             </p>
+          )}
+        </div>
+      )}
+
+      {/* delete — pinned at the very bottom, full width, brand-coral (AA-safe coral-cta
+          #C24C34 + white). Because it's large and prominent, deletion is a two-step
+          confirm — never a single tap. */}
+      {!data.readOnly && (
+        <div className="mt-9" data-testid="delete-section">
+          {confirmDelete ? (
+            <div data-testid="delete-confirm" role="dialog" aria-label="Delete this post?"
+              className="rounded-2xl border border-[#EEC4BD] bg-[#FBEAE7] p-4">
+              <p className="mb-3 text-[13.5px] font-semibold text-slate-700">Delete this post? This can’t be undone.</p>
+              <div className="flex gap-2.5">
+                <button data-testid="delete-confirm-yes" onClick={() => { data.removePost(post.id); onClose(); }}
+                  className="inline-flex items-center gap-2 rounded-[13px] bg-coral-cta px-5 py-3 text-[14px] font-extrabold text-white">
+                  <TrashIcon className="h-4 w-4" />Delete post
+                </button>
+                <button data-testid="delete-cancel" onClick={() => setConfirmDelete(false)}
+                  className="rounded-[13px] border border-line bg-surface px-5 py-3 text-[14px] font-bold text-slate-600 hover:border-[#DED9D3]">Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button data-testid="editor-delete" onClick={() => setConfirmDelete(true)}
+              className="flex w-full items-center justify-center gap-2 rounded-[14px] bg-coral-cta px-5 py-3.5 text-[14.5px] font-extrabold text-white">
+              <TrashIcon className="h-[17px] w-[17px]" />Delete post
+            </button>
           )}
         </div>
       )}
