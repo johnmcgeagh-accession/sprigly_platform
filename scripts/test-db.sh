@@ -39,6 +39,9 @@ NEW=(0066_post_steps 0067_step_templates 0068_plan_activity 0069_ui_events 0070_
 
 psql_run() { PGPASSWORD="$PGPASS" psql -v ON_ERROR_STOP=1 -q -h 127.0.0.1 -p "$PORT" -U postgres -d "$DBNAME" "$@"; }
 
+# True if a public table exists (used to make `up` idempotent / self-healing).
+table_exists() { psql_run -tAc "SELECT to_regclass('public.$1') IS NOT NULL" 2>/dev/null | grep -qx t; }
+
 wait_ready() {
   for _ in $(seq 1 30); do
     if docker exec "$CONTAINER" pg_isready -U postgres -d "$DBNAME" >/dev/null 2>&1; then return 0; fi
@@ -99,9 +102,18 @@ MSG
       exit 1
     fi
     start_container
-    echo "test-db: loading cached schema baseline (no remote connection)…"
-    psql_run -f "$DUMP" >/dev/null
-    apply_up
+    # Idempotent + self-healing: load only what's missing, so a leftover empty container
+    # (e.g. from an earlier failed run) gets its schema, and a ready one is left alone.
+    if ! table_exists clients; then
+      echo "test-db: loading cached schema baseline (no remote connection)…"
+      psql_run -f "$DUMP" >/dev/null
+      apply_up
+    elif ! table_exists hook_patterns; then
+      echo "test-db: baseline present — applying redesign migrations…"
+      apply_up
+    else
+      echo "test-db: schema already present — nothing to load"
+    fi
     echo "test-db: ready at ${URL}"
     ;;
   refresh)      refresh_baseline ;;

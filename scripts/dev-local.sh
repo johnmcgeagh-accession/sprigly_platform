@@ -22,8 +22,10 @@ TOKEN_A="e2e0000000000000000000000000000000000000000"
 TOKEN_B="e2e1000000000000000000000000000000000000000"
 
 ensure_container() {
-  if docker ps --format '{{.Names}}' | grep -qx sprigly-testdb; then return 0; fi
-  echo "dev:local: test container not running — creating it…"
+  # `test-db.sh up` is idempotent + self-healing: it creates/starts the container and
+  # loads the schema only if it's missing. Always run it (not just when the container is
+  # absent) so a leftover empty container — e.g. from an earlier failed run — gets its
+  # schema instead of the seed hitting an empty DB.
   "$ROOT/scripts/test-db.sh" up
 }
 reseed() {
