@@ -1,6 +1,7 @@
 /** Icon set for the plan redesign — ported from design/reference/*.html. CurrentColor
  *  throughout so Tailwind text-* colours drive them. */
 import React from 'react';
+import type { WeatherIcon } from '@/lib/weather';
 
 type P = { className?: string | undefined };
 const svg = (children: React.ReactNode, vb = '0 0 24 24') => ({ className }: P) => (
@@ -89,3 +90,49 @@ export function FormatIcon({ format, className }: { format: string; className?: 
 export const FORMAT_LABEL: Record<string, string> = {
   reel: 'Reel', carousel: 'Carousel', single: 'Single image', email: 'Email',
 };
+
+// ── Weather overlay glyphs (Slice 4) ──────────────────────────────────────────
+// Compact line icons, currentColor throughout so `text-muted` drives them; always
+// aria-hidden (the accessible info lives in the tooltip / day-header label).
+const CLOUD = 'M7 16h8.2a3.3 3.3 0 0 0 .4-6.57A4.6 4.6 0 0 0 7 8.2 3.4 3.4 0 0 0 7 16Z';
+
+const SunGlyph = svg(<>
+  <circle cx="12" cy="12" r="4.2" stroke="currentColor" strokeWidth="1.7" />
+  <path d="M12 3.2v2.4M12 18.4v2.4M3.2 12h2.4M18.4 12h2.4M5.8 5.8l1.7 1.7M16.5 16.5l1.7 1.7M18.2 5.8l-1.7 1.7M7.5 16.5l-1.7 1.7" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+</>);
+const PartlyCloudyGlyph = svg(<>
+  <circle cx="8.5" cy="8" r="3" stroke="currentColor" strokeWidth="1.6" />
+  <path d="M8.5 2.6v1.6M2.6 8.5h1.6M4.6 4.6l1.1 1.1M12.4 4.6l-1.1 1.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+  <path d="M9 19h8a3.1 3.1 0 0 0 .3-6.2A4.3 4.3 0 0 0 9 11.5 3.2 3.2 0 0 0 9 19Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" fill="none" />
+</>);
+const OvercastGlyph = svg(<path d={CLOUD} stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" fill="none" />);
+const FogGlyph = svg(<>
+  <path d="M7 14h8.2a3.3 3.3 0 0 0 .4-6.57A4.6 4.6 0 0 0 7 6.2 3.4 3.4 0 0 0 7 14Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" fill="none" />
+  <path d="M5 17.5h14M7 20.5h10" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+</>);
+const RainGlyph = svg(<>
+  <path d={CLOUD} stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" fill="none" />
+  <path d="M9.5 18l-1 2.2M13 18l-1 2.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+</>);
+const HeavyRainGlyph = svg(<>
+  <path d={CLOUD} stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" fill="none" />
+  <path d="M8 18l-1.2 2.6M12 18l-1.2 2.6M16 18l-1.2 2.6" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+</>);
+const SnowGlyph = svg(<>
+  <path d={CLOUD} stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" fill="none" />
+  <circle cx="8.5" cy="19.5" r="1" fill="currentColor" /><circle cx="12" cy="20.2" r="1" fill="currentColor" /><circle cx="15.5" cy="19.5" r="1" fill="currentColor" />
+</>);
+const ThunderGlyph = svg(<>
+  <path d={CLOUD} stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" fill="none" />
+  <path d="M12.6 17.3l-2.6 3.4h2.4l-1.6 2.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+</>);
+
+const WEATHER_GLYPHS: Record<WeatherIcon, (p: P) => React.ReactElement> = {
+  sun: SunGlyph, 'partly-cloudy': PartlyCloudyGlyph, overcast: OvercastGlyph, fog: FogGlyph,
+  rain: RainGlyph, 'heavy-rain': HeavyRainGlyph, snow: SnowGlyph, thunder: ThunderGlyph,
+};
+
+export function WeatherGlyph({ icon, className }: { icon: WeatherIcon; className?: string | undefined }) {
+  const G = WEATHER_GLYPHS[icon];
+  return <G className={className} />;
+}

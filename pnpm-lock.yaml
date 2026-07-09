@@ -109,6 +109,9 @@ importers:
       '@sprigly/model-client':
         specifier: workspace:*
         version: link:../packages/model-client
+      '@sprigly/weather':
+        specifier: workspace:*
+        version: link:../packages/weather
       bullmq:
         specifier: ^5.0.0
         version: 5.76.8

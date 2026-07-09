@@ -82,6 +82,26 @@ export const E2E_HOOK_CANDIDATES = [
   'POV: you’re the friend whose outfit everyone quietly asks about.',
 ];
 
+/**
+ * A deterministic 15-day forecast (today + 14) for the weather overlay e2e, anchored
+ * to the frozen PLAN_TODAY. Codes span the icon buckets (sun / partly / overcast / rain
+ * / heavy-rain / thunder / snow / fog) so multiple distinct icons render in-window;
+ * days outside this window get no entry, so they render nothing.
+ */
+const E2E_WEATHER_CODES = [0, 2, 3, 61, 65, 95, 71, 45, 0, 2, 3, 80, 2, 0, 3];
+const E2E_WEATHER_TEMPS = [24, 22, 19, 17, 16, 20, 3, 15, 25, 23, 18, 17, 21, 26, 19];
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export function e2eWeatherForecast(baseIso: string): { date: string; weather_code: number; temp_max_c: number }[] {
+  const [y, m, d] = baseIso.split('-').map(Number);
+  const base = Date.UTC(y!, m! - 1, d!, 12);
+  return E2E_WEATHER_CODES.map((code, i) => ({
+    date: new Date(base + i * DAY_MS).toISOString().slice(0, 10),
+    weather_code: code,
+    temp_max_c: E2E_WEATHER_TEMPS[i]!,
+  }));
+}
+
 /** The structured script a faked script job writes (reel), deterministic for e2e. */
 export const E2E_SCRIPT_TEXT =
   'HOOK: The real reason this top sold out twice — and it isn’t the fabric.\n\n' +

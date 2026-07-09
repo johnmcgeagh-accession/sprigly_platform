@@ -4,7 +4,7 @@ import React, { useMemo, useState } from 'react';
 import type { PlanData } from './usePlanData';
 import { Drawer, Scrim, Sheet } from './primitives';
 import { PostEditor } from './PostEditor';
-import { PostChip, ProposalCard, NoteRow, ExtractionSummary, monthDayLabel, postTitle } from './pieces';
+import { PostChip, ProposalCard, NoteRow, ExtractionSummary, monthDayLabel, postTitle, WeatherCellIcon } from './pieces';
 import { planTasks, lateCount, viewedMonth } from './derive';
 import {
   SprigMark, ChevronLeft, ChevronRight, CalendarIcon, TimelineIcon, TasksIcon, ApprovalsIcon,
@@ -218,7 +218,10 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
                 'flex min-h-[148px] flex-col gap-[7px] rounded-2xl border p-[11px] transition',
                 isToday ? 'border-coral shadow-[0_0_0_3px_#FCE9E5]' : over === day ? 'border-coral bg-[#FFF7F5] shadow-[0_0_0_3px_#FCE9E5]' : 'border-line bg-surface',
               ].join(' ')}>
-              <div className={`px-[3px] py-px text-[13px] font-extrabold ${isToday ? 'text-slate-700' : wknd ? 'text-muted' : 'text-slate-600'}`}>{day}</div>
+              <div className="flex items-start justify-between gap-1">
+                <span className={`px-[3px] py-px text-[13px] font-extrabold ${isToday ? 'text-slate-700' : wknd ? 'text-muted' : 'text-slate-600'}`}>{day}</span>
+                <WeatherCellIcon day={data.weather.get(isoOf(day))} />
+              </div>
               <div className="flex flex-col gap-1.5">
                 {dayPosts.map((p) => (
                   <PostChip key={p.id} post={p} today={data.today} selected={p.id === selId} onClick={() => onSelect(p.id)}

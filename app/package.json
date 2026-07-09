@@ -15,6 +15,7 @@
     "@sprigly/embedding-client": "workspace:*",
     "@sprigly/knowledge": "workspace:*",
     "@sprigly/model-client": "workspace:*",
+    "@sprigly/weather": "workspace:*",
     "bullmq": "^5.0.0",
     "drizzle-orm": "^0.30.0",
     "lucide-react": "^0.400.0",

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PlanPost, CycleSummary, PostStepView, ShapeResult } from '@/lib/types';
 import type { ProposalView } from '@/lib/agent/types';
 import type { NoteView } from '@/lib/agent/notes';
+import { indexForecast, type WeatherDay, type WeatherWireDay } from '@/lib/weather';
 
 export interface AgentReply { message: string; proposals: ProposalView[] }
 interface AgentTurn { conversationId: string; message: string; proposals?: ProposalView[] }
@@ -44,6 +45,9 @@ export function usePlanData(init: PlanDataInit) {
   const [scriptGenerating, setScriptGenerating] = useState<Set<string>>(new Set());
   const [scriptError, setScriptError] = useState<Map<string, string>>(new Map());
   const [flashView, setFlashView] = useState<string | null>(null);
+  // Weather overlay (Slice 4): a date→forecast map. Pure decoration — fetched in
+  // parallel after mount, never blocks render, and stays empty on any failure.
+  const [weather, setWeather] = useState<Map<string, WeatherDay>>(new Map());
   const conversationId = useRef<string | null>(null);
 
   const [toast, setToast] = useState<string | null>(null);
@@ -81,6 +85,22 @@ export function usePlanData(init: PlanDataInit) {
 
   useEffect(() => { void refreshProposals(); void refreshNotes(); }, [refreshProposals, refreshNotes]);
 
+  // Weather: fetch the forecast in parallel, after mount. A failure, a 401, or an
+  // empty forecast (no lat/lon) simply leaves the map empty — the calendar renders
+  // identically and nothing is surfaced. Never awaited by plan render.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch('/api/plan/weather');
+        if (!r.ok) return;
+        const d = (await r.json()) as { forecast?: WeatherWireDay[] };
+        if (!cancelled && Array.isArray(d.forecast) && d.forecast.length) setWeather(indexForecast(d.forecast));
+      } catch { /* pure decoration — ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   /** Structural write → swap in the returned post set. No-op in a read-only cycle. */
   const call = useCallback(async (url: string, method: string, payload?: unknown): Promise<void> => {
     if (readOnly) return;
@@ -107,7 +127,8 @@ export function usePlanData(init: PlanDataInit) {
   }, []);
 
   /** Generate 3 hook candidates for a reel/carousel post (async job → poll → candidates,
-   *  not written to the post — the user picks one, then Saves). */
+   *  not written to the post yet — picking one autosaves it via saveHook (PATCH {hook} →
+   *  hook_saved ledger). Generate stays available to re-roll (label → "Regenerate hooks"). */
   const generateHooks = useCallback(async (id: string) => {
     if (readOnly || hookGenerating.has(id)) return;
     setHookError((m) => { const n = new Map(m); n.delete(id); return n; });
@@ -318,7 +339,7 @@ export function usePlanData(init: PlanDataInit) {
     busy, switching, shapingIds, proposalBusy, agentBusy, agentReply, agentError,
     shapeErrors, loadError, flashView, toast,
     hookGenerating, hookCandidates, hookError,
-    scriptGenerating, scriptError,
+    scriptGenerating, scriptError, weather,
     // actions
     reschedule, saveCaption, revert, removePost, addPost,
     generateChecklist, addStep, toggleStep, shape, retryShape, ask, decide, switchCycle,

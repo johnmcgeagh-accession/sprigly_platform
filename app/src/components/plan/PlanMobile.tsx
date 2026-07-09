@@ -6,7 +6,7 @@ import type { PlanData } from './usePlanData';
 import { Scrim, Sheet, SegmentedControl } from './primitives';
 import { MonthWheelPicker } from './MonthWheelPicker';
 import { PostEditor } from './PostEditor';
-import { ProgressRing, postTitle, isUntitled } from './pieces';
+import { ProgressRing, postTitle, isUntitled, WeatherHeaderBadge } from './pieces';
 import { planTasks, lateCount, viewedMonth } from './derive';
 import {
   SprigMark, ChevronLeft, ChevronRight, MicIcon, FORMAT_LABEL, TrashIcon, ImageIcon, CalendarIcon, CloseIcon,
@@ -137,9 +137,10 @@ export function PlanMobile({ data }: { data: PlanData }) {
         {mode === 'plan'
           ? week.map((iso) => (
             <section key={iso} data-day={iso} className="px-[18px] pb-0.5 pt-3.5" data-testid="day-section">
-              <div className={`mx-0.5 mb-2.5 flex items-baseline gap-2 ${iso === selectedDay ? '[&_.big]:text-slate-700' : ''}`}>
+              <div className={`mx-0.5 mb-2.5 flex items-center gap-2 ${iso === selectedDay ? '[&_.big]:text-slate-700' : ''}`}>
                 <span className="big font-serif text-[19px] text-slate-700">{iso === today ? 'Today' : `${DOW[(fromIso(iso).getDay() + 6) % 7]}, ${fromIso(iso).getDate()} ${MON[month]}`}</span>
                 <span className="text-[12px] font-semibold text-muted">{postsOn(iso).length ? `${postsOn(iso).length} post${postsOn(iso).length > 1 ? 's' : ''}` : 'Nothing planned'}</span>
+                <WeatherHeaderBadge day={data.weather.get(iso)} />
               </div>
               {postsOn(iso).length
                 ? postsOn(iso).map((p) => <SwipeCard key={p.id} post={p} data={data} onEdit={() => setEditId(p.id)} onMove={() => setMoveId(p.id)} />)

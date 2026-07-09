@@ -5,9 +5,38 @@ import type { PlanPost, PostStepView } from '@/lib/types';
 import type { ProposalView } from '@/lib/agent/types';
 import type { NoteView } from '@/lib/agent/notes';
 import { dueDate, daysBetween, postAtRisk } from '@/lib/checklist';
+import { bucketWeatherIcon, weatherTooltip, type WeatherDay } from '@/lib/weather';
 import {
-  ChannelIcon, FormatIcon, FORMAT_LABEL, SparkIcon, NotesIcon, CheckIcon,
+  ChannelIcon, FormatIcon, FORMAT_LABEL, SparkIcon, NotesIcon, CheckIcon, WeatherGlyph,
 } from './icons';
+
+/** Desktop calendar-cell weather: a muted ~14px icon (top-right of the cell), icon
+ *  aria-hidden with the info in a native tooltip ("18° · rain"). Renders nothing when
+ *  there's no forecast for the day (out-of-window / no data). */
+export function WeatherCellIcon({ day }: { day: WeatherDay | undefined }) {
+  if (!day) return null;
+  const icon = bucketWeatherIcon(day.weatherCode);
+  return (
+    <span title={weatherTooltip(day)} data-testid="weather-icon" data-weather={icon} className="shrink-0 leading-none text-muted">
+      <WeatherGlyph icon={icon} className="h-[14px] w-[14px]" />
+    </span>
+  );
+}
+
+/** Mobile agenda day-header weather: icon + temp, right-aligned, with ONE accessible
+ *  label for the pair (the glyph and the temp text are decorative). Nothing when no
+ *  forecast for the day. */
+export function WeatherHeaderBadge({ day }: { day: WeatherDay | undefined }) {
+  if (!day) return null;
+  const icon = bucketWeatherIcon(day.weatherCode);
+  return (
+    <span data-testid="weather-badge" role="img" aria-label={`Weather: ${weatherTooltip(day)}`}
+      className="ml-auto flex items-center gap-1 text-muted">
+      <WeatherGlyph icon={icon} className="h-[15px] w-[15px]" />
+      <span aria-hidden="true" className="text-[12.5px] font-semibold tabular-nums">{Math.round(day.tempMaxC)}°</span>
+    </span>
+  );
+}
 
 const DAY = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];

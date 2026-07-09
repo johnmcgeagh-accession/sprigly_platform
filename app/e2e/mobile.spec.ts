@@ -84,3 +84,16 @@ test('mobile editor sheet mirrors the drawer (caption + checklist)', async ({ pa
   await expect(page.getByTestId('editor-caption')).toBeVisible();
   await expect(page.getByTestId('editor-checklist')).toBeVisible();
 });
+
+test('mobile weather: in-window day headers show a badge (icon + temp) with one accessible label; out-of-window shows nothing', async ({ page }) => {
+  // Today (2026-07-08) is in-window → its day-header carries a weather badge.
+  const todayBadge = page.locator('[data-testid="day-section"][data-day="2026-07-08"] [data-testid="weather-badge"]');
+  await expect(todayBadge).toHaveCount(1);
+  await expect(todayBadge).toHaveAttribute('aria-label', /^Weather: -?\d+° · .+/);
+  // The glyph inside the badge is decorative; the label on the badge is the sole a11y name.
+  await expect(todayBadge.locator('svg[aria-hidden="true"]')).toHaveCount(1);
+  await expect(todayBadge).toContainText('°');
+
+  // 2026-07-06 is before "today" → out of the forecast window → no badge, no placeholder.
+  await expect(page.locator('[data-testid="day-section"][data-day="2026-07-06"] [data-testid="weather-badge"]')).toHaveCount(0);
+});
