@@ -21,6 +21,19 @@ const pad = (n: number) => String(n).padStart(2, '0');
 const toIso = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const fromIso = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y!, m! - 1, d!); };
 function mondayOf(d: Date) { const x = new Date(d); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); x.setHours(0, 0, 0, 0); return x; }
+const addDays = (iso: string, n: number) => { const d = fromIso(iso); d.setDate(d.getDate() + n); return toIso(d); };
+const clampIso = (iso: string, lo: string, hi: string) => (iso < lo ? lo : iso > hi ? hi : iso);
+
+/** The day the mobile agenda should land on for a given month: today when today falls in
+ *  that month (so you open on the current week), else the month's earliest post, else the
+ *  1st. This is what stops the "dumped on the 1st of a stale month" landing — combined
+ *  with the week stepper + Today pill so you can always reach the current week. */
+function defaultDayFor(year: number, month: number, today: string, posts: PlanPost[]): string {
+  const mf = `${year}-${pad(month + 1)}`;
+  if (today.startsWith(mf)) return today;
+  const inMonth = posts.map((p) => p.date).filter((d) => d.startsWith(mf)).sort();
+  return inMonth[0] ?? `${mf}-01`;
+}
 
 export function PlanMobile({ data }: { data: PlanData }) {
   const { posts, today } = data;
@@ -29,10 +42,7 @@ export function PlanMobile({ data }: { data: PlanData }) {
   const monthFirst = `${year}-${pad(month + 1)}`;
 
   const [mode, setMode] = useState<'plan' | 'tasks'>('plan');
-  const [selectedDay, setSelectedDay] = useState<string>(() => {
-    if (today.startsWith(monthFirst)) return today;
-    return posts.map((p) => p.date).sort()[0] ?? `${monthFirst}-01`;
-  });
+  const [selectedDay, setSelectedDay] = useState<string>(() => defaultDayFor(year, month, today, posts));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [moveId, setMoveId] = useState<string | null>(null);
@@ -84,7 +94,43 @@ export function PlanMobile({ data }: { data: PlanData }) {
     feed.scrollTo({ top: target, behavior: 'smooth' });
   }, []);
 
-  const pickDay = (iso: string) => { setSelectedDay(iso); if (mode === 'plan') requestAnimationFrame(() => scrollToDay(iso)); };
+  const pickDay = useCallback((iso: string) => { setSelectedDay(iso); if (mode === 'plan') requestAnimationFrame(() => scrollToDay(iso)); }, [mode, scrollToDay]);
+
+  // ── week navigation (fixes "can't move between weeks") ────────────────────────
+  // The feed renders one week (selectedDay's Mon–Sun). Stepping ±7 days, clamped to the
+  // viewed month, moves the whole surface a week at a time; disabled at the month's edges.
+  const firstOfMonth = `${monthFirst}-01`;
+  const lastOfMonth = `${monthFirst}-${pad(new Date(year, month + 1, 0).getDate())}`;
+  const weekMon = toIso(mondayOf(fromIso(selectedDay)));
+  const weekSun = addDays(weekMon, 6);
+  const canPrevWeek = weekMon > firstOfMonth;
+  const canNextWeek = weekSun < lastOfMonth;
+  const stepWeek = (n: number) => pickDay(clampIso(addDays(selectedDay, 7 * n), firstOfMonth, lastOfMonth));
+
+  // On a cycle (month) switch, re-anchor the week view to today (if today is in the new
+  // month) or its first day — otherwise switching month left the strip stranded on the old
+  // month. Reads posts via a ref so an unrelated post edit never yanks the selection. Keyed
+  // on an ACTUAL change of viewedCycleId (not a mount flag) so React StrictMode's double-
+  // invoked mount effect can't fire the scroll on load — its 700ms spy-lock would otherwise
+  // swallow the user's first scroll. The initial render already lands on the right day (via
+  // the useState initializer) with the feed at its natural top.
+  const postsRef = useRef(posts); postsRef.current = posts;
+  const anchoredCycle = useRef(data.viewedCycleId);
+  useEffect(() => {
+    if (anchoredCycle.current === data.viewedCycleId) return;   // mount / strict-remount → no-op
+    anchoredCycle.current = data.viewedCycleId;
+    const d = defaultDayFor(year, month, today, postsRef.current);
+    setSelectedDay(d);
+    if (mode === 'plan') requestAnimationFrame(() => scrollToDay(d));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.viewedCycleId]);
+
+  // Mobile "Today" affordance (desktop parity): jump to today when it's in the viewed
+  // month, else switch to the cycle that contains today (the effect above then lands on it).
+  const todayInMonth = today.startsWith(monthFirst);
+  const todayCycle = data.cycles.find((c) => c.displayMonth === today.slice(0, 7));
+  const canGoToday = todayInMonth || !!todayCycle;
+  const goToday = () => { if (todayInMonth) pickDay(today); else if (todayCycle) void data.switchCycle(todayCycle.cycleId); };
 
   // Month nav walks the client's sibling cycles; disable (not silently no-op) at the ends.
   const sortedCycles = useMemo(() => [...data.cycles].sort((a, b) => a.displayMonth.localeCompare(b.displayMonth)), [data.cycles]);
@@ -109,8 +155,11 @@ export function PlanMobile({ data }: { data: PlanData }) {
               className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-surface text-slate-700 shadow-card disabled:cursor-not-allowed disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
           </div>
         </div>
-        {/* week strip */}
-        <div className="grid grid-cols-7 gap-1 bg-bg px-3 pb-1.5 pt-3.5" data-testid="week-strip">
+        {/* week strip — flanked by week steppers so you can move between weeks */}
+        <div className="flex items-center gap-0.5 bg-bg px-1.5 pb-1.5 pt-3.5">
+          <button data-testid="prev-week" aria-label="Previous week" disabled={!canPrevWeek} onClick={() => stepWeek(-1)}
+            className="flex h-9 w-7 flex-none items-center justify-center rounded-full text-slate-600 disabled:opacity-30"><ChevronLeft className="h-[17px] w-[17px]" /></button>
+          <div className="grid flex-1 grid-cols-7 gap-1" data-testid="week-strip">
           {week.map((iso, i) => {
             const dt = fromIso(iso); const selD = iso === selectedDay; const isToday = iso === today;
             const count = postsOn(iso).length;
@@ -124,12 +173,19 @@ export function PlanMobile({ data }: { data: PlanData }) {
               </button>
             );
           })}
+          </div>
+          <button data-testid="next-week" aria-label="Next week" disabled={!canNextWeek} onClick={() => stepWeek(1)}
+            className="flex h-9 w-7 flex-none items-center justify-center rounded-full text-slate-600 disabled:opacity-30"><ChevronRight className="h-[17px] w-[17px]" /></button>
         </div>
-        {/* Plan / Tasks */}
-        <div className="flex justify-center bg-bg py-2.5 pb-1">
+        {/* Plan / Tasks (with a Today jump, mirroring desktop) */}
+        <div className="relative flex justify-center bg-bg py-2.5 pb-1">
           <SegmentedControl<'plan' | 'tasks'> value={mode} label="Plan or Tasks"
             onChange={(m) => { setMode(m); data.track('view_switched', { view: m }); }}
             options={[{ value: 'plan', label: 'Plan' }, { value: 'tasks', label: 'Tasks', dot: lateN > 0 }]} />
+          {canGoToday && mode === 'plan' && (
+            <button data-testid="today-btn" onClick={goToday}
+              className="absolute right-5 top-1/2 -translate-y-1/2 rounded-full border border-line bg-surface px-3 py-1 text-[12px] font-bold text-slate-600 shadow-card">Today</button>
+          )}
         </div>
       </div>
 

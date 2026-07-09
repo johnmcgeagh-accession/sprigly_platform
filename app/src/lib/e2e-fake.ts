@@ -97,12 +97,17 @@ export const E2E_HOOK_CANDIDATES = [
 
 /**
  * A deterministic 15-day forecast (today + 14) for the weather overlay e2e, anchored
- * to the frozen PLAN_TODAY. Codes span the icon buckets (sun / partly / overcast / rain
- * / heavy-rain / thunder / snow / fog) so multiple distinct icons render in-window;
- * days outside this window get no entry, so they render nothing.
+ * to the frozen PLAN_TODAY (2026-07-08 → window 07-08…07-22). Codes span the icon buckets
+ * (sun / partly / overcast / rain / heavy-rain / thunder / snow / fog) and the temps span
+ * the tone bands so the §22 heat/cold treatments render deterministically:
+ *   · i=6  2026-07-14 — code 71 (snow) at 1° → cold band (slate-blue label).
+ *   · i=8  2026-07-16 — code 0 (clear) at 33° → scorcher (amber label + hot-sun glyph).
+ *   · i=12 2026-07-20 — code 1 ("mainly clear") → SUN bucket, proving 1 ≠ cloud.
+ *   · i=13 2026-07-21 — code 0 (clear) at 29° → hot band (amber label, normal sun).
+ * Days outside this window get no entry, so they render nothing.
  */
-const E2E_WEATHER_CODES = [0, 2, 3, 61, 65, 95, 71, 45, 0, 2, 3, 80, 2, 0, 3];
-const E2E_WEATHER_TEMPS = [24, 22, 19, 17, 16, 20, 3, 15, 25, 23, 18, 17, 21, 26, 19];
+const E2E_WEATHER_CODES = [0, 2, 3, 61, 65, 95, 71, 45, 0, 2, 3, 80, 1, 0, 3];
+const E2E_WEATHER_TEMPS = [24, 22, 19, 17, 16, 20, 1, 15, 33, 23, 18, 17, 21, 29, 19];
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function e2eWeatherForecast(baseIso: string): { date: string; weather_code: number; temp_max_c: number }[] {

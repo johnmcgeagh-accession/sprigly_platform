@@ -6,35 +6,55 @@ import type { PlanPost, PostStepView } from '@/lib/types';
 import type { ProposalView } from '@/lib/agent/types';
 import type { NoteView } from '@/lib/agent/notes';
 import { dueDate, daysBetween, postAtRisk } from '@/lib/checklist';
-import { bucketWeatherIcon, weatherTooltip, type WeatherDay } from '@/lib/weather';
+import { bucketWeatherIcon, weatherTooltip, tempTone, type WeatherDay, type TempTone } from '@/lib/weather';
 import {
-  ChannelIcon, FormatIcon, FORMAT_LABEL, SparkIcon, NotesIcon, CheckIcon, WeatherGlyph,
+  ChannelIcon, FormatIcon, FORMAT_LABEL, SparkIcon, NotesIcon, CheckIcon, WeatherGlyph, type WeatherGlyphKind,
 } from './icons';
 
-/** Desktop calendar-cell weather: a muted ~14px icon (top-right of the cell), icon
- *  aria-hidden with the info in a native tooltip ("18° · rain"). Renders nothing when
- *  there's no forecast for the day (out-of-window / no data). */
+/** Shared temp-tone → colour + glyph. `hot`/`scorcher` tint the label amber (AA-safe
+ *  amber-deep #7A5200, 6.9:1 on white); `cold` a calm slate-blue (sky-800, 7.4:1); else
+ *  the muted default. A scorcher on an otherwise-sunny day also swaps to the hot-sun
+ *  glyph (tinted to match) so the icon itself reads "heat". Quiet accent, never an alert. */
+function weatherTreatment(day: WeatherDay): { glyph: WeatherGlyphKind; tone: TempTone; tempCls: string; iconCls: string } {
+  const icon = bucketWeatherIcon(day.weatherCode);
+  const tone = tempTone(day.tempMaxC);
+  const glyph: WeatherGlyphKind = tone === 'scorcher' && icon === 'sun' ? 'hot-sun' : icon;
+  const tempCls = tone === 'scorcher' || tone === 'hot' ? 'text-amber-deep' : tone === 'cold' ? 'text-sky-800' : 'text-muted';
+  // The icon stays muted (it carries condition, not temperature) EXCEPT the hot-sun,
+  // which is amber so the scorcher reads as one coherent heat accent.
+  const iconCls = glyph === 'hot-sun' ? 'text-amber-deep' : 'text-muted';
+  return { glyph, tone, tempCls, iconCls };
+}
+
+/** Desktop calendar-cell weather: a compact icon + temp label top-right of the cell.
+ *  Reverses the earlier icon-only decision (§18) — during a heatwave an icon alone can't
+ *  communicate heat (DECISIONS §22). Glyph aria-hidden; the full detail stays in the
+ *  native tooltip ("32° · clear"). Renders nothing with no forecast (out-of-window/no data). */
 export function WeatherCellIcon({ day }: { day: WeatherDay | undefined }) {
   if (!day) return null;
   const icon = bucketWeatherIcon(day.weatherCode);
+  const { glyph, tone, tempCls, iconCls } = weatherTreatment(day);
   return (
-    <span title={weatherTooltip(day)} data-testid="weather-icon" data-weather={icon} className="shrink-0 leading-none text-muted">
-      <WeatherGlyph icon={icon} className="h-[14px] w-[14px]" />
+    <span title={weatherTooltip(day)} data-testid="weather-icon" data-weather={icon} data-tone={tone} data-glyph={glyph}
+      className="flex shrink-0 items-center gap-[3px] leading-none">
+      <WeatherGlyph icon={glyph} className={`h-[14px] w-[14px] ${iconCls}`} />
+      <span data-testid="weather-temp" className={`text-[11px] font-semibold tabular-nums ${tempCls}`}>{Math.round(day.tempMaxC)}°</span>
     </span>
   );
 }
 
 /** Mobile agenda day-header weather: icon + temp, right-aligned, with ONE accessible
- *  label for the pair (the glyph and the temp text are decorative). Nothing when no
- *  forecast for the day. */
+ *  label for the pair (the glyph and the temp text are decorative). Same temp formatting
+ *  and hot/cold tone treatment as the desktop cell. Nothing when no forecast for the day. */
 export function WeatherHeaderBadge({ day }: { day: WeatherDay | undefined }) {
   if (!day) return null;
   const icon = bucketWeatherIcon(day.weatherCode);
+  const { glyph, tone, tempCls, iconCls } = weatherTreatment(day);
   return (
-    <span data-testid="weather-badge" role="img" aria-label={`Weather: ${weatherTooltip(day)}`}
-      className="ml-auto flex items-center gap-1 text-muted">
-      <WeatherGlyph icon={icon} className="h-[15px] w-[15px]" />
-      <span aria-hidden="true" className="text-[12.5px] font-semibold tabular-nums">{Math.round(day.tempMaxC)}°</span>
+    <span data-testid="weather-badge" data-tone={tone} role="img" aria-label={`Weather: ${weatherTooltip(day)}`}
+      className="ml-auto flex items-center gap-1">
+      <WeatherGlyph icon={glyph} className={`h-[15px] w-[15px] ${iconCls}`} />
+      <span aria-hidden="true" className={`text-[12.5px] font-semibold tabular-nums ${tempCls}`}>{Math.round(day.tempMaxC)}°</span>
     </span>
   );
 }

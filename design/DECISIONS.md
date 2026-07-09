@@ -966,3 +966,146 @@ cards (positioned elements paint after non-positioned siblings). Fix: `isolate` 
 (own stacking context), put the connector at `-z-10`, and lift each row/divider to `z-10`.
 Dots (opaque coral fill / white-centred hollow) now sit above the line; verified the line no
 longer cuts through either dot state or the Today divider.
+
+---
+
+## 22. UAT round 2 — weather overlay refinement + mobile week nav (2026-07-09)
+
+From John's UAT during a real heatwave. Two threads: the weather overlay couldn't
+communicate heat (icon-only cells + a haze-misread), and mobile calendar navigation was
+broken. App-side + one `@sprigly/weather` addition (rebuilt); **no migration**.
+
+### 1. Desktop cells now show the temperature — reverses the §18 icon-only decision
+The §18 "muted 14px icon top-right, temp only in the tooltip" call **does not survive a
+heatwave**: an icon alone can't say "32°", and a hazy-hot day read as "cloudy" — the calendar
+told the wrong story in exactly the conditions where weather matters most for shoot planning.
+So each in-window desktop cell now renders **icon + a compact temp label** ("32°") top-right
+(`WeatherCellIcon`, `pieces.tsx`): `text-[11px] font-semibold tabular-nums`, muted by default,
+small enough not to compete with the chips. The full detail stays in the native `title`
+tooltip ("32° · clear"); glyph still `aria-hidden`. **This is a deliberate reversal of §18 —
+the heatwave case is the reason.**
+- **Mobile was already icon + temp** (§18) — confirmed the formatting now matches desktop:
+  both `Math.round(tempMaxC)°`, `tabular-nums`, same tone treatment (below). Mobile stays
+  slightly larger (12.5px vs 11px) for the bigger touch surface; the shared logic lives in one
+  `weatherTreatment()` helper so the two surfaces can't drift.
+
+### 2. Hot-/cold-day emphasis — a quiet accent, never an alert
+A `tempTone()` band (in `lib/weather.ts`) drives the label colour (thresholds °C):
+- **≥27° "hot"** → the muted label swaps to **AA-safe amber-deep #7A5200 (6.9:1 on white)**.
+- **≥32° "scorcher"** → amber label AND, when the day is otherwise sunny, the sun glyph swaps
+  to a bolder **"hot-sun" variant** (filled core + heavier rays, tinted amber to match) so a
+  scorcher reads at a glance. The swap is temperature-driven and **render-only** — the WMO
+  bucket stays `sun` (`data-weather="sun"`), only the glyph changes (`data-glyph="hot-sun"`).
+- **≤2° "cold"** → the label goes a calm **slate-blue (sky-800 #075985, 7.4:1)**. Included
+  because it was trivially cheap (same code path as the amber band), as scoped.
+The icon itself stays muted except the hot-sun (which carries the amber so the scorcher is one
+coherent accent). Kept quiet by design: an accent for scannability, not an alert colour.
+
+### 3. Icon bucketing fixed — code 1 ("mainly clear") is a SUN, not a cloud
+The haze misread was real: `bucketWeatherIcon` mapped WMO **1 → partly-cloudy**, so a
+hazy-hot "mainly clear" day drew a cloud. Fixed so **only 2 and 3 earn cloud glyphs**. Final
+code→icon table (`lib/weather.ts`, unit-tested):
+
+| WMO code(s) | Icon | | WMO code(s) | Icon |
+|---|---|---|---|---|
+| 0, **1** | **sun** | | 65, 67, 82 | heavy-rain |
+| 2 | partly-cloudy | | 71–77, 85, 86 | snow |
+| 3 | overcast | | 95, 96, 99 | thunder |
+| 45, 48 | fog | | anything unmapped | overcast (neutral) |
+| 51–64, 66, 80, 81 | rain | | | |
+
+(Order matters: the heavy-rain codes 65/67/82 are checked before the 51–67/80–81 rain range.)
+
+### 4. Cache sanity — TTL + key were already correct; added a fetch timestamp
+Audited the package cache (`packages/weather`): **TTL is 6h** (`TTL_MS`), matching the "few
+hours" spec, and the **key is `(lat.toFixed(3), lon.toFixed(3), London-day, days)`** — i.e.
+client-location + date-window, exactly as required (coordinates are the per-client dimension;
+two clients at one location correctly share a forecast, per §18). **No change to TTL or key.**
+The one gap was **no exposed fetch timestamp**, so staleness (the overlay can be up to 6h old)
+wasn't diagnosable. Added `fetchForecastWithMeta()` returning `{ data, fetchedAt, fromCache }`
+where `fetchedAt` is the cache entry's timestamp — **on a hit it's the ORIGINAL Open-Meteo
+fetch time**, which is what "is this stale?" needs. `fetchForecast()` is now a thin wrapper
+(weekly session unaffected). The route exposes `fetchedAt` (ISO) + `cached` in the JSON and an
+`x-weather-fetched-at` header; the client `console.debug`s it. Tooltip/aria conventions and
+the pure-decoration resilience (no lat/lon, 401, error, empty → identical calendar) unchanged.
+
+### 5. Mobile calendar navigation — couldn't move between weeks; landed on the 1st
+Two defects in `PlanMobile.tsx`, both fixed:
+- **"Can't move between weeks."** The feed renders one week (`selectedDay`'s Mon–Sun) and the
+  only prev/next buttons switched **cycles (months)**, not weeks — there was no week stepper,
+  so a user was locked to the initial week. Added **prev-/next-week** chevrons flanking the
+  week strip (step ±7 days, **clamped to the viewed month**, disabled at the month's edges).
+- **"Today isn't shown — I land on the 1st of June."** `selectedDay` fell back to the earliest
+  post (→ the 1st) whenever `today` wasn't in the viewed cycle's month, with no recovery. Now:
+  (a) a single `defaultDayFor()` picks **today when today is in the viewed month**, else the
+  month's earliest post, else the 1st; (b) a **cycle-switch effect re-anchors** the week view
+  when you change month (it previously stranded the strip on the old month); (c) a **mobile
+  "Today" pill** (desktop parity) jumps to today, switching to the cycle that *contains* today
+  when today is in a different month. The first render already lands on today's week (via the
+  `useState` initializer) with today highlighted in the strip; the cycle-switch re-anchor is
+  keyed on an **actual `viewedCycleId` change** (not a mount flag) so React StrictMode's double-
+  invoked mount effect can't fire the re-anchor's scroll on load — its 700ms spy-lock would
+  otherwise swallow the user's first feed scroll (a regression the e2e caught).
+
+### e2e + verification
+- Weather e2e (`weather.spec.ts`): asserts 15 temp labels render alongside icons; a new
+  hot-day spec with the stubbed **33°** day proves `data-tone="scorcher"` + `data-glyph="hot-sun"`
+  while the bucket stays `sun`, the 29° day is `hot` with a normal sun glyph, the 1° day is
+  `cold`, and **WMO code 1 → `data-weather="sun"`**. The e2e fake (`e2e-fake.ts`) gained a 33°
+  clear day, a code-1 day, and a 1° day. Mobile e2e gained a week-step-and-Today-jump test and
+  a scorcher-tone badge assertion. Unit tests cover the new `bucketWeatherIcon(1)==='sun'` and
+  `tempTone` bands. Full suite + axe green; type-check/build clean.
+
+---
+
+## 23. Client-customisable generation prompts — IVY-t hook + script overrides (2026-07-09)
+
+John asked to "make the hook + script prompts client-customisable and create an Ivy-trained
+version of both." **The per-client mechanism already exists end-to-end — nothing in the code
+needed to change to support it.** The deliverable was therefore purely the Ivy prompt content,
+shipped as a client-scoped seed migration in the established pattern.
+
+### What was already there (verified, not built)
+- **Data layer:** `prompt_templates.client_id` is nullable; the unique key is
+  `(client_id, workflow_id, step_name, version)`. Provenance columns `copied_from_template_id` /
+  `copied_from_version` exist specifically to track a client override forked from a shared default.
+- **Resolver:** `DbPromptResolver.resolve(clientId, workflowId, stepName)` (`packages/prompts`)
+  returns the **client-scoped** row when present (highest version), else falls back to the
+  **global** `client_id IS NULL` row. So a client override always wins; absence is a clean fallback.
+- **Runtime wiring:** hook generation (`engine/.../hook.ts`, `plan_hooks/generate`) and reel-script
+  generation (`engine/.../script.ts`, `plan_scripts/generate`) both already call
+  `prompts.resolve(job.clientId, …)` — the real per-client id flows all the way through. The
+  client's `voice.md` is separately injected into the *user* message via `assembleShapeContext`.
+- **Admin:** `admin/.../clients/[id]/actions.ts` already has a "create client override" action that
+  inserts `version 1` + `copied_from_*` provenance. The migration mirrors it exactly.
+
+### What was added — `0072_ivy_t_generation_prompts.sql` (+ `.down.sql`)
+Two **ivy-t client-scoped** rows (`plan_hooks/generate`, `plan_scripts/generate`), authored from
+`clients/ivy-t/memory/voice.md`. Each keeps the **same task + output contract** as the global
+default — hooks still return `{"hooks":[…]}` (parsing unchanged) and still imitate the injected
+`hook_patterns` STRUCTUREs; scripts still emit the `HOOK / BEAT / CTA` plain-text shape — and adds
+an **"IVY HOUSE RULES"** block distilled from voice.md (no em dashes, no hard sell / superlatives /
+AI tells, embedded-not-announced sustainability, "organic cotton" always in full, garment
+personification, register-by-post-type I-vs-we for scripts, Ivy's real CTA mechanics like
+comment-to-waitlist). The rules are baked into the *system* prompt so the model applies them
+reliably rather than hoping to infer them from the injected voice.md.
+- **Self-contained by necessity:** the resolver returns one whole string with no composition, so
+  an override is a full replacement system prompt, not a diff over the global.
+- **Idempotent AND safe where ivy-t is absent:** each INSERT selects the ivy-t client id and
+  inserts only when that client exists and the row isn't already present — a clean no-op on the
+  e2e test DB (which has no ivy-t), re-runnable without duplication. Provenance points at the
+  global v1 row. `0072` added to `scripts/test-db.sh`'s migration list.
+- **Not applied to prod by me** (APPLY-BEFORE-DEPLOY, manual `psql -f`, per the repo convention).
+
+### Verification
+Against the disposable test DB: `0072` applied cleanly as a no-op with no ivy-t client; after
+inserting a temp ivy-t client it inserted exactly the two rows (`version 1`, `copied_from_version 1`,
+`copied_from_template_id` = the global v1 row), and re-applying was idempotent. The **real
+`DbPromptResolver`** then confirmed ivy-t resolves the IVY-trained prompt for both workflows while
+another client id falls back to the global default, with the two global rows untouched.
+
+### Note for future customisation
+Any further client (or a v2 of Ivy's) is the same one-row insert — or John can use the existing
+admin prompt editor's "create client override" action; no schema or engine work. The prompt
+wording is a first draft from voice.md and is meant to be iterated (admin `saveNewVersion` bumps
+the version in place).

@@ -94,7 +94,10 @@ export function usePlanData(init: PlanDataInit) {
       try {
         const r = await fetch('/api/plan/weather');
         if (!r.ok) return;
-        const d = (await r.json()) as { forecast?: WeatherWireDay[] };
+        const d = (await r.json()) as { forecast?: WeatherWireDay[]; fetchedAt?: string; cached?: boolean };
+        // Surface the forecast fetch time so staleness is diagnosable (the overlay can be
+        // up to the package's 6h cache TTL old). Pure decoration — never blocks render.
+        if (d.fetchedAt) console.debug(`[weather] forecast fetched ${d.fetchedAt}${d.cached ? ' (from cache)' : ''}`);
         if (!cancelled && Array.isArray(d.forecast) && d.forecast.length) setWeather(indexForecast(d.forecast));
       } catch { /* pure decoration — ignore */ }
     })();

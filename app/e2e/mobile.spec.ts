@@ -27,6 +27,20 @@ test('mobile feed: week strip, today selected, cards with rings', async ({ page 
   await expect(page.getByTestId('progress-ring').first()).toBeVisible();
 });
 
+test('mobile week nav: step between weeks and jump back to today', async ({ page }) => {
+  // Lands on today's week with today (2026-07-08) selected.
+  await expect(page.locator('[data-testid="week-day"][data-date="2026-07-08"]')).toHaveAttribute('data-selected', 'true');
+
+  // Next week → today's day leaves the strip; a next-week day appears and is selected.
+  await page.getByTestId('next-week').click();
+  await expect(page.locator('[data-testid="week-day"][data-date="2026-07-08"]')).toHaveCount(0);
+  await expect.poll(() => page.locator('[data-testid="week-day"][data-date="2026-07-15"]').getAttribute('data-selected')).toBe('true');
+
+  // Today jumps straight back to today's week.
+  await page.getByTestId('today-btn').click();
+  await expect.poll(() => page.locator('[data-testid="week-day"][data-date="2026-07-08"]').getAttribute('data-selected')).toBe('true');
+});
+
 test('swipe axis-lock: a vertical drag does not translate the card', async ({ page }) => {
   const surf = page.getByTestId('swipe-surface').first();
   await drag(surf, { x: 300, y: 400 }, [[2, 8], [3, 30], [4, 70], [4, 130]]);
@@ -94,7 +108,13 @@ test('mobile weather: in-window day headers show a badge (icon + temp) with one 
   // The glyph inside the badge is decorative; the label on the badge is the sole a11y name.
   await expect(todayBadge.locator('svg[aria-hidden="true"]')).toHaveCount(1);
   await expect(todayBadge).toContainText('°');
+  await expect(todayBadge).toHaveAttribute('data-tone', 'normal');   // 24° today → quiet default
 
   // 2026-07-06 is before "today" → out of the forecast window → no badge, no placeholder.
   await expect(page.locator('[data-testid="day-section"][data-day="2026-07-06"] [data-testid="weather-badge"]')).toHaveCount(0);
+
+  // Hot-day tone (§22): step to the week holding the stubbed 33° day; its header badge is
+  // the amber scorcher tone — the same treatment as the desktop cell.
+  await page.getByTestId('next-week').click();
+  await expect(page.locator('[data-testid="day-section"][data-day="2026-07-16"] [data-testid="weather-badge"]')).toHaveAttribute('data-tone', 'scorcher');
 });

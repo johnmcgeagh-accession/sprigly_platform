@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { bucketWeatherIcon, weatherTooltip, indexForecast, WEATHER_LABEL } from './weather';
+import { bucketWeatherIcon, weatherTooltip, indexForecast, WEATHER_LABEL, tempTone } from './weather';
 
 describe('bucketWeatherIcon', () => {
   it('maps each WMO band to the intended icon', () => {
     expect(bucketWeatherIcon(0)).toBe('sun');
-    expect(bucketWeatherIcon(1)).toBe('partly-cloudy');
+    // §22: code 1 ("mainly clear") is a SUN, not a cloud — only 2 and 3 earn cloud icons.
+    expect(bucketWeatherIcon(1)).toBe('sun');
     expect(bucketWeatherIcon(2)).toBe('partly-cloudy');
     expect(bucketWeatherIcon(3)).toBe('overcast');
     expect(bucketWeatherIcon(45)).toBe('fog');
@@ -39,6 +40,21 @@ describe('bucketWeatherIcon', () => {
     for (const code of [0, 1, 3, 45, 51, 65, 71, 95, 999]) {
       expect(WEATHER_LABEL[bucketWeatherIcon(code)]).toBeTruthy();
     }
+  });
+});
+
+describe('tempTone', () => {
+  it('bands temperature into scorcher / hot / cold / normal (§22)', () => {
+    expect(tempTone(33)).toBe('scorcher');   // ≥32
+    expect(tempTone(32)).toBe('scorcher');
+    expect(tempTone(31.9)).toBe('hot');
+    expect(tempTone(29)).toBe('hot');         // ≥27
+    expect(tempTone(27)).toBe('hot');
+    expect(tempTone(26.9)).toBe('normal');
+    expect(tempTone(10)).toBe('normal');
+    expect(tempTone(3)).toBe('normal');
+    expect(tempTone(2)).toBe('cold');         // ≤2
+    expect(tempTone(-4)).toBe('cold');
   });
 });
 

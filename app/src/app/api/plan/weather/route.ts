@@ -14,7 +14,7 @@
 import { NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { db, clients } from '@sprigly/db';
-import { fetchForecast } from '@sprigly/weather';
+import { fetchForecastWithMeta } from '@sprigly/weather';
 import { getSession } from '@/lib/auth';
 import { e2eFakeEnabled, e2eTodayIso, e2eWeatherForecast } from '@/lib/e2e-fake';
 
@@ -29,7 +29,7 @@ export async function GET() {
 
   // Deterministic stub for the e2e harness — no Open-Meteo call.
   if (e2eFakeEnabled()) {
-    return NextResponse.json({ forecast: e2eWeatherForecast(e2eTodayIso() ?? '2026-07-08') });
+    return NextResponse.json({ forecast: e2eWeatherForecast(e2eTodayIso() ?? '2026-07-08'), fetchedAt: new Date().toISOString() });
   }
 
   try {
@@ -42,9 +42,15 @@ export async function GET() {
     if (!client || client.lat == null || client.lon == null) {
       return NextResponse.json({ forecast: [] });
     }
-    const days = await fetchForecast(client.lat, client.lon, { forecastDays: FORECAST_DAYS });
-    const forecast = days.map((d) => ({ date: d.date, weather_code: d.code, temp_max_c: d.tempMax }));
-    return NextResponse.json({ forecast });
+    // fetchedAt/fromCache come straight from the package cache, so staleness is
+    // diagnosable: on a cache hit fetchedAt is the ORIGINAL Open-Meteo fetch time (up to
+    // the 6h TTL old). Exposed in the payload + a header for the network tab.
+    const { data, fetchedAt, fromCache } = await fetchForecastWithMeta(client.lat, client.lon, { forecastDays: FORECAST_DAYS });
+    const forecast = data.map((d) => ({ date: d.date, weather_code: d.code, temp_max_c: d.tempMax }));
+    return NextResponse.json(
+      { forecast, fetchedAt: new Date(fetchedAt).toISOString(), cached: fromCache },
+      { headers: { 'x-weather-fetched-at': new Date(fetchedAt).toISOString() } },
+    );
   } catch {
     // Pure decoration — never let a weather failure surface anything to the client.
     return NextResponse.json({ forecast: [] });

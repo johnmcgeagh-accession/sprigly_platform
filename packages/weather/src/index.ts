@@ -78,19 +78,30 @@ export interface FetchForecastOptions {
   forecastDays?: number;
 }
 
+/** A forecast plus the provenance a caller needs to reason about staleness: when the
+ *  data was actually fetched from Open-Meteo (epoch ms) and whether this call was served
+ *  from the per-process cache. `fetchedAt` is the cache entry's timestamp, so on a hit it
+ *  is the ORIGINAL fetch time (up to TTL old) — exactly what "is this stale?" needs. */
+export interface ForecastResult {
+  data: DailyForecast[];
+  fetchedAt: number;   // epoch ms of the underlying Open-Meteo fetch (cache entry age)
+  fromCache: boolean;  // true when returned from the per-process cache, not a fresh fetch
+}
+
 /**
- * Fetch the next `forecastDays` (default 7) daily forecast for a location.
- * Cached per (lat,lon) per London-day. Returns [] on any network/parse failure —
- * the caller (weekly session) degrades to no weather findings.
+ * Fetch the next `forecastDays` (default 7) daily forecast for a location, WITH cache
+ * provenance (fetchedAt / fromCache) so callers can log/expose staleness. Cached per
+ * (lat,lon) per London-day per day-count. Returns empty data + a fresh `fetchedAt` on any
+ * network/parse failure — the caller degrades to no weather findings.
  */
-export async function fetchForecast(lat: number, lon: number, opts: FetchForecastOptions = {}): Promise<DailyForecast[]> {
+export async function fetchForecastWithMeta(lat: number, lon: number, opts: FetchForecastOptions = {}): Promise<ForecastResult> {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const now = opts.now ?? new Date();
   const days = opts.forecastDays ?? 7;
   const key = `${lat.toFixed(3)},${lon.toFixed(3)}:${londonDay(now)}:${days}`;
 
   const hit = cache.get(key);
-  if (hit && now.getTime() - hit.at < TTL_MS) return hit.data;
+  if (hit && now.getTime() - hit.at < TTL_MS) return { data: hit.data, fetchedAt: hit.at, fromCache: true };
 
   const params = new URLSearchParams({
     latitude: String(lat),
@@ -100,16 +111,27 @@ export async function fetchForecast(lat: number, lon: number, opts: FetchForecas
     timezone: 'Europe/London',
   });
 
+  const at = now.getTime();
   try {
     const res = await fetchImpl(`${OPEN_METEO}?${params.toString()}`);
-    if (!res.ok) return [];
+    if (!res.ok) return { data: [], fetchedAt: at, fromCache: false };
     const body = (await res.json()) as { daily?: OpenMeteoDaily };
     const data = body.daily ? parseForecast(body.daily) : [];
-    cache.set(key, { at: now.getTime(), data });
-    return data;
+    cache.set(key, { at, data });
+    return { data, fetchedAt: at, fromCache: false };
   } catch {
-    return [];
+    return { data: [], fetchedAt: at, fromCache: false };
   }
+}
+
+/**
+ * Fetch the next `forecastDays` (default 7) daily forecast for a location.
+ * Cached per (lat,lon) per London-day. Returns [] on any network/parse failure —
+ * the caller (weekly session) degrades to no weather findings. Thin wrapper over
+ * fetchForecastWithMeta for callers that don't need cache provenance.
+ */
+export async function fetchForecast(lat: number, lon: number, opts: FetchForecastOptions = {}): Promise<DailyForecast[]> {
+  return (await fetchForecastWithMeta(lat, lon, opts)).data;
 }
 
 /** Clear the in-memory cache (tests). */

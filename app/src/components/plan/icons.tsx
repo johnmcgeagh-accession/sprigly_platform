@@ -101,6 +101,12 @@ const SunGlyph = svg(<>
   <circle cx="12" cy="12" r="4.2" stroke="currentColor" strokeWidth="1.7" />
   <path d="M12 3.2v2.4M12 18.4v2.4M3.2 12h2.4M18.4 12h2.4M5.8 5.8l1.7 1.7M16.5 16.5l1.7 1.7M18.2 5.8l-1.7 1.7M7.5 16.5l-1.7 1.7" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
 </>);
+/** "Hot sun" — a filled core + bolder rays so a scorcher reads at a glance (used only
+ *  ≥32° on an otherwise-sunny day, tinted amber). Quiet accent, not an alert. */
+const HotSunGlyph = svg(<>
+  <circle cx="12" cy="12" r="4.4" fill="currentColor" />
+  <path d="M12 2.6v3M12 18.4v3M2.6 12h3M18.4 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+</>);
 const PartlyCloudyGlyph = svg(<>
   <circle cx="8.5" cy="8" r="3" stroke="currentColor" strokeWidth="1.6" />
   <path d="M8.5 2.6v1.6M2.6 8.5h1.6M4.6 4.6l1.1 1.1M12.4 4.6l-1.1 1.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -128,12 +134,15 @@ const ThunderGlyph = svg(<>
   <path d="M12.6 17.3l-2.6 3.4h2.4l-1.6 2.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
 </>);
 
-const WEATHER_GLYPHS: Record<WeatherIcon, (p: P) => React.ReactElement> = {
-  sun: SunGlyph, 'partly-cloudy': PartlyCloudyGlyph, overcast: OvercastGlyph, fog: FogGlyph,
+/** 'hot-sun' is a render-only variant (temperature-driven), not a WMO icon bucket — so
+ *  the glyph map is keyed on WeatherIcon plus that one extra visual variant. */
+export type WeatherGlyphKind = WeatherIcon | 'hot-sun';
+const WEATHER_GLYPHS: Record<WeatherGlyphKind, (p: P) => React.ReactElement> = {
+  sun: SunGlyph, 'hot-sun': HotSunGlyph, 'partly-cloudy': PartlyCloudyGlyph, overcast: OvercastGlyph, fog: FogGlyph,
   rain: RainGlyph, 'heavy-rain': HeavyRainGlyph, snow: SnowGlyph, thunder: ThunderGlyph,
 };
 
-export function WeatherGlyph({ icon, className }: { icon: WeatherIcon; className?: string | undefined }) {
+export function WeatherGlyph({ icon, className }: { icon: WeatherGlyphKind; className?: string | undefined }) {
   const G = WEATHER_GLYPHS[icon];
   return <G className={className} />;
 }

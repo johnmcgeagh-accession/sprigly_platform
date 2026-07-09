@@ -35,10 +35,14 @@ export interface WeatherWireDay {
  * long tail (freezing drizzle, snow grains, shower variants, hail thunder) is folded
  * into the nearest sensible bucket rather than given its own glyph. Reference:
  * https://open-meteo.com/en/docs (WW codes).
+ *
+ * Clear/haze care (UAT §22): code 1 ("mainly clear") is a SUN, not a cloud — a hazy-hot
+ * day that Open-Meteo reports as 1 must not read as "cloudy". Only 2 ("partly cloudy")
+ * and 3 ("overcast") earn cloud glyphs. So 0 and 1 → sun, 2 → partly-cloudy, 3 → overcast.
  */
 export function bucketWeatherIcon(code: number): WeatherIcon {
-  if (code === 0) return 'sun';                                   // clear
-  if (code === 1 || code === 2) return 'partly-cloudy';          // mainly clear / partly cloudy
+  if (code === 0 || code === 1) return 'sun';                    // clear / mainly clear (haze) → sun
+  if (code === 2) return 'partly-cloudy';                        // partly cloudy
   if (code === 3) return 'overcast';                             // overcast
   if (code === 45 || code === 48) return 'fog';                  // fog / depositing rime fog
   if (code >= 95) return 'thunder';                              // 95, 96, 99 thunderstorm (+hail)
@@ -47,6 +51,26 @@ export function bucketWeatherIcon(code: number): WeatherIcon {
   if (code === 65 || code === 67 || code === 82) return 'heavy-rain'; // heavy rain / heavy freezing rain / violent showers
   if ((code >= 51 && code <= 67) || (code >= 80 && code <= 81)) return 'rain'; // drizzle, rain, freezing rain, showers
   return 'overcast'; // unknown/unmapped → the most neutral non-alarming glyph
+}
+
+/**
+ * Temperature "tone" for the cell label (UAT §22). During a heatwave an icon-only cell
+ * can't communicate heat, so the temp label is emphasised by band:
+ *  · 'scorcher' (≥32°) — amber label AND, when the day is sunny, a "hot-sun" icon variant.
+ *  · 'hot'      (≥27°) — amber label, normal icon.
+ *  · 'cold'     (≤2°)  — a calm slate-blue label (cold extreme).
+ *  · 'normal'          — the muted default.
+ * Kept quiet: an accent for scannability, never an alert. Thresholds are °C.
+ */
+export type TempTone = 'scorcher' | 'hot' | 'cold' | 'normal';
+export const HOT_C = 27;
+export const SCORCHER_C = 32;
+export const COLD_C = 2;
+export function tempTone(tempMaxC: number): TempTone {
+  if (tempMaxC >= SCORCHER_C) return 'scorcher';
+  if (tempMaxC >= HOT_C) return 'hot';
+  if (tempMaxC <= COLD_C) return 'cold';
+  return 'normal';
 }
 
 /** Short, calm condition labels (used in the tooltip / accessible label). */
