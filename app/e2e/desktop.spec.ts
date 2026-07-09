@@ -201,3 +201,28 @@ test('delete: bottom button needs a confirm; cancel keeps the post, confirm remo
   await expect(page.locator(`[data-post-id="${id}"]`)).toHaveCount(0);
   await expectActivity(page, id, (r) => r.action === 'post_deleted', 'post_deleted ledgered');
 });
+
+test('date picker: branded popover reschedules + ledgers; not a native input', async ({ page }) => {
+  const id = SEED.post(1); // starts on 2026-07-02
+  await page.locator(`[data-post-id="${id}"]`).click();
+  await expect(page.getByTestId('post-editor')).toBeVisible();
+
+  // The field is a button that opens a branded popover (no OS-native date input).
+  await page.getByTestId('editor-date').click();
+  await expect(page.getByTestId('date-popover')).toBeVisible();
+  await page.locator('[data-testid="date-popover"] [data-date="2026-07-19"]').click();
+  await expect(page.getByTestId('date-popover')).toHaveCount(0); // closes on select
+
+  await expectActivity(page, id, (r) => r.action === 'rescheduled' && r.origin === 'user', 'date-picker reschedule ledgered');
+  await expect(page.locator(`[data-testid="calendar-cell"][data-date="2026-07-19"] [data-post-id="${id}"]`)).toBeVisible();
+});
+
+test('editor: media section removed, shape pills gone (free-text shape stands alone)', async ({ page }) => {
+  await page.locator(`[data-post-id="${SEED.post(3)}"]`).click();
+  await expect(page.getByTestId('post-editor')).toBeVisible();
+  await expect(page.getByTestId('media-placeholder')).toHaveCount(0);
+  await expect(page.getByTestId('shape-input')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Make it softer' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Make it shorter' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Warmer tone' })).toHaveCount(0);
+});

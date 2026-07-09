@@ -52,7 +52,8 @@ test('swipe right reveals Move; the date picker round-trips a reschedule', async
   await expect.poll(() => transformOf(surf)).toContain('translateX(156');
   await card.getByRole('button', { name: 'Move' }).click();
   await expect(page.getByTestId('move-sheet')).toBeVisible();
-  await page.getByTestId('move-sheet').getByRole('button', { name: '25', exact: true }).click();
+  await expect(page.getByTestId('move-sheet').getByTestId('calendar-picker')).toBeVisible();
+  await page.locator('[data-testid="move-sheet"] [data-date="2026-07-25"]').click();
   await expect(page.getByTestId('move-sheet')).not.toBeInViewport();   // closed = translated off-screen
   await expectActivity(page, id, (r) => r.action === 'rescheduled' && r.origin === 'user', 'mobile move ledgered');
 });
