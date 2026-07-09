@@ -4,10 +4,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { PlanPost } from '@/lib/types';
 import type { PlanData } from './usePlanData';
 import { ringOf } from '@/lib/checklist';
-import { ChecklistItem, ProgressRing, monthDayLabel } from './pieces';
+import { ChecklistItem, monthDayLabel } from './pieces';
 import { FormatIcon, FORMAT_LABEL, RevertIcon, TrashIcon, SparkIcon } from './icons';
-
-const SHAPES = [['Make it softer', 'make it softer'], ['Make it shorter', 'make it shorter'], ['Warmer tone', 'warmer tone']] as const;
+import { FormatDropdown, DateField, prettyDate } from './pickers';
 
 /** One shared secondary-action treatment for the editor's generate/add buttons:
  *  solid slate (#334155) fill, white glyph/text, no dashed border, same pill radius
@@ -110,7 +109,6 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
 
   const ring = ringOf(post.steps);
   const shaping = data.shapingIds.has(post.id);
-  const stateLabel = post.status === 'new' ? 'New idea' : post.status === 'edited' ? 'Edited' : 'Draft';
   const isEmail = post.format === 'email';
   // Hooks: reels + carousels only (product decision).
   const showHook = post.format === 'reel' || post.format === 'carousel';
@@ -134,18 +132,8 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
             <FormatIcon format={post.format} className="h-[15px] w-[15px] text-coral" />{FORMAT_LABEL[post.format]}
           </span>
         ) : (
-          <span className="inline-flex items-center gap-[7px] rounded-[9px] border border-line bg-line-soft px-[11px] py-[6px] text-[13px] font-extrabold text-slate-700">
-            <FormatIcon format={post.format} className="h-[15px] w-[15px] text-coral" />
-            <select data-testid="format-select" aria-label="Post format" value={post.format} onChange={(e) => void changeFormat(e.target.value)}
-              className="cursor-pointer appearance-none bg-transparent pr-1 font-extrabold text-slate-700 outline-none focus-visible:underline">
-              <option value="reel">Reel</option>
-              <option value="carousel">Carousel</option>
-              <option value="single">Single image</option>
-              <option value="email">Email</option>
-            </select>
-          </span>
+          <FormatDropdown value={post.format} onChange={(v) => void changeFormat(v)} />
         )}
-        <span className="text-[13.5px] font-bold text-muted">{stateLabel}</span>
         <span className="font-serif text-[17px] text-slate-700">{monthDayLabel(post.date)}</span>
         {post.status === 'new'
           ? <span className="rounded-[5px] border border-coral px-[5px] py-px text-[9.5px] font-extrabold tracking-[.06em] text-slate-700">NEW</span>
@@ -266,22 +254,16 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
         </div>
       )}
 
-      {/* when — the keyboard-accessible alternative to drag-reschedule */}
-      <label className="mt-[22px] block">
+      {/* when — a branded calendar popover; the keyboard-accessible alternative to
+          drag-reschedule. Selecting a date PATCHes immediately (ledgered). */}
+      <div className="mt-[22px]">
         <span className="mb-[9px] block text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">Scheduled date</span>
-        <input
-          type="date" data-testid="editor-date" value={post.date} disabled={data.readOnly}
-          aria-label="Scheduled date"
-          onChange={(e) => { if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) data.reschedule(post.id, e.target.value); }}
-          className="rounded-[13px] border border-line px-[15px] py-3 text-[14.5px] text-slate-700 outline-none focus:border-coral disabled:opacity-60"
-        />
-      </label>
-
-      {/* media placeholder (upload out of scope this stage) */}
-      <div data-testid="media-placeholder" className="mb-1.5 mt-[22px] flex min-h-[92px] items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed border-[#E1DCD6] bg-[#FAF9F7] text-[13.5px] font-semibold text-muted">
-        <FormatIcon format={post.format} className="h-[18px] w-[18px] opacity-60" />
-        <span>{post.format === 'reel' ? 'Video preview — coming soon.' : 'Media — drop an image (coming soon).'}</span>
+        {data.readOnly
+          ? <div className="inline-block rounded-[13px] border border-line bg-line-soft px-[15px] py-3 text-[14.5px] font-semibold text-slate-700">{prettyDate(post.date)}</div>
+          : <DateField value={post.date} today={data.today} onSelect={(iso) => data.reschedule(post.id, iso)} />}
       </div>
+
+      {/* Media section intentionally omitted — returns if/when publishing lands. */}
 
       {/* checklist — add/build button lives on the header row (matches Hook/Script) */}
       <div className="mt-[22px] flex items-center justify-between gap-3">
@@ -312,20 +294,14 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
           <div className="flex gap-2.5">
             <input
               data-testid="shape-input" value={shapeText} disabled={shaping}
-              onChange={(e) => setShapeText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submitShape(shapeText || 'warmer tone'); }}
+              onChange={(e) => setShapeText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submitShape(shapeText); }}
               placeholder="Make it softer · shorter · warmer · more about the fabric…"
               className="flex-1 rounded-[13px] border border-line px-[15px] py-3 text-[14.5px] text-slate-700 outline-none focus:border-coral disabled:opacity-60"
             />
-            <button data-testid="shape-go" disabled={shaping} onClick={() => submitShape(shapeText || 'warmer tone')} aria-label="Shape this post"
+            <button data-testid="shape-go" disabled={shaping} onClick={() => submitShape(shapeText)} aria-label="Shape this post"
               className="flex w-[50px] flex-none items-center justify-center rounded-[13px] bg-coral-tint text-coral disabled:opacity-50">
               <SparkIcon className="h-5 w-5" aria-hidden="true" />
             </button>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {SHAPES.map(([label, instr]) => (
-              <button key={instr} disabled={shaping} onClick={() => submitShape(instr)}
-                className="rounded-full border border-line bg-surface px-[15px] py-2 text-[13px] font-bold text-slate-700 shadow-card hover:border-[#DED9D3] disabled:opacity-50">{label}</button>
-            ))}
           </div>
           {data.shapeErrors.get(post.id) ? (
             <div data-testid="shape-error" role="alert" className="mt-3.5 flex items-center gap-3 text-[12.5px] leading-relaxed text-danger">
@@ -342,18 +318,18 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
         </div>
       )}
 
-      {/* delete — pinned at the very bottom, full width, brand-coral (AA-safe coral-cta
-          #C24C34 + white). Because it's large and prominent, deletion is a two-step
-          confirm — never a single tap. */}
+      {/* delete — pinned at the very bottom, full width. Conventional destructive
+          treatment (John's pick B): white fill, danger #B23A2E border + text (5.94:1);
+          coral is never used for destructive. Two-step confirm — never a single tap. */}
       {!data.readOnly && (
         <div className="mt-9" data-testid="delete-section">
           {confirmDelete ? (
             <div data-testid="delete-confirm" role="dialog" aria-label="Delete this post?"
-              className="rounded-2xl border border-[#EEC4BD] bg-[#FBEAE7] p-4">
+              className="rounded-2xl border border-line bg-line-soft p-4">
               <p className="mb-3 text-[13.5px] font-semibold text-slate-700">Delete this post? This can’t be undone.</p>
               <div className="flex gap-2.5">
                 <button data-testid="delete-confirm-yes" onClick={() => { data.removePost(post.id); onClose(); }}
-                  className="inline-flex items-center gap-2 rounded-[13px] bg-coral-cta px-5 py-3 text-[14px] font-extrabold text-white">
+                  className="inline-flex items-center gap-2 rounded-[13px] bg-danger px-5 py-3 text-[14px] font-extrabold text-white">
                   <TrashIcon className="h-4 w-4" />Delete post
                 </button>
                 <button data-testid="delete-cancel" onClick={() => setConfirmDelete(false)}
@@ -362,7 +338,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
             </div>
           ) : (
             <button data-testid="editor-delete" onClick={() => setConfirmDelete(true)}
-              className="flex w-full items-center justify-center gap-2 rounded-[14px] bg-coral-cta px-5 py-3.5 text-[14.5px] font-extrabold text-white">
+              className="flex w-full items-center justify-center gap-2 rounded-[14px] border-[1.5px] border-danger bg-surface px-5 py-3.5 text-[14.5px] font-extrabold text-danger hover:bg-[#FDF4F3]">
               <TrashIcon className="h-[17px] w-[17px]" />Delete post
             </button>
           )}

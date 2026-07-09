@@ -7,6 +7,7 @@ import { Scrim, Sheet, SegmentedControl } from './primitives';
 import { MonthWheelPicker } from './MonthWheelPicker';
 import { PostEditor } from './PostEditor';
 import { ProgressRing, postTitle, isUntitled, WeatherHeaderBadge } from './pieces';
+import { CalendarPicker } from './pickers';
 import { planTasks, lateCount, viewedMonth } from './derive';
 import {
   SprigMark, ChevronLeft, ChevronRight, MicIcon, FORMAT_LABEL, TrashIcon, ImageIcon, CalendarIcon, CloseIcon,
@@ -166,15 +167,12 @@ export function PlanMobile({ data }: { data: PlanData }) {
 
       {/* move (date picker) */}
       <Scrim show={!!moveId} onClick={() => setMoveId(null)} />
-      <Sheet show={!!moveId} onClose={() => setMoveId(null)} testid="move-sheet" className="px-5 pb-6" label="Move post">
-        <h3 className="mb-1 mt-1.5 text-center font-serif text-xl text-slate-700">Move to…</h3>
+      <Sheet show={!!moveId} onClose={() => setMoveId(null)} testid="move-sheet" className="px-5 pb-8" label="Move post">
+        <h3 className="mb-2 mt-1.5 text-center font-serif text-xl text-slate-700">Move to…</h3>
         {movePost && (
-          <div className="grid grid-cols-7 gap-1.5 pt-2">
-            {Array.from({ length: new Date(year, month + 1, 0).getDate() }, (_, i) => i + 1).map((day) => {
-              const iso = `${year}-${pad(month + 1)}-${pad(day)}`;
-              return <button key={day} onClick={() => { data.reschedule(movePost.id, iso); setMoveId(null); }}
-                className={`rounded-lg py-2 text-[13px] font-bold ${iso === movePost.date ? 'bg-coral text-white' : 'bg-line-soft text-slate-700 hover:bg-coral-tint'}`}>{day}</button>;
-            })}
+          <div className="flex justify-center pt-1">
+            <CalendarPicker value={movePost.date} today={data.today} autoFocus
+              onSelect={(iso) => { data.reschedule(movePost.id, iso); setMoveId(null); }} />
           </div>
         )}
       </Sheet>
