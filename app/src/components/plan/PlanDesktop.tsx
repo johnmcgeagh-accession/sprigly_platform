@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import type { PlanData } from './usePlanData';
-import { Drawer, Scrim, Sheet } from './primitives';
+import { Drawer, Scrim, Sheet, DISABLED_PRIMARY } from './primitives';
 import { PostEditor } from './PostEditor';
 import { PostChip, ProposalCard, NoteRow, ExtractionSummary, monthDayLabel, postTitle, WeatherCellIcon } from './pieces';
 import { planTasks, lateCount, viewedMonth } from './derive';
@@ -174,8 +174,11 @@ export function PlanDesktop({ data }: { data: PlanData }) {
               placeholder="Move the Tuesday post to Friday…" className="flex-1 bg-transparent py-2 text-[15.5px] text-slate-700 outline-none focus-visible:!outline-none disabled:opacity-60" />
             <button data-testid="agent-mic" disabled title="Voice arrives in a later stage" aria-label="Voice arrives in a later stage"
               className="flex h-[46px] w-[46px] flex-none cursor-not-allowed items-center justify-center rounded-xl bg-line-soft text-muted opacity-60"><MicIcon className="h-5 w-5" /></button>
+            {/* Disabled-because-empty → the shared neutral treatment (§25). While BUSY the
+                button stays coral so its white "thinking" spinner is legible (a grey fill
+                would swallow it) — so the neutral classes apply only when not busy. */}
             <button data-testid="agent-send" disabled={!agentText.trim() || data.agentBusy} onClick={() => void submitAsk()}
-              className="flex h-[46px] flex-none items-center justify-center gap-2 rounded-xl bg-coral-cta px-[18px] text-[14px] font-extrabold text-white shadow-coral disabled:opacity-50">
+              className={`flex h-[46px] flex-none items-center justify-center gap-2 rounded-xl bg-coral-cta px-[18px] text-[14px] font-extrabold text-white shadow-coral ${data.agentBusy ? '' : DISABLED_PRIMARY}`}>
               {data.agentBusy
                 ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden="true" />Sprigly is thinking…</>
                 : <><SendIcon className="h-[18px] w-[18px]" />Ask Sprigly</>}

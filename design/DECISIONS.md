@@ -1194,3 +1194,26 @@ the downstream created-post format, Part 3 compound two-row approve-in-order →
 out-of-order graceful block, and the single-image question. The e2e fake gained deterministic
 format-worded / hook / script branches. New `proposals.test` cases cover generate_hook enqueue +
 the single-image block.
+
+---
+
+## 25. Disabled-state convention for primary/filled buttons (2026-07-09)
+
+Follow-on from §24 Part 4. `disabled:opacity-50` on a filled button reads as a **washed-out**
+version of the live colour (a pale coral "Ask Sprigly"), which looks broken rather than inactive.
+
+**Convention:** filled / primary buttons use a **neutral inactive** disabled treatment —
+`bg-line-soft` (#F1EFEC) fill + `text-muted` (#5C6470) text + no shadow, **no opacity**. Codified
+as one shared constant `DISABLED_PRIMARY = 'disabled:bg-line-soft disabled:text-muted
+disabled:shadow-none'` in `primitives.tsx`, applied everywhere so the states can't drift.
+- **Swept and applied** to every filled button that used `disabled:opacity-50`: Ask Sprigly
+  (coral-cta), the ProposalCard + ExtractionSummary **Approve** buttons (coral), the editor's shared
+  `SECONDARY_BTN` generate/add buttons (slate), and the **shape** submit (coral-tint).
+- **Secondary / outline buttons are out of scope** and keep their own subtle disabled state — the
+  **Discard** buttons (`border` + `bg-surface`) still use `disabled:opacity-50`; a faint outline
+  button doesn't read as "washed-out colour", and the convention is deliberately for filled CTAs.
+- **One exception, Ask Sprigly while BUSY:** the neutral classes apply only when disabled-because-
+  empty. During the "Sprigly is thinking…" state the button is also `disabled` but stays coral-cta,
+  because its spinner is a white ring that a `line-soft` fill would swallow — "working" must stay
+  visually distinct from "inactive". Disabled inputs (`disabled:opacity-60`) are unchanged — this is
+  a button convention. Axe + e2e green.

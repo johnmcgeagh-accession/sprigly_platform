@@ -4,6 +4,15 @@ import React, { useEffect, useRef } from 'react';
 import { CloseIcon } from './icons';
 import { useFocusTrap } from './a11y';
 
+/**
+ * Disabled state for FILLED / primary buttons (coral, coral-cta, slate, coral-tint): a
+ * neutral inactive treatment — `line-soft` fill (#F1EFEC) + `muted` text (#5C6470), and no
+ * shadow. It reads as clearly inactive rather than a washed-out coral (which is what
+ * `disabled:opacity-50` gave). No opacity. Secondary/outline buttons (border + surface)
+ * keep their own subtle disabled treatment. Convention recorded in DECISIONS §25.
+ */
+export const DISABLED_PRIMARY = 'disabled:bg-line-soft disabled:text-muted disabled:shadow-none';
+
 /** A dimmed backdrop. `soft` = light scrim (editor drawer keeps the plan legible). */
 export function Scrim({ show, soft, onClick }: { show: boolean; soft?: boolean; onClick?: () => void }) {
   return (

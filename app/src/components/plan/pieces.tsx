@@ -10,6 +10,7 @@ import { bucketWeatherIcon, weatherTooltip, tempTone, type WeatherDay, type Temp
 import {
   ChannelIcon, FormatIcon, FORMAT_LABEL, SparkIcon, NotesIcon, CheckIcon, WeatherGlyph, type WeatherGlyphKind,
 } from './icons';
+import { DISABLED_PRIMARY } from './primitives';
 
 /** Shared temp-tone → colour + glyph. `hot`/`scorcher` tint the label amber (AA-safe
  *  amber-deep #7A5200, 6.9:1 on white); `cold` a calm slate-blue (sky-800, 7.4:1); else
@@ -202,7 +203,7 @@ export function ProposalCard({ proposal, onApprove, onDiscard, busy }: {
       <div className="flex-1 text-[14.5px] font-bold leading-snug text-slate-700">{proposal.summary}</div>
       <div className="flex flex-none gap-2">
         <button data-testid="proposal-approve" disabled={busy} onClick={onApprove} aria-label={`Approve: ${proposal.summary}`}
-          className="inline-flex items-center gap-1.5 rounded-[10px] bg-coral px-4 py-2.5 text-[13px] font-extrabold text-white disabled:opacity-50">
+          className={`inline-flex items-center gap-1.5 rounded-[10px] bg-coral px-4 py-2.5 text-[13px] font-extrabold text-white ${DISABLED_PRIMARY}`}>
           <CheckIcon className="h-3.5 w-3.5" aria-hidden="true" />Approve
         </button>
         <button data-testid="proposal-discard" disabled={busy} onClick={onDiscard} aria-label={`Discard: ${proposal.summary}`}
@@ -275,7 +276,7 @@ export function ExtractionSummary({ reply, onDecide, busy }: {
             ) : onDecide ? (
               <span className="flex flex-none gap-1.5">
                 <button data-testid="extraction-approve" disabled={anyBusy} onClick={() => decide(p.id, 'approve')} aria-label={`Approve: ${p.summary}`}
-                  className="inline-flex items-center gap-1 rounded-[9px] bg-coral px-3 py-1.5 text-[12px] font-extrabold text-white disabled:opacity-50"><CheckIcon className="h-3 w-3" aria-hidden="true" />Approve</button>
+                  className={`inline-flex items-center gap-1 rounded-[9px] bg-coral px-3 py-1.5 text-[12px] font-extrabold text-white ${DISABLED_PRIMARY}`}><CheckIcon className="h-3 w-3" aria-hidden="true" />Approve</button>
                 <button data-testid="extraction-discard" disabled={anyBusy} onClick={() => decide(p.id, 'reject')} aria-label={`Discard: ${p.summary}`}
                   className="rounded-[9px] border border-line bg-surface px-3 py-1.5 text-[12px] font-bold text-slate-600 hover:border-[#DED9D3] disabled:opacity-50">Discard</button>
               </span>

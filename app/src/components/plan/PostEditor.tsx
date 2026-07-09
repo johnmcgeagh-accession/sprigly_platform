@@ -8,14 +8,16 @@ import { ChecklistItem, monthDayLabel } from './pieces';
 import { FormatIcon, FORMAT_LABEL, RevertIcon, TrashIcon, SparkIcon } from './icons';
 import { FormatDropdown, DateField, prettyDate } from './pickers';
 import { useAutosave } from './useAutosave';
+import { DISABLED_PRIMARY } from './primitives';
 
 /** One shared secondary-action treatment for the editor's generate/add buttons:
  *  solid slate (#334155) fill, white glyph/text, no dashed border, same pill radius
  *  as the other buttons. White-on-slate is 10.35:1 (comfortably AA) — the FAB
  *  precedent, not the banned white-on-coral. The dashed style is retained ONLY for
- *  "empty slot" affordances (calendar add-pills), never for a button. */
+ *  "empty slot" affordances (calendar add-pills), never for a button. Disabled = the
+ *  shared neutral treatment (§25), not washed-out opacity. */
 const SECONDARY_BTN =
-  'inline-flex flex-none items-center gap-1.5 rounded-full bg-slate-700 px-3.5 py-2 text-[12.5px] font-extrabold text-white disabled:opacity-50';
+  `inline-flex flex-none items-center gap-1.5 rounded-full bg-slate-700 px-3.5 py-2 text-[12.5px] font-extrabold text-white ${DISABLED_PRIMARY}`;
 
 /** The editor body shared by the desktop drawer and the mobile sheet. Caption save,
  *  Revert, delete, checklist (tick / add / generate), and async "Shape this post". */
@@ -254,7 +256,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
               className="flex-1 rounded-[13px] border border-line px-[15px] py-3 text-[14.5px] text-slate-700 outline-none focus:border-coral disabled:opacity-60"
             />
             <button data-testid="shape-go" disabled={shaping} onClick={() => submitShape(shapeText)} aria-label="Shape this post"
-              className="flex w-[50px] flex-none items-center justify-center rounded-[13px] bg-coral-tint text-coral disabled:opacity-50">
+              className={`flex w-[50px] flex-none items-center justify-center rounded-[13px] bg-coral-tint text-coral ${DISABLED_PRIMARY}`}>
               <SparkIcon className="h-5 w-5" aria-hidden="true" />
             </button>
           </div>
