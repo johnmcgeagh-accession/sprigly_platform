@@ -701,3 +701,84 @@ gitignored) and never connects to the remote. The single remote step is a new ex
 baseline). `destroy` keeps the baseline (container only); `destroy:all` purges it. So after
 one `refresh` while UAT is reachable, `dev:local` is fully offline forever. (Supersedes the
 Stage-1 "refreshed on each up" behaviour.)
+
+---
+
+## 18. Stage-6b close-out — button unify, hook autosave, weather (Slice 4) (2026-07-09)
+
+Two of John's review refinements plus Slice 4, then the stage close-out. No new migration —
+this is app + engine-package code only (0070/0071 remain the deployable schema).
+
+### Refinement 1 — one secondary-action button style
+The dashed-coral pill (John's "dashed rust pill") is retired as a **button** treatment. A
+single shared style — `SECONDARY_BTN` in `PostEditor.tsx`: solid slate `bg-slate-700`
+(#334155) fill, white text/glyph, no dashed border, `rounded-full` (the existing pill radius)
+— now backs all four editor generate/add buttons: **Generate/Regenerate hooks**,
+**Generate/Regenerate script**, **+ Add step**, and **Build checklist**. White-on-slate is
+10.35:1 (comfortably AA; the FAB precedent, not the banned white-on-coral — §13/§15). The
+`SparkIcon` glyph is kept on the generate buttons (it *is* the ✨ glyph; the redundant literal
+"✨" character was dropped from the labels so there aren't two sparkles).
+- **Dashed survives only as "empty slot":** the calendar empty-day add-`＋` (desktop cell +
+  mobile "＋ Plan a post for this day"). Info panes that happen to use a dashed border
+  (script-needs-hook, media-placeholder, the Tasks/Approvals/Notes empty states) are not
+  buttons and were left unchanged.
+
+### Refinement 2 — hooks autosave on candidate pick
+Picking a candidate hook now **PATCHes `{hook}` immediately** via `saveHook` (→ `patchPost`,
+`hook_saved` ledger row, origin user) and shows a brief "Hook saved." toast — the separate
+"Save hook" step is gone for picks. The generate button stays visible after a pick (label →
+**Regenerate hooks**) so John can re-roll and re-select; each pick autosaves the same way.
+- **Typed edits keep the explicit-save path.** The "Save hook" button is gated on `hookDirty`,
+  which is only true after manual typing (a pick autosaves, so `post.hook` == field → not
+  dirty). So typing never PATCHes per keystroke; it saves on the button, consistent with how
+  the caption saves (both use an explicit Save, not blur). The script field is unchanged
+  (still explicit-save — scripts aren't a pick-a-candidate flow).
+- e2e updated: generate → pick → auto-ledgered without a save click → persists on reload →
+  regenerate → pick a different candidate → ledger shows **both** `hook_saved` rows.
+
+### Slice 4 — weather overlay
+- **Forecast landed in a SEPARATE endpoint, `GET /api/plan/weather`** (not folded into the
+  plan payload). Reason: the resilience rule ("the weather call never blocks or delays plan
+  render") is satisfied structurally by keeping it off the payload — the plan renders from its
+  own query and the client fetches weather in a parallel post-mount effect, ignoring failures.
+  Returns `{ forecast: [{date, weather_code, temp_max_c}] }`, today + 14 days (15), °C only.
+- **Reuses the weekly-session Open-Meteo client** (`@sprigly/weather` `fetchForecast`) — no
+  second weather path; added `@sprigly/weather` as an app workspace dep. Client lat/lon come
+  from `clients.lat`/`lon` (the columns the weekly audit already uses).
+- **Cache = the package's own per-process in-memory cache** (6h TTL, keyed on
+  `(lat,lon,London-day,days)`). Because the key is the client's coordinates, it is effectively
+  "cached per client for a few hours" as specified — no second cache layer was added. (A
+  serverless/multi-instance deploy caches per warm instance; acceptable for free/unmetered
+  decoration, matching the package's documented stance.)
+- **Icon bucketing** (`app/src/lib/weather.ts`, unit-tested) — Open-Meteo's ~28 WMO codes →
+  8 glyphs: `0`→sun · `1,2`→partly-cloudy · `3`→overcast · `45,48`→fog · `51–63,66,80,81`→rain ·
+  `65,67,82`→heavy-rain · `71–77,85,86`→snow · `95,96,99`→thunder · anything unmapped→overcast
+  (the most neutral glyph). Tooltip / label = `"<rounded temp>° · <condition>"`.
+- **Desktop:** muted 14px icon top-right of each in-window day cell (day number owns top-left);
+  icon `aria-hidden`, info in a native `title` tooltip; out-of-window days render nothing (the
+  forecast map simply has no entry). **Mobile:** icon + temp right-aligned in each agenda
+  day-section header (not the week strip), wrapped in one `role="img"` + `aria-label`
+  ("Weather: 18° · rain") — one accessible label per header (a plain `aria-label` on a generic
+  `<span>` trips axe's `aria-prohibited-attr`; `role="img"` is the fix and the ProgressRing
+  precedent).
+- **Resilience is pure decoration:** no lat/lon, a 401, a fetch error, or an empty forecast all
+  leave the calendar identical and surface nothing. e2e stubs a deterministic 15-day forecast
+  in the fake layer (`e2eWeatherForecast`, anchored to `PLAN_TODAY`) and a second test forces
+  the endpoint to 500 (Playwright route intercept) to prove the calendar is unaffected. Axe on
+  the calendar/feed (desktop + mobile) stays 0 serious with icons present.
+
+### Flake debt (recorded, NOT fixed now) — named post-UAT harness task
+The Playwright suite runs with **`retries: 1`** (Stage-6b, §16) to absorb an intermittent
+**shared-tenant reseed-timing flake**: the desktop/mobile/tenant projects run against one
+dev-server + one seeded tenant, so a rapid `reseed()` in `beforeEach` can race an in-flight
+request from the prior test. A real defect still fails **both** attempts (verified: the two
+failures in the first close-out run — the mobile axe regression and the over-broad weather
+assertion — failed both attempts and were genuine, not retry-masked).
+- **The proper fix is per-worker seeded tenants** (each Playwright worker gets its own tenant +
+  token + isolated data, so reseeds never cross-talk and the suite can go `fullyParallel` with
+  `retries: 0`). This is a **named post-UAT harness task**, deferred deliberately — it is test
+  infrastructure, not product, and doesn't gate the UAT promotion.
+- **Standing rule:** `retries: 1` is the *only* sanctioned flake absorber, and only for this
+  known reseed-timing class. **Any new flake pattern must be investigated and root-caused, not
+  absorbed by the retry.** If a second distinct flake appears, that is the trigger to do the
+  per-worker-tenant work rather than widen `retries`.

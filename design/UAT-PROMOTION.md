@@ -16,12 +16,20 @@ notes), the editor (caption, checklist, revert, **shape via the real engine work
 (real Bedrock proposals → approvals), month-nav across sibling cycles, magic-link sessions, the
 brand palette + mark, and the **0070 hooks/scripts schema + hook_patterns library (42 patterns)**.
 
-Also live (Stage-6b): **hook generation** (reels + carousels), **reel script generation**,
-**format editing** (with checklist reconcile + hook/script hide-and-retain), and **deviation-3 is
-closed** (worker `caption_saved` / `script_saved` ledger rows). These need the **0070 schema** and
-the **0071 prompts** applied (above) plus real Bedrock + Redis.
+Also live (Stage-6b): **hook generation** (reels + carousels, with **autosave-on-pick** — picking
+a candidate saves immediately, no separate Save step), **reel script generation**, **format
+editing** (with checklist reconcile + hook/script hide-and-retain), and **deviation-3 is closed**
+(worker `caption_saved` / `script_saved` ledger rows). These need the **0070 schema** and the
+**0071 prompts** applied (above) plus real Bedrock + Redis.
 
-**Not yet in this build:** the **weather overlay** (Slice 4) — independent, calendar-decoration only.
+Also live (Slice 4): the **weather overlay** — a muted per-day forecast icon on the calendar
+(desktop) / agenda headers (mobile). **Pure decoration, no new migration, no new env**: it reads
+`clients.lat`/`lon` (already populated for the weekly audit) and calls keyless Open-Meteo via the
+shared `@sprigly/weather` client (6h per-process cache). A missing lat/lon or any fetch failure
+renders the calendar identically and surfaces nothing — so it cannot block the promotion.
+
+**Everything in the redesign is now in this build** — there is no deferred surface left for a
+later promotion.
 
 ---
 
@@ -120,14 +128,23 @@ Do these against the UAT app as a real Ivy-T magic-link session:
 4. **Checklist tick** — tick a step → ring advances; reload → persists.
 5. **Real-Bedrock agent ask** — "move the Tuesday post to Friday" → a proposal appears in Approvals
    (real model, ~seconds); approve → the post moves; discard on another works.
-6. **Real hook generate** — open a reel or carousel editor → "✨ Generate hooks" → 3 candidates from
-   real Bedrock (~seconds) → pick one → Save → the hook persists on reload.
+6. **Real hook generate (autosave-on-pick)** — open a reel or carousel editor → "Generate hooks" →
+   3 candidates from real Bedrock (~seconds) → **pick one → it saves immediately** (brief "Hook
+   saved." toast, **no Save button**) → reload → the hook persists. The button now reads
+   "Regenerate hooks"; re-roll and pick a different one → that saves too.
 7. **Real script generate** — on a reel with a hook + caption, pick a length (e.g. 30s) → "Generate
    script" → a structured script (hook line, beats, CTA) lands → edit → Save → persists.
 8. **Format edit** — change a post's format in the editor; with progress the keep/replace prompt
    appears; the checklist reconciles; hook/script hide but are retained on switch-back.
+9. **Weather icons** — the calendar's in-window days (today + ~14) show a muted forecast icon
+   top-right (desktop) / an icon + °C in the agenda day headers (mobile); hover a desktop icon for
+   the "18° · rain" tooltip. This needs Ivy-T to have `lat`/`lon` set — if they're null the calendar
+   simply shows no icons (expected, not a failure). Out-of-window days show nothing.
 
-If 1–8 pass, the promotion is good for the shipped scope.
+If 1–9 pass, the promotion is good for the shipped scope. (The secondary-action buttons —
+Generate/Regenerate hooks, Generate/Regenerate script, + Add step, Build checklist — should all be
+the solid dark-slate pill, not a dashed-coral one; the only dashed affordances left are the
+empty-day "add a post" slots.)
 
 ## 6. Rollback
 
