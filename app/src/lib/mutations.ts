@@ -94,7 +94,7 @@ export async function patchPost(clientId: string, cycleId: string, postId: strin
     await recordActivity(tx, { clientId, cycleId, postId, action, actor, payload });
   });
 
-  const what = patch.date ? 'Moved it.' : patch.format ? 'Changed the format.' : patch.caption !== undefined ? 'Saved your caption.' : patch.position !== undefined ? 'Reordered.' : 'Updated.';
+  const what = patch.date ? 'Moved it.' : patch.format ? 'Changed the format.' : patch.caption !== undefined ? 'Saved your caption.' : patch.hook !== undefined ? 'Hook saved.' : patch.script !== undefined ? 'Script saved.' : patch.position !== undefined ? 'Reordered.' : 'Updated.';
   return applied(clientId, cycleId, [postId], what);
 }
 

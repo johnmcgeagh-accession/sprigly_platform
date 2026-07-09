@@ -9,6 +9,14 @@ import { FormatIcon, FORMAT_LABEL, RevertIcon, TrashIcon, SparkIcon, CheckIcon }
 
 const SHAPES = [['Make it softer', 'make it softer'], ['Make it shorter', 'make it shorter'], ['Warmer tone', 'warmer tone']] as const;
 
+/** One shared secondary-action treatment for the editor's generate/add buttons:
+ *  solid slate (#334155) fill, white glyph/text, no dashed border, same pill radius
+ *  as the other buttons. White-on-slate is 10.35:1 (comfortably AA) — the FAB
+ *  precedent, not the banned white-on-coral. The dashed style is retained ONLY for
+ *  "empty slot" affordances (calendar add-pills), never for a button. */
+const SECONDARY_BTN =
+  'inline-flex items-center gap-1.5 self-start rounded-full bg-slate-700 px-3.5 py-2 text-[12.5px] font-extrabold text-white disabled:opacity-50';
+
 /** The editor body shared by the desktop drawer and the mobile sheet. Caption save,
  *  Revert, delete, checklist (tick / add / generate), and async "Shape this post". */
 export function PostEditor({ post, data, onClose }: { post: PlanPost; data: PlanData; onClose: () => void }) {
@@ -126,8 +134,8 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
             <span className="text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">Hook</span>
             {!data.readOnly && (
               <button data-testid="generate-hooks" onClick={() => data.generateHooks(post.id)} disabled={hookGenerating}
-                className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-coral px-3 py-1.5 text-[12px] font-extrabold text-coral-on-tint disabled:opacity-50">
-                <SparkIcon className="h-3.5 w-3.5" />{hookGenerating ? 'Generating…' : '✨ Generate hooks'}
+                className={SECONDARY_BTN}>
+                <SparkIcon className="h-3.5 w-3.5" />{hookGenerating ? 'Generating…' : post.hook ? 'Regenerate hooks' : 'Generate hooks'}
               </button>
             )}
           </div>
@@ -143,13 +151,15 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
           )}
           {hookCandidates.length > 0 && (
             <div data-testid="hook-candidates" className="mt-2.5 flex flex-col gap-2">
-              <span className="text-[11.5px] font-bold text-muted">Tap one to use it:</span>
+              <span className="text-[11.5px] font-bold text-muted">Tap one to use it — it saves straight away:</span>
               {hookCandidates.map((c, i) => (
-                <button key={i} data-testid="hook-candidate" onClick={() => { setHook(c); data.clearHookCandidates(post.id); }}
+                <button key={i} data-testid="hook-candidate" onClick={() => { setHook(c); data.clearHookCandidates(post.id); data.saveHook(post.id, c); }}
                   className="rounded-xl border border-line bg-line-soft px-3.5 py-2.5 text-left text-[14px] leading-snug text-slate-700 hover:border-coral hover:bg-coral-tint">{c}</button>
               ))}
             </div>
           )}
+          {/* Manual typing keeps the explicit-save path (a pick autosaves, so this is
+              only reachable after an edit to the field — hookDirty is false after a pick). */}
           {!data.readOnly && hookDirty && (
             <button data-testid="hook-save" onClick={() => data.saveHook(post.id, hook)}
               className="mt-2.5 inline-flex items-center gap-1.5 rounded-[11px] bg-coral-cta px-4 py-2 text-[13px] font-extrabold text-white">
@@ -199,8 +209,8 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
               </div>
               {!data.readOnly && (
                 <button data-testid="generate-script" onClick={() => data.generateScript(post.id, len)} disabled={scriptGenerating || !caption.trim()}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-coral px-3.5 py-2 text-[12.5px] font-extrabold text-coral-on-tint disabled:opacity-50">
-                  <SparkIcon className="h-3.5 w-3.5" />{scriptGenerating ? 'Writing…' : post.script ? 'Regenerate script' : '✨ Generate script'}
+                  className={SECONDARY_BTN}>
+                  <SparkIcon className="h-3.5 w-3.5" />{scriptGenerating ? 'Writing…' : post.script ? 'Regenerate script' : 'Generate script'}
                 </button>
               )}
               {scriptErr && (
@@ -259,9 +269,9 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
         {!data.readOnly && !isEmail && (
           post.steps.length > 0
             ? <button data-testid="editor-add-step" onClick={() => { setAdding(true); data.addStep(post.id, { label: 'Get approval', leadDays: 1 }).finally(() => setAdding(false)); }} disabled={adding}
-                className="mt-0.5 self-start rounded-full border border-dashed border-coral px-3.5 py-2 text-[12.5px] font-extrabold text-slate-700 disabled:opacity-50">+ Add step</button>
+                className={`mt-0.5 ${SECONDARY_BTN}`}>+ Add step</button>
             : <button data-testid="editor-generate" onClick={() => data.generateChecklist(post.id)}
-                className="mt-0.5 self-start rounded-full border border-dashed border-coral px-3.5 py-2 text-[12.5px] font-extrabold text-slate-700">✨ Build checklist</button>
+                className={`mt-0.5 ${SECONDARY_BTN}`}><SparkIcon className="h-3.5 w-3.5" />Build checklist</button>
         )}
       </div>
 
