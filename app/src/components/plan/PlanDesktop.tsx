@@ -36,8 +36,6 @@ export function PlanDesktop({ data }: { data: PlanData }) {
   const sel = posts.find((p) => p.id === selId) ?? null;
   const select = (id: string) => { setSelId(id); setDrawerOpen(true); };
 
-  const iso = (day: number) => `${year}-${pad(month + 1)}-${pad(day)}`;
-
   // Agent submit: clear the input only on a successful turn (preserve it on failure).
   const submitAsk = async () => { if (!agentText.trim()) return; const r = await data.ask(agentText, selId); if (r) setAgentText(''); };
 
@@ -123,14 +121,6 @@ export function PlanDesktop({ data }: { data: PlanData }) {
             {railBtn('notes', 'Notes', NotesIcon, notes.length, false, true)}
           </nav>
           <div className="my-3 h-px bg-line" />
-          {/* CTA (John's pick B): deep AA-safe coral fill + white — white on #C24C34 = 4.80.
-              coral-cta is the ONLY coral allowed under white text, button fills only (§15). */}
-          {!data.readOnly && (
-            <button data-testid="add-post" onClick={() => data.addPost(iso(Math.min(new Date(year, month + 1, 0).getDate(), 15)))}
-              className={`flex w-full items-center gap-2.5 rounded-xl bg-coral-cta px-3 py-[11px] text-[14px] font-extrabold text-white shadow-coral hover:brightness-105 ${railCollapsed ? 'justify-center px-0' : ''}`}>
-              <span className="text-[17px] font-extrabold text-white">+</span>{!railCollapsed && <span>Add a post</span>}
-            </button>
-          )}
           {/* One true line: the session edits its home cycle (unlimited, until the cycle
               month ends); sibling cycles open read-only. See design/DECISIONS.md §14. */}
           {!railCollapsed && (

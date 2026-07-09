@@ -152,7 +152,7 @@ test('month nav: round-trips to the adjacent August cycle and disables at bounda
   await page.getByTestId('next-month').click();
   await expect(page.getByText('August 2026')).toBeVisible();
   await expect(page.getByTestId('post-chip')).toHaveCount(3);
-  await expect(page.getByTestId('add-post')).toHaveCount(0);
+  await expect(page.getByTestId('add-on-day')).toHaveCount(0);
   // August is the far boundary — next disabled, prev available.
   await expect(page.getByTestId('next-month')).toBeDisabled();
   await expect(page.getByTestId('prev-month')).toBeEnabled();
@@ -161,7 +161,7 @@ test('month nav: round-trips to the adjacent August cycle and disables at bounda
   await page.getByTestId('prev-month').click();
   await expect(page.getByText('July 2026')).toBeVisible();
   await expect(page.getByTestId('post-chip')).toHaveCount(12);
-  await expect(page.getByTestId('add-post')).toBeVisible();
+  await expect(page.getByTestId('add-on-day').first()).toBeVisible();
 });
 
 test('caption autosave: rapid typing settles to a single ledger row', async ({ page }) => {
