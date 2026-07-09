@@ -59,7 +59,20 @@ function fakeTasks(userMessage: string): Record<string, unknown>[] {
     return [{ action: 'add_note', content: clientMsg.trim() || 'A note from the client.', reason: 'note that down' }];
   }
   const postId = UUID_RE.exec(userMessage)?.[0];
-  if (postId) return [{ action: 'move_post', postId, toDate: '2026-07-24', reason: 'move it later' }];
+  if (postId) {
+    // A compound "move … and make it a carousel" decomposes into TWO independently-
+    // approvable tasks on the SAME post (John's example). Pinned to the seeded reel
+    // post (id …0003) so reel→carousel always differs — a no-op format change would be
+    // guarded out and make the two-proposal e2e flaky.
+    if (/carousel|make it a|change.*format|turn it into|single image/.test(lower)) {
+      const REEL = '33333333-3333-4333-8333-000000000003';
+      return [
+        { action: 'move_post', postId: REEL, toDate: '2026-07-24', reason: 'move it later' },
+        { action: 'change_format', postId: REEL, format: 'carousel', reason: 'make it a carousel' },
+      ];
+    }
+    return [{ action: 'move_post', postId, toDate: '2026-07-24', reason: 'move it later' }];
+  }
   return [{ action: 'clarify', question: 'Which post did you mean?', reason: 'unclear' }];
 }
 

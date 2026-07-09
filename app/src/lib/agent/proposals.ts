@@ -127,6 +127,11 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
       await patchPost(row.clientId, payload.cycleId, payload.postId, { date: payload.toDate }, agentActor);
     } else if (payload.kind === 'delete') {
       await softDeletePost(row.clientId, payload.cycleId, payload.postId, agentActor);
+    } else if (payload.kind === 'format') {
+      // Apply the format change (format_changed ledger, origin agent). The checklist
+      // reconcile is left to the editor's keep/replace flow — approving a format change
+      // never silently discards checklist progress.
+      await patchPost(row.clientId, payload.cycleId, payload.postId, { format: payload.format }, agentActor);
     } else if (payload.kind === 'add') {
       const channel = payload.channel ?? await cycleChannel(row.clientId, payload.cycleId);
       const instruction = payload.instruction?.trim();

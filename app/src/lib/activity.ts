@@ -27,6 +27,7 @@ export type ActivityAction =
   | 'post_reverted'
   | 'step_completed'
   | 'step_uncompleted'
+  | 'step_renamed'
   | 'checklist_generated';
 
 /** Who caused a change, and (for agent changes) which proposal it applied. */

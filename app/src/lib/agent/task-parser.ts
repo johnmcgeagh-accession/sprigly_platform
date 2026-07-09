@@ -13,7 +13,7 @@ import { AGENT_MODEL } from './model';
 import type { ParsedTask, TaskActionType } from './types';
 
 const ACTIONS: readonly TaskActionType[] = [
-  'move_post', 'delete_post', 'rewrite_post', 'add_post', 'add_note', 'query', 'clarify',
+  'move_post', 'delete_post', 'rewrite_post', 'add_post', 'change_format', 'add_note', 'query', 'clarify',
 ];
 
 export interface ParserContext {
@@ -22,16 +22,21 @@ export interface ParserContext {
   weekDigest: string;              // formatted digest of this week's posts (with ids)
 }
 
-export const TASK_PARSER_SYSTEM_PROMPT = `You turn a single message from a clothing-brand client into an ordered list of TASKS for their content-plan assistant. The message may be typed or transcribed from speech — messy, rambling, or self-correcting. Read for intent. A message can contain MANY requests; produce one task per request, IN THE ORDER they appear.
+export const TASK_PARSER_SYSTEM_PROMPT = `You turn a single message from a clothing-brand client into an ordered list of TASKS for their content-plan assistant. The message may be typed or transcribed from speech — messy, rambling, or self-correcting. Read for intent.
+
+DECOMPOSE COMPOUND REQUESTS. A message can contain MANY requests joined by "and", commas, or sequenced verbs ("move X to Friday AND make it a carousel"; "delete the Tuesday post, add a linen reel on Saturday"). Split every atomic action into its OWN task, IN THE ORDER they appear. One task = one thing that can be approved on its own. Two edits to the SAME post (e.g. reschedule it AND change its format) are still TWO separate tasks. Never fold a second action into the first, and never silently drop a clause.
+
+If a clause expresses an intent you cannot map to one of the actions below, DO NOT drop it — emit a "clarify" task naming what you couldn't do, so the client sees it and can rephrase. Prefer proposing over dropping.
 
 Task actions:
 - "move_post": reschedule an existing post. Fields: postId or selector; toDate (ISO 'YYYY-MM-DD').
 - "delete_post": remove an existing post. Fields: postId or selector.
 - "rewrite_post": change the WORDING of an existing post's caption. Fields: postId or selector; instruction (the change to make).
+- "change_format": change an existing post's FORMAT. Fields: postId or selector; format (one of 'reel'|'carousel'|'single'). Use this for "make it a carousel", "turn the Tuesday post into a reel", "switch that to a single image". (Email is not an available format — if the client asks to make something an email, emit a "clarify" saying email posts aren't supported here yet.)
 - "add_post": add a new post. Fields: toDate (ISO, optional); channel ('instagram'|'email', optional); instruction (what the post should be about, optional — include it whenever the message says what to post; omit only for a bare "add a post" with no topic).
 - "add_note": remember a fact/instruction for the plan (not an edit to one existing post). Fields: content; targetMonth ('YYYY-MM', optional); relevantFrom/relevantTo (ISO dates, optional, if the note names a window).
 - "query": a question about the plan or brand knowledge. Fields: question.
-- "clarify": the request is too vague or a post reference is ambiguous. Fields: question (what you need to know).
+- "clarify": the request is too vague, a post reference is ambiguous, or a clause can't be mapped to an action. Fields: question (what you need to know / what you couldn't do).
 
 Resolving post references:
 - The WEEK DIGEST lists this week's posts with their ids. If a reference ("the Thursday reel", "post 3", "the linen one") matches EXACTLY ONE digest post, set "postId" to that id and omit "selector".
@@ -49,6 +54,9 @@ Examples:
 
 Message: "move the Thursday post to Saturday and add a note about the linen restock and what do I need to film this week"
 → {"tasks":[{"action":"move_post","postId":"<thursday id if unique in digest, else null>","selector":"the Thursday post","toDate":"<saturday ISO>","reason":"move the Thursday post to Saturday"},{"action":"add_note","content":"Linen restock coming up.","reason":"add a note about the linen restock"},{"action":"query","question":"What do I need to film this week?","reason":"what do I need to film this week"}]}
+
+Message: "move the post on the 10th to the 11th and make it a carousel"  (a compound edit to ONE post → TWO tasks)
+→ {"tasks":[{"action":"move_post","selector":"the post on the 10th","toDate":"<11th ISO>","reason":"move the post on the 10th to the 11th"},{"action":"change_format","selector":"the post on the 10th","format":"carousel","reason":"make it a carousel"}]}
 
 Message: "make the reel warmer"  (two reels in the digest)
 → {"tasks":[{"action":"clarify","question":"You have two reels this week — which one should I rewrite: Tuesday's or Friday's?","reason":"make the reel warmer"}]}
@@ -109,6 +117,14 @@ function normalizeTask(raw: unknown): ParsedTask {
       if (!needsPost()) return clarify('Which post should I rewrite?', reason);
       if (!instruction) return clarify('What change should I make to the caption?', reason);
       return { action, ...postRef, instruction, reason };
+    }
+    case 'change_format': {
+      const raw = str(r.format)?.toLowerCase();
+      const format = raw === 'reel' || raw === 'carousel' || raw === 'single' ? raw : null;
+      if (!needsPost()) return clarify('Which post should I change the format of?', reason);
+      // Email isn't an available format here; anything unrecognised → clarify (don't drop).
+      if (!format) return clarify('Which format should it be — reel, carousel or single image?', reason);
+      return { action, ...postRef, format, reason };
     }
     case 'add_post':
       // instruction = what the post should be about (optional). A bare add with no

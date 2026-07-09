@@ -126,6 +126,35 @@ export async function setStepDone(
   return (await listStepsForPosts([postId])).get(postId) ?? [];
 }
 
+/** Rename a step's label and append a step_renamed ledger row (atomically). null if the
+ *  post isn't owned or the step isn't on it; a blank label is rejected upstream (route). */
+export async function renameStep(
+  clientId: string, cycleId: string, postId: string, stepId: string,
+  label: string, actor: ActivityActor = USER_ACTOR,
+): Promise<PostStepView[] | null> {
+  if (!(await ownedPostFormat(clientId, cycleId, postId))) return null;
+  const [step] = await db
+    .select({ id: postSteps.id, label: postSteps.label })
+    .from(postSteps)
+    .where(and(eq(postSteps.id, stepId), eq(postSteps.postId, postId)))
+    .limit(1);
+  if (!step) return null;
+  const next = label.trim().slice(0, 120);
+  if (!next || next === step.label) return (await listStepsForPosts([postId])).get(postId) ?? []; // no-op, no ledger row
+
+  await db.transaction(async (tx) => {
+    await tx.update(postSteps)
+      .set({ label: next })
+      .where(and(eq(postSteps.id, stepId), eq(postSteps.postId, postId)));
+    await recordActivity(tx, {
+      clientId, cycleId, postId, actor,
+      action: 'step_renamed',
+      payload: { stepId, from: step.label, to: next },
+    });
+  });
+  return (await listStepsForPosts([postId])).get(postId) ?? [];
+}
+
 /** Remove a step from an owned post. null if not owned. */
 export async function removeStep(clientId: string, cycleId: string, postId: string, stepId: string): Promise<PostStepView[] | null> {
   if (!(await ownedPostFormat(clientId, cycleId, postId))) return null;

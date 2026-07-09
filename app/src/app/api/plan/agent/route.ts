@@ -21,7 +21,7 @@ import { getModelClient, getEmbeddingClient } from '@/lib/agent/model';
 import { parseTasks } from '@/lib/agent/task-parser';
 import { getClientCycleMonths, resolveCycleForMonth, weekDigest } from '@/lib/agent/cycle-state';
 import { resolvePostSelector } from '@/lib/agent/selectors';
-import { moveSummary, deleteSummary, rewriteSummary, addSummary } from '@/lib/agent/summaries';
+import { moveSummary, deleteSummary, rewriteSummary, addSummary, formatSummary } from '@/lib/agent/summaries';
 import { ensureConversation, appendMessage } from '@/lib/agent/conversation';
 import { createProposal } from '@/lib/agent/proposals';
 import { saveNote } from '@/lib/agent/notes';
@@ -111,10 +111,13 @@ export async function POST(req: Request) {
   const proposals: ProposalView[] = [];
   const replyParts: string[] = [];
 
-  const propose = async (action: 'move_post' | 'delete_post' | 'rewrite_post' | 'add_post', payload: Parameters<typeof createProposal>[0]['payload'], summary: string) => {
+  // Proposal summaries are NOT pushed into the message — they render as their own
+  // action rows (with inline Approve/Discard) in the extraction block. The message
+  // carries only the conversational parts (answers, notes, clarifications) as clean
+  // prose, so there are no orphan "• …" bullets duplicating the rows. (UAT round 1.)
+  const propose = async (action: 'move_post' | 'delete_post' | 'rewrite_post' | 'add_post' | 'change_format', payload: Parameters<typeof createProposal>[0]['payload'], summary: string) => {
     const pv = await createProposal({ clientId, conversationId: convId, messageId: userMessageId, changeSetId, action, payload, summary });
     proposals.push(pv);
-    replyParts.push(`• ${summary}`);
   };
 
   for (const task of tasks) {
@@ -139,6 +142,14 @@ export async function POST(req: Request) {
         await propose('rewrite_post', { kind: 'rewrite', cycleId, postId: post.id, instruction: task.instruction }, rewriteSummary(post, task.reason));
         break;
       }
+      case 'change_format': {
+        const post = resolvePost(task, posts);
+        if (!post) { replyParts.push(whichPost(task.reason)); break; }
+        if (!task.format) { replyParts.push('Which format should it be — reel, carousel or single image?'); break; }
+        if (task.format === post.format) { replyParts.push(`“${post.caption?.split('\n')[0] || post.pillar}” is already a ${task.format}.`); break; }
+        await propose('change_format', { kind: 'format', cycleId, postId: post.id, format: task.format }, formatSummary(post, task.format, task.reason));
+        break;
+      }
       case 'add_post': {
         const date = task.toDate ?? defaultAddDate(posts, today);
         await propose('add_post', { kind: 'add', cycleId, date, channel: task.channel ?? null, instruction: task.instruction ?? null }, addSummary(date, task.reason, task.instruction, task.channel));
@@ -149,7 +160,7 @@ export async function POST(req: Request) {
         const noteCycle = task.targetMonth ? await resolveCycleForMonth(clientId, task.targetMonth) : cycleId;
         await saveNote({ clientId, cycleId: noteCycle, content: task.content, source, relevantFrom: task.relevantFrom ?? null, relevantTo: task.relevantTo ?? null });
         const window = task.relevantFrom || task.relevantTo ? ` (relevant ${task.relevantFrom ?? '…'}–${task.relevantTo ?? '…'})` : '';
-        replyParts.push(`• Noted: ${task.content}${window}`);
+        replyParts.push(`Noted: ${task.content}${window}`);
         break;
       }
       case 'query': {
@@ -170,11 +181,14 @@ export async function POST(req: Request) {
     }
   }
 
-  const message = replyParts.join('\n') || 'Okay.';
+  // Conversational parts only (proposals render as rows). Empty when the turn is
+  // purely proposals — the extraction block's rows carry the summary.
+  const message = replyParts.join('\n') || (proposals.length ? '' : 'Okay.');
   const resp: AgentTurnResponse = { conversationId: convId, message, proposals, changeSetId: proposals.length ? changeSetId : null };
 
   await appendMessage({
-    conversationId: convId, role: 'assistant', content: message,
+    conversationId: convId, role: 'assistant',
+    content: message || `Proposed ${proposals.length} change${proposals.length === 1 ? '' : 's'} for review.`,
     metadata: { tasks: tasks.map((t) => t.action), changeSetId: resp.changeSetId, proposalIds: proposals.map((p) => p.id) },
   });
 
