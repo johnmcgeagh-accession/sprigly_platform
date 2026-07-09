@@ -50,7 +50,7 @@ test('agent format inference: "reel" → a reel create-post, and the created pos
   await expect(row.getByTestId('extraction-applied')).toBeVisible({ timeout: 15_000 });
 
   // Downstream: the created post is a reel (format flows through the agent create path).
-  await page.getByTestId('sheet-close').click();
+  await page.getByTestId('dialog-close').click();
   await page.locator('[data-testid="calendar-cell"][data-date="2026-07-15"] [data-testid="post-chip"]').click();
   await expect(page.getByTestId('format-select')).toContainText('Reel');
 });
@@ -92,7 +92,7 @@ test('agent generate_hook: "reel … with a good hook" → two rows; approve in 
 
   // Open the created reel — it's a reel and its hook UI shows the candidates (as a manual
   // Generate hooks would).
-  await page.getByTestId('sheet-close').click();
+  await page.getByTestId('dialog-close').click();
   await page.locator('[data-testid="calendar-cell"][data-date="2026-07-15"] [data-testid="post-chip"]').click();
   await expect(page.getByTestId('format-select')).toContainText('Reel');
   await expect(page.getByTestId('hook-candidate')).toHaveCount(3, { timeout: 15_000 });

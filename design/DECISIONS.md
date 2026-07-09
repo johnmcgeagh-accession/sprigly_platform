@@ -1296,3 +1296,42 @@ there yet it blocks gracefully (stays approvable). A refine counts against the A
 AI proposal (`isRewriteBlocked` on approve; the worker's `post_edits` row increments it). e2e (faked):
 "make the script punchier" → refine proposal → approve → job enqueued → `script_saved` ledger;
 refine-on-empty-script → question, no proposal. Unit tests cover the enqueue + the empty-field block.
+
+---
+
+## 28. Agent modal redesign + em-dash purge (Part 3, 2026-07-09)
+
+### Centred modal (desktop only)
+The desktop agent surface was a full-viewport bottom `Sheet` with vast empty space either side of
+left-aligned content. Replaced with a new **`Dialog` primitive** (`primitives.tsx`): a fixed
+`max-w-[640px]` card, horizontally centred, set in the **upper third** (`pt-[12vh]`, `items-start`
+so it hugs its content), rounded on **all** corners, scrim behind, focus-trapped (the ref-stabilised
+`onClose` fix intact), Escape-closable, no drag handle. Content is centred (title, subtitle,
+footnote). **Mobile is unchanged** — its agent is the voice overlay; only the desktop `Sheet` →
+`Dialog` swap happened here.
+- **Entrance animates TRANSFORM only** (a scale + rise), not opacity. Playwright's `toBeVisible`
+  (and a screen reader) don't wait out an opacity fade, so a fading box briefly reads as low-contrast
+  over the dark scrim — axe flagged colour-contrast on every text node mid-fade. Flipping opacity
+  instantly (transition on `transform` alone) makes the modal full-contrast the moment it's visible.
+  Reduced-motion still kills the transform via the scoped reset.
+- The close testid is `dialog-close` (was `sheet-close`); the e2e that close the agent surface were
+  updated. The dialog keeps `data-testid="agent-sheet"` so existing assertions/axe still target it.
+
+### Header + subtitle
+Removed the "PLAN AGENT" eyebrow entirely; "Talk to your plan" stays as the title. The subtitle is
+one line at 640px: **shortened** to "Ask in plain English. **Nothing happens until you approve it.**"
+(the original "Sprigly proposes the change and nothing happens until you approve it" wrapped at this
+width) — the pre-agreed fallback, recorded here.
+
+### No em dashes in UI copy (brand voice)
+**Convention: UI copy contains no em dashes (—) or en dashes (–)** — per the Sprigly voice rules
+(short sentences). Swept every user-facing string across the redesign surface + the worker: empty
+states, placeholders, toasts, error messages, the agent route's clarify/guidance replies, the plan
+API routes' busy/blocked messages, and the worker's proposal/chat summary builders
+(`weekly-session`, `weekly-audit`). Each em dash became two sentences or other punctuation (e.g.
+"Suggestions land in Approvals in the menu — nothing changes…" → "…in the menu. Nothing changes…").
+Left untouched, deliberately: **code comments, LLM prompts** (`TASK_PARSER_SYSTEM_PROMPT`,
+`WEEKLY_AUDIT_SYSTEM_PROMPT`, the shape/refine feedback), the agent's model-context strings
+(`cycle-state`), generated content (script BEAT scaffolding), test fixtures, and the `→` move arrow
+(an arrow, not a dash). e2e assert affected copy by testid, not verbatim, so no copy-assertions
+needed updating; axe re-run on the new modal is green.

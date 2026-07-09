@@ -35,7 +35,7 @@ const article = (word: string) => (/^[aeiou]/i.test(word) ? 'an' : 'a');
 export function addSummary(date: string, format: string, formatInferred: boolean, reason?: string | null, instruction?: string | null): string {
   const label = FORMAT_LABEL[format] ?? format;            // 'reel' | 'carousel' | 'single image'
   const head = `Add ${article(label)} ${label} on ${fmtDate(date)}`;
-  const base = instruction && instruction.trim() ? `${head} — “${instruction.trim()}”` : `${head}${ask(reason)}`;
+  const base = instruction && instruction.trim() ? `${head}: “${instruction.trim()}”` : `${head}${ask(reason)}`;
   return formatInferred ? base : `${base} (say “reel” or “carousel” if you’d prefer)`;
 }
 

@@ -59,7 +59,7 @@ function defaultAddDate(posts: PlanPost[], today: Date): string {
 }
 
 const whichPost = (reason?: string | null) =>
-  `I couldn’t tell which post you meant${reason ? ` for “${reason.trim()}”` : ''} — could you name its date?`;
+  `I couldn’t tell which post you meant${reason ? ` for “${reason.trim()}”` : ''}. Could you name its date?`;
 
 export async function POST(req: Request) {
   const session = await getSession();
@@ -103,7 +103,7 @@ export async function POST(req: Request) {
     };
     tasks = await parseTasks(instruction, ctx, getModelClient());
   } catch {
-    tasks = [{ action: 'clarify', question: 'I couldn’t process that just now — please try again in a moment.' }];
+    tasks = [{ action: 'clarify', question: 'I couldn’t process that just now. Please try again in a moment.' }];
   }
 
   // ── Execute in message order ──────────────────────────────────────────────
@@ -152,7 +152,7 @@ export async function POST(req: Request) {
       case 'change_format': {
         const post = resolvePost(task, posts);
         if (!post) { replyParts.push(whichPost(task.reason)); break; }
-        if (!task.format) { replyParts.push('Which format should it be — reel, carousel or single image?'); break; }
+        if (!task.format) { replyParts.push('Which format should it be: reel, carousel or single image?'); break; }
         if (task.format === post.format) { replyParts.push(`“${post.caption?.split('\n')[0] || post.pillar}” is already a ${task.format}.`); break; }
         await propose('change_format', { kind: 'format', cycleId, postId: post.id, format: task.format }, formatSummary(post, task.format, task.reason));
         break;
@@ -176,7 +176,7 @@ export async function POST(req: Request) {
           const post = resolvePost(task, posts);
           if (!post) { replyParts.push(whichPost(task.reason)); break; }
           if (post.format !== 'reel' && post.format !== 'carousel') {
-            replyParts.push(`Hooks apply to reels and carousels — “${postTitle(post)}” is ${FMT_WORD[post.format] === 'single image' ? 'a single image' : `an ${FMT_WORD[post.format]}`}. Want me to make it a reel first, then add hooks?`);
+            replyParts.push(`Hooks apply to reels and carousels. “${postTitle(post)}” is ${FMT_WORD[post.format] === 'single image' ? 'a single image' : `an ${FMT_WORD[post.format]}`}. Want me to make it a reel first, then add hooks?`);
             break;
           }
           await propose('generate_hook', { kind: 'generate_hook', cycleId, postId: post.id }, generateHookSummary(`“${postTitle(post)}”`, task.reason));
@@ -222,7 +222,7 @@ export async function POST(req: Request) {
         if (!task.content) { replyParts.push('What would you like me to note down?'); break; }
         const noteCycle = task.targetMonth ? await resolveCycleForMonth(clientId, task.targetMonth) : cycleId;
         await saveNote({ clientId, cycleId: noteCycle, content: task.content, source, relevantFrom: task.relevantFrom ?? null, relevantTo: task.relevantTo ?? null });
-        const window = task.relevantFrom || task.relevantTo ? ` (relevant ${task.relevantFrom ?? '…'}–${task.relevantTo ?? '…'})` : '';
+        const window = task.relevantFrom || task.relevantTo ? ` (relevant ${task.relevantFrom ?? '…'} to ${task.relevantTo ?? '…'})` : '';
         replyParts.push(`Noted: ${task.content}${window}`);
         break;
       }
@@ -233,7 +233,7 @@ export async function POST(req: Request) {
             { clientId, cycleId, question: task.question ?? instruction, today },
             { model: getModelClient(), embeddingClient: getEmbeddingClient() },
           );
-        } catch { answer = 'I couldn’t look that up just now — please try again.'; }
+        } catch { answer = 'I couldn’t look that up just now. Please try again.'; }
         replyParts.push(answer);
         break;
       }

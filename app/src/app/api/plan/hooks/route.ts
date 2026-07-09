@@ -28,6 +28,6 @@ export async function POST(req: Request) {
 
   const r = await enqueueHookJob({ type: 'hook', clientId: session.clientId, cycleId: session.cycleId, targetPostId });
   if ('error' in r) return NextResponse.json({ error: r.error }, { status: 503 });
-  if ('busy' in r) return NextResponse.json({ mode: 'noop', summary: 'Already generating hooks for this post — one moment.' });
+  if ('busy' in r) return NextResponse.json({ mode: 'noop', summary: 'Already generating hooks for this post. One moment.' });
   return NextResponse.json({ mode: 'pending', jobId: r.jobId });
 }

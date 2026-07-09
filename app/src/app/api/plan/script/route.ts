@@ -33,6 +33,6 @@ export async function POST(req: Request) {
 
   const r = await enqueueScriptJob({ type: 'script', clientId: session.clientId, cycleId: session.cycleId, targetPostId, lengthSeconds });
   if ('error' in r) return NextResponse.json({ error: r.error }, { status: 503 });
-  if ('busy' in r) return NextResponse.json({ mode: 'noop', summary: 'Already writing a script for this post — one moment.' });
+  if ('busy' in r) return NextResponse.json({ mode: 'noop', summary: 'Already writing a script for this post. One moment.' });
   return NextResponse.json({ mode: 'pending', jobId: r.jobId });
 }

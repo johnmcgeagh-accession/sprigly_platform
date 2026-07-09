@@ -266,7 +266,7 @@ export async function readShapeJob(jobId: string): Promise<JobView> {
     return { status: 'done', changedPostIds: rv.changedPostIds ?? [], summary: rv.summary ?? 'Updated the caption.' };
   }
   if (state === 'failed') {
-    return { status: 'error', summary: job.failedReason || 'Could not make that change — left it as it was.' };
+    return { status: 'error', summary: job.failedReason || 'Could not make that change. Left it as it was.' };
   }
   return { status: 'pending' };
 }

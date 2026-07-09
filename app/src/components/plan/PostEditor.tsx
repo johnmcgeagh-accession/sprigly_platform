@@ -132,7 +132,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
       {/* a hook/script value exists but is hidden for this format — reassure it's retained */}
       {((post.hook && !showHook) || (post.script && !showScript)) && (
         <div data-testid="hidden-fields-note" className="mb-4 rounded-lg bg-line-soft px-3 py-2 text-[12px] font-semibold text-muted">
-          Your saved {post.hook && !showHook ? 'hook' : ''}{post.hook && !showHook && post.script && !showScript ? ' and ' : ''}{post.script && !showScript ? 'script' : ''} {post.hook && !showHook && post.script && !showScript ? 'are' : 'is'} hidden for {FORMAT_LABEL[post.format]} — kept if you switch back.
+          Your saved {post.hook && !showHook ? 'hook' : ''}{post.hook && !showHook && post.script && !showScript ? ' and ' : ''}{post.script && !showScript ? 'script' : ''} {post.hook && !showHook && post.script && !showScript ? 'are' : 'is'} hidden for {FORMAT_LABEL[post.format]}. Kept if you switch back.
         </div>
       )}
 
@@ -150,7 +150,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
           </div>
           <input
             data-testid="editor-hook" aria-label="Hook" value={hook} onChange={(e) => setHook(e.target.value)} onBlur={hookAuto.flush} readOnly={data.readOnly}
-            placeholder="The line that stops the scroll — write one or generate options."
+            placeholder="The line that stops the scroll. Write one or generate options."
             className="w-full rounded-xl border border-line p-3 text-[15px] text-slate-700 outline-none focus:border-coral disabled:opacity-60"
           />
           {hookErr && (
@@ -160,7 +160,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
           )}
           {hookCandidates.length > 0 && (
             <div data-testid="hook-candidates" className="mt-2.5 flex flex-col gap-2">
-              <span className="text-[11.5px] font-bold text-muted">Tap one to use it — it saves straight away:</span>
+              <span className="text-[11.5px] font-bold text-muted">Tap one to use it. It saves straight away:</span>
               {hookCandidates.map((c, i) => (
                 <button key={i} data-testid="hook-candidate" onClick={() => { setHook(c); data.clearHookCandidates(post.id); data.saveHook(post.id, c); hookAuto.markSaved(c); }}
                   className="rounded-xl border border-line bg-line-soft px-3.5 py-2.5 text-left text-[14px] leading-snug text-slate-700 hover:border-coral hover:bg-coral-tint">{c}</button>
@@ -175,7 +175,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
       <textarea
         data-testid="editor-caption" value={caption} onChange={(e) => setCaption(e.target.value)} onBlur={capAuto.flush}
         readOnly={data.readOnly}
-        placeholder="Draft idea — tell Sprigly what this post should be about and it’ll write the caption."
+        placeholder="Draft idea. Tell Sprigly what this post should be about and it’ll write the caption."
         className="min-h-[200px] w-full resize-y rounded-2xl border border-line p-4 text-[15.5px] leading-relaxed text-slate-700 outline-none focus:border-coral"
       />
 
@@ -194,7 +194,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
           </div>
           {!post.hook ? (
             <div className="rounded-xl border border-dashed border-line p-3.5 text-[13.5px] text-muted" data-testid="script-needs-hook">
-              Add or generate a <b className="font-bold text-slate-700">hook</b> first — the script opens on it.
+              Add or generate a <b className="font-bold text-slate-700">hook</b> first. The script opens on it.
             </div>
           ) : (
             <>
@@ -252,7 +252,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
               onToggle={data.readOnly ? undefined : () => data.toggleStep(post.id, s.id, !s.done)}
               onRename={data.readOnly ? undefined : (label) => data.renameStep(post.id, s.id, label)} />
           ))
-          : <div className="py-1 text-[13.5px] text-muted">{isEmail ? 'No checklist for this format.' : 'No steps yet — build a checklist from the type, or add one.'}</div>}
+          : <div className="py-1 text-[13.5px] text-muted">{isEmail ? 'No checklist for this format.' : 'No steps yet. Build a checklist from the type, or add one.'}</div>}
       </div>
 
       {/* shape this post (async) */}

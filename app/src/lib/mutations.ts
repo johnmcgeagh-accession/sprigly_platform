@@ -15,7 +15,7 @@ import { recordActivity, USER_ACTOR, type ActivityActor, type ActivityAction } f
 import type { ShapeResult, PostFormat } from '@/lib/types';
 
 const FORMATS = new Set<PostFormat>(['reel', 'carousel', 'single', 'email']);
-const DRAFT_PLACEHOLDER = 'Draft idea — tell Sprigly what this post should be about and it\'ll write the caption.';
+const DRAFT_PLACEHOLDER = 'Draft idea. Tell Sprigly what this post should be about and it\'ll write the caption.';
 
 /**
  * The (id, clientId, cycleId) scope every write must carry. The preceding

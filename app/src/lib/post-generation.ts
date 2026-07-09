@@ -21,7 +21,7 @@ export async function startPostGeneration(
 ): Promise<StartGenerationResult> {
   const usage = await getUsageForCycle(clientId, cycleId);
   if (isRewriteBlocked(usage)) {
-    const message = `You’ve used all ${usage.limit} AI changes this month — this post is saved, so retry after the 1st or edit it directly.`;
+    const message = `You’ve used all ${usage.limit} AI changes this month. This post is saved, so retry after the 1st or edit it directly.`;
     await markPostGenerationFailed(clientId, cycleId, postId, message);
     return { blocked: true, message };
   }

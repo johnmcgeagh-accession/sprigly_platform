@@ -97,7 +97,7 @@ describe('applyCaps (code-enforced)', () => {
 
 describe('messages', () => {
   it('quiet-week message names the week', () => {
-    expect(quietMessage('2026-03-16')).toBe('Checked w/c 16 Mar 2026: forecast unremarkable, no maturing notes, no conflicts — no changes proposed.');
+    expect(quietMessage('2026-03-16')).toBe('Checked w/c 16 Mar 2026: forecast unremarkable, no maturing notes, no conflicts. No changes proposed.');
   });
   it('change message lists proposals and notes skipped count', () => {
     const m = changeMessage('2026-03-16', ['Move X → Y — because', 'Rewrite Z — because'], 2);

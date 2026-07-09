@@ -203,13 +203,13 @@ export function fmtWeekOf(weekStart: string): string {
 
 /** The quiet-week message when nothing was actioned. */
 export function quietMessage(weekStart: string): string {
-  return `Checked ${fmtWeekOf(weekStart)}: forecast unremarkable, no maturing notes, no conflicts — no changes proposed.`;
+  return `Checked ${fmtWeekOf(weekStart)}: forecast unremarkable, no maturing notes, no conflicts. No changes proposed.`;
 }
 
 /** The change-summary message: a lead-in plus each proposal's summary (which
  *  carries its trigger). */
 export function changeMessage(weekStart: string, proposalSummaries: string[], skippedCount: number): string {
-  const head = `Weekly check for ${fmtWeekOf(weekStart)} — ${proposalSummaries.length} change${proposalSummaries.length === 1 ? '' : 's'} proposed for review:`;
+  const head = `Weekly check for ${fmtWeekOf(weekStart)}: ${proposalSummaries.length} change${proposalSummaries.length === 1 ? '' : 's'} proposed for review:`;
   const body = proposalSummaries.map((s) => `• ${s}`).join('\n');
   const tail = skippedCount > 0 ? `\n(${skippedCount} further finding${skippedCount === 1 ? '' : 's'} noted but not actioned this week.)` : '';
   return `${head}\n${body}${tail}`;

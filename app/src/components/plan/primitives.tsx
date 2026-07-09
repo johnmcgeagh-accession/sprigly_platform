@@ -60,6 +60,39 @@ export function Sheet({
   );
 }
 
+/** Centred modal dialog (desktop agent). A fixed-width card centred horizontally and set in
+ *  the upper third, rounded on all corners, focus-trapped + Escape-closable. The entrance is
+ *  a fade + slight rise/scale (killed by the reduced-motion scoped reset). The outer wrapper
+ *  is pointer-events-none so clicks outside the card fall through to the Scrim behind it. */
+export function Dialog({
+  show, onClose, children, className = '', testid = 'dialog', labelledBy, label,
+}: { show: boolean; onClose: () => void; children: React.ReactNode; className?: string; testid?: string; labelledBy?: string; label?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useFocusTrap(show, ref, onClose);
+  useEffect(() => { const el = ref.current as (HTMLElement & { inert: boolean }) | null; if (el) el.inert = !show; }, [show]);
+  return (
+    <div className="pointer-events-none fixed inset-0 z-[61] flex items-start justify-center px-4 pt-[12vh]">
+      <div
+        ref={ref} role="dialog" aria-modal="true" aria-labelledby={labelledBy} aria-label={labelledBy ? undefined : label} data-testid={testid} tabIndex={-1}
+        className={[
+          'relative flex max-h-[80vh] w-full max-w-[640px] flex-col overflow-hidden rounded-[24px] bg-surface shadow-sheet outline-none',
+          // Animate TRANSFORM only (a scale + rise). Opacity flips instantly so the modal is
+          // full-contrast the moment it's visible — axe/toBeVisible don't wait out a fade.
+          'origin-top transition-transform duration-300 ease-sheet',
+          show ? 'pointer-events-auto scale-100 opacity-100 translate-y-0' : 'pointer-events-none scale-[0.98] opacity-0 translate-y-3',
+          className,
+        ].join(' ')}
+      >
+        <button data-testid="dialog-close" onClick={onClose} aria-label="Close"
+          className="absolute right-4 top-4 z-[2] flex h-9 w-9 items-center justify-center rounded-full bg-line-soft text-slate-700 hover:bg-[#E9E6E1]">
+          <CloseIcon className="h-3.5 w-3.5" />
+        </button>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 /** Right drawer (desktop editor). Focus-trapped, Escape-closable; plan stays visible. */
 export function Drawer({
   show, onClose, children, testid = 'drawer', labelledBy, label,

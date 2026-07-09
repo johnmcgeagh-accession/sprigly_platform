@@ -174,7 +174,7 @@ export async function runWeeklySession(job: WeeklySessionJob, deps: PlanningDeps
         specs.push({
           intent: 'rewrite_post',
           payload: { kind: 'apply_caption', cycleId, postId: post.id, caption, noteId: f.type === 'note_integration' ? f.noteId ?? null : null },
-          summary: `Rewrite “${postTitle(post.caption, post.pillar)}” (${isoLabel(post.scheduledDate)}) — ${f.trigger}`,
+          summary: `Rewrite “${postTitle(post.caption, post.pillar)}” (${isoLabel(post.scheduledDate)}): ${f.trigger}`,
         });
       } else if (f.type === 'weather_opportunity') {
         const date = notableDate ?? weekStart;
@@ -187,7 +187,7 @@ export async function runWeeklySession(job: WeeklySessionJob, deps: PlanningDeps
         specs.push({
           intent: 'add_post',
           payload: { kind: 'add_generated', cycleId, date, channel: cycle.channel, format: 'single', pillar: 'Weather', caption },
-          summary: `Add a post (${isoLabel(date)}) — ${f.trigger}`,
+          summary: `Add a post (${isoLabel(date)}): ${f.trigger}`,
         });
       } else if (f.type === 'date_conflict') {
         const post = posts.find((p) => p.id === f.postId);
@@ -195,7 +195,7 @@ export async function runWeeklySession(job: WeeklySessionJob, deps: PlanningDeps
         specs.push({
           intent: 'move_post',
           payload: { kind: 'move', cycleId, postId: post.id, toDate: f.toDate },
-          summary: `Move “${postTitle(post.caption, post.pillar)}” from ${isoLabel(post.scheduledDate)} → ${isoLabel(f.toDate)} — ${f.trigger}`,
+          summary: `Move “${postTitle(post.caption, post.pillar)}” from ${isoLabel(post.scheduledDate)} → ${isoLabel(f.toDate)}: ${f.trigger}`,
         });
       }
     } catch (err) {

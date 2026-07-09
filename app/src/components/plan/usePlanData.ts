@@ -115,10 +115,10 @@ export function usePlanData(init: PlanDataInit) {
       const init2: RequestInit = { method };
       if (payload !== undefined) { init2.headers = { 'content-type': 'application/json' }; init2.body = JSON.stringify(payload); }
       const res = await fetch(url, init2);
-      if (!res.ok) { flash('Something went wrong — please try again.'); return; }
+      if (!res.ok) { flash('Something went wrong. Please try again.'); return; }
       const r = (await res.json()) as ShapeResult;
       if (r.mode === 'applied') { setPosts(r.posts); flash(r.summary); }
-    } catch { flash('Network error — please try again.'); }
+    } catch { flash('Network error. Please try again.'); }
     finally { setBusy(false); }
   }, [readOnly, flash]);
 
@@ -150,12 +150,12 @@ export function usePlanData(init: PlanDataInit) {
           let j: { status: string; candidates?: string[] };
           try { const p = await fetch(`/api/jobs/${r.jobId}`); if (!p.ok) continue; j = (await p.json()) as typeof j; } catch { continue; }
           if (j.status === 'done')  { setHookCandidates((m) => new Map(m).set(id, j.candidates ?? [])); return; }
-          if (j.status === 'error') { setHookError((m) => new Map(m).set(id, 'Couldn’t generate hooks — try again.')); return; }
-          if (j.status === 'gone')  { setHookError((m) => new Map(m).set(id, 'Hook generation was lost — try again.')); return; }
+          if (j.status === 'error') { setHookError((m) => new Map(m).set(id, 'Couldn’t generate hooks. Try again.')); return; }
+          if (j.status === 'gone')  { setHookError((m) => new Map(m).set(id, 'Hook generation was lost. Try again.')); return; }
         }
         setHookError((m) => new Map(m).set(id, 'That’s taking longer than expected.'));
       }
-    } catch { setHookError((m) => new Map(m).set(id, 'Network error — please try again.')); }
+    } catch { setHookError((m) => new Map(m).set(id, 'Network error. Please try again.')); }
     finally { setHookGenerating((s) => { const n = new Set(s); n.delete(id); return n; }); }
   }, [readOnly, hookGenerating, flash]);
   const revert = useCallback((id: string) => call(`/api/posts/${id}/revert`, 'POST'), [call]);
@@ -187,7 +187,7 @@ export function usePlanData(init: PlanDataInit) {
       if (!res.ok) { flash('Could not build the checklist.'); return; }
       setPostSteps(id, ((await res.json()) as { steps: PostStepView[] }).steps);
       flash('Checklist added.');
-    } catch { flash('Network error — please try again.'); }
+    } catch { flash('Network error. Please try again.'); }
   }, [readOnly, flash, setPostSteps]);
 
   const addStep = useCallback(async (id: string, input: { label: string; leadDays: number }) => {
@@ -195,7 +195,7 @@ export function usePlanData(init: PlanDataInit) {
     try {
       const res = await fetch(`/api/posts/${id}/steps`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });
       if (res.ok) setPostSteps(id, ((await res.json()) as { steps: PostStepView[] }).steps);
-    } catch { flash('Network error — please try again.'); }
+    } catch { flash('Network error. Please try again.'); }
   }, [readOnly, flash, setPostSteps]);
 
   const toggleStep = useCallback(async (id: string, stepId: string, done: boolean) => {
@@ -203,7 +203,7 @@ export function usePlanData(init: PlanDataInit) {
     try {
       const res = await fetch(`/api/posts/${id}/steps/${stepId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ done }) });
       if (res.ok) { setPostSteps(id, ((await res.json()) as { steps: PostStepView[] }).steps); if (done) track('checklist_step_completed', { postId: id, stepId }); }
-    } catch { flash('Network error — please try again.'); }
+    } catch { flash('Network error. Please try again.'); }
   }, [readOnly, flash, setPostSteps, track]);
 
   /** Rename a checklist step's label (autosave on blur/idle → step_renamed ledger). */
@@ -212,7 +212,7 @@ export function usePlanData(init: PlanDataInit) {
     try {
       const res = await fetch(`/api/posts/${id}/steps/${stepId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ label }) });
       if (res.ok) setPostSteps(id, ((await res.json()) as { steps: PostStepView[] }).steps);
-    } catch { flash('Network error — please try again.'); }
+    } catch { flash('Network error. Please try again.'); }
   }, [readOnly, flash, setPostSteps]);
 
   /** Poll a shape job until it settles; returns the terminal status. */
@@ -281,10 +281,10 @@ export function usePlanData(init: PlanDataInit) {
       if (r.mode === 'pending' && r.jobId) {
         const status = await pollJob(r.jobId);
         if (status === 'error' || status === 'timeout') {
-          setScriptError((m) => new Map(m).set(id, status === 'timeout' ? 'That’s taking longer than expected.' : 'Couldn’t write the script — try again.'));
+          setScriptError((m) => new Map(m).set(id, status === 'timeout' ? 'That’s taking longer than expected.' : 'Couldn’t write the script. Try again.'));
         }
       }
-    } catch { setScriptError((m) => new Map(m).set(id, 'Network error — please try again.')); }
+    } catch { setScriptError((m) => new Map(m).set(id, 'Network error. Please try again.')); }
     finally { setScriptGenerating((s) => { const n = new Set(s); n.delete(id); return n; }); }
   }, [readOnly, scriptGenerating, flash, pollJob]);
 
@@ -303,8 +303,8 @@ export function usePlanData(init: PlanDataInit) {
         body: JSON.stringify({ instruction, selectedPostId, conversationId: conversationId.current }),
         signal: controller.signal,
       });
-      if (res.status === 429) { setAgentError('You’re sending changes too quickly — give it a few seconds and try again.'); return null; }
-      if (!res.ok) { setAgentError('Something went wrong — your message is still here, try again.'); return null; }
+      if (res.status === 429) { setAgentError('You’re sending changes too quickly. Give it a few seconds and try again.'); return null; }
+      if (!res.ok) { setAgentError('Something went wrong. Your message is still here, try again.'); return null; }
       const r = (await res.json()) as AgentTurn;
       conversationId.current = r.conversationId;
       const created = r.proposals ?? [];
@@ -319,8 +319,8 @@ export function usePlanData(init: PlanDataInit) {
       return reply;
     } catch {
       setAgentError(controller.signal.aborted
-        ? 'That’s taking longer than expected — your message is still here, try again.'
-        : 'Network error — your message is still here, try again.');
+        ? 'That’s taking longer than expected. Your message is still here, try again.'
+        : 'Network error. Your message is still here, try again.');
       return null;
     } finally { clearTimeout(ceiling); setAgentBusy(false); }
   }, [readOnly, agentBusy, flash, refreshNotes, track]);
@@ -346,7 +346,7 @@ export function usePlanData(init: PlanDataInit) {
     setProposalBusy(id);
     try {
       const res = await fetch(`/api/plan/proposals/${id}/${action}`, { method: 'POST' });
-      if (!res.ok) { flash('Could not update that — please try again.'); return false; }
+      if (!res.ok) { flash('Could not update that. Please try again.'); return false; }
       const d = (await res.json()) as { jobId?: string; hookPostId?: string; blocked?: boolean; message?: string };
       // Blocked = a dependency wasn't met (e.g. approve hooks before the create step). The
       // proposal is untouched — leave the row so it can be approved after its prerequisite.
@@ -360,7 +360,7 @@ export function usePlanData(init: PlanDataInit) {
         else if (d.jobId) { await pollJob(d.jobId); await refreshPlan(); }
       } else { flash('Dismissed.'); }
       return true;
-    } catch { flash('Network error — please try again.'); return false; }
+    } catch { flash('Network error. Please try again.'); return false; }
     finally { setProposalBusy(null); }
   }, [proposalBusy, flash, refreshPlan, pollJob, pollHookInto, track]);
 
@@ -373,7 +373,7 @@ export function usePlanData(init: PlanDataInit) {
       if (!res.ok) { flash('Could not open that month.'); return; }
       const d = (await res.json()) as { posts: PlanPost[]; readOnly: boolean };
       setPosts(d.posts); setReadOnly(!!d.readOnly); setViewedCycleId(cycleId);
-    } catch { flash('Network error — please try again.'); }
+    } catch { flash('Network error. Please try again.'); }
     finally { setSwitching(false); }
   }, [init.homeCycleId, flash]);
 

@@ -103,7 +103,7 @@ test('agent ask (stubbed) → ExtractionSummary → proposal in Approvals → di
   await expect(page.getByTestId('extraction-approve').first()).toBeVisible(); // inline actions, not "→ Approvals"
   await expect(page.getByTestId('extraction-summary')).not.toContainText('•'); // clean prose, no orphan bullet
 
-  await page.getByTestId('sheet-close').click();
+  await page.getByTestId('dialog-close').click();
   await page.getByTestId('nav-approvals').click();
   await expect(page.getByTestId('proposal-card')).toHaveCount(2); // seeded + new
   await page.getByTestId('proposal-card').first().getByTestId('proposal-discard').click();
@@ -292,7 +292,7 @@ test('agent compound ask → two independently-approvable rows; inline approve m
 
   // Same ledger/mutation as the Approvals view: format_changed, origin agent, on the reel post.
   await expectActivity(page, SEED.post(3), (r) => r.action === 'format_changed' && r.origin === 'agent', 'agent format_changed ledgered');
-  await page.getByTestId('sheet-close').click();
+  await page.getByTestId('dialog-close').click();
   await page.locator(`[data-post-id="${SEED.post(3)}"]`).click();
   await expect(page.getByTestId('format-select')).toContainText('Carousel');
 });

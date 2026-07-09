@@ -165,12 +165,12 @@ function normalizeTask(raw: unknown): ParsedTask {
       const format = raw === 'reel' || raw === 'carousel' || raw === 'single' ? raw : null;
       if (!needsPost()) return clarify('Which post should I change the format of?', reason);
       // Email isn't an available format here; anything unrecognised → clarify (don't drop).
-      if (!format) return clarify('Which format should it be — reel, carousel or single image?', reason);
+      if (!format) return clarify('Which format should it be: reel, carousel or single image?', reason);
       return { action, ...postRef, format, reason };
     }
     case 'add_post': {
       // Email posts can't be created here (the format flow is reel/carousel/single only).
-      if (r.channel === 'email') return clarify('Email posts aren’t available here yet — I can add an Instagram reel, carousel or single image.', reason);
+      if (r.channel === 'email') return clarify('Email posts aren’t available here yet. I can add an Instagram reel, carousel or single image.', reason);
       // format inferred from wording (reel/carousel/single); null when there's no signal
       // (defaults to single image downstream, shown so the client can correct it).
       const rawFmt = str(r.format)?.toLowerCase();
@@ -224,11 +224,11 @@ export async function parseTasks(text: string, ctx: ParserContext, model: ModelC
     });
     raw = res.content;
   } catch {
-    return [clarify('I couldn’t process that just now — please try again in a moment.')];
+    return [clarify('I couldn’t process that just now. Please try again in a moment.')];
   }
 
   const parsed = extractJson(raw) as { tasks?: unknown } | null;
   const tasks = parsed && Array.isArray(parsed.tasks) ? parsed.tasks : null;
-  if (!tasks || tasks.length === 0) return [clarify('I didn’t catch a request there — could you rephrase?')];
+  if (!tasks || tasks.length === 0) return [clarify('I didn’t catch a request there. Could you rephrase?')];
   return tasks.map(normalizeTask);
 }

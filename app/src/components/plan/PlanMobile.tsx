@@ -336,7 +336,7 @@ function SwipeCard({ post, data, onEdit, onMove }: { post: PlanPost; data: PlanD
         <h4 className="mb-1.5 text-[17px] font-extrabold leading-tight tracking-tight text-slate-700">
           {isUntitled(post) ? <span className="font-semibold italic text-muted">Untitled draft</span> : postTitle(post)}
         </h4>
-        <p className="mb-1 text-[13.5px] leading-normal text-slate-600">{post.caption || 'Draft idea — tell Sprigly what this post should be about.'}</p>
+        <p className="mb-1 text-[13.5px] leading-normal text-slate-600">{post.caption || 'Draft idea. Tell Sprigly what this post should be about.'}</p>
         {post.status === 'new' && <span className="text-[11px] font-bold text-slate-700">NEW</span>}
       </div>
     </div>

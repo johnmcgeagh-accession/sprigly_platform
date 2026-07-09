@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import type { PlanData } from './usePlanData';
-import { Drawer, Scrim, Sheet, DISABLED_PRIMARY } from './primitives';
+import { Drawer, Scrim, Dialog, DISABLED_PRIMARY } from './primitives';
 import { PostEditor } from './PostEditor';
 import { PostChip, ProposalCard, NoteRow, ExtractionSummary, monthDayLabel, postTitle, WeatherCellIcon } from './pieces';
 import { planTasks, lateCount, viewedMonth } from './derive';
@@ -85,7 +85,7 @@ export function PlanDesktop({ data }: { data: PlanData }) {
             {/* Calendar drops the post count — it's already in the rail badge + summary card. */}
             {view !== 'calendar' && (
               <span className="text-[13px] font-bold text-muted">
-                {view === 'timeline' ? 'Oldest first · coral line marks today' : view === 'tasks' ? 'What to create, worked back from each date' : view === 'approvals' ? 'Sprigly suggested these — approve to apply, or discard' : 'Things you’ve said that shape future planning'}
+                {view === 'timeline' ? 'Oldest first · coral line marks today' : view === 'tasks' ? 'What to create, worked back from each date' : view === 'approvals' ? 'Sprigly suggested these. Approve to apply, or discard' : 'Things you’ve said that shape future planning'}
               </span>
             )}
             <span className="flex-1" />
@@ -158,12 +158,12 @@ export function PlanDesktop({ data }: { data: PlanData }) {
         {sel && <PostEditor post={sel} data={data} onClose={() => setDrawerOpen(false)} />}
       </Drawer>
 
-      {/* agent sheet */}
+      {/* agent modal — a centred dialog (§28), not a full-width bottom sheet */}
       <Scrim show={agentOpen} onClick={() => setAgentOpen(false)} />
-      <Sheet show={agentOpen} onClose={() => setAgentOpen(false)} testid="agent-sheet" labelledBy="agent-sheet-title">
-        <div className="mx-auto max-h-[82vh] w-full max-w-[940px] overflow-y-auto px-9 pb-9 pt-2">
-          <div className="mb-1 mt-1.5"><div className="text-[11px] font-extrabold uppercase tracking-[.14em] text-muted">Plan agent</div><div id="agent-sheet-title" className="font-serif text-[27px] text-slate-700">Talk to your <em className="italic text-coral-heading">plan</em></div></div>
-          <p className="mb-5 mt-1 max-w-[560px] text-[14px] font-semibold leading-snug text-muted">Ask in plain English. Sprigly proposes the change and <b className="text-slate-700">nothing happens until you approve it</b>.</p>
+      <Dialog show={agentOpen} onClose={() => setAgentOpen(false)} testid="agent-sheet" labelledBy="agent-sheet-title">
+        <div className="w-full overflow-y-auto px-8 pb-8 pt-9">
+          <div id="agent-sheet-title" className="text-center font-serif text-[27px] text-slate-700">Talk to your <em className="italic text-coral-heading">plan</em></div>
+          <p className="mx-auto mb-5 mt-1.5 whitespace-nowrap text-center text-[13px] font-semibold leading-snug text-muted">Ask in plain English. <b className="text-slate-700">Nothing happens until you approve it.</b></p>
           <div className="flex items-center gap-2.5 rounded-2xl border-[1.5px] border-line bg-surface py-2 pl-[18px] pr-2 focus-within:border-coral">
             {/* The container owns the focus indicator (focus-within:border-coral). The inner
                 input suppresses its own focus outline — including the global
@@ -196,9 +196,9 @@ export function PlanDesktop({ data }: { data: PlanData }) {
           ) : (
             <ExtractionSummary reply={data.agentReply} onDecide={data.decide} busy={!!data.proposalBusy} />
           )}
-          <div className="mt-4 text-[12.5px] font-semibold text-muted">Suggestions land in <b className="text-slate-700">Approvals</b> in the menu — nothing changes until you approve it there.</div>
+          <div className="mt-4 text-center text-[12.5px] font-semibold text-muted">Suggestions land in <b className="text-slate-700">Approvals</b> in the menu. Nothing changes until you approve it there.</div>
         </div>
-      </Sheet>
+      </Dialog>
     </div>
   );
 }
@@ -284,7 +284,7 @@ function TimelineView({ data, selId, onSelect }: { data: PlanData; selId: string
                   {p.status === 'new' ? <span className="rounded-[5px] bg-coral-tint px-1.5 py-px text-[9px] font-extrabold tracking-[.06em] text-slate-700">NEW</span> : p.status === 'edited' && <span className="rounded-[5px] border border-line px-1.5 py-px text-[9px] font-bold tracking-[.06em] text-muted">EDITED</span>}
                 </div>
                 <div className="my-[7px] flex items-center gap-2 text-[14px] font-bold"><FormatIcon format={p.format} className="h-4 w-4 text-slate-600" /><span className="text-slate-700">{FORMAT_LABEL[p.format]}</span><span className="text-[#CFCBC5]">·</span><span className="font-semibold text-muted">{postTitle(p)}</span></div>
-                <div className="overflow-hidden text-[15.5px] leading-relaxed text-slate-600 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">{p.caption || 'Draft idea — tell Sprigly what this post should be about.'}</div>
+                <div className="overflow-hidden text-[15.5px] leading-relaxed text-slate-600 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">{p.caption || 'Draft idea. Tell Sprigly what this post should be about.'}</div>
               </div>
             </div>
           </React.Fragment>
@@ -317,7 +317,7 @@ function TasksView({ data, onSelect }: { data: PlanData; onSelect: (id: string) 
           ))}
         </div>
       ))}
-      {total === 0 && <div className="rounded-xl border border-dashed border-line p-4 text-[13.5px] text-muted" data-testid="tasks-empty">All caught up — every post has what it needs.</div>}
+      {total === 0 && <div className="rounded-xl border border-dashed border-line p-4 text-[13.5px] text-muted" data-testid="tasks-empty">All caught up. Every post has what it needs.</div>}
     </div>
   );
 }
@@ -337,7 +337,7 @@ function ApprovalsView({ data }: { data: PlanData }) {
         ? <RetryPane testid="approvals-error" label="Couldn’t load your approvals." onRetry={() => data.refreshProposals()} />
         : data.proposals.length > 0
           ? data.proposals.map((p) => <ProposalCard key={p.id} proposal={p} busy={data.proposalBusy === p.id} onApprove={() => data.decide(p.id, 'approve')} onDiscard={() => data.decide(p.id, 'reject')} />)
-          : <div className="rounded-xl border border-dashed border-line p-3.5 text-[13.5px] text-muted" data-testid="approvals-empty">Nothing waiting. Ask Sprigly for a change — talk to your plan — and it’ll appear here for you to approve.</div>}
+          : <div className="rounded-xl border border-dashed border-line p-3.5 text-[13.5px] text-muted" data-testid="approvals-empty">Nothing waiting. Ask Sprigly for a change and it’ll appear here for you to approve.</div>}
     </div>
   );
 }

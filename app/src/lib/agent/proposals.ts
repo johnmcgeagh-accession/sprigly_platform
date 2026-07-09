@@ -133,7 +133,7 @@ async function resolveHookTarget(
     .limit(1);
   if (!post || post.deletedAt) return { ready: false, message: 'That post no longer exists.' };
   if (post.format !== 'reel' && post.format !== 'carousel') {
-    return { ready: false, message: 'Hooks apply to reels and carousels — change the format first, then generate hooks.' };
+    return { ready: false, message: 'Hooks apply to reels and carousels. Change the format first, then generate hooks.' };
   }
   return { ready: true, postId };
 }
