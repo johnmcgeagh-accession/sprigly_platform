@@ -44,11 +44,17 @@ test('caption save → EDITED → revert restores original; both ledgered', asyn
   const cap = page.getByTestId('editor-caption');
   await expect(cap).toHaveValue(/original caption/);
 
+  // Autosave on blur (no Save button) → EDITED + one caption_saved ledger row.
+  await expect(page.getByTestId('editor-save')).toHaveCount(0);
   await cap.fill('A brand new caption for the e2e test.');
-  await page.getByTestId('editor-save').click();
+  await cap.blur();
   await expect(page.getByTestId('post-editor').getByText('EDITED', { exact: true })).toBeVisible();
   await expectActivity(page, id, (r) => r.action === 'caption_saved' && r.origin === 'user', 'caption_saved ledgered');
+  await expect
+    .poll(async () => (await activityFor(page, id)).filter((r) => r.action === 'caption_saved').length)
+    .toBe(1);
 
+  // Revert restores the original even from an autosaved state.
   await page.getByTestId('editor-revert').click();
   await expect(cap).toHaveValue(/original caption/);
   await expectActivity(page, id, (r) => r.action === 'post_reverted' && r.origin === 'user', 'post_reverted ledgered');
@@ -154,4 +160,44 @@ test('month nav: round-trips to the adjacent August cycle and disables at bounda
   await expect(page.getByText('July 2026')).toBeVisible();
   await expect(page.getByTestId('post-chip')).toHaveCount(12);
   await expect(page.getByTestId('add-post')).toBeVisible();
+});
+
+test('caption autosave: rapid typing settles to a single ledger row', async ({ page }) => {
+  const id = SEED.post(1);
+  await page.locator(`[data-post-id="${id}"]`).click();
+  const cap = page.getByTestId('editor-caption');
+  await cap.click();
+  await cap.fill('');
+  // Type character-by-character quickly (under the ~1.5s debounce), then blur to settle.
+  await cap.pressSequentially('rapid typing under the debounce window', { delay: 20 });
+  await cap.blur();
+  await expectActivity(page, id, (r) => r.action === 'caption_saved' && r.origin === 'user', 'one caption_saved');
+  // Exactly one row for the single settled edit — never one-per-keystroke.
+  await expect
+    .poll(async () => (await activityFor(page, id)).filter((r) => r.action === 'caption_saved').length)
+    .toBe(1);
+});
+
+test('delete: bottom button needs a confirm; cancel keeps the post, confirm removes it', async ({ page }) => {
+  const id = SEED.post(2);
+  await page.locator(`[data-post-id="${id}"]`).click();
+  await expect(page.getByTestId('post-editor')).toBeVisible();
+
+  // No mid-panel remove; the delete button is at the bottom.
+  await expect(page.getByTestId('editor-remove')).toHaveCount(0);
+  await expect(page.getByTestId('editor-delete')).toBeVisible();
+
+  // First tap only asks — nothing is destroyed.
+  await page.getByTestId('editor-delete').click();
+  await expect(page.getByTestId('delete-confirm')).toBeVisible();
+  await page.getByTestId('delete-cancel').click();
+  await expect(page.getByTestId('delete-confirm')).toHaveCount(0);
+  await expect(page.locator(`[data-post-id="${id}"]`)).toBeVisible();
+
+  // Confirm → post removed (drawer closes, chip gone) + post_deleted ledger.
+  await page.getByTestId('editor-delete').click();
+  await page.getByTestId('delete-confirm-yes').click();
+  await expect(page.getByTestId('post-editor')).toHaveCount(0);
+  await expect(page.locator(`[data-post-id="${id}"]`)).toHaveCount(0);
+  await expectActivity(page, id, (r) => r.action === 'post_deleted', 'post_deleted ledgered');
 });

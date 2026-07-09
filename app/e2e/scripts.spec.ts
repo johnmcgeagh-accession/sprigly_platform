@@ -17,9 +17,9 @@ test('script: gated on hook, then length → pending → lands → edit → save
   await expect(page.getByTestId('script-needs-hook')).toBeVisible();
   await expect(page.getByTestId('generate-script')).toHaveCount(0);
 
-  // Add a hook so the script unlocks.
+  // Add a hook so the script unlocks — typed hook autosaves on blur (no Save button).
   await page.getByTestId('editor-hook').fill('The real reason this top sold out twice.');
-  await page.getByTestId('hook-save').click();
+  await page.getByTestId('editor-hook').blur();
   await expect(page.getByTestId('script-needs-hook')).toHaveCount(0);
 
   // Pick 60s and generate → pending → the script lands in an editable textarea.
@@ -28,9 +28,10 @@ test('script: gated on hook, then length → pending → lands → edit → save
   await expect(page.getByTestId('editor-script')).toBeVisible({ timeout: 12_000 });
   await expect(page.getByTestId('editor-script')).toHaveValue(/HOOK:/);
 
-  // Edit + save → script_saved ledger (origin user).
+  // Edit → autosave on blur → script_saved ledger (origin user). No Save button.
+  await expect(page.getByTestId('script-save')).toHaveCount(0);
   await page.getByTestId('editor-script').fill('HOOK: an edited opening line.\nCTA: link in bio.');
-  await page.getByTestId('script-save').click();
+  await page.getByTestId('editor-script').blur();
   await expectActivity(page, id, (r) => r.action === 'script_saved', 'script_saved ledger row');
 
   // Persists across reload.
@@ -44,12 +45,10 @@ test('script: the reel script editor state has no serious axe violations', async
   const id = SEED.post(3);
   await page.locator(`[data-post-id="${id}"]`).click();
   await page.getByTestId('editor-hook').fill('A hook to unlock the script.');
-  await page.getByTestId('hook-save').click();
+  await page.getByTestId('editor-hook').blur();
   await page.getByTestId('length-30').click();
   await page.getByTestId('generate-script').click();
   await expect(page.getByTestId('editor-script')).toBeVisible({ timeout: 12_000 });
-  await page.getByTestId('editor-script').fill('HOOK: edited.\nCTA: go.'); // reveals Save script
-  await expect(page.getByTestId('script-save')).toBeVisible();
   const { violations } = await new AxeBuilder({ page }).analyze();
   const serious = violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => v.id);
   expect(serious, 'reel script editor').toEqual([]);

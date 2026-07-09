@@ -18,10 +18,10 @@ test('month renders with post count and a correct ring', async ({ page }) => {
   await expect(page.getByText('2/2 done')).toBeVisible();
 });
 
-test('caption save flips to EDITED', async ({ page }) => {
+test('caption autosave flips to EDITED', async ({ page }) => {
   await page.locator(`[data-post-id="${SEED.post(1)}"]`).click();
   await page.getByTestId('editor-caption').fill('Prod-mode edit for the smoke test.');
-  await page.getByTestId('editor-save').click();
+  await page.getByTestId('editor-caption').blur(); // autosave on blur (no Save button)
   await expect(page.getByTestId('post-editor').getByText('EDITED', { exact: true })).toBeVisible();
 });
 

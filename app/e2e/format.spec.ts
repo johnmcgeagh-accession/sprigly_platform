@@ -53,9 +53,9 @@ test('format: hook/script hidden but retained across reel → single → reel', 
   await page.locator(`[data-post-id="${id}"]`).click();
   await expect(page.getByTestId('post-editor')).toBeVisible();
 
-  // Give it a hook + a generated script.
+  // Give it a hook + a generated script (typed hook autosaves on blur).
   await page.getByTestId('editor-hook').fill('A hook to keep across formats.');
-  await page.getByTestId('hook-save').click();
+  await page.getByTestId('editor-hook').blur();
   await page.getByTestId('length-30').click();
   await page.getByTestId('generate-script').click();
   await expect(page.getByTestId('editor-script')).toBeVisible({ timeout: 12_000 });
