@@ -782,3 +782,50 @@ assertion — failed both attempts and were genuine, not retry-masked).
   known reseed-timing class. **Any new flake pattern must be investigated and root-caused, not
   absorbed by the retry.** If a second distinct flake appears, that is the trigger to do the
   per-worker-tenant work rather than widen `retries`.
+
+---
+
+## 19. Editor polish pass — autosave, button alignment, header, delete (2026-07-09)
+
+From John's review of the reel editor. App-only (PostEditor.tsx + e2e); no schema/env change.
+
+### Autosave everywhere (Save buttons removed)
+Caption, typed hook, and script now persist via a shared `useAutosave(value, persisted,
+save, enabled, delay=1500)` hook: a save fires **1.5s after the last change OR immediately
+on blur/unmount** — one PATCH (→ one ledger row) per *settled* edit, never per keystroke.
+- The `Save caption` / `Save hook` / `Save script` buttons are gone. Removing the typed-hook
+  Save button also kills the flicker John saw when picking a candidate (the Save button
+  flashing in/out during the pick-autosave).
+- `persisted` (the server value) is the baseline: when it changes from outside — a candidate
+  pick, a shape job, a reload, switching post — it becomes the new baseline and is never
+  echoed back. Candidate picks still save immediately and call `markSaved(value)` so the
+  debounce can't double-save the same text.
+- The existing per-field toasts ("Saved your caption." / "Hook saved." / "Script saved.")
+  are the quiet settle confirmation. Revert is unaffected — it still restores the original
+  from an autosaved state (e2e proves it).
+- **e2e restructure:** caption/hook/script specs now blur to save (not click a button) and
+  assert **one** ledger row per settled edit; a new test types character-by-character under
+  the debounce window and asserts a single `caption_saved` row (not one-per-keystroke).
+
+### Consistent section-header buttons
+`Regenerate script` moved from its own line below the length picker onto the **Script header
+row** (right-aligned), matching `Regenerate hooks`; `+ Add step` / `Build checklist` moved
+onto the **Checklist header row**. One convention: each generate/add button sits right-aligned
+on its section's header, same slate style, same size/spacing. (`SECONDARY_BTN` dropped its
+`self-start` and gained `flex-none` so it sits cleanly in the header flex row.)
+
+### Header overlap (Revert vs ✕)
+The drawer/sheet ✕ is absolute (top-right, owned by the Drawer/Sheet wrapper, shared by all
+dialogs). The editor header now carries `pr-12`, reserving the ✕ its own slot so Revert can't
+slide under it at any width; the format/date/status badges wrap (flex-wrap) before Revert
+clips. Localised to the editor header — the shared ✕ was left as-is.
+
+### Delete post — bottom-pinned, coral, confirmed
+Removed the mid-panel "Remove post". New: a **full-width, bottom-pinned "Delete post"**
+(`bg-coral-cta` #C24C34 + white + trash glyph; 4.80:1, the AA-safe coral, §16) at the end of
+the scroll, with a **two-step inline confirm** ("Delete this post? This can't be undone." /
+Delete / Cancel) — no single-tap destruction. e2e covers cancel-keeps / confirm-removes +
+`post_deleted` ledger.
+- **Pending John's pick:** shipped the coral treatment; an alternative conventional-destructive
+  treatment (white fill, red #B23A2E border + text) was screenshotted for comparison. One-class
+  swap if he prefers it. (Both clear AA: coral-cta white 4.80:1; #B23A2E on white 5.94:1.)
