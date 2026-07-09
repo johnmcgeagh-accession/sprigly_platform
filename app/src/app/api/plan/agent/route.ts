@@ -20,6 +20,7 @@ import type { PlanPost } from '@/lib/types';
 import { getModelClient, getEmbeddingClient } from '@/lib/agent/model';
 import { parseTasks } from '@/lib/agent/task-parser';
 import { getClientCycleMonths, resolveCycleForMonth, weekDigest } from '@/lib/agent/cycle-state';
+import { loadProductIndex } from '@/lib/agent/catalogue';
 import { resolvePostSelector, postTitle } from '@/lib/agent/selectors';
 import { moveSummary, deleteSummary, rewriteSummary, addSummary, formatSummary, generateHookSummary, refineSummary } from '@/lib/agent/summaries';
 import { ensureConversation, appendMessage } from '@/lib/agent/conversation';
@@ -100,6 +101,10 @@ export async function POST(req: Request) {
       today: todayIso(today),
       cycleMonths: await getClientCycleMonths(clientId, cycleId),
       weekDigest: weekDigest(posts, today),
+      // The plan agent operates on the Instagram plan; no channel value is in scope
+      // (the session is {clientId, cycleId} and loadPlanPosts/getClientCycleMonths
+      // don't surface one), so the catalogue channel is 'instagram'.
+      productIndex: await loadProductIndex(clientId, 'instagram'),
     };
     tasks = await parseTasks(instruction, ctx, getModelClient());
   } catch {

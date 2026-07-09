@@ -20,13 +20,16 @@ export interface ParserContext {
   today: string;                    // 'YYYY-MM-DD'
   cycleMonths: string;             // formatted list of the client's cycle months
   weekDigest: string;              // formatted digest of this week's posts (with ids)
+  productIndex: string;            // formatted index of the client's products (name/style/colourways)
 }
 
 export const TASK_PARSER_SYSTEM_PROMPT = `You turn a single message from a clothing-brand client into an ordered list of TASKS for their content-plan assistant. The message may be typed or transcribed from speech — messy, rambling, or self-correcting. Read for intent.
 
+THE CLIENT CANNOT REPLY TO A TASK. Every task renders as an Approve/Discard suggestion or a dismissible notice — there is NO inline answer box. So NEVER phrase a task as a question waiting for an answer ("what should this focus on?", "which angle?", "what's the maebelle?"). If you are unsure what the client wants, emit your BEST-GUESS approvable action and name the alternatives in "reason" — a wrong guess costs the client one Discard, but an unanswerable question stalls the whole interaction with no way forward.
+
 DECOMPOSE COMPOUND REQUESTS. A message can contain MANY requests joined by "and", commas, or sequenced verbs ("move X to Friday AND make it a carousel"; "delete the Tuesday post, add a linen reel on Saturday"). Split every atomic action into its OWN task, IN THE ORDER they appear. One task = one thing that can be approved on its own. Two edits to the SAME post (e.g. reschedule it AND change its format) are still TWO separate tasks. Never fold a second action into the first, and never silently drop a clause.
 
-If a clause expresses an intent you cannot map to one of the actions below, DO NOT drop it — emit a "clarify" task naming what you couldn't do, so the client sees it and can rephrase. Prefer proposing over dropping.
+NEVER silently drop a clause. If a clause genuinely cannot be mapped to any action below, emit a "clarify" — but a "clarify" is a STATEMENT of what you couldn't map ("Couldn't map 'sponsor the 10k' to a plan change"), NEVER a question soliciting content, a topic, an angle, or wording. Reserve "clarify" for two cases only: (1) a clause that maps to no action at all, and (2) an ambiguous reference for a DESTRUCTIVE edit (move/delete) where guessing the wrong post would lose work. For everything else — a vague topic, a missing angle, an unspecified format — PROPOSE your best guess as a real action rather than asking.
 
 PRODUCT CONCEPTS — this assistant's OWN vocabulary. These are defined features of the product; NEVER ask the client to explain them or offer generic interpretations of them ("what kind of hooks — email subject lines? ad copy?" is WRONG):
 - HOOKS: short opening lines for a REEL or CAROUSEL. They are generated in the post editor from a pattern library and stored on the post. A request to write/add/generate/come up with hooks is a "generate_hook" task; a request to CHANGE an existing hook ("make the hook punchier") is a "refine" task with target "hook". Hooks do NOT apply to single-image or email posts.
@@ -41,6 +44,7 @@ Task actions:
 - "rewrite_post": change the WORDING of an existing post's caption. Fields: postId or selector; instruction (the change to make).
 - "change_format": change an existing post's FORMAT. Fields: postId or selector; format (one of 'reel'|'carousel'|'single'). Use this for "make it a carousel", "turn the Tuesday post into a reel", "switch that to a single image". (Email is not an available format — if the client asks to make something an email, emit a "clarify" saying email posts aren't supported here yet.)
 - "add_post": add a new post. Fields: toDate (ISO, optional); channel ('instagram'|'email', optional); format ('reel'|'carousel'|'single', optional — INFER from the wording, see below); instruction (what the post should be about, optional — include it whenever the message says what to post; omit only for a bare "add a post" with no topic).
+  ANGLE DEFAULT for add_post: a named product, collection, drop, theme or event is a SUFFICIENT instruction on its own. If the client says WHAT to post about but not the ANGLE, emit the add_post with that as "instruction" (default the angle to introducing/showcasing it) — do NOT clarify. "a reel about the maebelle" → add_post, instruction "Introduce the Maebelle." The client sets the exact angle at approval.
   FORMAT INFERENCE for add_post (an explicit format word always wins):
     · "reel" or "video" → format "reel".
     · "carousel", "slides", "swipe-through", "multiple photos/images" → format "carousel".
@@ -52,6 +56,9 @@ Task actions:
 - "add_note": remember a fact/instruction for the plan (not an edit to one existing post). Fields: content; targetMonth ('YYYY-MM', optional); relevantFrom/relevantTo (ISO dates, optional, if the note names a window).
 - "query": a question about the plan or brand knowledge. Fields: question.
 - "clarify": the request is too vague, a post reference is ambiguous, or a clause can't be mapped to an action. Fields: question (what you need to know / what you couldn't do).
+
+Resolving product references:
+- The CATALOGUE lists this client's products (name, style, colourways). Resolve a named product ("the maebelle", "the Anna vest", "the linen dress") against it. A product that matches the catalogue is FULLY SPECIFIED — emit the add_post with the product as its instruction and let the client refine the angle at approval. NEVER ask what a named product IS, or what a post about it should focus on. A product not in the catalogue is still a valid topic — propose it anyway; do not clarify just because it's unfamiliar.
 
 Resolving post references:
 - The WEEK DIGEST lists this week's posts with their ids. If a reference ("the Thursday reel", "post 3", "the linen one") matches EXACTLY ONE digest post, set "postId" to that id and omit "selector".
@@ -78,6 +85,9 @@ Message: "make the reel warmer"  (two reels in the digest)
 
 Message: "add a reel about how hot it is this week"  (format word "reel" → format on the add)
 → {"tasks":[{"action":"add_post","format":"reel","instruction":"How hot it is this week.","reason":"add a reel about how hot it is"}]}
+
+Message: "add a reel about the maebelle"  (a named product → fully specified; NEVER ask what it is or its angle)
+→ {"tasks":[{"action":"add_post","format":"reel","instruction":"Introduce the Maebelle.","reason":"add a reel about the maebelle"}]}
 
 Message: "add a carousel showing five ways to style the linen dress on Saturday"
 → {"tasks":[{"action":"add_post","format":"carousel","toDate":"<saturday ISO>","instruction":"Five ways to style the linen dress.","reason":"a carousel showing five ways to style the linen dress"}]}
@@ -118,6 +128,9 @@ ${ctx.cycleMonths}
 WEEK DIGEST (this week's posts):
 ${ctx.weekDigest}
 
+CATALOGUE (this client's products):
+${ctx.productIndex}
+
 Client message:
 """
 ${text}
@@ -138,34 +151,37 @@ const clarify = (question: string, reason?: string | null): ParsedTask => ({ act
 
 /** Normalise one raw task into a valid ParsedTask, or a clarify if it can't be. */
 function normalizeTask(raw: unknown): ParsedTask {
-  if (!raw || typeof raw !== 'object') return clarify('Could you say that another way?');
+  // Clarify copy below is deliberately a STATEMENT of what couldn't be resolved plus a
+  // resend path — never a question. The client can't reply to a task in place, but they
+  // CAN send a fresh message, so we tell them what to send.
+  if (!raw || typeof raw !== 'object') return clarify('I couldn’t map that to a plan change — send another message rephrasing it.');
   const r = raw as Record<string, unknown>;
   const action = r.action as TaskActionType;
   const reason = str(r.reason);
-  if (!(ACTIONS as readonly string[]).includes(action)) return clarify('Could you say that another way?', reason);
+  if (!(ACTIONS as readonly string[]).includes(action)) return clarify('I couldn’t map that to a plan change — send another message rephrasing it.', reason);
 
   const postRef = { postId: str(r.postId), selector: str(r.selector) };
   const needsPost = () => postRef.postId != null || postRef.selector != null;
 
   switch (action) {
     case 'move_post':
-      if (!needsPost()) return clarify('Which post should I move?', reason);
+      if (!needsPost()) return clarify('I couldn’t tell which post to move — send another message naming its date or the product.', reason);
       return { action, ...postRef, toDate: isoDate(r.toDate), reason };
     case 'delete_post':
-      if (!needsPost()) return clarify('Which post should I remove?', reason);
+      if (!needsPost()) return clarify('I couldn’t tell which post to remove — send another message naming its date or the product.', reason);
       return { action, ...postRef, reason };
     case 'rewrite_post': {
       const instruction = str(r.instruction);
-      if (!needsPost()) return clarify('Which post should I rewrite?', reason);
-      if (!instruction) return clarify('What change should I make to the caption?', reason);
+      if (!needsPost()) return clarify('I couldn’t tell which post to rewrite — send another message naming its date or the product.', reason);
+      if (!instruction) return clarify('I couldn’t tell what caption change to make — send another message with the wording change you want.', reason);
       return { action, ...postRef, instruction, reason };
     }
     case 'change_format': {
       const raw = str(r.format)?.toLowerCase();
       const format = raw === 'reel' || raw === 'carousel' || raw === 'single' ? raw : null;
-      if (!needsPost()) return clarify('Which post should I change the format of?', reason);
+      if (!needsPost()) return clarify('I couldn’t tell which post to reformat — send another message naming its date or the product.', reason);
       // Email isn't an available format here; anything unrecognised → clarify (don't drop).
-      if (!format) return clarify('Which format should it be: reel, carousel or single image?', reason);
+      if (!format) return clarify('I couldn’t tell which format you meant — send another message saying reel, carousel or single image.', reason);
       return { action, ...postRef, format, reason };
     }
     case 'add_post': {
@@ -188,26 +204,26 @@ function normalizeTask(raw: unknown): ParsedTask {
       const rawT = str(r.target)?.toLowerCase();
       const target = rawT === 'hook' || rawT === 'script' ? rawT : null;
       const instruction = str(r.instruction);
-      if (!target) return clarify('Should I refine the hook or the script?', reason);
-      if (!instruction) return clarify('What change should I make to it?', reason);
+      if (!target) return clarify('I couldn’t tell whether you meant the hook or the script — send another message saying which.', reason);
+      if (!instruction) return clarify('I couldn’t tell what change to make to it — send another message with the change you want.', reason);
       // Post ref optional (a refine of a field created earlier in the same message links
       // downstream); an existing-post ref resolves in the route.
       return { action, ...postRef, target, instruction, reason };
     }
     case 'add_note': {
       const content = str(r.content);
-      if (!content) return clarify('What would you like me to note down?', reason);
+      if (!content) return clarify('I couldn’t tell what to note down — send another message with the note.', reason);
       return { action, content, targetMonth: isoMonth(r.targetMonth), relevantFrom: isoDate(r.relevantFrom), relevantTo: isoDate(r.relevantTo), reason };
     }
     case 'query': {
       const question = str(r.question);
-      if (!question) return clarify('What would you like to know?', reason);
+      if (!question) return clarify('I couldn’t tell what you wanted to know — send another message with the question.', reason);
       return { action, question, reason };
     }
     case 'clarify':
-      return clarify(str(r.question) ?? 'Could you say a bit more about what you’d like?', reason);
+      return clarify(str(r.question) ?? 'I couldn’t map that to a plan change — send another message with a bit more detail.', reason);
     default:
-      return clarify('Could you say that another way?', reason);
+      return clarify('I couldn’t map that to a plan change — send another message rephrasing it.', reason);
   }
 }
 
@@ -224,11 +240,11 @@ export async function parseTasks(text: string, ctx: ParserContext, model: ModelC
     });
     raw = res.content;
   } catch {
-    return [clarify('I couldn’t process that just now. Please try again in a moment.')];
+    return [clarify('I couldn’t process that just now — send it again in a moment.')];
   }
 
   const parsed = extractJson(raw) as { tasks?: unknown } | null;
   const tasks = parsed && Array.isArray(parsed.tasks) ? parsed.tasks : null;
-  if (!tasks || tasks.length === 0) return [clarify('I didn’t catch a request there. Could you rephrase?')];
+  if (!tasks || tasks.length === 0) return [clarify('I didn’t catch a request there — send another message with what you’d like to change.')];
   return tasks.map(normalizeTask);
 }
