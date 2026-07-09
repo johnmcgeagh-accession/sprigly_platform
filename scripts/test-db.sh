@@ -1,20 +1,24 @@
 #!/usr/bin/env bash
 #
-# test-db.sh — a DISPOSABLE, LOCAL Postgres for verifying migrations (up→down→up) and
-# running the plan_activity integration test. It is baselined from a SCHEMA-ONLY dump
-# of the dev DB (read-only pg_dump — no prod data ever reaches git or a shared write),
-# then the new redesign migrations are applied on top.
+# test-db.sh — a DISPOSABLE, LOCAL Postgres for the local workspace (dev:local), for
+# verifying migrations (up→down→up), and for the integration tests. It is baselined from
+# a SCHEMA-ONLY dump of the remote DB's STRUCTURE (read-only pg_dump — no row data ever
+# read or committed), then the redesign migrations are applied on top.
 #
-# It must NEVER be pointed at a shared DB. The dump is written to .test-db/ (gitignored)
-# and refreshed on each `up`. Uses the pgvector image because the schema has vector
-# columns (knowledge_chunks.embedding). See design/DECISIONS.md.
+# `up` is LOCAL-ONLY: it never connects to the remote — it reuses a cached baseline at
+# .test-db/schema.sql (gitignored). The ONLY command that touches the remote is
+# `refresh`, and it is explicit/opt-in — run it once (while the remote is reachable) to
+# create the baseline; after that everything is offline. Uses the pgvector image because
+# the schema has vector columns (knowledge_chunks.embedding). See design/DECISIONS.md.
 #
-#   ./scripts/test-db.sh up          # container + fresh schema dump + apply 0066–0068 up
-#   ./scripts/test-db.sh migrate:down# apply the .down.sql for 0068,0067,0066 (reverse)
-#   ./scripts/test-db.sh migrate:up  # apply 0066,0067,0068 up
+#   ./scripts/test-db.sh up          # LOCAL: container + cached baseline + apply 0066+ up
+#   ./scripts/test-db.sh refresh     # ONE-TIME remote step: pull the schema baseline
+#   ./scripts/test-db.sh migrate:down# apply the .down.sql (reverse order)
+#   ./scripts/test-db.sh migrate:up  # apply 0066+ up
 #   ./scripts/test-db.sh url         # print the container connection string
 #   ./scripts/test-db.sh psql        # open psql on the container
-#   ./scripts/test-db.sh destroy     # remove the container and the dump
+#   ./scripts/test-db.sh destroy     # remove the container (keeps the baseline)
+#   ./scripts/test-db.sh destroy:all # remove the container AND the baseline
 #
 set -euo pipefail
 
@@ -54,14 +58,27 @@ start_container() {
   wait_ready
 }
 
-dump_dev_schema() {
+have_baseline() { [ -s "$DUMP" ]; }   # exists AND non-empty
+
+# Refresh the LOCAL schema baseline from the dev DB. This is the ONLY command that
+# connects to the remote — it is explicit + opt-in (`up` never calls it). Schema-only,
+# read-only, atomic (a failed pull never clobbers a good baseline).
+refresh_baseline() {
   [ -f "$DEV_ENV" ] || { echo "test-db: no ${DEV_ENV}" >&2; exit 1; }
-  local dev_url
+  local dev_url tmp
   dev_url="$(grep -E '^DATABASE_URL=' "$DEV_ENV" | head -1 | cut -d= -f2- | tr -d '"'"'"'')"
   [ -n "$dev_url" ] || { echo "test-db: no DATABASE_URL in ${DEV_ENV}" >&2; exit 1; }
   mkdir -p "$(dirname "$DUMP")"
-  echo "test-db: dumping dev schema (schema-only, no data)…"
-  pg_dump --schema-only --no-owner --no-privileges "$dev_url" > "$DUMP"
+  tmp="$(mktemp)"
+  echo "test-db: refreshing schema baseline from ${dev_url%%\?*} (schema-only, no data)…"
+  if pg_dump --schema-only --no-owner --no-privileges "$dev_url" > "$tmp" && [ -s "$tmp" ]; then
+    mv "$tmp" "$DUMP"
+    echo "test-db: baseline written to ${DUMP} ($(wc -l < "$DUMP") lines)"
+  else
+    rm -f "$tmp"
+    echo "test-db: schema refresh FAILED (remote unreachable?) — existing baseline untouched" >&2
+    exit 1
+  fi
 }
 
 apply_up()   { for m in "${NEW[@]}"; do echo "test-db: apply ${m}.sql";      psql_run -f "${MIGRATIONS}/${m}.sql"; done; }
@@ -69,17 +86,30 @@ apply_down() { for ((i=${#NEW[@]}-1; i>=0; i--)); do echo "test-db: apply ${NEW[
 
 case "${1:-help}" in
   up)
+    # LOCAL ONLY — never connects to the remote. Reuses the cached schema baseline;
+    # if there isn't one, it tells you to run `refresh` once (the only remote step).
+    if ! have_baseline; then
+      cat >&2 <<MSG
+test-db: no local schema baseline at ${DUMP}.
+  It is built ONCE from the UAT DB's structure (schema-only, no data). Run:
+      ./scripts/test-db.sh refresh
+  while the UAT DB is reachable, then re-run 'up'. After that, up/dev:local are
+  fully offline and never touch the remote again.
+MSG
+      exit 1
+    fi
     start_container
-    dump_dev_schema
-    echo "test-db: loading dev schema baseline…"
+    echo "test-db: loading cached schema baseline (no remote connection)…"
     psql_run -f "$DUMP" >/dev/null
     apply_up
     echo "test-db: ready at ${URL}"
     ;;
+  refresh)      refresh_baseline ;;
   migrate:up)   apply_up ;;
   migrate:down) apply_down ;;
   url)          echo "$URL" ;;
   psql)         PGPASSWORD="$PGPASS" psql -h 127.0.0.1 -p "$PORT" -U postgres -d "$DBNAME" ;;
-  destroy)      docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; rm -f "$DUMP"; echo "test-db: destroyed" ;;
+  destroy)      docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; echo "test-db: container removed (schema baseline kept — use 'destroy:all' to purge)" ;;
+  destroy:all)  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; rm -f "$DUMP"; echo "test-db: destroyed (container + baseline)" ;;
   *) sed -n '2,25p' "${BASH_SOURCE[0]}" ;;
 esac

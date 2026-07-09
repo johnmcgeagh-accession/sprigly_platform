@@ -684,3 +684,20 @@ Built as verified vertical slices (hooks → scripts → format editing); weathe
   flakes (a test reliable in isolation occasionally fails under full-suite load). Hardened the format
   specs (one change per test, distinct posts) and set Playwright **`retries: 1`** — a real defect
   still fails both attempts. Full suite green (42) with retries.
+
+---
+
+## 17. test-db baseline decoupled from the remote (2026-07-09)
+
+`scripts/test-db.sh up` (and therefore `pnpm dev:local`) used to `pg_dump --schema-only`
+the remote DB (`.env.local` DATABASE_URL → the **UAT** Railway instance) on **every** `up` —
+so a "local" command phoned UAT each run, and broke entirely when UAT was unreachable (DNS
+failure; a failed dump also left a 0-byte cache with no fallback). Read-only + schema-only,
+so no row data was ever read/committed, but the dependency was wrong for a local command.
+
+Fix: **`up` is now local-only** — it loads a cached baseline (`.test-db/schema.sql`,
+gitignored) and never connects to the remote. The single remote step is a new explicit
+`./scripts/test-db.sh refresh` (opt-in; atomic — a failed pull never clobbers a good
+baseline). `destroy` keeps the baseline (container only); `destroy:all` purges it. So after
+one `refresh` while UAT is reachable, `dev:local` is fully offline forever. (Supersedes the
+Stage-1 "refreshed on each up" behaviour.)
