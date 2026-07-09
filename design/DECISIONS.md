@@ -656,3 +656,31 @@ coral-text rule (§13): **white-on-coral text is banned at every size below AA-l
 - The dark-slate FAB (`slate-700` + white) is unaffected — white on #334155 = 10.35.
 - **Background** shipped WARM `#F5F4F2` (original mockup value) instead of the cool `#F3F4F6` — the
   cool grey clashed in the warm/coral palette. One-token swap if John prefers cool.
+
+---
+
+## 16. Stage 6b — generation features (2026-07-08)
+
+Built as verified vertical slices (hooks → scripts → format editing); weather (Slice 4) is separate.
+
+- **CTA = John's pick B**: "Add a post" is deep AA-safe coral `bg-coral-cta` (#C24C34) + white
+  (4.80:1). `coral-cta` is the only coral permitted under white text, button fills only (§15).
+- **Slice 1 — Hooks** (reels + carousels): engine `hook` job reuses `assembleShapeContext`
+  **as-is** (client/cycle-scoped voice context — no post-scope adaptation; post fields passed
+  alongside), selects active `hook_patterns` by format (random, with a marked analytics-weighting
+  seam), prompt from `prompt_templates` (imitate structure, never example); 3 candidates → pick →
+  Save → `hook_saved`. Fake-gated at the queue boundary.
+- **Slice 2 — Scripts** (reels): engine `script` job (voice + hook + caption + pillar + length with
+  ~2.2 words/s guidance) writes a structured script; app gates on hook+caption, length picker
+  15/30/60/90 → `script_length_seconds`, editable on arrival, Save → `script_saved`.
+  **Deviation-3 closed**: shared engine ledger helper; `shape.ts` emits `caption_saved`/agent/
+  `ref_proposal_id`, script worker emits `script_saved`/agent from day one — verified by
+  `engine/.../ledger.integration.test.ts` against the container (append-only holds).
+- **Slice 3 — Format editing**: header format selector → PATCH → `format_changed`; checklist
+  reconcile (silent regen when no progress, keep/replace dialog when progress, email = cleared);
+  hook/script hidden for non-applicable formats but **retained** (reel→single→reel keeps the script),
+  with a note when hidden.
+- **e2e flakiness**: the shared-tenant / single-dev-server harness has intermittent reseed-timing
+  flakes (a test reliable in isolation occasionally fails under full-suite load). Hardened the format
+  specs (one change per test, distinct posts) and set Playwright **`retries: 1`** — a real defect
+  still fails both attempts. Full suite green (42) with retries.

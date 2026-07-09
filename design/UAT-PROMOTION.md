@@ -16,15 +16,16 @@ notes), the editor (caption, checklist, revert, **shape via the real engine work
 (real Bedrock proposals → approvals), month-nav across sibling cycles, magic-link sessions, the
 brand palette + mark, and the **0070 hooks/scripts schema + hook_patterns library (42 patterns)**.
 
-**Not yet in this build (Stage-6 generation features):** the Hook field + "Generate hooks", the
-"Generate script" flow, format-editing in the editor, and **deviation-3 closure** (the shape/script
-worker `caption_saved` / `script_saved` ledger rows). The 0070 schema + seed ship now so the
-generation build lands as app/engine code only, no further UAT migration. Smoke items that depend
-on those features are marked **(pending generation build)** below.
+Also live (Stage-6b): **hook generation** (reels + carousels), **reel script generation**,
+**format editing** (with checklist reconcile + hook/script hide-and-retain), and **deviation-3 is
+closed** (worker `caption_saved` / `script_saved` ledger rows). These need the **0070 schema** and
+the **0071 prompts** applied (above) plus real Bedrock + Redis.
+
+**Not yet in this build:** the **weather overlay** (Slice 4) — independent, calendar-decoration only.
 
 ---
 
-## 1. Migrations — apply order 0066 → 0070
+## 1. Migrations — apply order 0066 → 0071
 
 All are hand-authored psql (repo convention; NOT drizzle-kit). Apply **in order**, each is
 idempotent (`IF NOT EXISTS`). Set the UAT connection string once:
@@ -42,6 +43,7 @@ psql "$UAT_DB" -f 0067_step_templates.sql
 psql "$UAT_DB" -f 0068_plan_activity.sql
 psql "$UAT_DB" -f 0069_ui_events.sql
 psql "$UAT_DB" -f 0070_hooks_scripts.sql
+psql "$UAT_DB" -f 0071_generation_prompts.sql
 ```
 
 Verify:
@@ -52,6 +54,9 @@ psql "$UAT_DB" -tAc "SELECT count(distinct category) FROM hook_patterns;"       
 psql "$UAT_DB" -tAc "SELECT column_name FROM information_schema.columns
   WHERE table_name='content_cycle_posts' AND column_name IN ('hook','script','script_length_seconds');"  # 3 rows
 psql "$UAT_DB" -tAc "SELECT to_regclass('plan_activity'), to_regclass('post_steps'), to_regclass('ui_events');"  # all non-null
+# 0071: the generation prompts must be present for hooks + scripts to work.
+psql "$UAT_DB" -tAc "SELECT workflow_id, step_name FROM prompt_templates
+  WHERE client_id IS NULL AND workflow_id IN ('plan_hooks','plan_scripts') ORDER BY 1;"  # 2 rows: plan_hooks/generate, plan_scripts/generate
 ```
 
 ## 2. Enable the flag for Ivy T
@@ -91,11 +96,18 @@ curl -s -o /dev/null -w "%{http_code}\n" https://<uat-app>/api/e2e/activity   # 
 
 ## 4. Deviation-3 status
 
-**Open.** The shape worker (`engine/src/content-cycles/shape.ts`) writes the caption + `post_edits`
-audit but still emits no `plan_activity` (`caption_saved` / origin `agent` / `ref_proposal_id`) row.
-It closes together with the script-worker path in the generation build (the script worker emits its
-`script_saved` equivalent from day one), because both share the worker ledger helper and the e2e
-fakes bypass the real worker — so the fix is verified with the script-worker e2e, not before.
+**Closed (Stage 6b, Slice 2).** The worker now emits its `plan_activity` rows via a shared engine
+ledger helper (`engine/src/content-cycles/ledger.ts`): `shape.ts` writes `caption_saved` / origin
+`agent` / `ref_proposal_id` (the proposal id threads through from the approved-proposal enqueue), and
+the script worker writes `script_saved` / origin `agent` from day one. Because the e2e fakes bypass
+the real worker, the emission is verified by a worker-level integration test against the container
+(`engine/src/content-cycles/ledger.integration.test.ts`) which also proves the ledger stays
+append-only. Run it in UAT prep with:
+```bash
+DATABASE_URL="$UAT_DB" TEST_DATABASE_URL="$UAT_DB" \
+  pnpm --filter @sprigly/worker exec vitest run src/content-cycles/ledger.integration.test.ts
+```
+(Only against a disposable/UAT DB — it writes a throwaway client. Never production.)
 
 ## 5. Post-deploy smoke (~10 min)
 
@@ -108,10 +120,14 @@ Do these against the UAT app as a real Ivy-T magic-link session:
 4. **Checklist tick** — tick a step → ring advances; reload → persists.
 5. **Real-Bedrock agent ask** — "move the Tuesday post to Friday" → a proposal appears in Approvals
    (real model, ~seconds); approve → the post moves; discard on another works.
-6. **Real hook generate — (pending generation build)** — once shipped: open a reel/carousel editor →
-   "Generate hooks" → 3 candidates from real Bedrock → pick → Save → hook persists.
+6. **Real hook generate** — open a reel or carousel editor → "✨ Generate hooks" → 3 candidates from
+   real Bedrock (~seconds) → pick one → Save → the hook persists on reload.
+7. **Real script generate** — on a reel with a hook + caption, pick a length (e.g. 30s) → "Generate
+   script" → a structured script (hook line, beats, CTA) lands → edit → Save → persists.
+8. **Format edit** — change a post's format in the editor; with progress the keep/replace prompt
+   appears; the checklist reconciles; hook/script hide but are retained on switch-back.
 
-If 1–5 pass, the promotion is good for the shipped scope.
+If 1–8 pass, the promotion is good for the shipped scope.
 
 ## 6. Rollback
 
