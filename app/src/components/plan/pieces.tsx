@@ -1,6 +1,7 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { useAutosave } from './useAutosave';
 import type { PlanPost, PostStepView } from '@/lib/types';
 import type { ProposalView } from '@/lib/agent/types';
 import type { NoteView } from '@/lib/agent/notes';
@@ -121,29 +122,49 @@ export function PostChip({ post, selected, today, onClick, draggable, onDragStar
 }
 
 const DUE = { Late: 'Late', Today: 'Today' } as const;
-/** One checklist step with a due chip (Late / Today / by-date / Done). */
-export function ChecklistItem({ step, scheduledDate, today, onToggle, testid }: {
-  step: PostStepView; scheduledDate: string; today: string; onToggle?: (() => void) | undefined; testid?: string | undefined;
+/** One checklist step with a due chip (Late / Today / by-date / Done). The label is
+ *  inline-editable when `onRename` is given (autosave on blur/idle → step_renamed);
+ *  read-only cycles pass neither handler and get static text. */
+export function ChecklistItem({ step, scheduledDate, today, onToggle, onRename, testid }: {
+  step: PostStepView; scheduledDate: string; today: string;
+  onToggle?: (() => void) | undefined; onRename?: ((label: string) => void) | undefined; testid?: string | undefined;
 }) {
   const due = dueDate(scheduledDate, step.leadDays);
   const diff = daysBetween(today, due);
   const late = !step.done && diff < 0;
   const isToday = !step.done && diff === 0;
-  const label = step.done ? 'Done' : late ? DUE.Late : isToday ? DUE.Today : `by ${shortDate(due)}`;
+  const dueLabel = step.done ? 'Done' : late ? DUE.Late : isToday ? DUE.Today : `by ${shortDate(due)}`;
+
+  const [label, setLabel] = useState(step.label);
+  useEffect(() => { setLabel(step.label); }, [step.label]); // resync when the server value changes
+  const auto = useAutosave(label, step.label, (v) => onRename?.(v), !!onRename);
+
   return (
     <div data-testid={testid ?? 'checklist-item'} className={[
       'flex items-center gap-3 rounded-[13px] border px-[13px] py-3',
       step.done ? 'border-transparent bg-[#F7F6F4]' : late ? 'border-[#F1D6AE] bg-[#FEFAF3]' : 'border-line bg-surface',
     ].join(' ')}>
-      <button data-testid="step-toggle" onClick={onToggle} aria-pressed={step.done} aria-label={step.done ? 'Mark not done' : 'Mark done'}
+      <button data-testid="step-toggle" onClick={onToggle} disabled={!onToggle} aria-pressed={step.done} aria-label={step.done ? 'Mark not done' : 'Mark done'}
         className={[
           'flex h-[22px] w-[22px] flex-none items-center justify-center rounded-[7px] border-2 text-white',
           step.done ? 'border-coral bg-coral' : 'border-[#D9D6D1] bg-surface',
         ].join(' ')}>
         {step.done && <CheckIcon className="h-3 w-3" />}
       </button>
-      <span className={`flex-1 text-[14.5px] font-semibold ${step.done ? 'text-muted line-through' : 'text-slate-700'}`}>{step.label}</span>
-      <span className={`whitespace-nowrap text-[11.5px] font-extrabold ${late ? 'text-danger' : isToday ? 'text-slate-700' : 'text-muted'}`}>{label}</span>
+      {onRename ? (
+        <input
+          data-testid="step-label" value={label} aria-label={`Step label: ${step.label}`}
+          onChange={(e) => setLabel(e.target.value)} onBlur={auto.flush}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); }
+            else if (e.key === 'Escape') { setLabel(step.label); e.currentTarget.blur(); }
+          }}
+          className={`-mx-1 min-w-0 flex-1 rounded bg-transparent px-1 text-[14.5px] font-semibold outline-none focus:bg-white focus:ring-1 focus:ring-coral ${step.done ? 'text-muted line-through' : 'text-slate-700'}`}
+        />
+      ) : (
+        <span className={`flex-1 text-[14.5px] font-semibold ${step.done ? 'text-muted line-through' : 'text-slate-700'}`}>{step.label}</span>
+      )}
+      <span className={`whitespace-nowrap text-[11.5px] font-extrabold ${late ? 'text-danger' : isToday ? 'text-slate-700' : 'text-muted'}`}>{dueLabel}</span>
     </div>
   );
 }
@@ -183,27 +204,66 @@ export function NoteRow({ note }: { note: NoteView }) {
   );
 }
 
+/** Strip markdown bullet markers so the agent message renders as clean prose. */
+function cleanProse(msg: string): string {
+  return msg.split('\n').map((l) => l.replace(/^\s*[•\-*]\s+/, '').trim()).filter(Boolean).join('\n');
+}
+
 /**
  * "From your ask, Sprigly took" — renders the agent's REAL turn output: each proposal
- * as an Action row (→ Approvals), plus Sprigly's message (which covers answered
- * questions / captured notes). The mockups' keyword classifier is intentionally NOT
- * ported — this is the actual extraction from /api/plan/agent.
+ * as an action row with an INLINE Approve / Discard (same endpoints + ledger/cap as the
+ * Approvals view), plus Sprigly's message as clean prose. When `onDecide` is given the
+ * rows are actionable; approving swaps the row to "Applied ✓" and the caller refreshes
+ * the plan + rail counts.
  */
-export function ExtractionSummary({ reply }: { reply: { message: string; proposals: ProposalView[] } | null }) {
+export function ExtractionSummary({ reply, onDecide, busy }: {
+  reply: { message: string; proposals: ProposalView[] } | null;
+  onDecide?: ((id: string, action: 'approve' | 'reject') => Promise<void>) | undefined;
+  busy?: boolean | undefined;
+}) {
+  const [status, setStatus] = useState<Record<string, 'applied' | 'discarded'>>({});
+  const [pending, setPending] = useState<string | null>(null);
+
   if (!reply) return null;
+  const message = cleanProse(reply.message);
+
+  const decide = async (id: string, action: 'approve' | 'reject') => {
+    if (!onDecide || pending) return;
+    setPending(id);
+    try { await onDecide(id, action); setStatus((s) => ({ ...s, [id]: action === 'approve' ? 'applied' : 'discarded' })); }
+    finally { setPending(null); }
+  };
+  const anyBusy = pending !== null || !!busy;
+
   return (
     <div data-testid="extraction-summary" className="mt-[18px] rounded-[14px] border border-line bg-[#FAF9F7] px-4 py-3.5">
       <div className="mb-2 text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-600">From your ask, Sprigly took</div>
-      {reply.proposals.map((p) => (
-        <div key={p.id} className="flex items-start gap-2.5 py-1.5 text-[13.5px] font-bold text-slate-700">
-          <span className="mt-[-2px] flex h-[26px] w-[26px] flex-none items-center justify-center rounded-lg bg-coral-tint text-coral">
-            <SparkIcon className="h-3.5 w-3.5" />
-          </span>
-          <span className="min-w-0 flex-1">Action<em className="mt-px block whitespace-nowrap overflow-hidden text-ellipsis text-[12px] font-semibold not-italic text-muted">“{p.summary}”</em></span>
-          <span className="mt-1 whitespace-nowrap text-[11px] font-bold text-slate-700">→ Approvals</span>
-        </div>
-      ))}
-      {reply.message && <p className="mt-1.5 text-[13px] leading-relaxed text-slate-600">{reply.message}</p>}
+      {reply.proposals.map((p) => {
+        const st = status[p.id];
+        return (
+          <div key={p.id} data-testid="extraction-row" data-proposal-id={p.id} className="flex items-start gap-2.5 border-t border-line/60 py-2.5 text-[13.5px] font-bold text-slate-700 first:border-t-0">
+            <span className="mt-[-1px] flex h-[26px] w-[26px] flex-none items-center justify-center rounded-lg bg-coral-tint text-coral">
+              <SparkIcon className="h-3.5 w-3.5" />
+            </span>
+            <span className="min-w-0 flex-1 leading-snug">{p.summary}</span>
+            {st === 'applied' ? (
+              <span data-testid="extraction-applied" className="mt-0.5 inline-flex items-center gap-1 whitespace-nowrap text-[12px] font-extrabold text-slate-700"><CheckIcon className="h-3.5 w-3.5 text-coral" aria-hidden="true" />Applied</span>
+            ) : st === 'discarded' ? (
+              <span data-testid="extraction-discarded" className="mt-0.5 whitespace-nowrap text-[12px] font-bold text-muted">Discarded</span>
+            ) : onDecide ? (
+              <span className="flex flex-none gap-1.5">
+                <button data-testid="extraction-approve" disabled={anyBusy} onClick={() => decide(p.id, 'approve')} aria-label={`Approve: ${p.summary}`}
+                  className="inline-flex items-center gap-1 rounded-[9px] bg-coral px-3 py-1.5 text-[12px] font-extrabold text-white disabled:opacity-50"><CheckIcon className="h-3 w-3" aria-hidden="true" />Approve</button>
+                <button data-testid="extraction-discard" disabled={anyBusy} onClick={() => decide(p.id, 'reject')} aria-label={`Discard: ${p.summary}`}
+                  className="rounded-[9px] border border-line bg-surface px-3 py-1.5 text-[12px] font-bold text-slate-600 hover:border-[#DED9D3] disabled:opacity-50">Discard</button>
+              </span>
+            ) : (
+              <span className="mt-1 whitespace-nowrap text-[11px] font-bold text-slate-700">→ Approvals</span>
+            )}
+          </div>
+        );
+      })}
+      {message && <p className="mt-2 whitespace-pre-line text-[13px] leading-relaxed text-slate-600">{message}</p>}
     </div>
   );
 }

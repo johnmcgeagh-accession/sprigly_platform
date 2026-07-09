@@ -200,6 +200,15 @@ export function usePlanData(init: PlanDataInit) {
     } catch { flash('Network error — please try again.'); }
   }, [readOnly, flash, setPostSteps, track]);
 
+  /** Rename a checklist step's label (autosave on blur/idle → step_renamed ledger). */
+  const renameStep = useCallback(async (id: string, stepId: string, label: string) => {
+    if (readOnly || !label.trim()) return;
+    try {
+      const res = await fetch(`/api/posts/${id}/steps/${stepId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ label }) });
+      if (res.ok) setPostSteps(id, ((await res.json()) as { steps: PostStepView[] }).steps);
+    } catch { flash('Network error — please try again.'); }
+  }, [readOnly, flash, setPostSteps]);
+
   /** Poll a shape job until it settles; returns the terminal status. */
   const pollJob = useCallback(async (jobId: string): Promise<'done' | 'error' | 'gone' | 'timeout'> => {
     for (let i = 0; i < 30; i++) {
@@ -277,10 +286,15 @@ export function usePlanData(init: PlanDataInit) {
     if (readOnly || !instruction.trim() || agentBusy) return null;
     setAgentBusy(true);
     setAgentError(null);
+    // Ceiling so the "Sprigly is thinking…" state never strands on a hung request —
+    // aborts to an inline error after a generous window (real Bedrock turns are seconds).
+    const controller = new AbortController();
+    const ceiling = setTimeout(() => controller.abort(), 60_000);
     try {
       const res = await fetch('/api/plan/agent', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ instruction, selectedPostId, conversationId: conversationId.current }),
+        signal: controller.signal,
       });
       if (res.status === 429) { setAgentError('You’re sending changes too quickly — give it a few seconds and try again.'); return null; }
       if (!res.ok) { setAgentError('Something went wrong — your message is still here, try again.'); return null; }
@@ -292,12 +306,16 @@ export function usePlanData(init: PlanDataInit) {
       if (created.length) {
         setProposals((cur) => [...created.filter((p) => !cur.some((c) => c.id === p.id)), ...cur]);
         setFlashView('approvals'); setTimeout(() => setFlashView(null), 2800);
-      } else { flash(r.message); }
+      } else if (r.message) { flash(r.message); }
       track('agent_ask_submitted', { proposals: created.length });
       void refreshNotes();
       return reply;
-    } catch { setAgentError('Network error — your message is still here, try again.'); return null; }
-    finally { setAgentBusy(false); }
+    } catch {
+      setAgentError(controller.signal.aborted
+        ? 'That’s taking longer than expected — your message is still here, try again.'
+        : 'Network error — your message is still here, try again.');
+      return null;
+    } finally { clearTimeout(ceiling); setAgentBusy(false); }
   }, [readOnly, agentBusy, flash, refreshNotes, track]);
 
   const decide = useCallback(async (id: string, action: 'approve' | 'reject') => {
@@ -342,7 +360,7 @@ export function usePlanData(init: PlanDataInit) {
     scriptGenerating, scriptError, weather,
     // actions
     reschedule, saveCaption, revert, removePost, addPost,
-    generateChecklist, addStep, toggleStep, shape, retryShape, ask, decide, switchCycle,
+    generateChecklist, addStep, toggleStep, renameStep, shape, retryShape, ask, decide, switchCycle,
     refreshProposals, refreshNotes, setAgentReply, setAgentError, flash, track,
     saveHook, generateHooks, clearHookCandidates,
     saveScript, generateScript,

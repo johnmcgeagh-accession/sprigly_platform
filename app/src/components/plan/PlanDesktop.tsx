@@ -166,15 +166,29 @@ export function PlanDesktop({ data }: { data: PlanData }) {
           <p className="mb-5 mt-1 max-w-[560px] text-[14px] font-semibold leading-snug text-muted">Ask in plain English. Sprigly proposes the change and <b className="text-slate-700">nothing happens until you approve it</b>.</p>
           <div className="flex items-center gap-2.5 rounded-2xl border-[1.5px] border-line bg-surface py-2 pl-[18px] pr-2 focus-within:border-coral">
             <input data-testid="agent-input" value={agentText} onChange={(e) => setAgentText(e.target.value)} aria-label="Ask Sprigly to change your plan"
-              onKeyDown={(e) => { if (e.key === 'Enter') void submitAsk(); }}
-              placeholder="Move the Tuesday post to Friday…" className="flex-1 bg-transparent py-2 text-[15.5px] text-slate-700 outline-none" />
+              onKeyDown={(e) => { if (e.key === 'Enter') void submitAsk(); }} disabled={data.agentBusy}
+              placeholder="Move the Tuesday post to Friday…" className="flex-1 bg-transparent py-2 text-[15.5px] text-slate-700 outline-none disabled:opacity-60" />
             <button data-testid="agent-mic" disabled title="Voice arrives in a later stage" aria-label="Voice arrives in a later stage"
               className="flex h-[46px] w-[46px] flex-none cursor-not-allowed items-center justify-center rounded-xl bg-line-soft text-muted opacity-60"><MicIcon className="h-5 w-5" /></button>
             <button data-testid="agent-send" disabled={!agentText.trim() || data.agentBusy} onClick={() => void submitAsk()}
-              className="flex h-[46px] flex-none items-center justify-center gap-2 rounded-xl bg-coral px-[18px] text-[14px] font-extrabold text-white shadow-coral disabled:opacity-50"><SendIcon className="h-[18px] w-[18px]" />Ask Sprigly</button>
+              className="flex h-[46px] flex-none items-center justify-center gap-2 rounded-xl bg-coral px-[18px] text-[14px] font-extrabold text-white shadow-coral disabled:opacity-50">
+              {data.agentBusy
+                ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden="true" />Sprigly is thinking…</>
+                : <><SendIcon className="h-[18px] w-[18px]" />Ask Sprigly</>}
+            </button>
           </div>
           {data.agentError && <div data-testid="agent-error" role="alert" className="mt-3 text-[13px] font-semibold text-danger">{data.agentError}</div>}
-          <ExtractionSummary reply={data.agentReply} />
+          {data.agentBusy ? (
+            <div data-testid="agent-thinking" role="status" aria-live="polite" className="mt-[18px] rounded-[14px] border border-line bg-[#FAF9F7] px-4 py-3.5">
+              <div className="flex items-center gap-2 text-[13px] font-bold text-slate-600"><SparkIcon className="h-4 w-4 animate-pulse text-coral" aria-hidden="true" />Sprigly is thinking…</div>
+              <div className="mt-3 space-y-2" aria-hidden="true">
+                <div className="h-3 w-3/4 animate-pulse rounded bg-line-soft" />
+                <div className="h-3 w-1/2 animate-pulse rounded bg-line-soft" />
+              </div>
+            </div>
+          ) : (
+            <ExtractionSummary reply={data.agentReply} onDecide={data.decide} busy={!!data.proposalBusy} />
+          )}
           <div className="mt-4 text-[12.5px] font-semibold text-muted">Suggestions land in <b className="text-slate-700">Approvals</b> in the menu — nothing changes until you approve it there.</div>
         </div>
       </Sheet>
@@ -245,15 +259,18 @@ function TimelineView({ data, selId, onSelect }: { data: PlanData; selId: string
   const ordered = [...data.posts].sort((a, b) => a.date.localeCompare(b.date));
   let todayPlaced = false;
   return (
-    <div className="relative mx-auto max-w-[900px] py-1.5" data-testid="timeline">
-      <span className="absolute bottom-[30px] left-[19px] top-[26px] w-0.5 bg-line" />
+    <div className="relative isolate mx-auto max-w-[900px] py-1.5" data-testid="timeline">
+      {/* connector: negative z-index inside the isolated timeline so it sits BEHIND the
+          dots and cards (it's absolutely positioned, which otherwise paints above the
+          static siblings). Dots have an opaque fill and sit above it. */}
+      <span className="absolute bottom-[30px] left-[19px] top-[26px] -z-10 w-0.5 bg-line" />
       {ordered.map((p) => {
         const past = p.date <= data.today;
         const divider = !todayPlaced && p.date > data.today ? (todayPlaced = true, true) : false;
         return (
           <React.Fragment key={p.id}>
-            {divider && <div className="grid grid-cols-[40px_1fr] items-center gap-[18px] py-2"><span className="justify-self-center bg-bg px-2 py-0.5 text-[10.5px] font-extrabold uppercase tracking-[.1em] text-slate-700">Today</span><span className="h-0.5 rounded bg-coral opacity-50" /></div>}
-            <div data-testid="timeline-item" onClick={() => onSelect(p.id)} className="grid cursor-pointer grid-cols-[40px_1fr] gap-[18px] py-1.5">
+            {divider && <div className="relative z-10 grid grid-cols-[40px_1fr] items-center gap-[18px] py-2"><span className="justify-self-center bg-bg px-2 py-0.5 text-[10.5px] font-extrabold uppercase tracking-[.1em] text-slate-700">Today</span><span className="h-0.5 rounded bg-coral opacity-50" /></div>}
+            <div data-testid="timeline-item" onClick={() => onSelect(p.id)} className="relative z-10 grid cursor-pointer grid-cols-[40px_1fr] gap-[18px] py-1.5">
               <span className={`mx-auto mt-3.5 h-3.5 w-3.5 rounded-full border-[2.5px] border-coral ${past ? 'bg-coral' : 'bg-surface'}`} />
               <div className={`rounded-2xl border px-4 py-[11px] transition ${p.id === selId ? 'border-line bg-surface shadow-card' : 'border-transparent hover:border-line hover:bg-surface hover:shadow-card'}`}>
                 <div className="flex items-center gap-2.5"><span className="font-serif text-[19px] text-slate-700">{monthDayLabel(p.date)}</span>

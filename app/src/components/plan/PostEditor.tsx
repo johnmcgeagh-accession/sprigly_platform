@@ -7,6 +7,7 @@ import { ringOf } from '@/lib/checklist';
 import { ChecklistItem, monthDayLabel } from './pieces';
 import { FormatIcon, FORMAT_LABEL, RevertIcon, TrashIcon, SparkIcon } from './icons';
 import { FormatDropdown, DateField, prettyDate } from './pickers';
+import { useAutosave } from './useAutosave';
 
 /** One shared secondary-action treatment for the editor's generate/add buttons:
  *  solid slate (#334155) fill, white glyph/text, no dashed border, same pill radius
@@ -15,53 +16,6 @@ import { FormatDropdown, DateField, prettyDate } from './pickers';
  *  "empty slot" affordances (calendar add-pills), never for a button. */
 const SECONDARY_BTN =
   'inline-flex flex-none items-center gap-1.5 rounded-full bg-slate-700 px-3.5 py-2 text-[12.5px] font-extrabold text-white disabled:opacity-50';
-
-/**
- * Debounced + on-blur autosave for a text field. One PATCH (→ one ledger row) per
- * *settled* edit, never per keystroke: a save fires `delay` ms after the last change,
- * or immediately on blur/unmount. `persisted` is the server truth — when it changes
- * from outside (a candidate pick, a shape job, a reload, switching post) it becomes the
- * new baseline and is never echoed back. `markSaved` lets a caller (candidate pick)
- * record a value it already persisted so the debounce doesn't double-save it.
- */
-function useAutosave(value: string, persisted: string, save: (v: string) => void, enabled: boolean, delay = 1500) {
-  const savedRef = useRef(persisted);
-  const valueRef = useRef(value);
-  const saveRef = useRef(save);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  valueRef.current = value;
-  saveRef.current = save;
-
-  // External change to the persisted value → new baseline (don't autosave it back).
-  useEffect(() => { savedRef.current = persisted; }, [persisted]);
-
-  const flush = useCallback(() => {
-    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
-    const v = valueRef.current;
-    if (!enabled || v === savedRef.current) return;
-    savedRef.current = v;
-    saveRef.current(v);
-  }, [enabled]);
-
-  // Debounce a save `delay` after the last change.
-  useEffect(() => {
-    if (!enabled || value === savedRef.current) return;
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => { timer.current = null; flush(); }, delay);
-    return () => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } };
-  }, [value, enabled, delay, flush]);
-
-  // Flush a pending edit on unmount (e.g. drawer closed via Escape before a blur).
-  const flushRef = useRef(flush); flushRef.current = flush;
-  useEffect(() => () => { flushRef.current(); }, []);
-
-  const markSaved = useCallback((v: string) => {
-    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
-    savedRef.current = v;
-  }, []);
-
-  return { flush, markSaved };
-}
 
 /** The editor body shared by the desktop drawer and the mobile sheet. Caption save,
  *  Revert, delete, checklist (tick / add / generate), and async "Shape this post". */
@@ -282,7 +236,8 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
         {post.steps.length > 0
           ? post.steps.map((s) => (
             <ChecklistItem key={s.id} step={s} scheduledDate={post.date} today={data.today}
-              onToggle={data.readOnly ? undefined : () => data.toggleStep(post.id, s.id, !s.done)} />
+              onToggle={data.readOnly ? undefined : () => data.toggleStep(post.id, s.id, !s.done)}
+              onRename={data.readOnly ? undefined : (label) => data.renameStep(post.id, s.id, label)} />
           ))
           : <div className="py-1 text-[13.5px] text-muted">{isEmail ? 'No checklist for this format.' : 'No steps yet — build a checklist from the type, or add one.'}</div>}
       </div>
