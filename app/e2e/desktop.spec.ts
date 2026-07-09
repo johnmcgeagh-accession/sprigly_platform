@@ -99,7 +99,9 @@ test('agent ask (stubbed) → ExtractionSummary → proposal in Approvals → di
   await page.getByTestId('agent-input').fill('please move a post to later this month');
   await page.getByTestId('agent-send').click();
   await expect(page.getByTestId('extraction-summary')).toBeVisible();
-  await expect(page.getByTestId('extraction-summary')).toContainText('Approvals');
+  await expect(page.getByTestId('extraction-row')).toHaveCount(1);          // one move proposal
+  await expect(page.getByTestId('extraction-approve').first()).toBeVisible(); // inline actions, not "→ Approvals"
+  await expect(page.getByTestId('extraction-summary')).not.toContainText('•'); // clean prose, no orphan bullet
 
   await page.getByTestId('sheet-close').click();
   await page.getByTestId('nav-approvals').click();
@@ -225,4 +227,72 @@ test('editor: media section removed, shape pills gone (free-text shape stands al
   await expect(page.getByRole('button', { name: 'Make it softer' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Make it shorter' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Warmer tone' })).toHaveCount(0);
+});
+
+test('regression: typing in the agent input keeps focus and accumulates (no focus-steal)', async ({ page }) => {
+  await page.getByTestId('agent-fab').click();
+  const input = page.getByTestId('agent-input');
+  await input.click();
+  // REAL key events — this class of bug (focus jumps to ✕ per keystroke) is invisible to fill().
+  await page.keyboard.type('move the tuesday post to friday please', { delay: 12 });
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue('move the tuesday post to friday please');
+});
+
+test('regression: typing a caption keeps focus through the autosave re-render (no focus-steal)', async ({ page }) => {
+  await page.locator(`[data-post-id="${SEED.post(1)}"]`).click();
+  const cap = page.getByTestId('editor-caption');
+  await cap.click();
+  await cap.press('End');
+  await page.keyboard.type('ABCDE', { delay: 12 });
+  await page.waitForTimeout(1800); // past the ~1.5s autosave debounce, which re-renders the drawer
+  await page.keyboard.type('FGHIJ', { delay: 12 });
+  await expect(cap).toBeFocused();
+  await expect(cap).toHaveValue(/ABCDEFGHIJ$/);
+});
+
+test('checklist: add a step then rename it — autosaves on blur, ledgers step_renamed, persists', async ({ page }) => {
+  const id = SEED.post(3); // reel with steps
+  await page.locator(`[data-post-id="${id}"]`).click();
+  const before = await page.getByTestId('step-label').count();
+  await page.getByTestId('editor-add-step').click();
+  await expect(page.getByTestId('step-label')).toHaveCount(before + 1);
+
+  const last = page.getByTestId('step-label').last();
+  await last.click();
+  await last.fill('Book the studio');
+  await last.blur();
+  await expectActivity(page, id, (r) => r.action === 'step_renamed' && r.origin === 'user', 'step_renamed ledgered');
+
+  await page.reload();
+  await expect(page.getByTestId('plan-desktop')).toBeVisible();
+  await page.locator(`[data-post-id="${id}"]`).click();
+  await expect(page.getByTestId('step-label').last()).toHaveValue('Book the studio');
+});
+
+test('agent compound ask → two independently-approvable rows; inline approve mutates + ledgers + updates counts', async ({ page }) => {
+  await page.getByTestId('agent-fab').click();
+  await page.getByTestId('agent-input').fill('move the tuesday post to friday and make it a carousel');
+  await page.getByTestId('agent-send').click();
+
+  await expect(page.getByTestId('extraction-summary')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('agent-thinking')).toHaveCount(0);         // indicator resolved
+  await expect(page.getByTestId('extraction-row')).toHaveCount(2);         // move + change_format
+  await expect(page.getByTestId('nav-approvals')).toContainText('3');      // 2 new + 1 seeded
+
+  const rows = page.getByTestId('extraction-row');
+  const formatRow = rows.filter({ hasText: 'carousel' });
+  const moveRow = rows.filter({ hasText: 'Move' });
+
+  // Inline-approve the format row → Applied; the move row stays independently approvable.
+  await formatRow.getByTestId('extraction-approve').click();
+  await expect(formatRow.getByTestId('extraction-applied')).toBeVisible({ timeout: 12_000 });
+  await expect(moveRow.getByTestId('extraction-approve')).toBeVisible();
+  await expect(page.getByTestId('nav-approvals')).toContainText('2');      // one applied → count drops
+
+  // Same ledger/mutation as the Approvals view: format_changed, origin agent, on the reel post.
+  await expectActivity(page, SEED.post(3), (r) => r.action === 'format_changed' && r.origin === 'agent', 'agent format_changed ledgered');
+  await page.getByTestId('sheet-close').click();
+  await page.locator(`[data-post-id="${SEED.post(3)}"]`).click();
+  await expect(page.getByTestId('format-select')).toContainText('Carousel');
 });
