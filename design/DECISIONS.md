@@ -1260,3 +1260,39 @@ field exists). `usePlanData.shape(id, instruction, target)` threads it through a
 retry. e2e (faked): the fake shape writes the target field (E2E_REFINED_HOOK / _SCRIPT) and mirrors
 the worker's `hook_saved`/`script_saved` ledger row so the editor e2e can assert pending → refined
 text lands → autosaved → ledger; hook refine stays one line; a caption-only post shows no control.
+
+---
+
+## 27. Agent refine actions (Part 2, 2026-07-09)
+
+The plan agent could generate hooks but refine nothing. Added a **`refine`** proposal type that
+reuses the §26 target-aware shape job.
+
+### Proposal-type shape chosen — ONE parameterised `refine` (target: hook | script)
+Not `refine_caption`/`refine_hook`/`refine_script`. Caption refinement already has a path
+(`rewrite_post` → shape target=caption), so a `refine_caption` would duplicate it; caption refinement
+stays `rewrite_post`. The new action is a single `refine` with `target ∈ {hook, script}` and an
+`instruction`; payload `{ kind:'refine', cycleId, postId?|refProposalId?, target, instruction }`. On
+approve it enqueues the shape job with that target + the proposal id (ledger ref) — the field lands
+via the same pending → reload flow, and the worker records `hook_saved`/`script_saved`.
+
+### Parser vocabulary
+Refinement verbs (make it X, tighten, shorten, punchier, rework the CTA, warmer…) aimed at a hook or
+script map to `refine{target}`. WRITE-from-scratch of a script still returns editor guidance (there's
+no agent generate-script). "make the script on the 14th punchier" → `refine{target:script}` → a
+proposal "Refine the script for '…'".
+
+### Empty field → offer generation, not a proposal
+Refining a field that doesn't exist is a **question, not a proposal**: an existing post whose hook or
+script is empty gets "There's no script on that post yet. Open it and use Generate script first"
+(hooks: "Want me to generate some hooks first?"). Checked at the route (existing post) AND at apply
+time (`resolveRefineTarget`) — an empty field at apply un-claims the proposal and returns the same
+graceful message, so it never applies a no-op.
+
+### Deferred-child + cap
+The §24 ordering mechanism applies: a ref-less refine (a field on a post created earlier in the same
+ask) carries `refProposalId`, resolved at apply from the `post_created` ledger; if the field isn't
+there yet it blocks gracefully (stays approvable). A refine counts against the AI-change cap like any
+AI proposal (`isRewriteBlocked` on approve; the worker's `post_edits` row increments it). e2e (faked):
+"make the script punchier" → refine proposal → approve → job enqueued → `script_saved` ledger;
+refine-on-empty-script → question, no proposal. Unit tests cover the enqueue + the empty-field block.

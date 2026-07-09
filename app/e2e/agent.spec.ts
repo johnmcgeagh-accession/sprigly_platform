@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { reseed } from './helpers';
+import { SEED, expectActivity, reseed } from './helpers';
 
 // Plan-agent vocabulary + format inference + generate_hook (§24). The e2e fake
 // (app/src/lib/e2e-fake.ts) maps these asks to deterministic tasks; the route + proposal
@@ -122,4 +122,23 @@ test('agent generate_hook: hooks asked for a single-image post → a question, n
   await ask(page, 'generate hooks for the monday photo');
   await expect(page.getByTestId('extraction-row')).toHaveCount(0);
   await expect(page.getByTestId('extraction-summary')).toContainText(/reels and carousels/i);
+});
+
+// ── §26 Part 2 — agent refine ─────────────────────────────────────────────────
+test('agent refine: "make the script punchier" → a refine proposal → approve enqueues the job + ledgers', async ({ page }) => {
+  const id = SEED.post(6);   // "The boxes have arrived" reel, seeded with a script
+  await ask(page, 'make the script on the boxes reel punchier');
+  const row = page.getByTestId('extraction-row');
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText(/Refine the script/i);
+
+  await row.getByTestId('extraction-approve').click();
+  await expect(row.getByTestId('extraction-applied')).toBeVisible({ timeout: 15_000 });
+  await expectActivity(page, id, (r) => r.action === 'script_saved' && r.origin === 'agent', 'agent script refine ledgered');
+});
+
+test('agent refine: refining a script that does not exist yet → a question, no proposal', async ({ page }) => {
+  await ask(page, 'make the script on the tuesday reel punchier');   // that reel has no script
+  await expect(page.getByTestId('extraction-row')).toHaveCount(0);
+  await expect(page.getByTestId('extraction-summary')).toContainText(/no script|Generate script/i);
 });

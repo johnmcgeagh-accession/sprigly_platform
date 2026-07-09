@@ -21,7 +21,7 @@ import { getModelClient, getEmbeddingClient } from '@/lib/agent/model';
 import { parseTasks } from '@/lib/agent/task-parser';
 import { getClientCycleMonths, resolveCycleForMonth, weekDigest } from '@/lib/agent/cycle-state';
 import { resolvePostSelector, postTitle } from '@/lib/agent/selectors';
-import { moveSummary, deleteSummary, rewriteSummary, addSummary, formatSummary, generateHookSummary } from '@/lib/agent/summaries';
+import { moveSummary, deleteSummary, rewriteSummary, addSummary, formatSummary, generateHookSummary, refineSummary } from '@/lib/agent/summaries';
 import { ensureConversation, appendMessage } from '@/lib/agent/conversation';
 import { createProposal } from '@/lib/agent/proposals';
 import { saveNote } from '@/lib/agent/notes';
@@ -115,7 +115,7 @@ export async function POST(req: Request) {
   // action rows (with inline Approve/Discard) in the extraction block. The message
   // carries only the conversational parts (answers, notes, clarifications) as clean
   // prose, so there are no orphan "• …" bullets duplicating the rows. (UAT round 1.)
-  const propose = async (action: 'move_post' | 'delete_post' | 'rewrite_post' | 'add_post' | 'change_format' | 'generate_hook', payload: Parameters<typeof createProposal>[0]['payload'], summary: string) => {
+  const propose = async (action: 'move_post' | 'delete_post' | 'rewrite_post' | 'add_post' | 'change_format' | 'generate_hook' | 'refine', payload: Parameters<typeof createProposal>[0]['payload'], summary: string) => {
     const pv = await createProposal({ clientId, conversationId: convId, messageId: userMessageId, changeSetId, action, payload, summary });
     proposals.push(pv);
     return pv;
@@ -189,6 +189,33 @@ export async function POST(req: Request) {
           break;
         }
         await propose('generate_hook', { kind: 'generate_hook', cycleId, refProposalId: lastAdd.proposalId }, generateHookSummary(`the new reel “${lastAdd.topic}”`, task.reason));
+        break;
+      }
+      case 'refine': {
+        const target = task.target === 'hook' || task.target === 'script' ? task.target : null;
+        if (!target || !task.instruction) { replyParts.push('Should I refine the hook or the script, and what change?'); break; }
+        // Existing post → validate format + that the field EXISTS (empty → offer generation).
+        if (task.postId || task.selector) {
+          const post = resolvePost(task, posts);
+          if (!post) { replyParts.push(whichPost(task.reason)); break; }
+          const formatOk = target === 'hook' ? (post.format === 'reel' || post.format === 'carousel') : post.format === 'reel';
+          if (!formatOk) {
+            replyParts.push(`${target === 'hook' ? 'Hooks' : 'Scripts'} apply to ${target === 'hook' ? 'reels and carousels' : 'reels'}. “${postTitle(post)}” is ${FMT_WORD[post.format] === 'single image' ? 'a single image' : `an ${FMT_WORD[post.format]}`}.`);
+            break;
+          }
+          const field = target === 'hook' ? post.hook : post.script;
+          if (!field || !field.trim()) {
+            replyParts.push(target === 'hook'
+              ? `There’s no hook on “${postTitle(post)}” yet. Want me to generate some hooks first?`
+              : `There’s no script on “${postTitle(post)}” yet. Open it and use Generate script first, then I can refine it.`);
+            break;
+          }
+          await propose('refine', { kind: 'refine', cycleId, postId: post.id, target, instruction: task.instruction }, refineSummary(target, `“${postTitle(post)}”`, task.reason));
+          break;
+        }
+        // No reference → a refine of a field on a post created earlier in this same ask.
+        if (!lastAdd) { replyParts.push(`Which post’s ${target} should I refine? Name its date.`); break; }
+        await propose('refine', { kind: 'refine', cycleId, refProposalId: lastAdd.proposalId, target, instruction: task.instruction }, refineSummary(target, `the new reel “${lastAdd.topic}”`, task.reason));
         break;
       }
       case 'add_note': {

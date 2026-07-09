@@ -13,7 +13,7 @@ import { AGENT_MODEL } from './model';
 import type { ParsedTask, TaskActionType } from './types';
 
 const ACTIONS: readonly TaskActionType[] = [
-  'move_post', 'delete_post', 'rewrite_post', 'add_post', 'change_format', 'generate_hook', 'add_note', 'query', 'clarify',
+  'move_post', 'delete_post', 'rewrite_post', 'add_post', 'change_format', 'generate_hook', 'refine', 'add_note', 'query', 'clarify',
 ];
 
 export interface ParserContext {
@@ -29,8 +29,8 @@ DECOMPOSE COMPOUND REQUESTS. A message can contain MANY requests joined by "and"
 If a clause expresses an intent you cannot map to one of the actions below, DO NOT drop it — emit a "clarify" task naming what you couldn't do, so the client sees it and can rephrase. Prefer proposing over dropping.
 
 PRODUCT CONCEPTS — this assistant's OWN vocabulary. These are defined features of the product; NEVER ask the client to explain them or offer generic interpretations of them ("what kind of hooks — email subject lines? ad copy?" is WRONG):
-- HOOKS: short opening lines for a REEL or CAROUSEL. They are generated in the post editor from a pattern library and stored on the post. A request to write/add/generate/come up with hooks for a reel or carousel is a "generate_hook" task. Hooks do NOT apply to single-image or email posts.
-- SCRIPTS: a short, timed reel SCRIPT (spoken beats + shot notes + a CTA), generated in the editor from a reel's hook + caption + a chosen length. There is no script task yet, so if the client asks to write a reel's script, do NOT ask what a script is — guide them with a "clarify": "Open the reel and use Generate script in the post editor (once it has a hook and caption)."
+- HOOKS: short opening lines for a REEL or CAROUSEL. They are generated in the post editor from a pattern library and stored on the post. A request to write/add/generate/come up with hooks is a "generate_hook" task; a request to CHANGE an existing hook ("make the hook punchier") is a "refine" task with target "hook". Hooks do NOT apply to single-image or email posts.
+- SCRIPTS: a short, timed reel SCRIPT (spoken beats + shot notes + a CTA), generated in the editor from a reel's hook + caption + a chosen length. There is no GENERATE-script task yet, so if the client asks to WRITE a reel's script from scratch, guide them with a "clarify": "Open the reel and use Generate script in the post editor (once it has a hook and caption)." But a request to CHANGE an EXISTING script ("make the script punchier", "tighten the script", "rework the CTA") IS a "refine" task with target "script".
 - CHECKLISTS / STEPS: the per-post to-do list (shot list etc.), built from a per-format template in the editor.
 - FORMATS: a post is a reel, a carousel, or a single image. EMAIL is not an available format here.
 When a clause names one of these concepts and no task below fits, respond with product-aware guidance in a "clarify" (e.g. "approve the post, then open it and use Generate hooks") — never a generic clarifying question about a concept the product already defines.
@@ -48,6 +48,7 @@ Task actions:
     · No format signal at all → OMIT format (it defaults to single image downstream, shown to the client so they can correct it before approving).
     · EMAIL is never a format you infer. If the client asks to add an EMAIL post, do NOT emit add_post — emit a "clarify" saying email posts aren't available here yet.
 - "generate_hook": generate hook candidates for a REEL or CAROUSEL post — an existing one, OR one being created in this SAME message by a preceding add_post. Fields: postId or selector (OMIT them when the hooks are for a post you are creating in this same message — the ordering is handled downstream). Use this when the message asks to write/add/come up with a HOOK or hooks for a reel/carousel (e.g. "a reel about the heatwave with a good hook", "write some hooks for the Tuesday reel"). Do NOT emit generate_hook for a single-image or email post — hooks are a reels/carousels feature (downstream will offer to change the format).
+- "refine": change an EXISTING hook or script on a post to a client instruction. Fields: postId or selector; target ('hook' or 'script'); instruction (the change to make, e.g. "punchier", "shorter", "rework the CTA", "warmer"). Use this for refinement verbs aimed at a hook or script — "make the script on the 14th punchier", "tighten the Tuesday reel's hook", "rework the CTA on that script". (Refining a CAPTION is a rewrite_post, not a refine. If a reel/script is being CREATED in this same message and then refined, omit the post reference — the ordering is handled downstream.)
 - "add_note": remember a fact/instruction for the plan (not an edit to one existing post). Fields: content; targetMonth ('YYYY-MM', optional); relevantFrom/relevantTo (ISO dates, optional, if the note names a window).
 - "query": a question about the plan or brand knowledge. Fields: question.
 - "clarify": the request is too vague, a post reference is ambiguous, or a clause can't be mapped to an action. Fields: question (what you need to know / what you couldn't do).
@@ -96,8 +97,14 @@ Message: "can you add some hooks to that photo of the new jumper?"  (hooks named
 Message: "what's our returns policy?"
 → {"tasks":[{"action":"query","question":"What is our returns policy?","reason":"what's our returns policy"}]}
 
-Message: "write the script for the Friday reel"  (scripts have no task yet → product-aware guidance, NOT a generic question)
+Message: "write the script for the Friday reel"  (WRITE a script from scratch → guidance, not a refine)
 → {"tasks":[{"action":"clarify","question":"Open the Friday reel and use Generate script in the post editor (once it has a hook and caption).","reason":"write the script for the Friday reel"}]}
+
+Message: "make the script on the 14th punchier"  (change an EXISTING script → refine)
+→ {"tasks":[{"action":"refine","selector":"the post on the 14th","target":"script","instruction":"make it punchier","reason":"make the script on the 14th punchier"}]}
+
+Message: "tighten the hook on the Tuesday reel and rework its CTA"  (two refines on one post → TWO tasks)
+→ {"tasks":[{"action":"refine","selector":"the Tuesday reel","target":"hook","instruction":"tighten it","reason":"tighten the hook on the Tuesday reel"},{"action":"refine","selector":"the Tuesday reel","target":"script","instruction":"rework the CTA","reason":"rework its CTA"}]}
 
 Message: "um so yeah can you like push the wednesday one back a couple days, to the friday i mean"
 → {"tasks":[{"action":"move_post","selector":"the Wednesday post","toDate":"<friday ISO>","reason":"push the Wednesday one to Friday"}]}`;
@@ -177,6 +184,16 @@ function normalizeTask(raw: unknown): ParsedTask {
       // SAME message (a preceding add_post) — the route links it and resolves ordering at apply
       // time. An existing-post reference (postId/selector) is resolved in the route.
       return { action, ...postRef, reason };
+    case 'refine': {
+      const rawT = str(r.target)?.toLowerCase();
+      const target = rawT === 'hook' || rawT === 'script' ? rawT : null;
+      const instruction = str(r.instruction);
+      if (!target) return clarify('Should I refine the hook or the script?', reason);
+      if (!instruction) return clarify('What change should I make to it?', reason);
+      // Post ref optional (a refine of a field created earlier in the same message links
+      // downstream); an existing-post ref resolves in the route.
+      return { action, ...postRef, target, instruction, reason };
+    }
     case 'add_note': {
       const content = str(r.content);
       if (!content) return clarify('What would you like me to note down?', reason);

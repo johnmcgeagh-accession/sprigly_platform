@@ -138,6 +138,35 @@ async function resolveHookTarget(
   return { ready: true, postId };
 }
 
+/** Resolve a refine payload to a post whose target field EXISTS (non-empty). `ready:false`
+ *  is a graceful block (ordering not met / wrong format / empty field → offer generation) —
+ *  the caller must NOT consume the proposal so it stays approvable. */
+async function resolveRefineTarget(
+  clientId: string,
+  p: Extract<ProposalPayload, { kind: 'refine' }>,
+): Promise<{ ready: true; postId: string } | { ready: false; message: string }> {
+  let postId = p.postId ?? null;
+  if (!postId && p.refProposalId) {
+    postId = await postCreatedByProposal(clientId, p.refProposalId);
+    if (!postId) return { ready: false, message: 'Approve the earlier step first, then approve this one to refine it.' };
+  }
+  if (!postId) return { ready: false, message: 'I couldn’t find the post to refine.' };
+  const [post] = await db
+    .select({ format: contentCyclePosts.format, hook: contentCyclePosts.hook, script: contentCyclePosts.script, deletedAt: contentCyclePosts.deletedAt })
+    .from(contentCyclePosts)
+    .where(and(eq(contentCyclePosts.id, postId), eq(contentCyclePosts.clientId, clientId), eq(contentCyclePosts.cycleId, p.cycleId)))
+    .limit(1);
+  if (!post || post.deletedAt) return { ready: false, message: 'That post no longer exists.' };
+  if (p.target === 'hook') {
+    if (post.format !== 'reel' && post.format !== 'carousel') return { ready: false, message: 'Hooks apply to reels and carousels.' };
+    if (!post.hook || !post.hook.trim()) return { ready: false, message: 'There’s no hook on that post yet. Want me to generate one first?' };
+  } else {
+    if (post.format !== 'reel') return { ready: false, message: 'Scripts apply to reels.' };
+    if (!post.script || !post.script.trim()) return { ready: false, message: 'There’s no script on that post yet. Want me to generate one first?' };
+  }
+  return { ready: true, postId };
+}
+
 /**
  * Approve + apply a proposal, idempotently. The conditional transition
  * (WHERE status='pending') is the concurrency gate — only one caller applies. A
@@ -217,6 +246,25 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
       if ('error' in r) throw new Error(r.error);
       await setStatus(clientId, id, 'applied', null, true);
       return { proposal: view({ ...row, status: 'applied' }), jobId: r.jobId, hookPostId: target.postId };
+    } else if (payload.kind === 'refine') {
+      // Refine an existing hook/script via the target-aware shape job (§26). Not-ready (the
+      // field doesn't exist yet / create step unapproved) un-claims → stays approvable.
+      const target = await resolveRefineTarget(row.clientId, payload);
+      if (!target.ready) {
+        await db.update(agentProposals)
+          .set({ status: 'pending', resolvedAt: null, resolvedBy: null, error: null, appliedAt: null })
+          .where(and(eq(agentProposals.id, id), eq(agentProposals.clientId, clientId)));
+        return { proposal: view({ ...row, status: 'pending' }), blocked: true, message: target.message };
+      }
+      const usage = await getUsageForCycle(row.clientId, payload.cycleId);
+      if (isRewriteBlocked(usage)) {
+        await setStatus(clientId, id, 'failed', `You’ve used all ${usage.limit} AI changes this month.`, false);
+        return { proposal: view({ ...row, status: 'failed' }) };
+      }
+      const r = await enqueueShape({ type: 'shape', scope: 'post', clientId: row.clientId, cycleId: payload.cycleId, targetPostId: target.postId, instruction: payload.instruction, target: payload.target, source: 'web', proposalId: id });
+      if ('error' in r) throw new Error(r.error);
+      await setStatus(clientId, id, 'applied', null, true);
+      return { proposal: view({ ...row, status: 'applied' }), jobId: r.jobId };
     } else if (payload.kind === 'apply_caption') {
       // Weekly-session pre-generated rewrite: apply the already-validated caption
       // deterministically (no second generation), and mark any integrated note.

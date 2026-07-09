@@ -52,9 +52,11 @@ export function makeFakeModelClient(): ModelClient {
   return { complete, completeStreaming: complete } as unknown as ModelClient;
 }
 
-/** Seeded post ids (see seed-e2e.ts): …0003 is a reel, …0001 a single image. */
+/** Seeded post ids (see seed-e2e.ts): …0003 is a reel (no hook/script), …0001 a single
+ *  image, …0006 a reel seeded WITH a hook + script (for refine). */
 const E2E_REEL = '33333333-3333-4333-8333-000000000003';
 const E2E_SINGLE = '33333333-3333-4333-8333-000000000001';
+const E2E_REEL_WITH_FIELDS = '33333333-3333-4333-8333-000000000006';
 
 /** Best-effort topic extraction for a deterministic add_post instruction (about/of/showing …,
  *  minus any trailing "with … hook" clause). e2e asserts on the format, not this text. */
@@ -71,7 +73,18 @@ function fakeTasks(userMessage: string): Record<string, unknown>[] {
     return [{ action: 'add_note', content: clientMsg.trim() || 'A note from the client.', reason: 'note that down' }];
   }
 
-  // Scripts have no task yet → product-aware guidance, never a generic question (§24 Part 1).
+  // REFINE an existing hook/script (§26 Part 2) — a refinement verb aimed at a hook/script.
+  // "boxes" → the reel seeded WITH a hook + script (…0006); otherwise the reel WITHOUT one
+  // (…0003), which the route turns into an offer-to-generate question.
+  const refineVerb = /\b(refine|punchier|snappier|tighten|shorten|rework|reword|warmer)\b/.test(lower);
+  if (refineVerb && /\b(hook|script)\b/.test(lower)) {
+    const target = /\bscript\b/.test(lower) ? 'script' : 'hook';
+    const postId = /\bboxes\b/.test(lower) ? E2E_REEL_WITH_FIELDS : E2E_REEL;
+    return [{ action: 'refine', postId, target, instruction: clientMsg.trim(), reason: clientMsg.trim() }];
+  }
+
+  // Scripts (WRITE from scratch, no refine verb) → product-aware guidance, never a generic
+  // question (§24 Part 1).
   if (lower.includes('script')) {
     return [{ action: 'clarify', question: 'Open the reel and use Generate script in the post editor (once it has a hook and caption).', reason: 'write the script' }];
   }

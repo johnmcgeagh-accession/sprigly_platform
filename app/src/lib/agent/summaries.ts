@@ -44,3 +44,9 @@ export function addSummary(date: string, format: string, formatInferred: boolean
 export function generateHookSummary(target: string, reason?: string | null): string {
   return `Generate hooks for ${target}${ask(reason)}`;
 }
+
+/** "Refine the hook/script for <label>" — label is the post title (existing) or the new
+ *  reel being created in the same ask. The instruction rides in via `reason`. */
+export function refineSummary(target: 'hook' | 'script', label: string, reason?: string | null): string {
+  return `Refine the ${target} for ${label}${ask(reason)}`;
+}

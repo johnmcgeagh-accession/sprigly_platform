@@ -220,6 +220,25 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     expect(h.enqueueHook).not.toHaveBeenCalled();
   });
 
+  it('a refine approval enqueues the target-aware shape job for the field', async () => {
+    h.claimQueue = [[{ ...moveRow, intent: 'refine', payload: { kind: 'refine', cycleId: 'cycle-1', postId: 'post-9', target: 'script', instruction: 'punchier' } }]];
+    h.currentRow = { format: 'reel', hook: 'h', script: 'a script', deletedAt: null };   // resolveRefineTarget lookup
+    h.enqueue.mockResolvedValue({ jobId: 'shape_cycle-1_post-9' });
+    const r = await approveProposal(CLIENT, 'prop-1', 'client');
+    expect(r.proposal?.status).toBe('applied');
+    expect(h.enqueue).toHaveBeenCalledWith(expect.objectContaining({ type: 'shape', targetPostId: 'post-9', target: 'script', instruction: 'punchier', proposalId: 'prop-1' }));
+    expect(r.jobId).toBe('shape_cycle-1_post-9');
+  });
+
+  it('a refine of an EMPTY field does NOT enqueue and stays approvable (blocked)', async () => {
+    h.claimQueue = [[{ ...moveRow, intent: 'refine', payload: { kind: 'refine', cycleId: 'cycle-1', postId: 'post-9', target: 'script', instruction: 'punchier' } }]];
+    h.currentRow = { format: 'reel', hook: 'h', script: null, deletedAt: null };   // no script → offer generation
+    const r = await approveProposal(CLIENT, 'prop-1', 'client');
+    expect(r.blocked).toBe(true);
+    expect(r.proposal?.status).toBe('pending');
+    expect(h.enqueue).not.toHaveBeenCalled();
+  });
+
   it('a double-approve of an add-with-instruction inserts + enqueues ONCE (status guard)', async () => {
     h.claimQueue = [[{ ...moveRow, intent: 'add_post', payload: { kind: 'add', cycleId: 'cycle-1', date: '2026-07-15', channel: 'instagram', instruction: 'x' } }], []];
     h.currentRow = { id: 'prop-1', intent: 'add_post', summary: 's', status: 'applied', changeSetId: 'cs-1' };

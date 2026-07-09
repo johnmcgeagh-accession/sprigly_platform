@@ -9,12 +9,12 @@
 
 /** The parser's task actions, in message order. */
 export type TaskActionType =
-  | 'move_post' | 'delete_post' | 'rewrite_post' | 'add_post' | 'change_format' | 'generate_hook'
+  | 'move_post' | 'delete_post' | 'rewrite_post' | 'add_post' | 'change_format' | 'generate_hook' | 'refine'
   | 'add_note' | 'query' | 'clarify';
 
 /** Mutating actions become proposals. */
-export type MutatingAction = 'move_post' | 'delete_post' | 'rewrite_post' | 'add_post' | 'change_format' | 'generate_hook';
-export const MUTATING_ACTIONS: readonly MutatingAction[] = ['move_post', 'delete_post', 'rewrite_post', 'add_post', 'change_format', 'generate_hook'];
+export type MutatingAction = 'move_post' | 'delete_post' | 'rewrite_post' | 'add_post' | 'change_format' | 'generate_hook' | 'refine';
+export const MUTATING_ACTIONS: readonly MutatingAction[] = ['move_post', 'delete_post', 'rewrite_post', 'add_post', 'change_format', 'generate_hook', 'refine'];
 
 /**
  * A single parsed task. `postId` is set when the parser resolved a reference to
@@ -30,6 +30,7 @@ export interface ParsedTask {
   instruction?: string | null;   // rewrite_post
   channel?: string | null;       // add_post
   format?: string | null;        // change_format / add_post ('reel'|'carousel'|'single')
+  target?: string | null;        // refine ('hook'|'script')
   content?: string | null;       // add_note
   targetMonth?: string | null;   // add_note ('YYYY-MM')
   relevantFrom?: string | null;  // add_note (ISO date)
@@ -51,6 +52,10 @@ export type ProposalPayload =
   // add proposal (refProposalId set, postId null) — resolved at apply time from the ledger
   // (the post_created row tagged with that proposal id). Only valid for reels/carousels.
   | { kind: 'generate_hook'; cycleId: string; postId?: string | null; refProposalId?: string | null }
+  // refine enqueues the target-aware shape job (§26) for a HOOK or SCRIPT on approve. postId
+  // for an existing post, or refProposalId for one created earlier in the same ask. The field
+  // must exist (non-empty) — an empty field blocks gracefully (offer generation instead).
+  | { kind: 'refine'; cycleId: string; postId?: string | null; refProposalId?: string | null; target: 'hook' | 'script'; instruction: string }
   // Weekly session — pre-generated content applied deterministically on approve
   // (no second generation). apply_caption carries the full rewritten caption;
   // add_generated carries a whole new validated draft. noteId (when set) is the
@@ -59,7 +64,7 @@ export type ProposalPayload =
   | { kind: 'add_generated'; cycleId: string; date: string; channel: string; format: string; pillar: string; caption: string };
 
 export const ACTION_TO_KIND: Record<MutatingAction, ProposalPayload['kind']> = {
-  move_post: 'move', delete_post: 'delete', rewrite_post: 'rewrite', add_post: 'add', change_format: 'format', generate_hook: 'generate_hook',
+  move_post: 'move', delete_post: 'delete', rewrite_post: 'rewrite', add_post: 'add', change_format: 'format', generate_hook: 'generate_hook', refine: 'refine',
 };
 
 /** The proposal shape returned to the client (list + inline actions). */
