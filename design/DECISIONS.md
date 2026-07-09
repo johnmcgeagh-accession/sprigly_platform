@@ -904,3 +904,65 @@ section and shape pills are gone. **Toast-vs-axe flake fixed properly:** the for
 scan now waits for the status toast to reach full opacity before analyzing — axe was catching the
 toast mid-fade (a blended `#ebebec`-on-`#89909a` = 2.7 transient; the toast is white-on-slate
 10.35:1 at rest). Investigated, not absorbed (§18's rule).
+
+---
+
+## 21. UAT round 1 — focus bug + agent/checklist fixes (2026-07-09)
+
+Six issues from John's first real-Bedrock session. All app-side (+ the extraction prompt,
+which lives in **code**, not `prompt_templates` — so NO migration; 0066→0071 is unchanged).
+
+### 1. Focus-stealing on keystroke (critical) — root cause
+Every keystroke in the agent input (and the caption, on autosave) moved focus to the ✕.
+Nothing was remounting: **`useFocusTrap` listed `onClose` in its effect dependency array,
+and every `Sheet`/`Drawer` call site passes a fresh inline-arrow `onClose` on each render.**
+So any re-render of the layer's parent re-ran the trap effect, whose 30ms `setTimeout`
+focuses the first focusable — the ✕. The two triggers: the agent input's value is state in
+`PlanDesktop` (keystroke → `setAgentText` → PlanDesktop re-render → new `onClose`), and the
+caption's 1.5s autosave updates `posts` (→ drawer re-render). **Fix:** hold `onClose` in a
+ref inside `useFocusTrap` and depend the effect only on `[active, ref]` (both stable) — the
+trap now initialises once per open, never on incidental re-renders. A `keyboard.type()`
+regression e2e (agent input + caption-through-autosave) guards it; `fill()`-based tests are
+blind to this class, which is why 50 green specs missed it.
+
+### 2. Editable checklist step labels
+`useAutosave` extracted to its own module (`useAutosave.ts`) and reused: `ChecklistItem`'s
+label is now an inline `<input>` that autosaves on blur/idle → new `renameStep` (steps.ts) →
+`PATCH …/steps/:id { label }` → `step_renamed` ledger (added to `ActivityAction`). Enter
+commits, Escape reverts, read-only cycles keep static text. axe-clean (per-step aria-label).
+
+### 3. Ask Sprigly working indicator
+On submit: input + send disabled, send → a spinner + "Sprigly is thinking…", and the
+extraction area shows a skeleton (`agent-thinking`, `aria-live`). Never strands — `ask` now
+aborts to an inline error after a 60s ceiling. Motion (`animate-spin`/`animate-pulse`) is
+dropped by the existing `prefers-reduced-motion` scoped reset; the text state remains.
+
+### 4. Extraction rendering + inline approve
+The agent message no longer duplicates proposal summaries as "• …" bullets — the route pushes
+ONLY conversational parts (answers, notes, clarifications) into the message, and
+`ExtractionSummary` renders it as clean prose (`cleanProse` strips any stray markers).
+Proposal rows gained an **inline Approve + Discard** calling the existing approve/reject
+endpoints via `data.decide`; on approve the row swaps to "Applied ✓" and the plan + rail
+counts refresh. Ledger + mutation-cap behaviour is identical to the Approvals view (same
+`approveProposal`), which is unchanged as the full queue.
+
+### 5. Compound-ask decomposition — extraction prompt (code, not DB)
+The prompt is `TASK_PARSER_SYSTEM_PROMPT` in `app/src/lib/agent/task-parser.ts` (a code
+const resolved by the parser; NOT `prompt_templates`/`DbPromptResolver` — that resolver is
+for generation prompts). Changed: an explicit **DECOMPOSE COMPOUND REQUESTS** rule (split on
+and/commas/sequenced verbs; two edits to the same post = two tasks) and a **don't-drop** rule
+(an unmappable clause becomes a `clarify`, never vanishes), plus a worked compound example.
+John's failing case ("… and make it a carousel") was dropped because there was **no format
+action** — added `change_format` end-to-end: a task action + a `format` proposal kind that
+applies via `patchPost { format }` (`format_changed`, origin agent) + summaries. Grammar fix:
+`addSummary` now reads "Add **an Instagram** post" (article + capitalised channel), not "a
+instagram". The e2e fake returns a two-proposal compound (move + change_format on the seeded
+reel) so the flow is deterministic. **Real-Bedrock extraction quality iteration continues on
+UAT — this prompt change is round one, not a guarantee.**
+
+### 6. Timeline z-order
+The connector `<span>` is absolutely positioned, so it painted **above** the static dots and
+cards (positioned elements paint after non-positioned siblings). Fix: `isolate` the timeline
+(own stacking context), put the connector at `-z-10`, and lift each row/divider to `z-10`.
+Dots (opaque coral fill / white-centred hollow) now sit above the line; verified the line no
+longer cuts through either dot state or the Today divider.

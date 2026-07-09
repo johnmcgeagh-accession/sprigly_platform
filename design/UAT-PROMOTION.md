@@ -31,6 +31,12 @@ renders the calendar identically and surfaces nothing — so it cannot block the
 **Everything in the redesign is now in this build** — there is no deferred surface left for a
 later promotion.
 
+**UAT round-1 fixes (2026-07-09) are app-only — NO new migration.** The keystroke focus-steal
+fix, editable checklist step labels, the Ask-Sprigly working indicator, inline Approve/Discard
+in the extraction block, and compound-ask decomposition (incl. a new agent format-change action)
+are all code. The extraction prompt lives in code (`task-parser.ts`), not `prompt_templates`, so
+the migration range stays **0066 → 0071**. Just deploy the new app/engine build.
+
 ---
 
 ## 1. Migrations — apply order 0066 → 0071
@@ -124,10 +130,17 @@ Do these against the UAT app as a real Ivy-T magic-link session:
 1. **Magic link in** — open the Ivy-T link → lands on the plan (not `/expired`), month renders.
 2. **Month renders** — calendar shows the cycle's posts with rings; rail badges match; `Today` works;
    month-nav disables at the ends.
-3. **Caption save** — edit a caption → Save → status flips to EDITED; reload → persists.
-4. **Checklist tick** — tick a step → ring advances; reload → persists.
-5. **Real-Bedrock agent ask** — "move the Tuesday post to Friday" → a proposal appears in Approvals
-   (real model, ~seconds); approve → the post moves; discard on another works.
+3. **Caption save** — edit a caption → it **autosaves on blur / after a short pause** (no Save
+   button; brief "Saved" toast); status flips to EDITED; reload → persists. Type a few words fast:
+   focus stays in the field and the whole string lands (the round-1 focus-steal fix).
+4. **Checklist tick + rename** — tick a step → ring advances; **click a step label, edit it, click
+   away** → it autosaves; reload → both persist.
+5. **Real-Bedrock agent ask** — "move the Tuesday post to Friday" → while it runs, "Sprigly is
+   thinking…" shows; a proposal appears with an **inline Approve** (and in Approvals); approve →
+   the post moves; discard works. **Compound ask** — "move the post on the 10th to the 11th **and
+   make it a carousel**" → **two** separate proposals (a move and a format change), each
+   independently approvable. (Real extraction quality is still being tuned on UAT — if a compound
+   clause is missed, note it; the prompt decomposition is round one.)
 6. **Real hook generate (autosave-on-pick)** — open a reel or carousel editor → "Generate hooks" →
    3 candidates from real Bedrock (~seconds) → **pick one → it saves immediately** (brief "Hook
    saved." toast, **no Save button**) → reload → the hook persists. The button now reads
