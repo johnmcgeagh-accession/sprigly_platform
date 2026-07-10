@@ -23,7 +23,7 @@ import {
   type PlanPostRow, type PlanRepairContext, type CriticContext, type RegisterMap,
 } from './plan-validation.js';
 import type { Catalogue } from '../catalogue/parse-catalogue.js';
-import { indexCatalogue, applyCatalogueValidation } from '../catalogue/validate-catalogue.js';
+import { indexCatalogue, applyCatalogueValidation, deriveBrandTokens } from '../catalogue/validate-catalogue.js';
 import {
   buildWeatherFlags, runAudit, applyCaps, quietMessage, changeMessage,
   type AuditNote, type Finding,
@@ -99,7 +99,7 @@ async function generateCaption(cycle: CycleRow, planPost: PlanPostRow, feedback:
 
   let finalCaption = revised.draftCaption ?? planPost.draftCaption ?? '';
   if (ctx.catalogue) {
-    const idx = indexCatalogue(ctx.catalogue as Catalogue, ctx.structuredBrief);
+    const idx = indexCatalogue(ctx.catalogue as Catalogue, ctx.structuredBrief, deriveBrandTokens(ctx.clientName));
     finalCaption = applyCatalogueValidation(finalCaption, '', idx).caption;
   }
   return finalCaption;

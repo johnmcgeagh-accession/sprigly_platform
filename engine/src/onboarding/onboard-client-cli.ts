@@ -24,8 +24,8 @@ import { and } from 'drizzle-orm';
 import { createModelClientFromEnv } from '@sprigly/model-client';
 import { env } from '../env.js';
 import {
-  stageCreate, stageTrawl, deriveVoiceProfile, derivePillars, computeCadence,
-  toConfigPillars, writeVoiceSnapshot, writePlanningConfig, loadIgPostsWindow,
+  stageCreate, stageTrawl, deriveVoiceProfile, derivePillars, computeCadence, computeFormatMix,
+  toConfigPillars, writeVoiceSnapshot, writePlanningConfig, loadIgPostsWindow, stageShopifyCatalogue,
   DEFAULT_CATEGORIES, DEFAULT_REGISTER_MAP, THIN_CAPTION_FLOOR, slugify,
 } from './onboard.js';
 
@@ -133,17 +133,17 @@ async function onboard(): Promise<void> {
   }
 
   // Stage B — trawl (or reuse existing ig_posts).
-  let captions: string[]; let timestamps: string[];
+  let captions: string[]; let timestamps: string[]; let mediaTypes: string[];
   if (skipTrawl) {
     const win = await loadIgPostsWindow(db, clientId, channel);
-    captions = win.captions; timestamps = win.timestamps;
-    console.log(`B trawl  : skipped — reusing ${win.postCount} posts (${captions.length} captions) from ig_posts.`);
+    captions = win.captions; timestamps = win.timestamps; mediaTypes = win.mediaTypes;
+    console.log(`B trawl  : skipped — reusing ${win.postCount} posts (${captions.length} captions, ${mediaTypes.length} with media type) from ig_posts.`);
   } else {
     const cleanHandle = handle.replace(/^@/, '').trim();
     const b = await stageTrawl({ db, apifyApiKey: env.APIFY_API_KEY, clientId, channel, handle: cleanHandle, logger });
     if (!b.ok) { console.error(`B trawl  : ✗ ${b.message}`); process.exit(1); }
     console.log(`B trawl  : ✓ ${b.message}`);
-    captions = b.captions; timestamps = b.timestamps;
+    captions = b.captions; timestamps = b.timestamps; mediaTypes = b.mediaTypes;
     if (b.thin && !forceThin) {
       console.error(`\n⚠️  THIN ACCOUNT: only ${captions.length} captions (floor is ${THIN_CAPTION_FLOOR}). Voice, pillars and cadence will ALL be weak and unreliable.`);
       console.error(`    Client + ig_posts are created. Re-run with --resume --force-thin to derive anyway, or trawl a fuller account.`);
@@ -155,12 +155,27 @@ async function onboard(): Promise<void> {
   const voice   = await deriveVoiceProfile({ model, captions, brandName: name, channel });
   const pillars = await derivePillars({ model, captions, brandName: name });
   const cadence = computeCadence(timestamps);
+  const mix     = computeFormatMix(mediaTypes);
+  const mixLine = mix.counted > 0
+    ? `image ${mix.imagePct}% / reel ${mix.reelPct}% / carousel ${mix.carouselPct}% (over ${mix.counted} typed posts)`
+    : 'unknown (no media type on the trawled posts)';
 
   const voiceSnapshotId = await writeVoiceSnapshot(db, clientId, channel, voice.voiceDoc);
   await writePlanningConfig(db, clientId, channel, {
     pillars: toConfigPillars(pillars.pillars), cadence: cadence.cadence,
     categories: DEFAULT_CATEGORIES, registerMap: DEFAULT_REGISTER_MAP,
   });
+
+  // Stage G — optional Shopify catalogue from the client's website (--website).
+  let catalogueLine = 'not requested (pass --website to fetch a Shopify catalogue)';
+  if (website) {
+    const g = await stageShopifyCatalogue({ db, clientId, channel, website, logger });
+    catalogueLine = g.skipped
+      ? `skipped — ${g.message}`
+      : `${g.familyCount} products / ${g.variantCount} variants (source=shopify-web); sample: ${g.sampleNames.join(', ')}`;
+    console.log(`G shopify: ${g.skipped ? '○' : '✓'} ${g.message}`);
+    if (!g.skipped) console.log(`  sample : ${g.sampleNames.join(', ')}`);
+  }
 
   const dir = join(outBase, slug);
   const voicePath   = dump(dir, 'voice.md', voice.voiceDoc);
@@ -173,6 +188,8 @@ async function onboard(): Promise<void> {
     `- voice_snapshots (id) : ${voiceSnapshotId}   reason=onboarding-derived, is_current=true`,
     `- client_planning_config: pillars=${pillars.pillars.length}, categories=${DEFAULT_CATEGORIES.length} (default set), register_map={} (lenient default)`,
     `- cadence (observed)   : ~${cadence.observedPostsPerWeek}/week over ~${cadence.windowDays} days (${cadence.postCount} posts) → suggested ${JSON.stringify(cadence.cadence)}`,
+    `- format mix (observed): ${mixLine}`,
+    `- product catalogue    : ${catalogueLine}`,
     '',
     `Pillars: ${pillars.pillars.map((p) => `${p.name} (${p.sharePct}%)`).join(', ')}`,
     `Categories (default): ${DEFAULT_CATEGORIES.join(', ')}`,
@@ -189,6 +206,7 @@ async function onboard(): Promise<void> {
   console.log(`C voice  : ✓ voice_snapshots ${voiceSnapshotId} (${voice.voiceDoc.length} chars)`);
   console.log(`D pillars: ✓ ${pillars.pillars.length} pillars → client_planning_config`);
   console.log(`E cadence: ✓ ~${cadence.observedPostsPerWeek}/week → ${JSON.stringify(cadence.cadence)}`);
+  console.log(`  format : ${mixLine}`);
   console.log(`F default: ✓ categories(${DEFAULT_CATEGORIES.length}), register_map={}`);
   console.log(`\n${summary}`);
   console.log(`\n(review-summary written to ${summaryPath})`);

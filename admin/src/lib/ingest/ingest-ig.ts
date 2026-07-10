@@ -14,7 +14,21 @@ import { db, igPosts } from '@sprigly/db';
  * integers (floats and negatives rejected). Consolidate onto a shared schema when
  * this ingest core is promoted to its own package.
  */
-interface IgPost { timestamp: string; caption?: string; likesCount: number; commentsCount: number }
+interface IgPost { timestamp: string; caption?: string; likesCount: number; commentsCount: number; mediaType?: 'image' | 'reel' | 'carousel' }
+
+// Media type, tolerant of both our own shape (mediaType: 'image'|'reel'|'carousel') and
+// a raw Apify item (type: 'Image'|'Video'|'Sidecar'). Mirrors the worker's mapApifyMediaType
+// (engine/src/lean-line.ts) — kept inline so this ingest core needs no worker dependency.
+function resolveMediaType(p: Record<string, unknown>): 'image' | 'reel' | 'carousel' | undefined {
+  const mt = p.mediaType;
+  if (mt === 'image' || mt === 'reel' || mt === 'carousel') return mt;
+  switch (p.type) {
+    case 'Video':   return 'reel';
+    case 'Sidecar': return 'carousel';
+    case 'Image':   return 'image';
+    default:        return undefined;
+  }
+}
 
 function validateIgPosts(json: unknown): { ok: true; posts: IgPost[] } | { ok: false; message: string } {
   if (!Array.isArray(json)) return { ok: false, message: 'Expected a JSON array of posts.' };
@@ -26,11 +40,13 @@ function validateIgPosts(json: unknown): { ok: true; posts: IgPost[] } | { ok: f
     if (p.caption !== undefined && typeof p.caption !== 'string')       return { ok: false, message: `Item ${i}: "caption" must be a string if present.` };
     if (!Number.isInteger(p.likesCount)    || (p.likesCount as number)    < 0) return { ok: false, message: `Item ${i}: "likesCount" must be an integer ≥ 0.` };
     if (!Number.isInteger(p.commentsCount) || (p.commentsCount as number) < 0) return { ok: false, message: `Item ${i}: "commentsCount" must be an integer ≥ 0.` };
+    const mediaType = resolveMediaType(p);
     posts.push({
       timestamp: p.timestamp,
       ...(typeof p.caption === 'string' ? { caption: p.caption } : {}),
       likesCount: p.likesCount as number,
       commentsCount: p.commentsCount as number,
+      ...(mediaType ? { mediaType } : {}),
     });
   }
   return { ok: true, posts };

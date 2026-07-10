@@ -53,7 +53,7 @@ import type { NewContentCyclePostRow } from '@sprigly/db';
 import { mapFormat, isoDateInMonth } from './post-mapping.js';
 import type { ClientPlanningConfig } from '@sprigly/db';
 import type { Catalogue } from '../catalogue/parse-catalogue.js';
-import { indexCatalogue, applyCatalogueValidation, buildCatalogueGroundingBlock } from '../catalogue/validate-catalogue.js';
+import { indexCatalogue, applyCatalogueValidation, buildCatalogueGroundingBlock, deriveBrandTokens } from '../catalogue/validate-catalogue.js';
 import { getTokens, storeTokens } from '@sprigly/oauth-tokens';
 import type { EncryptionProvider } from '@sprigly/oauth-tokens';
 import { DriveApiClient } from '@sprigly/sources';
@@ -909,9 +909,12 @@ export async function runPlanningForCycle(
     // a neutral "[confirm colourway]" placeholder + a Sprigly Note (kills the
     // "Elle in dark olive" fabrication). Runs after the critic so the placeholder
     // isn't re-flagged by the code gate. Skipped when no catalogue is cached.
+    // Brand tokens (per-client — replaces the hardcoded 'ivy'): the client's own name
+    // words, never matched as product names in catalogue grounding/merge. IVY-t → {ivy}.
+    const brandTokens = deriveBrandTokens(clientName);
     let planRows = critic.rows;
     if (catalogue) {
-      const idx = indexCatalogue(catalogue, structuredBrief);
+      const idx = indexCatalogue(catalogue, structuredBrief, brandTokens);
       let totalViolations = 0;
       planRows = critic.rows.map((p, index) => {
         const before = p.draftCaption ?? '';
@@ -1003,7 +1006,7 @@ export async function runPlanningForCycle(
       const editedIds = new Set(editRefs.map((r) => r.postId));
       const catalogueNames = (catalogue?.families ?? [])
         .map((f) => f.name.toLowerCase().trim())
-        .filter((n) => n && n !== 'ivy');
+        .filter((n) => n && !brandTokens.has(n));
       const existing: ExistingPost[] = existingRows.map((r) => ({
         id: r.id, scheduledDate: r.scheduledDate, status: r.status, caption: r.caption,
         title: ((r.sourceMeta as Record<string, unknown> | null)?.['title'] as string) ?? '',

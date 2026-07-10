@@ -6,8 +6,8 @@ vi.mock('../apify-ig-fetch.js', () => ({ fetchApifyPostsForHandle: vi.fn() }));
 import { fetchApifyPostsForHandle } from '../apify-ig-fetch.js';
 
 import {
-  slugify, computeCadence, parsePillarsResponse, toConfigPillars,
-  stageCreate, stageTrawl, writePlanningConfig, writeVoiceSnapshot,
+  slugify, computeCadence, computeFormatMix, parsePillarsResponse, toConfigPillars,
+  stageCreate, stageTrawl, writePlanningConfig, writeVoiceSnapshot, mapShopifyToCatalogue,
   THIN_CAPTION_FLOOR, DEFAULT_CATEGORIES, DEFAULT_REGISTER_MAP,
 } from './onboard.js';
 
@@ -69,6 +69,51 @@ describe('computeCadence', () => {
     const r = computeCadence([]);
     expect(r.postCount).toBe(0);
     expect(r.observedPostsPerWeek).toBe(0);
+  });
+});
+
+describe('computeFormatMix', () => {
+  it('computes % over posts that carry a media type', () => {
+    const m = computeFormatMix(['image', 'image', 'reel', 'carousel']);
+    expect(m.counted).toBe(4);
+    expect([m.imagePct, m.reelPct, m.carouselPct]).toEqual([50, 25, 25]);
+  });
+  it('ignores posts without a media type (they are not in the denominator)', () => {
+    const m = computeFormatMix(['reel', undefined, 'reel', undefined]);
+    expect(m.counted).toBe(2);
+    expect(m.reelPct).toBe(100);
+    expect(m.image).toBe(0);
+  });
+  it('all-untyped → zeros, no divide-by-zero', () => {
+    const m = computeFormatMix([undefined, undefined]);
+    expect(m.counted).toBe(0);
+    expect([m.imagePct, m.reelPct, m.carouselPct]).toEqual([0, 0, 0]);
+  });
+});
+
+describe('mapShopifyToCatalogue — Shopify → catalogue contract', () => {
+  it('one family per product; product_type → style; first variant option → colourway; provenance; zero sales', () => {
+    const products = [
+      { title: 'Sea Salt Candle', product_type: 'Candle', body_html: '<p>A <b>fresh</b> scent.</p>', variants: [{ option1: '250g' }, { option1: '500g' }] },
+      { title: 'Room Mist', product_type: 'Home Fragrance', tags: ['fragrance'], variants: [{ option1: 'Default Title' }] },
+    ];
+    const cat = mapShopifyToCatalogue(products);
+    expect(cat.source).toBe('shopify-web');
+    expect(typeof cat.fetchedAt).toBe('string');
+    expect(cat.families.map((f) => f.name)).toEqual(['Sea Salt Candle', 'Room Mist']);
+    expect(cat.families[0]!.style).toBe('Candle');
+    expect(cat.families[0]!.variants.map((v) => v.colourway)).toEqual(['250g', '500g']);
+    expect(cat.families[1]!.variants[0]!.colourway).toBeUndefined();       // "Default Title" → no colourway
+    expect(cat.families[0]!.variants[0]!.sales).toEqual({ netItemsSold: 0, netSales: 0, returns: 0 });   // no web sales
+    expect(cat.statusBreakdown.live).toBe(3);                              // total variants
+  });
+  it('style falls back to the first tag, then "Product"', () => {
+    const cat = mapShopifyToCatalogue([{ title: 'Mystery Item', tags: ['gift'], variants: [] }]);
+    expect(cat.families[0]!.style).toBe('gift');
+    expect(cat.families[0]!.variants).toHaveLength(1);   // no variants → one no-colourway entry
+  });
+  it('empty input → empty families (caller then skips — never writes {})', () => {
+    expect(mapShopifyToCatalogue([]).families).toEqual([]);
   });
 });
 

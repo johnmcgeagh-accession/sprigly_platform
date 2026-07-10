@@ -158,9 +158,24 @@ export const igPostSchema = z.object({
   caption:       z.string().optional(),
   likesCount:    z.number().int().nonnegative(),
   commentsCount: z.number().int().nonnegative(),
+  // Instagram media type, retained so the format mix is known. Optional — rows written
+  // before this existed (and any post whose Apify `type` was unrecognised) have no key.
+  mediaType:     z.enum(['image', 'reel', 'carousel']).optional(),
 });
 export type IgPost = z.infer<typeof igPostSchema>;
 const igPostsArraySchema = z.array(igPostSchema);
+
+/** Map an Apify instagram-scraper item `type` to our ig_posts mediaType.
+ *  Video → reel, Sidecar → carousel, Image → image; anything else → undefined
+ *  (the caller omits the key rather than guessing). */
+export function mapApifyMediaType(type: string | undefined): 'image' | 'reel' | 'carousel' | undefined {
+  switch (type) {
+    case 'Video':   return 'reel';
+    case 'Sidecar': return 'carousel';
+    case 'Image':   return 'image';
+    default:        return undefined;
+  }
+}
 
 function captionSnippet(caption: string | undefined): string {
   if (!caption) return '';

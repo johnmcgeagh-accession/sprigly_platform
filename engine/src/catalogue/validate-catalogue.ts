@@ -28,9 +28,26 @@ export interface CatalogueIndex {
   briefedByName: Map<string, Set<string>>;
 }
 
-// Names that collide with the brand or with common caption words — never matched
-// as products (avoids false positives). "ivy" is the brand itself.
-const AMBIGUOUS_NAMES = new Set(['ivy']);
+// Generic connectors dropped from brand tokens so a name like "Earl of East" doesn't
+// exclude "of", and "The Linen Room" doesn't turn "the" into a brand token.
+const BRAND_STOPWORDS = new Set(['the', 'and', 'for', 'our']);
+
+/**
+ * The client's own brand-name tokens that must NEVER be matched as product names — the
+ * brand word colliding with a garment/product (previously the hardcoded {'ivy'}). Derived
+ * per-client from clients.name: lowercase, split on non-alphanumeric, keep tokens of length
+ * ≥ 3 that aren't a generic stopword. Examples (exact, current behaviour preserved):
+ *   "IVY-t"        → {ivy}          (the 1-char "t" is dropped by the length floor)
+ *   "Earl of East" → {earl, east}   ("of" dropped by the length floor)
+ * Returns an empty set when the name yields no qualifying token (then nothing is excluded).
+ */
+export function deriveBrandTokens(brandName: string): Set<string> {
+  const out = new Set<string>();
+  for (const raw of (brandName ?? '').toLowerCase().split(/[^a-z0-9]+/)) {
+    if (raw.length >= 3 && !BRAND_STOPWORDS.has(raw)) out.add(raw);
+  }
+  return out;
+}
 
 function escapeRe(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
@@ -38,22 +55,22 @@ function escapeRe(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '
  *  name that appears as a whole word in the brief's product string ("Connie
  *  sweatshirt" → "connie"). null when the brief names a product not in the
  *  catalogue. */
-function matchBriefToCatalogueName(briefProduct: string, catalogueNames: string[]): string | null {
+function matchBriefToCatalogueName(briefProduct: string, catalogueNames: string[], ambiguousNames: Set<string>): string | null {
   const b = briefProduct.toLowerCase().trim();
   let best: string | null = null;
   for (const n of catalogueNames) {
-    if (AMBIGUOUS_NAMES.has(n)) continue;
+    if (ambiguousNames.has(n)) continue;
     if (new RegExp('\\b' + escapeRe(n) + '\\b').test(b) && (best === null || n.length > best.length)) best = n;
   }
   return best;
 }
 
-export function indexCatalogue(cat: Catalogue, brief?: StructuredBrief | null): CatalogueIndex {
+export function indexCatalogue(cat: Catalogue, brief: StructuredBrief | null | undefined, ambiguousNames: Set<string>): CatalogueIndex {
   const colourwaysByName = new Map<string, Set<string>>();
   const colourSet = new Set<string>();
   for (const fam of cat.families) {
     const name = fam.name.toLowerCase().trim();
-    if (AMBIGUOUS_NAMES.has(name)) continue;
+    if (ambiguousNames.has(name)) continue;
     let set = colourwaysByName.get(name);
     if (!set) { set = new Set(); colourwaysByName.set(name, set); }
     for (const v of fam.variants) {
@@ -85,8 +102,8 @@ export function indexCatalogue(cat: Catalogue, brief?: StructuredBrief | null): 
   for (const p of brief?.products ?? []) {
     const colour = (p.colourway ?? '').toLowerCase().trim();
     if (!colour) continue;
-    const name = matchBriefToCatalogueName(p.product, catalogueNames) ?? p.product.toLowerCase().trim();
-    if (!name || AMBIGUOUS_NAMES.has(name)) continue;
+    const name = matchBriefToCatalogueName(p.product, catalogueNames, ambiguousNames) ?? p.product.toLowerCase().trim();
+    if (!name || ambiguousNames.has(name)) continue;
     let set = colourwaysByName.get(name);
     if (!set) { set = new Set(); colourwaysByName.set(name, set); }
     const newlyBriefed = !set.has(colour);   // not already a sold/known variant

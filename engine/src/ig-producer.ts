@@ -19,7 +19,7 @@ import { eq, and } from 'drizzle-orm';
 import { db as _db, clientChannels, contentCycles, igPosts } from '@sprigly/db';
 import { type EncryptionProvider } from '@sprigly/oauth-tokens';
 import type { Logger } from 'pino';
-import { igPostSchema } from './lean-line.js';
+import { igPostSchema, mapApifyMediaType } from './lean-line.js';
 import { fetchApifyPostsForHandle, classifyApifyError } from './apify-ig-fetch.js';
 
 type Db = typeof _db;
@@ -148,13 +148,17 @@ export async function trawlInstagramPosts(params: IgProducerParams): Promise<IgT
     return { status: 'empty_month', detail: `${ownedPosts.length} owned posts, none in ${month}` };
   }
 
-  // ── Map to igPostSchema shape ─────────────────────────────────────────────
-  const mapped = monthPosts.map((p) => ({
-    timestamp:     p.timestamp!,
-    caption:       p.caption,
-    likesCount:    p.likesCount  as number,
-    commentsCount: p.commentsCount as number,
-  }));
+  // ── Map to igPostSchema shape (mediaType from Apify `type`, omitted if unknown) ─
+  const mapped = monthPosts.map((p) => {
+    const mt = mapApifyMediaType(p.type);
+    return {
+      timestamp:     p.timestamp!,
+      caption:       p.caption,
+      likesCount:    p.likesCount  as number,
+      commentsCount: p.commentsCount as number,
+      ...(mt ? { mediaType: mt } : {}),
+    };
+  });
 
   // ── Validate against shared schema ────────────────────────────────────────
   // Rejects floats, negatives, and missing fields that slipped past count filter.

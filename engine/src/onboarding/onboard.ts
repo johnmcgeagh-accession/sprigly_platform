@@ -12,12 +12,12 @@
 
 import { eq, and } from 'drizzle-orm';
 import { z } from 'zod';
-import { db as _db, clients, clientChannels, clientConfigs, voiceSnapshots, clientPlanningConfig, igPosts } from '@sprigly/db';
+import { db as _db, clients, clientChannels, clientConfigs, voiceSnapshots, clientPlanningConfig, clientProductCatalogue, igPosts } from '@sprigly/db';
 import type { ModelClient } from '@sprigly/model-client';
-import type { Pillar, Cadence } from '@sprigly/engine';
+import type { Pillar, Cadence, Catalogue, ParsedProduct, ProductFamily } from '@sprigly/engine';
 import type { Logger } from 'pino';
 import { fetchApifyPostsForHandle } from '../apify-ig-fetch.js';
-import { igPostSchema } from '../lean-line.js';
+import { igPostSchema, mapApifyMediaType } from '../lean-line.js';
 
 type Db = typeof _db;
 
@@ -99,6 +99,27 @@ export function computeCadence(timestamps: string[]): CadenceResult {
   return { postCount, windowDays: Math.round(windowDays), observedPostsPerWeek: perWeek, cadence };
 }
 
+export interface FormatMix {
+  counted: number;   // posts that carried a media type (the denominator)
+  image: number; reel: number; carousel: number;
+  imagePct: number; reelPct: number; carouselPct: number;
+}
+
+/** Observed FORMAT MIX (% image/reel/carousel) over the posts that HAVE a media type.
+ *  Deterministic — no model call. Posts without a mediaType are excluded from the
+ *  denominator (counted), so a run with no media types returns all zeros. */
+export function computeFormatMix(mediaTypes: Array<string | undefined>): FormatMix {
+  let image = 0, reel = 0, carousel = 0;
+  for (const t of mediaTypes) {
+    if (t === 'image') image++;
+    else if (t === 'reel') reel++;
+    else if (t === 'carousel') carousel++;
+  }
+  const counted = image + reel + carousel;
+  const pct = (n: number) => (counted ? Math.round((n / counted) * 100) : 0);
+  return { counted, image, reel, carousel, imagePct: pct(image), reelPct: pct(reel), carouselPct: pct(carousel) };
+}
+
 // ── Stage A — create client + channel ────────────────────────────────────────
 
 export interface StageAResult { ok: boolean; message: string; clientId?: string; slug?: string; channel: string }
@@ -153,7 +174,7 @@ export async function stageCreate(params: {
 
 export interface StageBResult {
   ok: boolean; message: string;
-  captions: string[]; timestamps: string[]; postCount: number; monthsWritten: string[];
+  captions: string[]; timestamps: string[]; mediaTypes: string[]; postCount: number; monthsWritten: string[];
   thin: boolean;
 }
 
@@ -164,7 +185,7 @@ export async function stageTrawl(params: {
   db: Db; apifyApiKey: string | undefined; clientId: string; channel: string; handle: string; logger?: Logger;
 }): Promise<StageBResult> {
   const { db, apifyApiKey, clientId, channel, handle, logger } = params;
-  if (!apifyApiKey) return { ok: false, thin: true, captions: [], timestamps: [], postCount: 0, monthsWritten: [], message: 'APIFY_API_KEY not set — cannot trawl.' };
+  if (!apifyApiKey) return { ok: false, thin: true, captions: [], timestamps: [], mediaTypes: [], postCount: 0, monthsWritten: [], message: 'APIFY_API_KEY not set — cannot trawl.' };
 
   const logCtx = { clientId, channel, handle };
   const fetched = await fetchApifyPostsForHandle(handle, APIFY_RESULTS_LIMIT, apifyApiKey, logger ?? ({ info() {}, warn() {}, error() {}, debug() {} } as unknown as Logger), logCtx);
@@ -174,15 +195,18 @@ export async function stageTrawl(params: {
   const byMonth = new Map<string, Array<Record<string, unknown>>>();
   const captions: string[] = [];
   const timestamps: string[] = [];
+  const mediaTypes: string[] = [];
   for (const p of owned) {
     if (!p.timestamp) continue;
     const month = londonMonth(p.timestamp);
     if (!month) continue;
-    const mapped = { timestamp: p.timestamp, caption: p.caption, likesCount: p.likesCount as number, commentsCount: p.commentsCount as number };
+    const mt = mapApifyMediaType(p.type);
+    const mapped = { timestamp: p.timestamp, caption: p.caption, likesCount: p.likesCount as number, commentsCount: p.commentsCount as number, ...(mt ? { mediaType: mt } : {}) };
     const parsed = igPostSchema.safeParse(mapped);
     if (!parsed.success) continue;
     (byMonth.get(month) ?? byMonth.set(month, []).get(month)!).push(parsed.data as unknown as Record<string, unknown>);
     timestamps.push(p.timestamp);
+    if (mt) mediaTypes.push(mt);
     if (typeof p.caption === 'string' && p.caption.trim()) captions.push(p.caption.trim());
   }
 
@@ -199,29 +223,31 @@ export async function stageTrawl(params: {
 
   const thin = captions.length < THIN_CAPTION_FLOOR;
   return {
-    ok: true, thin, captions, timestamps, postCount: timestamps.length, monthsWritten,
-    message: `Trawled ${timestamps.length} owned posts (${captions.length} captions) across ${monthsWritten.length} month(s): ${monthsWritten.join(', ')}.`,
+    ok: true, thin, captions, timestamps, mediaTypes, postCount: timestamps.length, monthsWritten,
+    message: `Trawled ${timestamps.length} owned posts (${captions.length} captions, ${mediaTypes.length} with media type) across ${monthsWritten.length} month(s): ${monthsWritten.join(', ')}.`,
   };
 }
 
 /** Read the caption/timestamp window back from ig_posts (all months) for a client —
  *  used to re-derive without re-trawling, and for calibration (read-only). */
-export async function loadIgPostsWindow(db: Db, clientId: string, channel: string): Promise<{ captions: string[]; timestamps: string[]; postCount: number; months: string[] }> {
+export async function loadIgPostsWindow(db: Db, clientId: string, channel: string): Promise<{ captions: string[]; timestamps: string[]; mediaTypes: string[]; postCount: number; months: string[] }> {
   const rows = await db.select({ month: igPosts.month, posts: igPosts.posts }).from(igPosts)
     .where(and(eq(igPosts.clientId, clientId), eq(igPosts.channel, channel)));
   const captions: string[] = [];
   const timestamps: string[] = [];
+  const mediaTypes: string[] = [];
   const months: string[] = [];
   for (const r of rows) {
     months.push(r.month);
     for (const p of (Array.isArray(r.posts) ? r.posts : [])) {
-      const ts = p['timestamp']; const cap = p['caption'];
+      const ts = p['timestamp']; const cap = p['caption']; const mt = p['mediaType'];
       if (typeof ts === 'string') timestamps.push(ts);
       if (typeof cap === 'string' && cap.trim()) captions.push(cap.trim());
+      if (typeof mt === 'string') mediaTypes.push(mt);
     }
   }
   months.sort();
-  return { captions, timestamps, postCount: timestamps.length, months };
+  return { captions, timestamps, mediaTypes, postCount: timestamps.length, months };
 }
 
 // ── Stage C — derive voice (model) ───────────────────────────────────────────
@@ -367,4 +393,144 @@ export async function writePlanningConfig(db: Db, clientId: string, channel: str
         updatedAt:   new Date(),
       },
     });
+}
+
+// ── Stage G — optional Shopify catalogue from the client's website ────────────
+//
+// SECURITY: the site is treated PURELY as product DATA. We fetch ONLY the Shopify
+// products endpoints and read structured JSON fields; we never fetch or act on any
+// other site file (robots.txt, agents.md, etc.) and never interpret free text as
+// instructions. This catalogue carries NO sales signal (all sales are 0) and is
+// marked source:'shopify-web' so downstream can tell it from a sales-CSV catalogue.
+
+interface ShopifyVariant { title?: string; option1?: string | null; option2?: string | null; option3?: string | null }
+interface ShopifyProduct { title?: string; handle?: string; body_html?: string; product_type?: string; tags?: string[] | string; variants?: ShopifyVariant[] }
+
+/** Strip HTML tags/entities from a body_html blurb → collapsed plain text. */
+function stripHtml(html: string): string {
+  return (html ?? '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&[a-z]+;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Fetch a Shopify storefront's products from the public JSON endpoints. Tries
+ *  /products.json then /collections/all/products.json; paginates to a ~250 cap.
+ *  Any 404 / disabled endpoint / parse failure → returns [] (caller writes nothing). */
+async function fetchShopifyProducts(website: string): Promise<ShopifyProduct[]> {
+  const base = website.replace(/\/+$/, '');
+  for (const ep of ['/products.json', '/collections/all/products.json']) {
+    const all: ShopifyProduct[] = [];
+    let ok = false;
+    for (let page = 1; page <= 5 && all.length < 250; page++) {
+      let res: Response;
+      try {
+        res = await fetch(`${base}${ep}?limit=250&page=${page}`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(15_000) });
+      } catch { break; }
+      if (!res.ok) break;                       // 404/403/etc → try the next endpoint
+      ok = true;
+      let json: { products?: unknown };
+      try { json = await res.json() as { products?: unknown }; } catch { break; }
+      const products = Array.isArray(json.products) ? (json.products as ShopifyProduct[]) : [];
+      if (products.length === 0) break;
+      all.push(...products);
+      if (products.length < 250) break;          // last page
+    }
+    if (ok && all.length > 0) return all.slice(0, 250);
+  }
+  return [];
+}
+
+/** Web-derived catalogue carrying provenance. Extends Catalogue with source/fetchedAt
+ *  (extra keys the readers ignore) so a sales-CSV catalogue is distinguishable. */
+type WebCatalogue = Catalogue & { source: 'shopify-web'; fetchedAt: string };
+
+/** GROUPING RULE: one ProductFamily per Shopify PRODUCT (family name = product title),
+ *  with product_type (or the first tag, else "Product") as the family `style`; each
+ *  Shopify variant becomes one ParsedProduct whose colourway is its first variant option
+ *  value (colour / size / scent — whatever the product's variant axis is), with the
+ *  synthetic "Default Title" treated as no variant. All sales are 0 (no web sales signal). */
+export function mapShopifyToCatalogue(products: ShopifyProduct[]): WebCatalogue {
+  const families: ProductFamily[] = [];
+  let variantTotal = 0;
+  for (const p of products) {
+    const name = (p.title ?? '').trim();
+    if (!name) continue;
+    const firstTag = Array.isArray(p.tags) ? (p.tags[0] ?? '') : (typeof p.tags === 'string' ? (p.tags.split(',')[0] ?? '').trim() : '');
+    const style = (p.product_type ?? '').trim() || firstTag || 'Product';
+    const variants: ParsedProduct[] = [];
+    for (const v of (p.variants ?? [])) {
+      const opt = (v.option1 ?? '').trim();
+      const colourway = opt && opt.toLowerCase() !== 'default title' ? opt : undefined;
+      variants.push({
+        originalTitle: colourway ? `${name} ${colourway}` : name,
+        conforming: true, name, style, status: 'live', kids: false,
+        ...(colourway ? { colourway } : {}),
+        sales: { netItemsSold: 0, netSales: 0, returns: 0 },
+      });
+    }
+    if (variants.length === 0) {
+      variants.push({ originalTitle: name, conforming: true, name, style, status: 'live', kids: false, sales: { netItemsSold: 0, netSales: 0, returns: 0 } });
+    }
+    variantTotal += variants.length;
+    const description = stripHtml(p.body_html ?? '').slice(0, 240);
+    families.push({ family: `${name} ${style}`, name, style, kids: false, variants, ...(description ? { description } : {}) } as ProductFamily);
+  }
+  return {
+    families, flagged: [],
+    statusBreakdown: { live: variantTotal, 'pre-order': 0, 'back-soon': 0, 'sample-sale': 0 },
+    source: 'shopify-web', fetchedAt: new Date().toISOString(),
+  };
+}
+
+export interface StageGResult { ok: boolean; skipped: boolean; message: string; familyCount: number; productCount: number; variantCount: number; sampleNames: string[] }
+
+/**
+ * Fetch the client's Shopify catalogue and write it to client_product_catalogue.
+ * Skips cleanly (writes NOTHING) when no Shopify catalogue is exposed. Idempotent:
+ * replaces an existing shopify-web catalogue, but REFUSES to overwrite a sales-CSV
+ * catalogue. NEVER writes an empty ({}) row (a known landmine).
+ */
+export async function stageShopifyCatalogue(params: {
+  db: Db; clientId: string; channel: string; website: string; logger?: Logger;
+}): Promise<StageGResult> {
+  const { db, clientId, channel, website } = params;
+  const empty = { familyCount: 0, productCount: 0, variantCount: 0, sampleNames: [] as string[] };
+
+  const products = await fetchShopifyProducts(website);
+  if (products.length === 0) {
+    return { ok: true, skipped: true, message: `no Shopify catalogue exposed at ${website} — skipping (no row written).`, ...empty };
+  }
+
+  // Idempotency guard: never clobber a sales-CSV catalogue with web data.
+  const [existing] = await db.select({ catalogue: clientProductCatalogue.catalogue }).from(clientProductCatalogue)
+    .where(and(eq(clientProductCatalogue.clientId, clientId), eq(clientProductCatalogue.channel, channel))).limit(1);
+  if (existing) {
+    const src = (existing.catalogue as { source?: unknown } | null)?.source;
+    if (src !== 'shopify-web') {
+      return { ok: false, skipped: true, message: 'a sales-CSV catalogue already exists for this client/channel — refusing to overwrite it with web-derived data.', ...empty };
+    }
+  }
+
+  const cat = mapShopifyToCatalogue(products);
+  if (cat.families.length === 0) {
+    return { ok: true, skipped: true, message: 'Shopify returned products but none mapped to a family — skipping (no row written).', ...empty };
+  }
+
+  const payload = cat as unknown as Record<string, unknown>;
+  await db.insert(clientProductCatalogue)
+    .values({ clientId, channel, sourceMonth: null, catalogue: payload, refreshedAt: new Date() })
+    .onConflictDoUpdate({
+      target: [clientProductCatalogue.clientId, clientProductCatalogue.channel],
+      set: { catalogue: payload, sourceMonth: null, refreshedAt: new Date(), updatedAt: new Date() },
+    });
+
+  const variantCount = cat.families.reduce((n, f) => n + f.variants.length, 0);
+  return {
+    ok: true, skipped: false,
+    message: `Shopify catalogue written: ${cat.families.length} products / ${variantCount} variants (source=shopify-web, no sales signal).`,
+    familyCount: cat.families.length, productCount: products.length, variantCount,
+    sampleNames: cat.families.slice(0, 8).map((f) => f.name),
+  };
 }

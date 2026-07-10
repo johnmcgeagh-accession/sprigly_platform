@@ -74,8 +74,8 @@ const intakeText = [planContent.freeNotes, ...Object.values(planContent.answers 
 const model = createModelClientFromEnv();
 const brief = await extractStructuredBrief({ planContent, planMonth, model, logger });
 
-const idxWithout = indexCatalogue(catalogue);
-const idxWith    = indexCatalogue(catalogue, brief);
+const idxWithout = indexCatalogue(catalogue, null, new Set<string>());
+const idxWith    = indexCatalogue(catalogue, brief, new Set<string>());
 
 const line = (s: string) => console.log(s);
 line('');

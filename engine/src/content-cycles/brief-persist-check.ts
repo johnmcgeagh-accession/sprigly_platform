@@ -65,9 +65,9 @@ const groundingSame = g0 === gNull && gNull === gEmpty;
 // (3) index identical: no-brief / null / empty; briefedByName empty
 const serialize = (idx: CatalogueIndex) =>
   JSON.stringify([...idx.colourwaysByName.entries()].map(([k, v]) => [k, [...v].sort()]).sort());
-const i0 = indexCatalogue(catalogue);
-const iNull = indexCatalogue(catalogue, null);
-const iEmpty = indexCatalogue(catalogue, EMPTY_STRUCTURED_BRIEF);
+const i0 = indexCatalogue(catalogue, undefined, new Set<string>());
+const iNull = indexCatalogue(catalogue, null, new Set<string>());
+const iEmpty = indexCatalogue(catalogue, EMPTY_STRUCTURED_BRIEF, new Set<string>());
 const indexSame = serialize(i0) === serialize(iNull) && serialize(iNull) === serialize(iEmpty);
 const briefedEmpty = i0.briefedByName.size === 0 && iNull.briefedByName.size === 0 && iEmpty.briefedByName.size === 0;
 

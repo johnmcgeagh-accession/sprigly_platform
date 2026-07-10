@@ -12,7 +12,7 @@
 import { and, eq } from 'drizzle-orm';
 import { contentCycles, contentCyclePosts, postEdits } from '@sprigly/db';
 import type { Catalogue } from '../catalogue/parse-catalogue.js';
-import { indexCatalogue, applyCatalogueValidation } from '../catalogue/validate-catalogue.js';
+import { indexCatalogue, applyCatalogueValidation, deriveBrandTokens } from '../catalogue/validate-catalogue.js';
 import { assembleShapeContext } from './planning.js';
 import type { PlanningDeps } from './planning.js';
 import { recordPlanActivity } from './ledger.js';
@@ -129,7 +129,7 @@ export async function runShapeForCycle(job: ShapeJob, deps: PlanningDeps): Promi
     // 3. HARD catalogue grounding (rewrite invalid product/colourway pairings).
     let finalCaption = revised.draftCaption ?? before;
     if (ctx.catalogue) {
-      const idx = indexCatalogue(ctx.catalogue as Catalogue, ctx.structuredBrief);
+      const idx = indexCatalogue(ctx.catalogue as Catalogue, ctx.structuredBrief, deriveBrandTokens(ctx.clientName));
       finalCaption = applyCatalogueValidation(finalCaption, '', idx).caption;
     }
 

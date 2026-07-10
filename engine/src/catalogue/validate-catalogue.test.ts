@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { indexCatalogue, validateText, applyCatalogueValidation, buildCatalogueGroundingBlock } from './validate-catalogue.js';
+import { indexCatalogue, validateText, applyCatalogueValidation, buildCatalogueGroundingBlock, deriveBrandTokens } from './validate-catalogue.js';
 import type { Catalogue, ProductFamily } from './parse-catalogue.js';
 
 const fam = (name: string, style: string, colourways: string[]): ProductFamily => ({
@@ -19,7 +19,30 @@ const cat: Catalogue = {
   flagged: [],
   statusBreakdown: { live: 7, 'pre-order': 0, 'back-soon': 0, 'sample-sale': 0 },
 };
-const idx = indexCatalogue(cat);
+const idx = indexCatalogue(cat, undefined, deriveBrandTokens('IVY-t'));
+
+describe('deriveBrandTokens — per-client brand-word exclusion (generalises the old {ivy})', () => {
+  it('IVY-t → {ivy} (the 1-char "t" dropped) — preserves the hardcoded behaviour', () => {
+    expect([...deriveBrandTokens('IVY-t')].sort()).toEqual(['ivy']);
+  });
+  it('Earl of East → {earl, east} ("of" dropped by the length floor)', () => {
+    expect([...deriveBrandTokens('Earl of East')].sort()).toEqual(['earl', 'east']);
+  });
+  it('drops generic stopwords (The Linen Room → {linen, room})', () => {
+    expect([...deriveBrandTokens('The Linen Room')].sort()).toEqual(['linen', 'room']);
+  });
+  it('a name with no qualifying token → empty set (nothing excluded)', () => {
+    expect(deriveBrandTokens('AB Co').size).toBe(0);
+  });
+  it('the "Ivy" family is EXCLUDED from product matching under IVY-t tokens, but INCLUDED for a brand whose tokens do not contain it', () => {
+    // Under IVY-t (brand token 'ivy'), 'ivy' is not a matchable product name, so brand
+    // mentions never false-flag.
+    expect(indexCatalogue(cat, undefined, deriveBrandTokens('IVY-t')).names).not.toContain('ivy');
+    expect(validateText('Every Ivy piece in navy is built to last.', indexCatalogue(cat, undefined, deriveBrandTokens('IVY-t')))).toEqual([]);
+    // For a different brand (tokens {some, other, brand}), 'Ivy' is a real product name.
+    expect(indexCatalogue(cat, undefined, deriveBrandTokens('Some Other Brand')).names).toContain('ivy');
+  });
+});
 
 describe('catalogue HARD validation', () => {
   it('flags a real colourway applied to the WRONG product (the core failure)', () => {
@@ -96,7 +119,7 @@ describe('validateText — precision (compound colourways + grammatical binding)
     ],
     flagged: [], statusBreakdown: { live: 13, 'pre-order': 0, 'back-soon': 0, 'sample-sale': 0 },
   };
-  const idx2 = indexCatalogue(cat2);
+  const idx2 = indexCatalogue(cat2, undefined, deriveBrandTokens('IVY-t'));
 
   // ── compound colourways: a component reference is valid ──
   it('accepts a component of a compound colourway (Nicola in Vintage Navy / Ecru Raglan)', () => {

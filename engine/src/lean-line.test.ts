@@ -3,6 +3,8 @@ import {
   parseSalesCsv,
   parseIgPostsJson,
   buildLeanLine,
+  mapApifyMediaType,
+  igPostSchema,
   LEAN_LINE_WORKFLOW,
   LEAN_LINE_STEP,
 } from './lean-line.js';
@@ -90,6 +92,44 @@ describe('parseSalesCsv', () => {
   it('returns [] for empty / header-only input', () => {
     expect(parseSalesCsv(Buffer.from(''), '2026-05')).toEqual([]);
     expect(parseSalesCsv(Buffer.from('Product title,Net quantity'), '2026-05')).toEqual([]);
+  });
+});
+
+// ── media type mapping + schema/reader tolerance ──────────────────────────────
+
+describe('mapApifyMediaType', () => {
+  it('maps Apify types (Video→reel, Sidecar→carousel, Image→image)', () => {
+    expect(mapApifyMediaType('Video')).toBe('reel');
+    expect(mapApifyMediaType('Sidecar')).toBe('carousel');
+    expect(mapApifyMediaType('Image')).toBe('image');
+  });
+  it('unknown/absent → undefined (caller omits the key)', () => {
+    expect(mapApifyMediaType('Story')).toBeUndefined();
+    expect(mapApifyMediaType(undefined)).toBeUndefined();
+    expect(mapApifyMediaType('')).toBeUndefined();
+  });
+});
+
+describe('igPostSchema mediaType tolerance', () => {
+  it('accepts and retains a valid mediaType', () => {
+    const p = igPostSchema.parse({ timestamp: 't', likesCount: 1, commentsCount: 0, mediaType: 'reel' });
+    expect(p.mediaType).toBe('reel');
+  });
+  it('accepts a row with NO mediaType (old rows)', () => {
+    const p = igPostSchema.parse({ timestamp: 't', likesCount: 1, commentsCount: 0 });
+    expect(p.mediaType).toBeUndefined();
+  });
+});
+
+describe('parseIgPostsJson — reader tolerates mixed mediaType rows', () => {
+  it('ranks a mix of rows with and without mediaType identically (mediaType ignored by ranking)', () => {
+    const posts = [
+      { caption: 'reel post',  timestamp: '2026-05-10T12:00:00Z', likesCount: 90, commentsCount: 10, mediaType: 'reel' },
+      { caption: 'plain post', timestamp: '2026-05-11T12:00:00Z', likesCount: 40, commentsCount: 5 },   // no mediaType
+      { caption: 'carousel',   timestamp: '2026-05-12T12:00:00Z', likesCount: 20, commentsCount: 1, mediaType: 'carousel' },
+    ];
+    const result = parseIgPostsJson(Buffer.from(JSON.stringify(posts)), '2026-05');
+    expect(result.map((r) => r.engagement)).toEqual([100, 45, 21]);   // sorted by engagement, all rows parsed
   });
 });
 
