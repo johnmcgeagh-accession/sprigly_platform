@@ -67,7 +67,7 @@ import { transitionCycle } from './machine.js';
 import { applyCodeGate, applyCritic, normaliseDashes } from './plan-validation.js';
 import { parsePlanResponse } from './parse-plan.js';
 import { extractStructuredBrief, EMPTY_STRUCTURED_BRIEF } from './brief-extract.js';
-import { mergePlan, briefedProductNames, type ExistingPost } from './plan-merge.js';
+import { mergePlan, dropCollidingInserts, briefedProductNames, type ExistingPost } from './plan-merge.js';
 import type { RegisterMap } from './plan-validation.js';
 import type { PlanPostRow, HistoricPost, VoiceEditExample, PlanRepairContext } from './plan-validation.js';
 import { PlanningTracer } from './planning-trace.js';
@@ -957,7 +957,7 @@ export async function runPlanningForCycle(
     // ERROR and flags the cycle out_of_sync (the workbook/CSV path is unaffected) —
     // never silently swallowed.
     try {
-      const postRows: NewContentCyclePostRow[] = [];
+      let postRows: NewContentCyclePostRow[] = [];
       for (let i = 0; i < planRows.length; i++) {
         const p  = planRows[i]!;
         const iso = isoDateInMonth(p.date, targetMonth);
@@ -1015,14 +1015,30 @@ export async function runPlanningForCycle(
       const dec = mergePlan({ existing, briefedProducts: briefedProductNames(structuredBrief, catalogueNames), catalogueNames });
       const deleteIds = [...dec.drop, ...dec.replace].map((d) => d.post.id);
 
-      // Gap (a): a plan was generated but yielded ZERO writable posts (e.g. every
-      // date fell outside targetMonth). That is a FAILURE, not a sync — and it must
-      // never reach the delete below (a delete-only commit would wipe the live plan
-      // and still stamp 'synced'). Throw so the failure path runs.
+      // Slot-awareness (recurrence fix for same-date duplicates): preserved edits OWN
+      // their dates. Drop any incoming regenerated post whose date collides with a
+      // preserved row before insert, so the regen never double-books a kept edit — it
+      // fills only the dates the client did not preserve. Log each drop.
+      {
+        const { kept, dropped } = dropCollidingInserts(postRows, dec.preserve);
+        for (const r of dropped) {
+          logger.info(
+            { ...logCtx, date: r.scheduledDate, title: (r.sourceMeta as { title?: string } | null)?.title ?? '' },
+            'content-cycles: slot-aware merge dropped an incoming post — date owned by a preserved edit',
+          );
+        }
+        postRows = kept;
+      }
+
+      // Gap (a): a plan was generated but yielded ZERO writable posts (e.g. every date
+      // fell outside targetMonth, or every date is already owned by a preserved edit).
+      // That is a FAILURE, not a sync — and it must never reach the delete below (a
+      // delete-only commit would wipe the live plan and still stamp 'synced'). Throw so
+      // the failure path runs.
       if (postRows.length === 0) {
         throw new Error(
           `planning: generated ${planRows.length} plan rows but 0 writable content_cycle_posts ` +
-          `(dates outside ${targetMonth}?) — refusing to write or stamp synced`,
+          `(dates outside ${targetMonth}, or all owned by preserved edits?) — refusing to write or stamp synced`,
         );
       }
 

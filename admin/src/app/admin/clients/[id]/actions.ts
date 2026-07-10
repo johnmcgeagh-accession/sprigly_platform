@@ -1,7 +1,7 @@
 'use server';
 
 import { randomBytes } from 'node:crypto';
-import { db, promptTemplates, clientConfigs, workflowRuns, clientChannels, clients, contentCycles, appMagicLinkTokens } from '@sprigly/db';
+import { db, promptTemplates, clientConfigs, workflowRuns, clientChannels, clients, contentCycles, contentCyclePosts, appMagicLinkTokens } from '@sprigly/db';
 import { and, eq, isNull, desc, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
@@ -37,10 +37,11 @@ function getCyclesQueue(): Queue {
 // Mint a revocable magic link to the client app (app.sprigly.co.uk) for THIS
 // cycle. Inserts an app_magic_link_tokens row directly (admin can't import app/'s
 // signLink, but it's the same table). 30-day expiry; revocable via revoked_at.
-export async function copyClientLink(formData: FormData): Promise<{ ok: boolean; url?: string; message?: string }> {
+export async function copyClientLink(formData: FormData): Promise<{ ok: boolean; url?: string; message?: string; needsConfirm?: boolean }> {
   const clientId  = String(formData.get('clientId')  ?? '');
   const channel   = String(formData.get('channel')   ?? '');
   const dataMonth = String(formData.get('dataMonth') ?? '');
+  const confirmEmpty = String(formData.get('confirmEmpty') ?? '') === 'true';
   if (!clientId || !channel || !dataMonth) return { ok: false, message: 'Missing cycle context.' };
 
   const [cycle] = await db
@@ -49,6 +50,18 @@ export async function copyClientLink(formData: FormData): Promise<{ ok: boolean;
     .where(and(eq(contentCycles.clientId, clientId), eq(contentCycles.channel, channel), eq(contentCycles.cycleMonth, dataMonth)))
     .limit(1);
   if (!cycle) return { ok: false, message: 'No cycle for this month yet — run the cycle first.' };
+
+  // Empty-cycle guard: a link to a cycle with no live posts lands the client on an
+  // empty plan (and, being the newest token, becomes their home cycle). Require an
+  // explicit confirmation before minting one, so it's never done by accident.
+  const liveRows = await db
+    .select({ liveCount: sql<number>`count(*)::int` })
+    .from(contentCyclePosts)
+    .where(and(eq(contentCyclePosts.cycleId, cycle.id), isNull(contentCyclePosts.deletedAt)));
+  const liveCount = liveRows[0]?.liveCount ?? 0;
+  if (liveCount === 0 && !confirmEmpty) {
+    return { ok: false, needsConfirm: true, message: 'This cycle has no posts yet — the client would land on an empty plan. Copy the link anyway?' };
+  }
 
   const token = randomBytes(32).toString('base64url');
   await db.insert(appMagicLinkTokens).values({

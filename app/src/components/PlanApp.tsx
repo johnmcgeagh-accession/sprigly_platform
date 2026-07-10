@@ -68,8 +68,9 @@ interface VPost {
   pendingInstruction: string | null; generationError: string | null;
 }
 
-export default function PlanApp({ clientName, posts: initial, cycles, homeCycleId }: {
+export default function PlanApp({ clientName, posts: initial, cycles, homeCycleId, initialCycleId, initialReadOnly }: {
   clientName: string; posts: PlanPost[]; cycles: CycleSummary[]; homeCycleId: string;
+  initialCycleId?: string; initialReadOnly?: boolean;
 }) {
   const [posts, setPosts] = useState<PlanPost[]>(initial);
   const [selId, setSelId] = useState<string | null>(initial[0]?.id ?? null);
@@ -97,8 +98,8 @@ export default function PlanApp({ clientName, posts: initial, cycles, homeCycleI
   const [noteBusy, setNoteBusy] = useState<string | null>(null);
   // Month switcher (slice 1): which cycle is on screen, whether it's view-only, and
   // the header menu's open state. Writes only ever target the home cycle server-side.
-  const [activeCycleId, setActiveCycleId] = useState(homeCycleId);
-  const [readOnly, setReadOnly] = useState(false);
+  const [activeCycleId, setActiveCycleId] = useState(initialCycleId ?? homeCycleId);
+  const [readOnly, setReadOnly] = useState(initialReadOnly ?? false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);

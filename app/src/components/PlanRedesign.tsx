@@ -8,6 +8,8 @@ interface PlanRedesignProps {
   posts: PlanPost[];
   cycles: CycleSummary[];
   homeCycleId: string;
+  initialCycleId?: string;
+  initialReadOnly?: boolean;
 }
 
 /**
@@ -16,7 +18,7 @@ interface PlanRedesignProps {
  * resolves "today" once, server-side, from the tenant timezone default. Everything
  * interactive lives in <PlanRoot>, which chooses the desktop or mobile layout.
  */
-export default function PlanRedesign({ clientName, posts, cycles, homeCycleId }: PlanRedesignProps) {
+export default function PlanRedesign({ clientName, posts, cycles, homeCycleId, initialCycleId, initialReadOnly }: PlanRedesignProps) {
   return (
     <div className={`plan-redesign ${jakarta.variable} ${dmSerif.variable} font-sans`}>
       <PlanRoot
@@ -24,6 +26,8 @@ export default function PlanRedesign({ clientName, posts, cycles, homeCycleId }:
         posts={posts}
         cycles={cycles}
         homeCycleId={homeCycleId}
+        initialViewedCycleId={initialCycleId}
+        initialReadOnly={initialReadOnly}
         today={resolveTodayIso()}
       />
     </div>

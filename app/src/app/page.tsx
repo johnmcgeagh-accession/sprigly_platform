@@ -26,10 +26,26 @@ export default async function Page() {
     .where(eq(contentCycles.id, session.cycleId))
     .limit(1);
 
-  const posts  = await loadPlanPosts(session.clientId, session.cycleId);
+  let posts    = await loadPlanPosts(session.clientId, session.cycleId);
   const cycles = home
     ? await loadCycleList(session.clientId, home.channel, session.cycleId)
     : [];
+
+  // Empty-home-cycle guard: if the token's home cycle has no live posts (e.g. it was
+  // minted for a not-yet-planned cycle), land on the most recent cycle that DOES have
+  // posts, so the default view is never an empty month. The home cycle stays the only
+  // editable one (homeCycleId is unchanged); the landing cycle renders read-only. This
+  // never widens write scope — it only picks a better initial READ.
+  let initialCycleId  = session.cycleId;
+  let initialReadOnly = false;
+  if (posts.length === 0) {
+    const populated = cycles.find((c) => c.livePostCount > 0 && c.cycleId !== session.cycleId);
+    if (populated) {
+      initialCycleId  = populated.cycleId;
+      initialReadOnly = true;
+      posts = await loadPlanPosts(session.clientId, populated.cycleId);
+    }
+  }
 
   // Render fork behind the per-tenant plan_redesign flag (default off). Flag-off tenants
   // get the existing PlanApp untouched; flag-on tenants get the redesign shell.
@@ -46,6 +62,8 @@ export default async function Page() {
         posts={posts}
         cycles={cycles}
         homeCycleId={session.cycleId}
+        initialCycleId={initialCycleId}
+        initialReadOnly={initialReadOnly}
       />
     );
   }
@@ -56,6 +74,8 @@ export default async function Page() {
       posts={posts}
       cycles={cycles}
       homeCycleId={session.cycleId}
+      initialCycleId={initialCycleId}
+      initialReadOnly={initialReadOnly}
     />
   );
 }

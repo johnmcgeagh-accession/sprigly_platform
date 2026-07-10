@@ -36,6 +36,20 @@ function monthLabel(yyyymm: string): string {
   return `${MONTH_NAMES[idx] ?? yyyymm} ${year}`;
 }
 
+/** cycle_month → the month it PLANS ('YYYY-MM' of cycle_month + 1). A cycle's plan
+ *  month is always the month AFTER its cycle_month, so a post-less cycle (no post
+ *  dates to derive from) is labelled by the month it is FOR, not its cycle_month —
+ *  otherwise an empty cycle collides in month-space with the real cycle whose posts
+ *  land in that same plan month. Returns 'YYYY-MM'. */
+function nextMonth(cycleMonth: string): string {
+  const m = /^(\d{4})-(\d{2})/.exec(cycleMonth);
+  if (!m) return cycleMonth.slice(0, 7);
+  let year  = Number(m[1]);
+  let month = Number(m[2]) + 1;
+  if (month > 12) { month = 1; year += 1; }
+  return `${year}-${String(month).padStart(2, '0')}`;
+}
+
 /** Load the plan posts for a cycle, ordered by position then date. Scoped to the
  *  session's client+cycle — pass both so a token can only ever read its own plan. */
 export async function loadPlanPosts(clientId: string, cycleId: string): Promise<PlanPost[]> {
@@ -135,10 +149,11 @@ export async function loadCycleList(
     const isBadState = r.syncStatus === 'out_of_sync';
     if (!isHome && (!hasPosts || isBadState)) continue;   // home is always kept
 
-    // Plan month from the earliest live post date. If the home cycle has no live
-    // posts, there's no post date to derive from — fall back to cycle_month so the
-    // row still labels (rare; the home cycle normally has posts).
-    const displayMonth = r.firstMonth ?? r.cycleMonth.slice(0, 7);
+    // Plan month from the earliest live post date. If the cycle has no live posts,
+    // there's no post date to derive from — fall back to the month it PLANS
+    // (nextMonth(cycle_month)), NOT cycle_month, so an empty cycle doesn't mislabel
+    // by one month and collide with the real cycle whose posts land in that month.
+    const displayMonth = r.firstMonth ?? nextMonth(r.cycleMonth);
     const summary: CycleSummary = {
       cycleId:                  r.cycleId,
       displayMonth,
@@ -154,12 +169,21 @@ export async function loadCycleList(
       byMonth.set(displayMonth, { summary, syncedAt: r.syncedAt, updatedAt: r.updatedAt });
       continue;
     }
-    // Collision: one calendar month resolved to two cycles. Keep the most recent by
-    // posts_synced_at, else updated_at; never silently render both. The unique index
-    // (client, channel, cycle_month) makes this defensive, not expected.
-    const incomingT = (r.syncedAt ?? r.updatedAt)?.getTime() ?? 0;
-    const existingT = (existing.syncedAt ?? existing.updatedAt)?.getTime() ?? 0;
-    const keepIncoming = existing.summary.isHome ? false : (summary.isHome || incomingT >= existingT);
+    // Collision: one calendar month resolved to two cycles. A cycle WITH live posts
+    // always beats an empty one — even an empty home cycle — so a not-yet-planned
+    // home cycle can never shadow the real month's posts. Home-preference and
+    // recency only break ties AMONG EQUALS (both populated, or both empty). The
+    // unique index (client, channel, cycle_month) makes this defensive, not expected.
+    const incomingHasPosts = summary.livePostCount > 0;
+    const existingHasPosts = existing.summary.livePostCount > 0;
+    let keepIncoming: boolean;
+    if (incomingHasPosts !== existingHasPosts) {
+      keepIncoming = incomingHasPosts;                 // the populated cycle wins outright
+    } else {
+      const incomingT = (r.syncedAt ?? r.updatedAt)?.getTime() ?? 0;
+      const existingT = (existing.syncedAt ?? existing.updatedAt)?.getTime() ?? 0;
+      keepIncoming = existing.summary.isHome ? false : (summary.isHome || incomingT >= existingT);
+    }
     // eslint-disable-next-line no-console
     console.warn(`[loadCycleList] month ${displayMonth} has two cycles for client ${clientId}; keeping ${keepIncoming ? r.cycleId : existing.summary.cycleId}`);
     if (keepIncoming) byMonth.set(displayMonth, { summary, syncedAt: r.syncedAt, updatedAt: r.updatedAt });

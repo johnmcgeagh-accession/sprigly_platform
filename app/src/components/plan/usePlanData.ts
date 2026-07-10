@@ -18,6 +18,10 @@ export interface PlanDataInit {
   homeCycleId: string;
   today: string;
   clientName: string;
+  // Landing overrides (empty-home-cycle guard): the cycle initially rendered and
+  // whether it's read-only. Default to the home cycle / editable when unset.
+  initialViewedCycleId?: string | undefined;
+  initialReadOnly?: boolean | undefined;
 }
 
 /** The one shared state + data layer for both layouts. All writes hit the endpoints
@@ -28,8 +32,8 @@ export function usePlanData(init: PlanDataInit) {
   const [cycles, setCycles] = useState<CycleSummary[]>(init.cycles);
   const [proposals, setProposals] = useState<ProposalView[]>([]);
   const [notes, setNotes] = useState<NoteView[]>([]);
-  const [viewedCycleId, setViewedCycleId] = useState(init.homeCycleId);
-  const [readOnly, setReadOnly] = useState(false);
+  const [viewedCycleId, setViewedCycleId] = useState(init.initialViewedCycleId ?? init.homeCycleId);
+  const [readOnly, setReadOnly] = useState(init.initialReadOnly ?? false);
   const [busy, setBusy] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [shapingIds, setShapingIds] = useState<Set<string>>(new Set());

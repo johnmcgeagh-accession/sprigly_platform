@@ -121,7 +121,7 @@ export function ContentCycleOpsPanel({
 
   const overrideActive = aiChangeLimitOverrideUntil != null && new Date(aiChangeLimitOverrideUntil).getTime() > Date.now();
 
-  function copyLink() {
+  function copyLink(confirmEmpty = false) {
     setActionError(null);
     setLinkCopied(false);
     startTransition(async () => {
@@ -129,7 +129,17 @@ export function ContentCycleOpsPanel({
       fd.set('clientId', clientId);
       fd.set('channel', channel);
       fd.set('dataMonth', dataMonth);
+      if (confirmEmpty) fd.set('confirmEmpty', 'true');
       const r = await copyClientLink(fd);
+      // Empty-cycle guard: the action refuses an empty cycle unless confirmed. Ask,
+      // then re-submit with the confirmation so it's an explicit, deliberate choice.
+      if (!r.ok && r.needsConfirm) {
+        const g = globalThis as unknown as { confirm?: (m: string) => boolean };
+        const proceed = g.confirm ? g.confirm(r.message ?? 'This cycle has no posts yet. Copy the link anyway?') : false;
+        if (proceed) copyLink(true);
+        else setActionError('Link not copied — this cycle has no posts yet.');
+        return;
+      }
       if (!r.ok || !r.url) { setActionError(r.message ?? 'Could not create a client link.'); return; }
       setClientLink(r.url);
       // Best-effort clipboard via a typed globalThis cast (admin's tsconfig has no DOM lib);
@@ -444,7 +454,7 @@ export function ContentCycleOpsPanel({
             <button
               type="button"
               disabled={isPending || !cycleIsActive}
-              onClick={copyLink}
+              onClick={() => copyLink()}
               title={cycleIsActive ? 'Mint a revocable magic link to the client app (app.sprigly.co.uk) for this cycle and copy it.' : 'No cycle yet — run the cycle first.'}
               className="text-xs text-gray-500 underline hover:text-gray-700 disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
             >

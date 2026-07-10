@@ -141,3 +141,24 @@ export function mergePlan(inp: MergeInputs): MergeDecision {
   }
   return dec;
 }
+
+/**
+ * Slot-awareness for the write step (the recurrence fix for same-date duplicates).
+ * A preserved edit OWNS its scheduled_date: the client kept that day's post, so the
+ * regenerated plan must not also land a post on it. Given the incoming (regenerated)
+ * rows and the preserve decisions, split the incoming rows into `kept` (dates the
+ * client did NOT preserve — the regen fills these) and `dropped` (dates already owned
+ * by a preserved edit). Pure — no writes, no logging; the caller logs each drop.
+ */
+export function dropCollidingInserts<T extends { scheduledDate: string }>(
+  incoming:  T[],
+  preserved: Array<{ post: { scheduledDate: string } }>,
+): { kept: T[]; dropped: T[] } {
+  const preservedDates = new Set(preserved.map((d) => d.post.scheduledDate));
+  const kept: T[] = [];
+  const dropped: T[] = [];
+  for (const row of incoming) {
+    (preservedDates.has(row.scheduledDate) ? dropped : kept).push(row);
+  }
+  return { kept, dropped };
+}
