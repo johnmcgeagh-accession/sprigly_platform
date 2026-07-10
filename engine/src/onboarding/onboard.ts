@@ -18,6 +18,7 @@ import type { Pillar, Cadence, Catalogue, ParsedProduct, ProductFamily } from '@
 import type { Logger } from 'pino';
 import { fetchApifyPostsForHandle } from '../apify-ig-fetch.js';
 import { igPostSchema, mapApifyMediaType } from '../lean-line.js';
+import { deriveBrandTokens } from '../catalogue/validate-catalogue.js';
 
 type Db = typeof _db;
 
@@ -404,7 +405,28 @@ export async function writePlanningConfig(db: Db, clientId: string, channel: str
 // marked source:'shopify-web' so downstream can tell it from a sales-CSV catalogue.
 
 interface ShopifyVariant { title?: string; option1?: string | null; option2?: string | null; option3?: string | null }
-interface ShopifyProduct { title?: string; handle?: string; body_html?: string; product_type?: string; tags?: string[] | string; variants?: ShopifyVariant[] }
+interface ShopifyProduct { title?: string; handle?: string; body_html?: string; product_type?: string; vendor?: string; tags?: string[] | string; variants?: ShopifyVariant[] }
+
+/** True if a product's Shopify `vendor` marks it as the client's OWN brand: either an
+ *  exact (case-insensitive) match on clients.name, or a shared brand token (reusing
+ *  deriveBrandTokens on both the brand name and the vendor). A missing/blank vendor is
+ *  NOT own-brand — a retailer's stocked third-party lines and un-tagged items are excluded
+ *  so the derived catalogue carries only the client's own products (candles/scents, etc.). */
+export function vendorIsOwnBrand(vendor: string | undefined, brandName: string, brandTokens: Set<string>): boolean {
+  const v = (vendor ?? '').trim();
+  if (!v) return false;
+  if (v.toLowerCase() === (brandName ?? '').trim().toLowerCase()) return true;
+  for (const t of deriveBrandTokens(v)) if (brandTokens.has(t)) return true;
+  return false;
+}
+
+/** Keep only own-brand products (see vendorIsOwnBrand). `includeAllVendors` bypasses the
+ *  filter entirely (returns the input untouched — for retailers we DO want the full stock). */
+export function filterOwnBrandProducts(products: ShopifyProduct[], brandName: string, includeAllVendors: boolean): ShopifyProduct[] {
+  if (includeAllVendors) return products;
+  const brandTokens = deriveBrandTokens(brandName);
+  return products.filter((p) => vendorIsOwnBrand(p.vendor, brandName, brandTokens));
+}
 
 /** Strip HTML tags/entities from a body_html blurb → collapsed plain text. */
 function stripHtml(html: string): string {
@@ -493,14 +515,25 @@ export interface StageGResult { ok: boolean; skipped: boolean; message: string; 
  * catalogue. NEVER writes an empty ({}) row (a known landmine).
  */
 export async function stageShopifyCatalogue(params: {
-  db: Db; clientId: string; channel: string; website: string; logger?: Logger;
+  db: Db; clientId: string; channel: string; website: string; brandName: string; includeAllVendors?: boolean; logger?: Logger;
 }): Promise<StageGResult> {
-  const { db, clientId, channel, website } = params;
+  const { db, clientId, channel, website, brandName, includeAllVendors = false } = params;
   const empty = { familyCount: 0, productCount: 0, variantCount: 0, sampleNames: [] as string[] };
 
-  const products = await fetchShopifyProducts(website);
-  if (products.length === 0) {
+  const fetched = await fetchShopifyProducts(website);
+  if (fetched.length === 0) {
     return { ok: true, skipped: true, message: `no Shopify catalogue exposed at ${website} — skipping (no row written).`, ...empty };
+  }
+
+  // Own-brand vendor filter (default). Retailers' products.json mixes stocked third-party
+  // brands with the client's own line; we keep only own-brand unless --include-all-vendors.
+  const products = filterOwnBrandProducts(fetched, brandName, includeAllVendors);
+  if (products.length === 0) {
+    return {
+      ok: true, skipped: true,
+      message: `fetched ${fetched.length} products but none are own-brand (vendor matching "${brandName}") — skipping (no row written; pass --include-all-vendors to keep stocked brands).`,
+      ...empty,
+    };
   }
 
   // Idempotency guard: never clobber a sales-CSV catalogue with web data.
@@ -527,9 +560,12 @@ export async function stageShopifyCatalogue(params: {
     });
 
   const variantCount = cat.families.reduce((n, f) => n + f.variants.length, 0);
+  const filterNote = includeAllVendors
+    ? `all ${fetched.length} vendors kept (--include-all-vendors)`
+    : `${products.length}/${fetched.length} products are own-brand`;
   return {
     ok: true, skipped: false,
-    message: `Shopify catalogue written: ${cat.families.length} products / ${variantCount} variants (source=shopify-web, no sales signal).`,
+    message: `Shopify catalogue written: ${cat.families.length} products / ${variantCount} variants (source=shopify-web, no sales signal; ${filterNote}).`,
     familyCount: cat.families.length, productCount: products.length, variantCount,
     sampleNames: cat.families.slice(0, 8).map((f) => f.name),
   };

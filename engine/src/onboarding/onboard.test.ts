@@ -8,8 +8,10 @@ import { fetchApifyPostsForHandle } from '../apify-ig-fetch.js';
 import {
   slugify, computeCadence, computeFormatMix, parsePillarsResponse, toConfigPillars,
   stageCreate, stageTrawl, writePlanningConfig, writeVoiceSnapshot, mapShopifyToCatalogue,
+  vendorIsOwnBrand, filterOwnBrandProducts,
   THIN_CAPTION_FLOOR, DEFAULT_CATEGORIES, DEFAULT_REGISTER_MAP,
 } from './onboard.js';
+import { deriveBrandTokens } from '../catalogue/validate-catalogue.js';
 
 // ── scripted db mock ──────────────────────────────────────────────────────────
 interface Script { clients?: unknown[]; channels?: unknown[]; configs?: unknown[]; returning?: unknown[] }
@@ -114,6 +116,50 @@ describe('mapShopifyToCatalogue — Shopify → catalogue contract', () => {
   });
   it('empty input → empty families (caller then skips — never writes {})', () => {
     expect(mapShopifyToCatalogue([]).families).toEqual([]);
+  });
+});
+
+describe('vendorIsOwnBrand — own-brand vendor matching', () => {
+  const tokens = deriveBrandTokens('Earl of East');   // → {earl, east}
+  it('exact clients.name match (case-insensitive) → own-brand', () => {
+    expect(vendorIsOwnBrand('Earl of East', 'Earl of East', tokens)).toBe(true);
+    expect(vendorIsOwnBrand('earl of east', 'Earl of East', tokens)).toBe(true);
+  });
+  it('shared brand token (e.g. sub-line vendor) → own-brand', () => {
+    expect(vendorIsOwnBrand('Earl of East Workshops', 'Earl of East', tokens)).toBe(true);
+  });
+  it('non-matching third-party vendor → NOT own-brand', () => {
+    expect(vendorIsOwnBrand('HAY', 'Earl of East', tokens)).toBe(false);
+    expect(vendorIsOwnBrand('ferm LIVING', 'Earl of East', tokens)).toBe(false);
+  });
+  it('missing / blank vendor → NOT own-brand', () => {
+    expect(vendorIsOwnBrand(undefined, 'Earl of East', tokens)).toBe(false);
+    expect(vendorIsOwnBrand('', 'Earl of East', tokens)).toBe(false);
+    expect(vendorIsOwnBrand('   ', 'Earl of East', tokens)).toBe(false);
+  });
+});
+
+describe('filterOwnBrandProducts — Stage G vendor filter', () => {
+  const products = [
+    { title: 'Sea Salt Candle', vendor: 'Earl of East' },
+    { title: 'Workshop Kit', vendor: 'Earl of East Workshops' },
+    { title: 'Stocked Chair', vendor: 'HAY' },
+    { title: 'Untagged Item' },                              // missing vendor
+  ];
+  it('default → keeps only own-brand (exact + token), drops third-party + missing vendor', () => {
+    const kept = filterOwnBrandProducts(products, 'Earl of East', false);
+    expect(kept.map((p) => p.title)).toEqual(['Sea Salt Candle', 'Workshop Kit']);
+  });
+  it('--include-all-vendors → returns every product untouched', () => {
+    const kept = filterOwnBrandProducts(products, 'Earl of East', true);
+    expect(kept).toHaveLength(4);
+  });
+  it('no own-brand products → empty (caller then skips, writes nothing)', () => {
+    const kept = filterOwnBrandProducts(
+      [{ title: 'Chair', vendor: 'HAY' }, { title: 'Vase', vendor: 'ferm LIVING' }],
+      'Earl of East', false,
+    );
+    expect(kept).toEqual([]);
   });
 });
 

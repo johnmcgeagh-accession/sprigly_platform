@@ -6,7 +6,7 @@
  * writes them, dumps review files, and STOPS. Generation is the separate trigger-plan CLI.
  *
  * Usage:
- *   pnpm --filter @sprigly/worker onboard-client "<Brand Name>" <handle> [--channel instagram] [--website URL] [--force-thin] [--resume] [--skip-trawl] [--out-dir DIR]
+ *   pnpm --filter @sprigly/worker onboard-client "<Brand Name>" <handle> [--channel instagram] [--website URL] [--include-all-vendors] [--force-thin] [--resume] [--skip-trawl] [--out-dir DIR]
  *   Calibration (files only, no DB writes, no client created):
  *   pnpm --filter @sprigly/worker onboard-client --calibrate ivy-t [--channel instagram] [--out-dir DIR]
  *
@@ -112,7 +112,7 @@ async function onboard(): Promise<void> {
   const skipTrawl = has(argv, '--skip-trawl'); // re-derive from existing ig_posts (skip Stage B)
 
   if (!name || name.startsWith('--') || !handle || handle.startsWith('--')) {
-    console.error('Usage: pnpm --filter @sprigly/worker onboard-client "<Brand Name>" <handle> [--channel instagram] [--website URL] [--force-thin] [--resume] [--skip-trawl] [--out-dir DIR]');
+    console.error('Usage: pnpm --filter @sprigly/worker onboard-client "<Brand Name>" <handle> [--channel instagram] [--website URL] [--include-all-vendors] [--force-thin] [--resume] [--skip-trawl] [--out-dir DIR]');
     console.error('   or: pnpm --filter @sprigly/worker onboard-client --calibrate <slug> [--channel instagram]');
     process.exit(1);
   }
@@ -169,7 +169,8 @@ async function onboard(): Promise<void> {
   // Stage G — optional Shopify catalogue from the client's website (--website).
   let catalogueLine = 'not requested (pass --website to fetch a Shopify catalogue)';
   if (website) {
-    const g = await stageShopifyCatalogue({ db, clientId, channel, website, logger });
+    const includeAllVendors = has(argv, '--include-all-vendors');
+    const g = await stageShopifyCatalogue({ db, clientId, channel, website, brandName: name, includeAllVendors, logger });
     catalogueLine = g.skipped
       ? `skipped — ${g.message}`
       : `${g.familyCount} products / ${g.variantCount} variants (source=shopify-web); sample: ${g.sampleNames.join(', ')}`;
