@@ -31,8 +31,8 @@
  * On error: → failed, failed_step='planning' (CSV not guaranteed; safe to retry).
  */
 
-import { randomUUID } from 'node:crypto';
-import { eq, and, desc, isNull, isNotNull, inArray } from 'drizzle-orm';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { eq, and, desc, gt, isNull, isNotNull, inArray } from 'drizzle-orm';
 import {
   db as _db,
   contentCycles,
@@ -43,6 +43,7 @@ import {
   voiceEdits,
   voiceSnapshots,
   igPosts,
+  appMagicLinkTokens,
   clientProductCatalogue,
   contentCyclePosts,
   postEdits,
@@ -59,7 +60,8 @@ import { DriveApiClient } from '@sprigly/sources';
 import type { ModelClient } from '@sprigly/model-client';
 import type { AuditLogger } from '@sprigly/audit';
 import type { DbPromptResolver } from '@sprigly/prompts';
-import type { IntakeJson, CompetitorGatherData, StructuredBrief } from '@sprigly/engine';
+import type { IntakeJson, CompetitorGatherData, StructuredBrief, IncomingEvent, DestinationConfig, DeliveryContext } from '@sprigly/engine';
+import { GmailReplyWithAttachment } from '@sprigly/destinations';
 import type { Logger } from 'pino';
 import { transitionCycle } from './machine.js';
 import { applyCodeGate, applyCritic, normaliseDashes } from './plan-validation.js';
@@ -82,6 +84,10 @@ export interface PlanningDeps {
   prompts:            DbPromptResolver;
   audit:              AuditLogger;
   logger:             Logger;
+  // App-surface delivery only: base URL for the /p/<token> magic link. Optional —
+  // falls back to process.env.APP_BASE_URL. Unused by sheet/both and by the
+  // shape/hook/script/weekly callers of assembleShapeContext.
+  appBaseUrl?:        string;
 }
 
 // Prompt store coordinates — resolved at runtime, UI-editable like lean-line.
@@ -385,9 +391,10 @@ export interface ShapeContext {
   slug:               string;
   clientName:         string;
   contact:            string;
-  drive:              DriveApiClient;
-  driveFolderId:      string;
-  folderFiles:        DriveFileMeta[];
+  deliverySurface:    string;                 // 'app' | 'sheet' | 'both' — drives the app Drive-free branch
+  drive:              DriveApiClient | null;   // null for surface='app' (no Drive)
+  driveFolderId:      string | null;           // null for surface='app'
+  folderFiles:        DriveFileMeta[];          // [] for surface='app'
   voiceMd:            string | null;
   systemPrompt:       string;
   userMessage:        string;
@@ -467,7 +474,7 @@ export async function assembleShapeContext(
   const clientName = clientRow?.name ?? slug;
 
   const [channelRow] = await db
-    .select({ driveFolderId: clientChannels.driveFolderId, contactName: clientChannels.contactName, postsPerWeek: clientChannels.postsPerWeek })
+    .select({ driveFolderId: clientChannels.driveFolderId, contactName: clientChannels.contactName, postsPerWeek: clientChannels.postsPerWeek, deliverySurface: clientChannels.deliverySurface })
     .from(clientChannels)
     .where(and(
       eq(clientChannels.clientId, clientId),
@@ -475,20 +482,26 @@ export async function assembleShapeContext(
     ))
     .limit(1);
 
-  const driveFolderId = channelRow?.driveFolderId ?? null;
-  const contact       = (channelRow?.contactName ?? '').trim() || 'the client';
+  const driveFolderId  = channelRow?.driveFolderId ?? null;
+  const contact        = (channelRow?.contactName ?? '').trim() || 'the client';
+  const deliverySurface = channelRow?.deliverySurface ?? 'both';
+  const isApp          = deliverySurface === 'app';
 
-  // Drive is required for the handoff — without it the CSV can't be delivered.
-  const tokens = await getTokens(db, encProvider, clientId, 'drive');
-  if (!tokens) throw new Error(`assembleShapeContext: no Drive tokens for client ${clientId}`);
-  if (!driveFolderId) throw new Error(`assembleShapeContext: no drive_folder_id for ${clientId}/${channel}`);
-
-  const drive = new DriveApiClient(
-    googleClientId, googleClientSecret, tokens,
-    (refreshed) => storeTokens(db, encProvider, clientId, 'drive', refreshed),
-  );
-
-  const folderFiles = await drive.listFiles(driveFolderId);
+  // Drive is required for the CSV handoff on the sheet/both surfaces — without it the
+  // xlsx can't be delivered. For surface='app' there is NO CSV/xlsx: voice, IG posts,
+  // and the plan all live in the DB, so generation needs no Drive tokens or folder.
+  let drive: DriveApiClient | null = null;
+  let folderFiles: DriveFileMeta[] = [];
+  if (!isApp) {
+    const tokens = await getTokens(db, encProvider, clientId, 'drive');
+    if (!tokens) throw new Error(`assembleShapeContext: no Drive tokens for client ${clientId}`);
+    if (!driveFolderId) throw new Error(`assembleShapeContext: no drive_folder_id for ${clientId}/${channel}`);
+    drive = new DriveApiClient(
+      googleClientId, googleClientSecret, tokens,
+      (refreshed) => storeTokens(db, encProvider, clientId, 'drive', refreshed),
+    );
+    folderFiles = await drive.listFiles(driveFolderId);
+  }
 
   // Voice profile — read from the DB (voice_snapshots.snapshot_md, is_current row
   // keyed by client + channel), NOT the Drive voice.md. voice_snapshots is the
@@ -567,9 +580,100 @@ export async function assembleShapeContext(
 
   return {
     answers, freeNotes, planConfigRow, gather, catalogue, catalogueGrounding, structuredBrief,
-    slug, clientName, contact, drive, driveFolderId, folderFiles, voiceMd,
+    slug, clientName, contact, deliverySurface, drive, driveFolderId, folderFiles, voiceMd,
     systemPrompt, userMessage, vocab, criticPrompt, historicPosts, voiceEdits: voiceEditEx,
   };
+}
+
+// ── App-surface delivery helpers (Drive-free path) ────────────────────────────
+
+/** The pinned test-inbox recipient for the app-ready notification. IDENTICAL to the
+ *  build-workbook workflow's pin — deliberately NOT real client delivery (that is the
+ *  deferred go-live toggle). Do not change without changing the workflow pin too. */
+const APP_DELIVERY_PIN = 'john.mcgeagh@gmail.com';
+
+/**
+ * Ensure a per-cycle app magic link exists, IDEMPOTENTLY: reuse a live (non-revoked,
+ * unexpired) token for this cycle if one exists, else mint one. Returns the /p/<token>
+ * URL, or null if APP_BASE_URL is unset or the DB op fails (non-fatal — logged).
+ * A regen re-run reuses the existing token (no duplicate mint).
+ */
+export async function ensureAppLink(
+  db:        Db,
+  clientId:  string,
+  cycleId:   string,
+  appBaseUrl: string,
+  logger:    Logger,
+): Promise<string | null> {
+  const base = (appBaseUrl ?? '').replace(/\/$/, '');
+  if (!base) {
+    logger.warn({ clientId, cycleId }, 'content-cycles: APP_BASE_URL unset — cannot build app link');
+    return null;
+  }
+  try {
+    const [existing] = await db
+      .select({ token: appMagicLinkTokens.token })
+      .from(appMagicLinkTokens)
+      .where(and(
+        eq(appMagicLinkTokens.clientId, clientId),
+        eq(appMagicLinkTokens.cycleId,  cycleId),
+        isNull(appMagicLinkTokens.revokedAt),
+        gt(appMagicLinkTokens.expiresAt, new Date()),
+      ))
+      .orderBy(desc(appMagicLinkTokens.createdAt))
+      .limit(1);
+    if (existing) return `${base}/p/${existing.token}`;
+
+    const token = randomBytes(32).toString('base64url');
+    await db.insert(appMagicLinkTokens).values({
+      clientId, cycleId, token,
+      expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30),  // 30 days
+    });
+    return `${base}/p/${token}`;
+  } catch (err) {
+    logger.warn({ clientId, cycleId, err: String(err) }, 'content-cycles: ensureAppLink failed (non-fatal)');
+    return null;
+  }
+}
+
+/**
+ * Send the app-surface "plan ready" notification as a LINK-ONLY email (no attachment,
+ * no Drive URL), PINNED to the test inbox — reusing the existing gmail-reply-with-attachment
+ * destination that sheet/both already use, invoked directly (no workbook workflow). The
+ * cycle's plan is already in content_cycle_posts; this send is best-effort — a failure is
+ * logged and never fails the cycle. Requires the client's Gmail tokens (same as sheet/both).
+ */
+async function sendAppReadyNotification(
+  deps:      PlanningDeps,
+  clientId:  string,
+  clientName: string,
+  monthLabel: string,
+  appUrl:    string,
+): Promise<void> {
+  try {
+    const dest = new GmailReplyWithAttachment(deps.db, deps.encProvider, deps.googleClientId, deps.googleClientSecret);
+    const event = { clientId, reply: { data: {} } } as unknown as IncomingEvent;
+    const config = {
+      settings: {
+        to: { mode: 'address', address: APP_DELIVERY_PIN },
+        subjectTemplate: '{{clientName}}: your content plan for {{monthLabel}} is ready',
+        bodyTemplate:
+          'Hi,\n\nYour Sprigly content plan for {{monthLabel}} is ready.\n\n' +
+          'Open and shape it here:\n{{appUrl}}\n\n' +
+          'Move posts, edit captions and add ideas — your changes save as you go.\n\nBest,\nSprigly',
+        noAttachment: true,
+      },
+    } as unknown as DestinationConfig;
+    const ctx = { clientId } as unknown as DeliveryContext;
+    const result = await dest.deliver({ clientName, monthLabel, appUrl }, event, config, ctx);
+    if (result.success) {
+      deps.logger.info({ clientId, to: APP_DELIVERY_PIN }, 'content-cycles: app-ready link-only notification sent (pinned test inbox)');
+    } else {
+      deps.logger.warn({ clientId, err: result.error }, 'content-cycles: app-ready notification not sent (non-fatal)');
+    }
+  } catch (err) {
+    deps.logger.warn({ clientId, err: String(err) }, 'content-cycles: app-ready notification failed (non-fatal)');
+  }
 }
 
 /**
@@ -673,7 +777,8 @@ export async function runPlanningForCycle(
     // Pure reads + prompt resolution. The plan is determined by systemPrompt +
     // userMessage, both built inside assembleShapeContext.
     const {
-      planConfigRow, gather, catalogue, structuredBrief, slug, contact, drive, driveFolderId,
+      planConfigRow, gather, catalogue, structuredBrief, slug, clientName, contact,
+      deliverySurface, drive, driveFolderId,
       folderFiles, voiceMd, systemPrompt, userMessage, vocab, criticPrompt,
       historicPosts, voiceEdits,
     } = await assembleShapeContext(cycle, deps);
@@ -966,31 +1071,60 @@ export async function runPlanningForCycle(
       }
     }
 
-    // ── Serialise to the 13-column CSV ────────────────────────────────────────
-    // Filename targets the PLAN month (cycleMonth + 1), so build-workbook names
-    // the xlsx for that month and the whole downstream chain stays consistent.
-    const filename = `${targetMonth}_${slug}-instagram-plan.csv`;
-    const csv      = planRowsToCsv(planRows, contact);
-    const csvBuf   = Buffer.from(csv, 'utf-8');
+    if (deliverySurface === 'app') {
+      // ── App surface: Drive-free delivery ──────────────────────────────────────
+      // No CSV, no xlsx, no Drive. The plan is already in content_cycle_posts, which
+      // the app renders on a valid magic-link token (status-independent). The CSV→
+      // poller→workbook chain never fires for app clients, so we advance state here
+      // through the SAME allowed edges the chain would have driven (intake_confirmed
+      // → planning → workbook_built), just without a draft_csv_ref/workbook.
+      await transitionCycle(db, cycleId, 'planning', {}, logger);
+      await transitionCycle(db, cycleId, 'workbook_built', {}, logger);
 
-    // Idempotent upload: overwrite an existing same-named CSV rather than create a duplicate.
-    const existingCsv = folderFiles.find((f) => f.name === filename);
-    let csvFileId: string;
-    if (existingCsv) {
-      await drive.updateFile(existingCsv.id, 'text/csv', csvBuf);
-      csvFileId = existingCsv.id;
+      // Ensure a per-cycle app link (idempotent: reuse a live token, mint if absent).
+      const appBaseUrl = deps.appBaseUrl ?? process.env['APP_BASE_URL'] ?? '';
+      const appUrl = await ensureAppLink(db, clientId, cycleId, appBaseUrl, logger);
+
+      // Link-only "plan ready" notification, PINNED to the test inbox (no attachment,
+      // no Drive URL), via the same destination sheet/both use. Best-effort.
+      if (appUrl) {
+        await sendAppReadyNotification(deps, clientId, clientName, monthLabelOf(targetMonth), appUrl);
+      } else {
+        logger.warn({ ...logCtx }, 'content-cycles: no app link available — skipping app-ready notification');
+      }
+
+      logger.info({ ...logCtx, appLink: appUrl !== null }, 'content-cycles: app-surface planning complete (Drive-free) — cycle at workbook_built');
     } else {
-      csvFileId = await drive.uploadFile(driveFolderId, filename, 'text/csv', csvBuf);
+      // ── Sheet / both surface: unchanged CSV → poller → workbook → pinned send ──
+      // Filename targets the PLAN month (cycleMonth + 1), so build-workbook names
+      // the xlsx for that month and the whole downstream chain stays consistent.
+      if (!drive || !driveFolderId) {
+        // Defensive: assembleShapeContext guarantees Drive for non-app surfaces.
+        throw new Error(`planning: Drive required for surface='${deliverySurface}' but unavailable`);
+      }
+      const filename = `${targetMonth}_${slug}-instagram-plan.csv`;
+      const csv      = planRowsToCsv(planRows, contact);
+      const csvBuf   = Buffer.from(csv, 'utf-8');
+
+      // Idempotent upload: overwrite an existing same-named CSV rather than create a duplicate.
+      const existingCsv = folderFiles.find((f) => f.name === filename);
+      let csvFileId: string;
+      if (existingCsv) {
+        await drive.updateFile(existingCsv.id, 'text/csv', csvBuf);
+        csvFileId = existingCsv.id;
+      } else {
+        csvFileId = await drive.uploadFile(driveFolderId, filename, 'text/csv', csvBuf);
+      }
+
+      logger.info({ ...logCtx, filename, csvFileId }, 'content-cycles: planning CSV uploaded to Drive');
+
+      // ── intake_confirmed → planning ─────────────────────────────────────────
+      // Must precede the workbook landing: the DrivePoller xlsx branch advances
+      // planning → workbook_built and only matches a cycle already in 'planning'.
+      await transitionCycle(db, cycleId, 'planning', { draftCsvRef: csvFileId }, logger);
+
+      logger.info({ ...logCtx, csvFileId }, 'content-cycles: planning complete — handed off to build-workbook pipeline');
     }
-
-    logger.info({ ...logCtx, filename, csvFileId }, 'content-cycles: planning CSV uploaded to Drive');
-
-    // ── intake_confirmed → planning ───────────────────────────────────────────
-    // Must precede the workbook landing: the DrivePoller xlsx branch advances
-    // planning → workbook_built and only matches a cycle already in 'planning'.
-    await transitionCycle(db, cycleId, 'planning', { draftCsvRef: csvFileId }, logger);
-
-    logger.info({ ...logCtx, csvFileId }, 'content-cycles: planning complete — handed off to build-workbook pipeline');
   } catch (err) {
     logger.error({ ...logCtx, err: String(err) }, 'content-cycles: planning phase failed');
     // Gap (c): if the run failed WITHOUT resolving the posts stage (no verified sync
