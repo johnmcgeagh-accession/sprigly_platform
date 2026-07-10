@@ -19,7 +19,10 @@
  *   - competitor_gather_cache — Stage 1 deterministic gather (Stage 2 analysis does NOT exist).
  *                               Absent for most clients → plan balances pillars-only and the
  *                               Competitor Insight column says "no competitor data", never fabricated.
- *   - voice.md                — read from the client's Drive folder; applied to every caption
+ *   - voice profile           — the current DB voice snapshot (voice_snapshots.snapshot_md
+ *                               where is_current = true, per client+channel); applied to every
+ *                               caption and shared by plan/hook/script generation. The Drive
+ *                               voice.md is now a write-only review artifact, NOT a generation input.
  *
  * The prompt lives in the store (workflowId='planning', stepName='generate-plan'),
  * UI-editable like lean-line. The call logs to the audit/cost ledger
@@ -38,6 +41,7 @@ import {
   clientChannels,
   clients,
   voiceEdits,
+  voiceSnapshots,
   clientProductCatalogue,
   contentCyclePosts,
   postEdits,
@@ -411,9 +415,12 @@ export interface ShapeContext {
 
 /**
  * Assemble all planning inputs for a cycle: load config / gather / catalogue /
- * client / channel / Drive folder / voice.md, resolve the generate + critic
- * prompts, build the user message, and load the critic's historic posts + voice
- * edits. PURE READS — no Bedrock, no writes — so it is safe to share between
+ * client / channel / Drive folder, read the voice profile from the current DB
+ * voice snapshot (voice_snapshots.snapshot_md, is_current = true — NOT a Drive
+ * voice.md download), resolve the generate + critic prompts, build the user
+ * message, and load the critic's historic posts + voice edits. The assembled
+ * voiceMd is shared by plan/hook/script generation. PURE READS — no Bedrock,
+ * no writes — so it is safe to share between
  * planning's generation and the shape handler. The plan output is determined
  * solely by `systemPrompt` + `userMessage`, both built here exactly as before.
  */
@@ -499,15 +506,27 @@ export async function assembleShapeContext(
 
   const folderFiles = await drive.listFiles(driveFolderId);
 
-  // voice.md — read for the log now; consumed by the prompt in Stage 2.
+  // Voice profile — read from the DB (voice_snapshots.snapshot_md, is_current row
+  // keyed by client + channel), NOT the Drive voice.md. voice_snapshots is the
+  // source of truth the voice-merge writes from, so this removes the Drive
+  // round-trip from generation. Consumed by the prompt + critic in Stage 2.
+  // Fail-safe preserved exactly: no current snapshot → voiceMd stays null and
+  // generation continues on the generic voice fallback (same as a missing Drive
+  // file today). Never throws.
   let voiceMd: string | null = null;
-  const voiceMeta = folderFiles.find((f) => f.name === 'voice.md');
-  if (voiceMeta) {
-    try {
-      voiceMd = (await drive.downloadFile(voiceMeta.id)).toString('utf-8');
-    } catch (err) {
-      logger.warn({ ...logCtx, err: String(err) }, 'content-cycles: planning could not read voice.md — continuing without');
-    }
+  try {
+    const [voiceRow] = await db
+      .select({ snapshotMd: voiceSnapshots.snapshotMd })
+      .from(voiceSnapshots)
+      .where(and(
+        eq(voiceSnapshots.clientId,  clientId),
+        eq(voiceSnapshots.channel,   channel),
+        eq(voiceSnapshots.isCurrent, true),
+      ))
+      .limit(1);
+    voiceMd = voiceRow?.snapshotMd ?? null;
+  } catch (err) {
+    logger.warn({ ...logCtx, err: String(err) }, 'content-cycles: planning could not read current voice snapshot — continuing without');
   }
 
   // ── Log the assembled inputs (the Stage 1 observability requirement) ──────
