@@ -12,7 +12,7 @@
 
 import { eq, and } from 'drizzle-orm';
 import { z } from 'zod';
-import { db as _db, clients, clientChannels, voiceSnapshots, clientPlanningConfig, igPosts } from '@sprigly/db';
+import { db as _db, clients, clientChannels, clientConfigs, voiceSnapshots, clientPlanningConfig, igPosts } from '@sprigly/db';
 import type { ModelClient } from '@sprigly/model-client';
 import type { Pillar, Cadence } from '@sprigly/engine';
 import type { Logger } from 'pino';
@@ -137,7 +137,16 @@ export async function stageCreate(params: {
     deliverySurface: 'app',   // Drive-free surface — no drive_folder_id, no OAuth
   });
 
-  return { ok: true, channel, clientId: client.id, slug, message: `Created client "${name}" (slug ${slug}, id ${client.id}) + ${channel} channel @${cleanHandle} (delivery_surface=app).` };
+  // client_configs holds the app's per-tenant feature flags (settings jsonb). The client
+  // plan surface renders behind settings.plan_redesign — without a row it defaults OFF and
+  // the client sees the legacy surface. Mirror the live rows (IVY-t): only that one key.
+  // Idempotent: never overwrite an existing settings blob (no unique constraint on the FK).
+  const [existingConfig] = await db.select({ id: clientConfigs.id }).from(clientConfigs).where(eq(clientConfigs.clientId, client.id)).limit(1);
+  if (!existingConfig) {
+    await db.insert(clientConfigs).values({ clientId: client.id, settings: { plan_redesign: true } });
+  }
+
+  return { ok: true, channel, clientId: client.id, slug, message: `Created client "${name}" (slug ${slug}, id ${client.id}) + ${channel} channel @${cleanHandle} (delivery_surface=app, plan_redesign flag on).` };
 }
 
 // ── Stage B — trawl into ig_posts ────────────────────────────────────────────

@@ -68,6 +68,9 @@ const result = await createOnDemandCycle({ db, clientSlug, channel, planMonth, i
 console.log(`plan for ${result.planMonth} → cycle_month ${result.cycleMonth}`);
 if (result.ok) {
   console.log(`✓ ${result.message}`);
+  console.log(`\nWhen the run completes, the plan link is logged by the worker ('app magic link minted'),`);
+  console.log(`or retrieve it via:`);
+  console.log(`  SELECT token FROM app_magic_link_tokens WHERE cycle_id = '${result.cycleId}' ORDER BY created_at DESC LIMIT 1;`);
   process.exit(0);
 } else {
   console.error(`✗ ${result.message}`);

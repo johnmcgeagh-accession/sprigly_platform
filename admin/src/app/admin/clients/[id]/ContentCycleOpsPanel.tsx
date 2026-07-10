@@ -332,7 +332,9 @@ export function ContentCycleOpsPanel({
           </span>
         </div>
 
-        {driveError || driveFiles === null ? (
+        {deliverySurface === 'app' ? (
+          <p className="text-sm text-gray-400">No Drive folder (app-surface client).</p>
+        ) : driveError || driveFiles === null ? (
           <p className="text-sm text-gray-400 italic">
             Unable to list Drive files — check Drive OAuth connection.
           </p>
@@ -623,7 +625,7 @@ export function ContentCycleOpsPanel({
                   Missing inputs won&apos;t block planning, but the plan will be thinner. Prepare fetches IG automatically; drop <span className="font-mono">sales-{startDataMonth}.csv</span> into Drive if absent, then run planning.
                 </p>
               )}
-              {driveFiles === null && (
+              {driveFiles === null && deliverySurface !== 'app' && (
                 <p className="mt-2 text-xs text-gray-400 italic">Drive file list unavailable — can&apos;t confirm inputs (check Drive OAuth).</p>
               )}
             </div>

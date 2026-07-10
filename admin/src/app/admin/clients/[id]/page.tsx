@@ -62,6 +62,19 @@ function getDataMonth(): string {
   return `${y}-${String(m).padStart(2, '0')}`;
 }
 
+/** The client's most-recent cycle month (cycle_month is 'YYYY-MM', so lexical desc =
+ *  chronological). Used to anchor the page to the latest cycle (incl. on-demand cycles
+ *  whose month is not the calendar data month); null when the client has no cycles. */
+async function getMostRecentCycleMonth(clientId: string): Promise<string | null> {
+  const rows = await db
+    .select({ m: contentCycles.cycleMonth })
+    .from(contentCycles)
+    .where(eq(contentCycles.clientId, clientId))
+    .orderBy(desc(contentCycles.cycleMonth))
+    .limit(1);
+  return rows[0]?.m ?? null;
+}
+
 async function getClientChannels(clientId: string) {
   return db
     .select({
@@ -303,9 +316,7 @@ async function getPromptCoverage(clientId: string, workflowIds: string[]): Promi
 }
 
 export default async function ClientDetailPage({ params }: { params: { id: string } }) {
-  const dataMonth = getDataMonth();
-
-  const [client, config, channels, connections, events, clientRules, pendingQaDrafts] = await Promise.all([
+  const [client, config, channels, connections, events, clientRules, pendingQaDrafts, mostRecentCycleMonth] = await Promise.all([
     getClient(params.id),
     getClientConfig(params.id),
     getClientChannels(params.id),
@@ -313,7 +324,15 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
     getRecentEvents(params.id),
     getClientRoutingRules(params.id),
     getPendingQaDrafts(params.id),
+    getMostRecentCycleMonth(params.id),
   ]);
+
+  // Anchor the page to the client's MOST RECENT cycle by cycle_month, so an on-demand
+  // cycle (whose month need not equal the calendar data month) is selectable and its
+  // actions (Copy client link, Run planning now, …) bind to it. Falls back to the
+  // calendar data month when the client has no cycles yet. Only the bound month changes;
+  // no action's behaviour changes.
+  const dataMonth = mostRecentCycleMonth ?? getDataMonth();
 
   if (!client) notFound();
 

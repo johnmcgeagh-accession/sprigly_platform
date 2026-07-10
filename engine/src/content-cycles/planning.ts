@@ -622,14 +622,20 @@ export async function ensureAppLink(
       ))
       .orderBy(desc(appMagicLinkTokens.createdAt))
       .limit(1);
-    if (existing) return `${base}/p/${existing.token}`;
+    if (existing) {
+      const appUrl = `${base}/p/${existing.token}`;
+      logger.info({ clientId, cycleId, appUrl }, 'content-cycles: app magic link (reused existing)');
+      return appUrl;
+    }
 
     const token = randomBytes(32).toString('base64url');
     await db.insert(appMagicLinkTokens).values({
       clientId, cycleId, token,
       expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30),  // 30 days
     });
-    return `${base}/p/${token}`;
+    const appUrl = `${base}/p/${token}`;
+    logger.info({ clientId, cycleId, appUrl }, 'content-cycles: app magic link minted');
+    return appUrl;
   } catch (err) {
     logger.warn({ clientId, cycleId, err: String(err) }, 'content-cycles: ensureAppLink failed (non-fatal)');
     return null;

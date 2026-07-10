@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { clients, clientChannels, clientPlanningConfig, voiceSnapshots, igPosts, clientProductCatalogue } from '@sprigly/db';
+import { clients, clientChannels, clientConfigs, clientPlanningConfig, voiceSnapshots, igPosts, clientProductCatalogue } from '@sprigly/db';
 
 // Mock the Apify fetch so stageTrawl is testable without network.
 vi.mock('../apify-ig-fetch.js', () => ({ fetchApifyPostsForHandle: vi.fn() }));
@@ -12,7 +12,7 @@ import {
 } from './onboard.js';
 
 // ── scripted db mock ──────────────────────────────────────────────────────────
-interface Script { clients?: unknown[]; channels?: unknown[]; returning?: unknown[] }
+interface Script { clients?: unknown[]; channels?: unknown[]; configs?: unknown[]; returning?: unknown[] }
 function makeDb(script: Script = {}) {
   const insertedTables: unknown[] = [];
   const insertedValues: Array<{ table: unknown; values: unknown }> = [];
@@ -24,6 +24,7 @@ function makeDb(script: Script = {}) {
     limit() {
       if (selTable === clients) return Promise.resolve(script.clients ?? []);
       if (selTable === clientChannels) return Promise.resolve(script.channels ?? []);
+      if (selTable === clientConfigs) return Promise.resolve(script.configs ?? []);
       return Promise.resolve([]);
     },
     set() { return chain; },
@@ -97,6 +98,21 @@ describe('stageCreate', () => {
     expect(chanInsert['deliverySurface']).toBe('app');
     expect(chanInsert['instagramHandle']).toBe('linenroom');   // @ stripped
     expect(chanInsert['driveFolderId']).toBeUndefined();       // no Drive
+  });
+  it('creates the client_configs row with the plan_redesign flag when none exists', async () => {
+    const { db, insertedTables, insertedValues } = makeDb({ clients: [], channels: [], configs: [], returning: [{ id: 'client-1' }] });
+    await stageCreate({ db, name: 'The Linen Room', handle: 'linenroom', channel: 'instagram' });
+    expect(insertedTables).toContain(clientConfigs);
+    const cfgInsert = insertedValues.find((i) => i.table === clientConfigs)!.values as Record<string, unknown>;
+    expect(cfgInsert['clientId']).toBe('client-1');
+    expect(cfgInsert['settings']).toEqual({ plan_redesign: true });
+  });
+  it('skips the client_configs insert when a row already exists (never overwrites)', async () => {
+    const { db, insertedTables } = makeDb({ clients: [], channels: [], configs: [{ id: 'existing-config' }], returning: [{ id: 'client-1' }] });
+    await stageCreate({ db, name: 'The Linen Room', handle: 'linenroom', channel: 'instagram' });
+    expect(insertedTables).not.toContain(clientConfigs);
+    // client + channel still created:
+    expect(insertedTables).toEqual(expect.arrayContaining([clients, clientChannels]));
   });
   it('refuses on slug collision — never mutates', async () => {
     const { db, insertedTables } = makeDb({ clients: [{ id: 'existing' }] });
