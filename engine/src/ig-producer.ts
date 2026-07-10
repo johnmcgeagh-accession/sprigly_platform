@@ -1,9 +1,11 @@
 /**
- * ig-producer.ts — fetch last-month Instagram posts for a client and write
- * instagram-posts-YYYY-MM.json to their Drive folder (app-owned, drive.file scope).
+ * ig-producer.ts — fetch last-month Instagram posts for a client and upsert them
+ * into the ig_posts DB table, keyed (client_id, channel, month). Re-homed off
+ * Google Drive (previously instagram-posts-YYYY-MM.json in the client's folder).
  *
- * The file produced here is the input consumed by lean-line.ts/fetchTopPosts.
- * Both use the same igPostSchema from lean-line.ts — one contract, both ends.
+ * The row written here is the input consumed by lean-line.ts/fetchTopPosts and by
+ * planning's loadHistoricPosts. All use the same igPostSchema from lean-line.ts —
+ * one contract, all ends.
  *
  * APIFY_API_KEY is read by the CLI entry point (ig-trawl.ts) and passed in.
  * It is absent from the main worker env intentionally — the worker never calls Apify.
@@ -14,9 +16,8 @@
 
 import { z } from 'zod';
 import { eq, and } from 'drizzle-orm';
-import { db as _db, clientChannels, contentCycles } from '@sprigly/db';
-import { DriveApiClient } from '@sprigly/sources';
-import { getTokens, storeTokens, type EncryptionProvider } from '@sprigly/oauth-tokens';
+import { db as _db, clientChannels, contentCycles, igPosts } from '@sprigly/db';
+import { type EncryptionProvider } from '@sprigly/oauth-tokens';
 import type { Logger } from 'pino';
 import { igPostSchema } from './lean-line.js';
 import { fetchApifyPostsForHandle, classifyApifyError } from './apify-ig-fetch.js';
@@ -35,8 +36,7 @@ export interface IgProducerParams {
   channel:       string;
   month:         string;              // YYYY-MM
   handle:        string | undefined;  // instagram_handle from client_channels DB column
-  driveFolderId: string;
-  drive:         DriveApiClient;
+  db:            Db;                   // posts are upserted into ig_posts (no Drive)
   apifyApiKey:   string | undefined;
   logger:        Logger;
 }
@@ -74,7 +74,7 @@ export type IgTrawlStatus =
 export interface IgTrawlOutcome { status: IgTrawlStatus; detail?: string; postCount?: number }
 
 export async function trawlInstagramPosts(params: IgProducerParams): Promise<IgTrawlOutcome> {
-  const { clientId, channel, month, handle, driveFolderId, drive, apifyApiKey, logger } = params;
+  const { clientId, channel, month, handle, db, apifyApiKey, logger } = params;
   const logCtx = { clientId, channel, month };
 
   // ── Missing API key ───────────────────────────────────────────────────────
@@ -174,22 +174,19 @@ export async function trawlInstagramPosts(params: IgProducerParams): Promise<IgT
   logger.info({ ...logCtx, handle, postCount: validated.length },
     'ig-trawl: posts validated for month');
 
-  // ── Idempotent Drive write ────────────────────────────────────────────────
-  const filename    = `instagram-posts-${month}.json`;
-  const content     = Buffer.from(JSON.stringify(validated, null, 2));
-  const mimeType    = 'application/json';
-  const folderFiles = await drive.listFiles(driveFolderId);
-  const existing    = folderFiles.find((f) => f.name.toLowerCase() === filename.toLowerCase());
-
-  if (existing) {
-    await drive.updateFile(existing.id, mimeType, content);
-    logger.info({ ...logCtx, handle, filename, fileId: existing.id, postCount: validated.length },
-      'ig-trawl: updated existing Drive file (idempotent re-run)');
-  } else {
-    const fileId = await drive.createFile(driveFolderId, filename, mimeType, content);
-    logger.info({ ...logCtx, handle, filename, fileId, postCount: validated.length },
-      'ig-trawl: created Drive file');
-  }
+  // ── Idempotent DB upsert (re-homed off Drive) ─────────────────────────────
+  // Latest-wins per (client_id, channel, month) — a re-trawl of the same month
+  // replaces the posts array in place, matching the old file-overwrite behaviour.
+  const postsPayload = validated as unknown as Array<Record<string, unknown>>;
+  await db
+    .insert(igPosts)
+    .values({ clientId, channel, month, posts: postsPayload })
+    .onConflictDoUpdate({
+      target: [igPosts.clientId, igPosts.channel, igPosts.month],
+      set:    { posts: postsPayload, updatedAt: new Date() },
+    });
+  logger.info({ ...logCtx, handle, month, postCount: validated.length },
+    'ig-trawl: upserted ig_posts row');
 
   return { status: 'ok', postCount: validated.length };
 }
@@ -211,39 +208,20 @@ export async function runIgTrawlJob(
   dataMonth: string,
   deps:      RunIgTrawlJobDeps,
 ): Promise<void> {
-  const { db, encProvider, googleClientId, googleClientSecret, apifyApiKey, logger } = deps;
+  // IG posts are now stored in the ig_posts DB table, so the trawl no longer needs
+  // Drive tokens or a drive_folder_id (deps.encProvider / googleClientId /
+  // googleClientSecret are now unused here — kept on the deps type so callers are
+  // unchanged). Only the instagram_handle is required, for the Apify fetch.
+  const { db, apifyApiKey, logger } = deps;
   const logCtx = { clientId, channel, dataMonth };
 
-  const tokens = await getTokens(db, encProvider, clientId, 'drive');
-  if (!tokens) throw new Error(`ig-trawl: no Drive tokens for client ${clientId}`);
-
   const chanRows = await db
-    .select({
-      driveFolderId:   clientChannels.driveFolderId,
-      instagramHandle: clientChannels.instagramHandle,
-    })
+    .select({ instagramHandle: clientChannels.instagramHandle })
     .from(clientChannels)
     .where(and(eq(clientChannels.clientId, clientId), eq(clientChannels.channel, channel)))
     .limit(1);
 
   const chanRow = chanRows[0];
-  const driveFolderId = chanRow?.driveFolderId;
-  if (!driveFolderId) {
-    throw new Error(`ig-trawl: no driveFolderId for client=${clientId} channel=${channel}`);
-  }
-
-  const drive = new DriveApiClient(
-    googleClientId,
-    googleClientSecret,
-    tokens,
-    async (t) => {
-      try {
-        await storeTokens(db, encProvider, clientId, 'drive', t);
-      } catch (err) {
-        logger.warn({ ...logCtx, err }, 'ig-trawl: Drive token refresh write-back failed — will self-heal on next call');
-      }
-    },
-  );
 
   // Record the IG-input outcome on the cycle (best-effort) so the prepare panel can
   // distinguish never-ran / empty / failed. The cycle is keyed by (clientId, channel,
@@ -265,8 +243,8 @@ export async function runIgTrawlJob(
   try {
     const outcome = await trawlInstagramPosts({
       clientId, channel, month: dataMonth,
-      handle: chanRow.instagramHandle ?? undefined,
-      driveFolderId, drive, apifyApiKey, logger,
+      handle: chanRow?.instagramHandle ?? undefined,
+      db, apifyApiKey, logger,
     });
     await recordIgStatus(outcome.status, outcome.detail);
   } catch (err) {

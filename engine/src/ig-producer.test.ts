@@ -9,7 +9,6 @@ const BASE_PARAMS = {
   channel:       'instagram',
   month:         '2026-05',
   handle:        'ivy_thebrand',   // sourced from client_channels DB column
-  driveFolderId: 'folder-xyz',
 };
 
 function makeApifyPost(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -23,27 +22,23 @@ function makeApifyPost(overrides: Record<string, unknown> = {}): Record<string, 
   };
 }
 
-type DriveMock = Pick<IgProducerParams['drive'], 'listFiles' | 'downloadFile' | 'createFile' | 'updateFile'>;
+interface UpsertValues { clientId: string; channel: string; month: string; posts: Array<Record<string, unknown>> }
+interface CapturedUpsert {
+  insertCalled:     number;
+  onConflictCalled: number;
+  values?:          UpsertValues;
+}
 
-// Drive is now only used for writing the output posts file; config comes from the DB.
-function makeDrive(opts: {
-  hasExistingPostsFile?: boolean;
-  createFileFn?:         ReturnType<typeof vi.fn>;
-  updateFileFn?:         ReturnType<typeof vi.fn>;
-} = {}): IgProducerParams['drive'] {
-  const files: Array<{ id: string; name: string; mimeType: string; modifiedTime: string }> = [];
-
-  if (opts.hasExistingPostsFile) {
-    files.push({ id: 'posts-id', name: 'instagram-posts-2026-05.json', mimeType: 'application/json', modifiedTime: '' });
-  }
-
-  const mock: DriveMock = {
-    listFiles:    vi.fn().mockResolvedValue(files),
-    downloadFile: vi.fn(),
-    createFile:   (opts.createFileFn ?? vi.fn().mockResolvedValue('new-file-id')) as DriveMock['createFile'],
-    updateFile:   (opts.updateFileFn ?? vi.fn().mockResolvedValue(undefined)) as DriveMock['updateFile'],
-  };
-  return mock as unknown as IgProducerParams['drive'];
+// Posts are now upserted into the ig_posts DB table (re-homed off Drive). The mock
+// mirrors drizzle's `db.insert(t).values(v).onConflictDoUpdate({...})` chain and
+// captures the values payload so tests can assert on what would be written.
+function makeDb(): { db: IgProducerParams['db']; captured: CapturedUpsert } {
+  const captured: CapturedUpsert = { insertCalled: 0, onConflictCalled: 0 };
+  const onConflictDoUpdate = vi.fn(() => { captured.onConflictCalled++; return Promise.resolve(); });
+  const values = vi.fn((v: UpsertValues) => { captured.values = v; return { onConflictDoUpdate }; });
+  const insert = vi.fn(() => { captured.insertCalled++; return { values }; });
+  const db = { insert } as unknown as IgProducerParams['db'];
+  return { db, captured };
 }
 
 function makeLogger(): IgProducerParams['logger'] {
@@ -69,39 +64,37 @@ afterEach(() => { vi.unstubAllGlobals(); });
 // ── Missing API key ───────────────────────────────────────────────────────────
 
 describe('missing APIFY_API_KEY', () => {
-  it('warns and returns without calling fetch or Drive', async () => {
-    const drive  = makeDrive();
+  it('warns and returns without calling fetch or writing to the DB', async () => {
+    const { db, captured } = makeDb();
     const logger = makeLogger();
 
-    await trawlInstagramPosts({ ...BASE_PARAMS, drive, apifyApiKey: undefined, logger });
+    await trawlInstagramPosts({ ...BASE_PARAMS, db, apifyApiKey: undefined, logger });
 
     expect(logger.warn).toHaveBeenCalledOnce();
     expect((logger.warn as ReturnType<typeof vi.fn>).mock.calls[0]![1]).toMatch(/APIFY_API_KEY/);
-    expect(drive.listFiles).not.toHaveBeenCalled();
-    expect(drive.createFile).not.toHaveBeenCalled();
+    expect(captured.insertCalled).toBe(0);
   });
 });
 
 // ── Missing handle ────────────────────────────────────────────────────────────
 
 describe('missing instagram_handle', () => {
-  it('skips when handle is undefined — does not call Drive or fetch', async () => {
-    const drive  = makeDrive();
+  it('skips when handle is undefined — does not fetch or write to the DB', async () => {
+    const { db, captured } = makeDb();
     const logger = makeLogger();
 
-    await trawlInstagramPosts({ ...BASE_PARAMS, handle: undefined, drive, apifyApiKey: 'key', logger });
+    await trawlInstagramPosts({ ...BASE_PARAMS, handle: undefined, db, apifyApiKey: 'key', logger });
 
     expect(logger.info).toHaveBeenCalledOnce();
     expect((logger.info as ReturnType<typeof vi.fn>).mock.calls[0]![1]).toMatch(/instagram_handle/);
-    expect(drive.listFiles).not.toHaveBeenCalled();
-    expect(drive.createFile).not.toHaveBeenCalled();
+    expect(captured.insertCalled).toBe(0);
   });
 });
 
 // ── Field mapping ─────────────────────────────────────────────────────────────
 
 describe('field mapping', () => {
-  it('maps caption, timestamp, likesCount, commentsCount into Drive file', async () => {
+  it('maps caption, timestamp, likesCount, commentsCount into the ig_posts row', async () => {
     const post = makeApifyPost({
       caption:       'Summer linen in three new colourways',
       timestamp:     '2026-05-15T10:00:00.000Z',
@@ -111,18 +104,18 @@ describe('field mapping', () => {
     });
     mockFetch([post]);
 
-    const createFile = vi.fn().mockResolvedValue('file-id-123');
-    const drive      = makeDrive({ createFileFn: createFile });
-    const logger     = makeLogger();
+    const { db, captured } = makeDb();
+    const logger = makeLogger();
 
-    await trawlInstagramPosts({ ...BASE_PARAMS, drive, apifyApiKey: 'key', logger });
+    await trawlInstagramPosts({ ...BASE_PARAMS, db, apifyApiKey: 'key', logger });
 
-    expect(createFile).toHaveBeenCalledOnce();
-    const [, filename, , contentBuf] = (createFile as ReturnType<typeof vi.fn>).mock.calls[0]! as [string, string, string, Buffer];
-    expect(filename).toBe('instagram-posts-2026-05.json');
-    const written = JSON.parse(contentBuf.toString('utf-8')) as unknown[];
+    expect(captured.insertCalled).toBe(1);
+    expect(captured.values!.clientId).toBe('client-1');
+    expect(captured.values!.channel).toBe('instagram');
+    expect(captured.values!.month).toBe('2026-05');
+    const written = captured.values!.posts;
     expect(written).toHaveLength(1);
-    const item = written[0] as Record<string, unknown>;
+    const item = written[0]!;
     expect(item['caption']).toBe('Summer linen in three new colourways');
     expect(item['timestamp']).toBe('2026-05-15T10:00:00.000Z');
     expect(item['likesCount']).toBe(120);
@@ -134,23 +127,23 @@ describe('field mapping', () => {
 // ── Account guard ─────────────────────────────────────────────────────────────
 
 describe('account guard', () => {
-  it('returns account_mismatch (no file) when ZERO posts match the handle (all-foreign batch)', async () => {
+  it('returns account_mismatch (no write) when ZERO posts match the handle (all-foreign batch)', async () => {
     const posts = [
       makeApifyPost({ ownerUsername: 'completely_wrong_account' }),
       makeApifyPost({ ownerUsername: 'another_foreign_account' }),
     ];
     mockFetch(posts);
 
-    const drive  = makeDrive();
+    const { db, captured } = makeDb();
     const logger = makeLogger();
 
     // The account guard reports a typed outcome ({ status: 'account_mismatch', detail })
     // rather than throwing — a mismatch is a recorded, non-retried condition, not an error.
-    const outcome = await trawlInstagramPosts({ ...BASE_PARAMS, drive, apifyApiKey: 'key', logger });
+    const outcome = await trawlInstagramPosts({ ...BASE_PARAMS, db, apifyApiKey: 'key', logger });
     expect(outcome.status).toBe('account_mismatch');
     expect(outcome.detail).toContain('ivy_thebrand');            // the expected handle
     expect(outcome.detail).toContain('completely_wrong_account'); // the foreign owners found
-    expect(drive.createFile).not.toHaveBeenCalled();
+    expect(captured.insertCalled).toBe(0);
   });
 
   it('drops foreign-owner posts and proceeds when at least one owned post exists (mixed batch)', async () => {
@@ -162,15 +155,13 @@ describe('account guard', () => {
     ];
     mockFetch(posts);
 
-    const createFile = vi.fn().mockResolvedValue('file-id');
-    const drive      = makeDrive({ createFileFn: createFile });
-    const logger     = makeLogger();
+    const { db, captured } = makeDb();
+    const logger = makeLogger();
 
-    await trawlInstagramPosts({ ...BASE_PARAMS, drive, apifyApiKey: 'key', logger });
+    await trawlInstagramPosts({ ...BASE_PARAMS, db, apifyApiKey: 'key', logger });
 
-    expect(createFile).toHaveBeenCalledOnce();
-    const [, , , buf] = (createFile as ReturnType<typeof vi.fn>).mock.calls[0]! as [string, string, string, Buffer];
-    const written     = JSON.parse(buf.toString('utf-8')) as Array<{ caption: string }>;
+    expect(captured.insertCalled).toBe(1);
+    const written = captured.values!.posts as Array<{ caption: string }>;
     expect(written).toHaveLength(2);
     expect(written.every((p) => ['Our post', 'Another ours'].includes(p.caption))).toBe(true);
 
@@ -187,13 +178,12 @@ describe('account guard', () => {
     ];
     mockFetch(posts);
 
-    const createFile = vi.fn().mockResolvedValue('file-id');
-    const drive      = makeDrive({ createFileFn: createFile });
-    const logger     = makeLogger();
+    const { db, captured } = makeDb();
+    const logger = makeLogger();
 
-    await trawlInstagramPosts({ ...BASE_PARAMS, drive, apifyApiKey: 'key', logger });
+    await trawlInstagramPosts({ ...BASE_PARAMS, db, apifyApiKey: 'key', logger });
 
-    expect(createFile).toHaveBeenCalledOnce();
+    expect(captured.insertCalled).toBe(1);
     const infoCalls = (logger.info as ReturnType<typeof vi.fn>).mock.calls as Array<[Record<string, unknown>, string]>;
     const dropLog   = infoCalls.find(([ctx]) => typeof ctx === 'object' && 'droppedCount' in ctx);
     expect(dropLog).toBeUndefined();
@@ -203,12 +193,11 @@ describe('account guard', () => {
     const post = makeApifyPost({ ownerUsername: 'IVY_THEBRAND' });
     mockFetch([post]);
 
-    const createFile = vi.fn().mockResolvedValue('file-id');
-    const drive      = makeDrive({ createFileFn: createFile });
+    const { db, captured } = makeDb();
 
-    await trawlInstagramPosts({ ...BASE_PARAMS, drive, apifyApiKey: 'key', logger: makeLogger() });
+    await trawlInstagramPosts({ ...BASE_PARAMS, db, apifyApiKey: 'key', logger: makeLogger() });
 
-    expect(createFile).toHaveBeenCalledOnce();
+    expect(captured.insertCalled).toBe(1);
   });
 });
 
@@ -220,16 +209,13 @@ describe('hidden/negative like and comment counts', () => {
     const validPost  = makeApifyPost({ caption: 'Valid post', likesCount: 30, ownerUsername: 'ivy_thebrand' });
     mockFetch([hiddenPost, validPost]);
 
-    const createFile = vi.fn().mockResolvedValue('file-id');
-    const drive      = makeDrive({ createFileFn: createFile });
-    const logger     = makeLogger();
+    const { db, captured } = makeDb();
+    const logger = makeLogger();
 
-    await trawlInstagramPosts({ ...BASE_PARAMS, drive, apifyApiKey: 'key', logger });
+    await trawlInstagramPosts({ ...BASE_PARAMS, db, apifyApiKey: 'key', logger });
 
-    expect(createFile).toHaveBeenCalledOnce();
-    const [, , , buf] = (createFile as ReturnType<typeof vi.fn>).mock.calls[0]! as [string, string, string, Buffer];
-    const written     = JSON.parse(buf.toString('utf-8')) as unknown[];
-    expect(written).toHaveLength(1);
+    expect(captured.insertCalled).toBe(1);
+    expect(captured.values!.posts).toHaveLength(1);
 
     const infoCalls = (logger.info as ReturnType<typeof vi.fn>).mock.calls as unknown[][];
     const skipLog   = infoCalls.find((c) => String(c[1]).includes('hidden'));
@@ -241,14 +227,11 @@ describe('hidden/negative like and comment counts', () => {
     const valid        = makeApifyPost({ likesCount: 10, ownerUsername: 'ivy_thebrand' });
     mockFetch([nullComments, valid]);
 
-    const createFile = vi.fn().mockResolvedValue('file-id');
-    const drive      = makeDrive({ createFileFn: createFile });
+    const { db, captured } = makeDb();
 
-    await trawlInstagramPosts({ ...BASE_PARAMS, drive, apifyApiKey: 'key', logger: makeLogger() });
+    await trawlInstagramPosts({ ...BASE_PARAMS, db, apifyApiKey: 'key', logger: makeLogger() });
 
-    const [, , , buf] = (createFile as ReturnType<typeof vi.fn>).mock.calls[0]! as [string, string, string, Buffer];
-    const written     = JSON.parse(buf.toString('utf-8')) as unknown[];
-    expect(written).toHaveLength(1);
+    expect(captured.values!.posts).toHaveLength(1);
   });
 
   it('logs count of skipped hidden posts at info', async () => {
@@ -259,10 +242,10 @@ describe('hidden/negative like and comment counts', () => {
     ];
     mockFetch(posts);
 
-    const drive  = makeDrive();
+    const { db } = makeDb();
     const logger = makeLogger();
 
-    await trawlInstagramPosts({ ...BASE_PARAMS, drive, apifyApiKey: 'key', logger });
+    await trawlInstagramPosts({ ...BASE_PARAMS, db, apifyApiKey: 'key', logger });
 
     const infoCalls = (logger.info as ReturnType<typeof vi.fn>).mock.calls as Array<[Record<string, unknown>, string]>;
     const skipLog   = infoCalls.find(([ctx]) => typeof ctx === 'object' && 'skipped' in ctx);
@@ -274,13 +257,13 @@ describe('hidden/negative like and comment counts', () => {
     const allHidden = [makeApifyPost({ likesCount: -1 }), makeApifyPost({ commentsCount: -1 })];
     mockFetch(allHidden);
 
-    const drive  = makeDrive();
+    const { db, captured } = makeDb();
     const logger = makeLogger();
 
-    await trawlInstagramPosts({ ...BASE_PARAMS, drive, apifyApiKey: 'key', logger });
+    await trawlInstagramPosts({ ...BASE_PARAMS, db, apifyApiKey: 'key', logger });
 
     expect(logger.warn).toHaveBeenCalledOnce();
-    expect(drive.createFile).not.toHaveBeenCalled();
+    expect(captured.insertCalled).toBe(0);
   });
 });
 
@@ -299,13 +282,11 @@ describe('Europe/London month filter', () => {
     });
     mockFetch([juneInLondon, validMay]);
 
-    const createFile = vi.fn().mockResolvedValue('file-id');
-    const drive      = makeDrive({ createFileFn: createFile });
+    const { db, captured } = makeDb();
 
-    await trawlInstagramPosts({ ...BASE_PARAMS, drive, apifyApiKey: 'key', logger: makeLogger() });
+    await trawlInstagramPosts({ ...BASE_PARAMS, db, apifyApiKey: 'key', logger: makeLogger() });
 
-    const [, , , buf] = (createFile as ReturnType<typeof vi.fn>).mock.calls[0]! as [string, string, string, Buffer];
-    const written     = JSON.parse(buf.toString('utf-8')) as Array<{ timestamp: string }>;
+    const written = captured.values!.posts as Array<{ timestamp: string }>;
     expect(written).toHaveLength(1);
     expect(written[0]!.timestamp).toBe('2026-05-15T12:00:00.000Z');
   });
@@ -317,16 +298,16 @@ describe('Europe/London month filter', () => {
     });
     mockFetch([aprilPost]);
 
-    const drive  = makeDrive();
+    const { db, captured } = makeDb();
     const logger = makeLogger();
 
-    await trawlInstagramPosts({ ...BASE_PARAMS, drive, apifyApiKey: 'key', logger });
+    await trawlInstagramPosts({ ...BASE_PARAMS, db, apifyApiKey: 'key', logger });
 
     expect(logger.warn).toHaveBeenCalledOnce();
     const [ctx, msg] = (logger.warn as ReturnType<typeof vi.fn>).mock.calls[0]! as [Record<string, unknown>, string];
     expect(msg).toMatch(/no posts/);
     expect(ctx['handle']).toBe('ivy_thebrand');
-    expect(drive.createFile).not.toHaveBeenCalled();
+    expect(captured.insertCalled).toBe(0);
   });
 });
 
@@ -337,45 +318,28 @@ describe('schema validation', () => {
     const badPost = makeApifyPost({ likesCount: 12.5, ownerUsername: 'ivy_thebrand' });
     mockFetch([badPost]);
 
-    const drive = makeDrive();
+    const { db, captured } = makeDb();
 
     await expect(
-      trawlInstagramPosts({ ...BASE_PARAMS, drive, apifyApiKey: 'key', logger: makeLogger() }),
+      trawlInstagramPosts({ ...BASE_PARAMS, db, apifyApiKey: 'key', logger: makeLogger() }),
     ).rejects.toThrow(/schema validation failed/);
 
-    expect(drive.createFile).not.toHaveBeenCalled();
+    expect(captured.insertCalled).toBe(0);
   });
 });
 
 // ── Idempotency ───────────────────────────────────────────────────────────────
 
 describe('idempotency', () => {
-  it('calls createFile when no existing posts file is present', async () => {
+  it('upserts a single ig_posts row via onConflictDoUpdate (latest-wins)', async () => {
     mockFetch([makeApifyPost()]);
 
-    const createFile = vi.fn().mockResolvedValue('new-file-id');
-    const updateFile = vi.fn().mockResolvedValue(undefined);
-    const drive      = makeDrive({ hasExistingPostsFile: false, createFileFn: createFile, updateFileFn: updateFile });
+    const { db, captured } = makeDb();
 
-    await trawlInstagramPosts({ ...BASE_PARAMS, drive, apifyApiKey: 'key', logger: makeLogger() });
+    await trawlInstagramPosts({ ...BASE_PARAMS, db, apifyApiKey: 'key', logger: makeLogger() });
 
-    expect(createFile).toHaveBeenCalledOnce();
-    expect(updateFile).not.toHaveBeenCalled();
-  });
-
-  it('calls updateFile (not createFile) when posts file already exists', async () => {
-    mockFetch([makeApifyPost()]);
-
-    const createFile = vi.fn().mockResolvedValue('new-file-id');
-    const updateFile = vi.fn().mockResolvedValue(undefined);
-    const drive      = makeDrive({ hasExistingPostsFile: true, createFileFn: createFile, updateFileFn: updateFile });
-
-    await trawlInstagramPosts({ ...BASE_PARAMS, drive, apifyApiKey: 'key', logger: makeLogger() });
-
-    expect(updateFile).toHaveBeenCalledOnce();
-    expect(createFile).not.toHaveBeenCalled();
-    const [fileId] = (updateFile as ReturnType<typeof vi.fn>).mock.calls[0]! as [string, string, Buffer];
-    expect(fileId).toBe('posts-id');
+    expect(captured.insertCalled).toBe(1);
+    expect(captured.onConflictCalled).toBe(1);
   });
 });
 
@@ -389,10 +353,10 @@ describe('coverage visibility', () => {
     ];
     mockFetch(posts);
 
-    const drive  = makeDrive();
+    const { db } = makeDb();
     const logger = makeLogger();
 
-    await trawlInstagramPosts({ ...BASE_PARAMS, drive, apifyApiKey: 'key', logger });
+    await trawlInstagramPosts({ ...BASE_PARAMS, db, apifyApiKey: 'key', logger });
 
     const infoCalls = (logger.info as ReturnType<typeof vi.fn>).mock.calls as Array<[Record<string, unknown>, string]>;
     const coverageLog = infoCalls.find(([ctx]) => typeof ctx === 'object' && 'oldestTimestamp' in ctx);

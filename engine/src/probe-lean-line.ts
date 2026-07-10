@@ -133,6 +133,7 @@ const leanLine = await buildLeanLine({
   month:         MONTH,
   driveFolderId,
   drive,
+  db,
   model,
   audit:         createAuditLogger(db),
   logger,

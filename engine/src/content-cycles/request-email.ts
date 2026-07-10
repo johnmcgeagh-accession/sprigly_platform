@@ -170,7 +170,7 @@ export async function runRequestEmail(
 
   // ── 5. Lean line — uses dataMonth for data lookups ────────────────────────
   const leanLine = await buildLeanLine({
-    clientId, clientName, channel, month, driveFolderId, drive, model, audit, logger, prompts,
+    clientId, clientName, channel, month, driveFolderId, drive, db, model, audit, logger, prompts,
   });
 
   // ── 6. Build draft ────────────────────────────────────────────────────────

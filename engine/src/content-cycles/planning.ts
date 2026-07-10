@@ -42,6 +42,7 @@ import {
   clients,
   voiceEdits,
   voiceSnapshots,
+  igPosts,
   clientProductCatalogue,
   contentCyclePosts,
   postEdits,
@@ -308,51 +309,34 @@ function buildPlanningUserMessage(inp: PlanningInputs): string {
 
 // ── Critic reference loaders (per-client, both optional → degrade gracefully) ──
 
-/** Parse an IG-scrape JSON array. Strict first; falls back to a tolerant pass for
- *  raw Apify exports that contain literal newlines inside caption strings. */
-function parseScrapeJson(text: string): Array<Record<string, unknown>> {
-  try {
-    const j = JSON.parse(text) as unknown;
-    if (Array.isArray(j)) return j as Array<Record<string, unknown>>;
-  } catch { /* fall through to tolerant parse */ }
-  let out = ''; let inStr = false; let esc = false;
-  for (const ch of text) {
-    if (esc) { out += ch; esc = false; }
-    else if (ch === '\\' && inStr) { out += ch; esc = true; }
-    else if (ch === '"') { out += ch; inStr = !inStr; }
-    else if (inStr && ch === '\n') out += '\\n';
-    else if (inStr && ch === '\r') out += '\\r';
-    else if (inStr && ch === '\t') out += '\\t';
-    else out += ch;
-  }
-  const j = JSON.parse(out) as unknown;
-  return Array.isArray(j) ? (j as Array<Record<string, unknown>>) : [];
-}
-
-/** Load this client's historic published posts (IG scrape) from Drive as the
- *  critic's voice reference. Absent file → []. Never throws. */
+/** Load this client's historic published posts (IG scrape) from the ig_posts DB
+ *  table (re-homed off Drive) as the critic's voice reference: the two most-recent
+ *  months by month key. No rows → []. Never throws. */
 async function loadHistoricPosts(
-  drive:       DriveApiClient,
-  folderFiles: DriveFileMeta[],
-  logger:      Logger,
-  logCtx:      Record<string, unknown>,
+  db:       Db,
+  clientId: string,
+  channel:  string,
+  logger:   Logger,
+  logCtx:   Record<string, unknown>,
 ): Promise<HistoricPost[]> {
-  const scrapeFiles = folderFiles
-    .filter((f) => /^instagram-posts-.*\.json$/i.test(f.name))
-    .sort((a, b) => b.name.localeCompare(a.name))   // most-recent month first
-    .slice(0, 2);
   const posts: HistoricPost[] = [];
-  for (const meta of scrapeFiles) {
-    try {
-      const arr = parseScrapeJson((await drive.downloadFile(meta.id)).toString('utf-8'));
+  try {
+    const rows = await db
+      .select({ posts: igPosts.posts })
+      .from(igPosts)
+      .where(and(eq(igPosts.clientId, clientId), eq(igPosts.channel, channel)))
+      .orderBy(desc(igPosts.month))   // 'YYYY-MM' sorts chronologically — most-recent month first
+      .limit(2);
+    for (const row of rows) {
+      const arr = Array.isArray(row.posts) ? row.posts : [];
       for (const p of arr) {
         const caption = typeof p['caption'] === 'string' ? (p['caption'] as string).trim() : '';
         if (!caption) continue;
         posts.push({ caption, engagement: (Number(p['likesCount']) || 0) + (Number(p['commentsCount']) || 0) });
       }
-    } catch (err) {
-      logger.warn({ ...logCtx, file: meta.name, err: String(err) }, 'critic: could not read IG scrape — skipping');
     }
+  } catch (err) {
+    logger.warn({ ...logCtx, err: String(err) }, 'critic: could not read ig_posts — skipping');
   }
   return posts.slice(0, 60);
 }
@@ -575,7 +559,7 @@ export async function assembleShapeContext(
 
   // ── Critic context (client voice / register / historic posts) ─────────────
   const criticPrompt  = await deps.prompts.resolve(clientId, PLANNING_WORKFLOW, PLANNING_CRITIC_STEP);
-  const historicPosts = await loadHistoricPosts(drive, folderFiles, logger, logCtx);
+  const historicPosts = await loadHistoricPosts(db, clientId, channel, logger, logCtx);
   const voiceEditEx   = await loadVoiceEdits(db, clientId, channel);
   if (historicPosts.length === 0) {
     logger.info(logCtx, 'critic: no historic reference — critic on voice.md only');

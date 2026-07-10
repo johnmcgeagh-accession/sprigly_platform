@@ -177,10 +177,12 @@ const SALES_CSV = Buffer.from([
   'Cotton dress,31',
 ].join('\n'));
 
-const IG_JSON = Buffer.from(JSON.stringify([
+// IG posts now live in the ig_posts DB table (re-homed off Drive), so IG data is
+// injected via the db mock (makeDb) rather than a Drive file.
+const IG_POSTS = [
   { caption: 'Our linen blazer is perfect for summer evenings out', timestamp: '2026-05-10T12:00:00Z', likesCount: 80, commentsCount: 10 },
   { caption: 'New cotton dress just dropped', timestamp: '2026-05-20T12:00:00Z', likesCount: 50, commentsCount: 5 },
-]));
+];
 
 function makeDrive(files: Record<string, Buffer>): BuildLeanLineParams['drive'] {
   return {
@@ -193,6 +195,17 @@ function makeDrive(files: Record<string, Buffer>): BuildLeanLineParams['drive'] 
       return Promise.resolve(buf);
     }),
   } as unknown as BuildLeanLineParams['drive'];
+}
+
+// Mocks fetchTopPosts's `db.select({...}).from(ig_posts).where(...).limit(1)`.
+// Pass the posts value for the month's row, or omit for "no row" (IG absent).
+function makeDb(igPostsValue?: unknown): BuildLeanLineParams['db'] {
+  const rows = igPostsValue === undefined ? [] : [{ posts: igPostsValue }];
+  const limit = vi.fn().mockResolvedValue(rows);
+  const where = vi.fn(() => ({ limit }));
+  const from  = vi.fn(() => ({ where }));
+  const select = vi.fn(() => ({ from }));
+  return { select } as unknown as BuildLeanLineParams['db'];
 }
 
 function makeModel(response = 'Leaning towards the linen blazer next month.'): BuildLeanLineParams['model'] {
@@ -222,6 +235,7 @@ const BASE_PARAMS = {
   channel:       'instagram',
   month:         '2026-05',
   driveFolderId: 'folder-xyz',
+  db:            makeDb(),   // no ig_posts row by default (IG absent)
   prompts:       makePrompts(),
   audit:         { logModelCall: vi.fn().mockResolvedValue(undefined) } as BuildLeanLineParams['audit'],
 };
@@ -277,12 +291,9 @@ describe('buildLeanLine — prompt resolver', () => {
 describe('buildLeanLine — degradation paths', () => {
   it('both sources present: calls model with both sections, returns lean line', async () => {
     const model = makeModel();
-    const drive = makeDrive({
-      'sales-2026-05.csv':         SALES_CSV,
-      'instagram-posts-2026-05.json': IG_JSON,
-    });
+    const drive = makeDrive({ 'sales-2026-05.csv': SALES_CSV });
 
-    const result = await buildLeanLine({ ...BASE_PARAMS, drive, model, logger: makeLogger() });
+    const result = await buildLeanLine({ ...BASE_PARAMS, drive, db: makeDb(IG_POSTS), model, logger: makeLogger() });
 
     expect(result).toBe('Leaning towards the linen blazer next month.');
     const call = (model.completeStreaming as ReturnType<typeof vi.fn>).mock.calls[0]![0];
@@ -308,9 +319,9 @@ describe('buildLeanLine — degradation paths', () => {
 
   it('engagement only: calls model with engagement note, no sellers section', async () => {
     const model = makeModel();
-    const drive = makeDrive({ 'instagram-posts-2026-05.json': IG_JSON });
+    const drive = makeDrive({});
 
-    const result = await buildLeanLine({ ...BASE_PARAMS, drive, model, logger: makeLogger() });
+    const result = await buildLeanLine({ ...BASE_PARAMS, drive, db: makeDb(IG_POSTS), model, logger: makeLogger() });
 
     expect(result).toBeTruthy();
     const call = (model.completeStreaming as ReturnType<typeof vi.fn>).mock.calls[0]![0];
@@ -349,12 +360,14 @@ describe('buildLeanLine — degradation paths', () => {
     expect(model.completeStreaming).not.toHaveBeenCalled();
   });
 
-  it('IG file present but invalid JSON: warns with filename, returns null, no model call', async () => {
+  it('ig_posts row present but not an array: warns parse/validation, returns null, no model call', async () => {
     const logger  = makeLogger();
     const model   = makeModel();
-    const drive   = makeDrive({ 'instagram-posts-2026-05.json': Buffer.from('not valid json') });
+    // jsonb is always valid JSON, so the file-era "invalid JSON" case becomes
+    // "posts is not a valid IgPost[]" — igPostsArraySchema.parse throws.
+    const drive   = makeDrive({});
 
-    const result = await buildLeanLine({ ...BASE_PARAMS, drive, model, logger });
+    const result = await buildLeanLine({ ...BASE_PARAMS, drive, db: makeDb('not an array'), model, logger });
     expect(result).toBeNull();
     expect(model.completeStreaming).not.toHaveBeenCalled();
     const warnCalls = (logger.warn as ReturnType<typeof vi.fn>).mock.calls;
@@ -363,20 +376,19 @@ describe('buildLeanLine — degradation paths', () => {
     )).toBe(true);
   });
 
-  it('IG file present but schema mismatch: warns with filename, returns null', async () => {
+  it('ig_posts row present but schema mismatch: warns with reason, returns null', async () => {
     const logger  = makeLogger();
     const model   = makeModel();
     // Missing likesCount/commentsCount — fails igPostSchema
     const badPosts = [{ caption: 'test', timestamp: '2026-05-01T12:00:00Z' }];
-    const drive   = makeDrive({ 'instagram-posts-2026-05.json': Buffer.from(JSON.stringify(badPosts)) });
 
-    const result = await buildLeanLine({ ...BASE_PARAMS, drive, model, logger });
+    const result = await buildLeanLine({ ...BASE_PARAMS, drive: makeDrive({}), db: makeDb(badPosts), model, logger });
     expect(result).toBeNull();
     expect(model.completeStreaming).not.toHaveBeenCalled();
     const warnCalls = (logger.warn as ReturnType<typeof vi.fn>).mock.calls;
     expect(warnCalls.some((c: unknown[]) => {
       const ctx = c[0] as Record<string, unknown>;
-      return typeof ctx['filename'] === 'string' && typeof ctx['reason'] === 'string';
+      return typeof ctx['reason'] === 'string';
     })).toBe(true);
   });
 });

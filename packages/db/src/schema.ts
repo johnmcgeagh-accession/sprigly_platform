@@ -784,6 +784,40 @@ export const clientProductCatalogue = pgTable(
 export type ClientProductCatalogueRow    = typeof clientProductCatalogue.$inferSelect;
 export type NewClientProductCatalogueRow = typeof clientProductCatalogue.$inferInsert;
 
+// ─── ig_posts ─────────────────────────────────────────────────────────────────
+// Per-(client, channel, month) Instagram post data, re-homed off Google Drive
+// (previously instagram-posts-<YYYY-MM>.json files in the client's Drive folder).
+// Mirrors competitor_gather_cache's per-(client, channel) JSONB pattern, plus a
+// month key (YYYY-MM). Latest-wins upsert per (client_id, channel, month).
+//
+// posts shape: IgPost[] (engine/src/lean-line.ts igPostSchema) —
+//   { timestamp: string, caption?: string, likesCount: int≥0, commentsCount: int≥0 }.
+// Typed loosely here (array of records) to avoid a @sprigly/db → engine dependency,
+// exactly as structured_brief / catalogue do; the writers validate the shape.
+//
+// Written by the Apify trawl (engine/src/ig-producer.ts) and the admin IG upload
+// (admin/src/lib/ingest/ingest-ig.ts). Read by planning's critic (loadHistoricPosts,
+// the two most-recent months, ordered by month desc) and the request-email lean
+// line (fetchTopPosts, a single month). The unique (client_id, channel, month)
+// index also serves both reads (prefix + ordered scan) — no extra index needed.
+
+export const igPosts = pgTable(
+  'ig_posts',
+  {
+    ...baseColumns,
+    clientId: uuid('client_id').notNull().references(() => clients.id),
+    channel:  text('channel').notNull(),
+    month:    text('month').notNull(),   // YYYY-MM
+    posts:    jsonb('posts').$type<Array<Record<string, unknown>>>().notNull().default([]),
+  },
+  (t) => ({
+    uniqClientChannelMonth: uniqueIndex('ig_posts_unique').on(t.clientId, t.channel, t.month),
+  }),
+);
+
+export type IgPostsRow    = typeof igPosts.$inferSelect;
+export type NewIgPostsRow = typeof igPosts.$inferInsert;
+
 // ─── planning_trace ───────────────────────────────────────────────────────────
 // Diagnostic, per-step record of the planning validation loop (gate / critic /
 // repair / catalogue) for ONE cycle. Captures what every repair actually changed

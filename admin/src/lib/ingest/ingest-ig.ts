@@ -1,11 +1,12 @@
 import 'server-only';
-import { getChannelDrive, upsertDriveFile } from './drive';
+import { db, igPosts } from '@sprigly/db';
 
 /**
  * ingestIgPosts — the shared client-IG fallback core. Validates the uploaded array
- * against the igPostSchema contract (mirror of engine/src/lean-line.ts — the file
- * planning's loadHistoricPosts reads) and writes instagram-posts-<month>.json to the
- * channel Drive folder. Drive-first: planning picks it up unchanged, no re-run.
+ * against the igPostSchema contract (mirror of engine/src/lean-line.ts — what
+ * planning's loadHistoricPosts reads) and upserts it into the ig_posts DB table,
+ * keyed (client_id, channel, month). Re-homed off Drive: planning + the lean line
+ * read the row directly; no Drive file is written.
  *
  * Validation is hand-rolled (no zod) so this file needs no extra admin dependency;
  * it enforces the same contract as the worker's canonical igPostSchema: timestamp
@@ -44,10 +45,14 @@ export async function ingestIgPosts(clientId: string, channel: string, month: st
   }
   if (v.posts.length === 0) return { ok: false, message: 'The JSON array is empty — nothing to upload.' };
 
-  const d = await getChannelDrive(clientId, channel);
-  if ('error' in d) return { ok: false, message: d.error };
-
-  const content = Buffer.from(JSON.stringify(v.posts, null, 2));
-  const res = await upsertDriveFile(d.drive, d.driveFolderId, `instagram-posts-${month}.json`, 'application/json', content);
-  return { ok: true, count: v.posts.length, message: `IG posts uploaded (${v.posts.length} posts, ${res}). Planning will read them for data month ${month}.` };
+  // Latest-wins upsert into ig_posts (re-homed off Drive) — replaces the month's row.
+  const payload = v.posts as unknown as Array<Record<string, unknown>>;
+  await db
+    .insert(igPosts)
+    .values({ clientId, channel, month, posts: payload })
+    .onConflictDoUpdate({
+      target: [igPosts.clientId, igPosts.channel, igPosts.month],
+      set:    { posts: payload, updatedAt: new Date() },
+    });
+  return { ok: true, count: v.posts.length, message: `IG posts saved (${v.posts.length} posts). Planning will read them for data month ${month}.` };
 }

@@ -5,14 +5,9 @@
  * Sources (both optional — graceful degradation when either is absent):
  *   1. Sales: "sales-YYYY-MM.csv" dropped into the client's monitored Drive folder.
  *      Shopify "Sales by product" format; column names matched by header, not position.
- *   2. Engagement: "instagram-posts-YYYY-MM.json" in the same Drive folder.
- *      Expected shape: Apify instagram-scraper output array.
- *
- * INTERIM — no server-side Instagram scrape pipeline exists yet. This file is
- * currently produced externally (e.g. saved manually from the content-analyser
- * CLI skill output) and dropped into Drive. Once a scheduled scrape step runs
- * server-side, swap fetchTopPosts() to read from DB or queue output. The worker
- * never calls Apify directly — no APIFY_API_KEY in env.
+ *   2. Engagement: Instagram posts for the month, read from the ig_posts DB table
+ *      (re-homed off Drive). Written by the Apify trawl (ig-producer.ts) and the
+ *      admin IG upload. Shape: IgPost[] (igPostSchema below).
  *
  * Call site: the Phase 3 monthly-request-email job.
  * CONTRACT: caller MUST omit the lean section when buildLeanLine() returns null.
@@ -20,10 +15,14 @@
  */
 
 import { z } from 'zod';
+import { eq, and } from 'drizzle-orm';
+import { db as _db, igPosts } from '@sprigly/db';
 import type { DriveApiClient } from '@sprigly/sources';
 import type { ModelClient } from '@sprigly/model-client';
 import type { AuditLogger } from '@sprigly/audit';
 import type { Logger } from 'pino';
+
+type Db = typeof _db;
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -46,8 +45,9 @@ export interface BuildLeanLineParams {
   clientName:    string;
   channel:       string;
   month:         string;       // YYYY-MM (last calendar month)
-  driveFolderId: string;
+  driveFolderId: string;       // sales CSV still lives in Drive (fetchTopSellers)
   drive:         DriveApiClient;
+  db:            Db;           // IG engagement now read from ig_posts (fetchTopPosts)
   model:         ModelClient;
   audit:         AuditLogger;
   logger:        Logger;
@@ -247,58 +247,48 @@ async function fetchTopSellers(
 }
 
 async function fetchTopPosts(
-  drive:         DriveApiClient,
-  driveFolderId: string,
-  month:         string,
-  logger:        Logger,
-  clientId:      string,
-  channel:       string,
+  db:       Db,
+  month:    string,
+  logger:   Logger,
+  clientId: string,
+  channel:  string,
 ): Promise<TopPost[] | null> {
-  // Reads instagram-posts-YYYY-MM.json from the client's Drive folder.
-  // This file is produced externally — see module-level comment on INTERIM status.
-  const target = `instagram-posts-${month}.json`;
+  // Reads the ig_posts DB row for (client, channel, month) — re-homed off Drive.
   const logCtx = { clientId, channel, month };
 
-  // Outer catch: Drive API errors (network, auth, etc.) — treat as absent.
-  let files: Awaited<ReturnType<typeof drive.listFiles>>;
+  // Outer catch: DB errors — treat as absent (same graceful-degradation contract).
+  let row: { posts: Array<Record<string, unknown>> } | undefined;
   try {
-    files = await drive.listFiles(driveFolderId);
+    [row] = await db
+      .select({ posts: igPosts.posts })
+      .from(igPosts)
+      .where(and(eq(igPosts.clientId, clientId), eq(igPosts.channel, channel), eq(igPosts.month, month)))
+      .limit(1);
   } catch (err) {
     logger.warn({ ...logCtx, err: String(err) },
-      'lean-line: Drive error listing files — engagement source omitted');
+      'lean-line: DB error reading ig_posts — engagement source omitted');
     return null;
   }
 
-  const meta = files.find((f) => f.name.toLowerCase() === target);
-  if (!meta) {
-    logger.info({ ...logCtx, target },
-      'lean-line: instagram-posts file not found, engagement source omitted');
+  if (!row) {
+    logger.info({ ...logCtx }, 'lean-line: no ig_posts row for month, engagement source omitted');
     return null;
   }
 
-  let buf: Buffer;
-  try {
-    buf = await drive.downloadFile(meta.id);
-  } catch (err) {
-    logger.warn({ ...logCtx, filename: meta.name, err: String(err) },
-      'lean-line: Drive error downloading IG posts — engagement source omitted');
-    return null;
-  }
-
-  // Inner catch: parse/validation errors — warn with filename and reason.
+  // Inner catch: schema-validation errors — reuse the exact validate+rank path the
+  // former Drive JSON file went through, by feeding the stored array back through it.
   let posts: TopPost[];
   try {
-    posts = parseIgPostsJson(buf, month);
+    posts = parseIgPostsJson(Buffer.from(JSON.stringify(row.posts)), month);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    logger.warn({ ...logCtx, filename: meta.name, reason },
-      'lean-line: instagram-posts file present but failed parse/validation — engagement source omitted');
+    logger.warn({ ...logCtx, reason },
+      'lean-line: ig_posts row present but failed parse/validation — engagement source omitted');
     return null;
   }
 
   if (posts.length === 0) {
-    logger.info({ ...logCtx, filename: meta.name },
-      'lean-line: IG posts valid but no posts matched the month');
+    logger.info({ ...logCtx }, 'lean-line: IG posts valid but no posts matched the month');
     return null;
   }
   return posts;
@@ -354,12 +344,12 @@ function buildUserMessage(
  * lean section entirely when this returns null. Never render a blank intro.
  */
 export async function buildLeanLine(params: BuildLeanLineParams): Promise<string | null> {
-  const { clientId, clientName, channel, month, driveFolderId, drive, model, audit, logger, prompts } = params;
+  const { clientId, clientName, channel, month, driveFolderId, drive, db, model, audit, logger, prompts } = params;
   const logCtx = { clientId, channel, month };
 
   const [sellers, posts] = await Promise.all([
     fetchTopSellers(drive, driveFolderId, month, logger, clientId, channel),
-    fetchTopPosts(drive, driveFolderId, month, logger, clientId, channel),
+    fetchTopPosts(db, month, logger, clientId, channel),
   ]);
 
   if (!sellers && !posts) {
