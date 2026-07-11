@@ -3,7 +3,7 @@
  * (resolveDayCycleId + fallbacks), and cross-month-move stability + reachability.
  */
 import { describe, it, expect } from 'vitest';
-import { nextMonth, resolveDayCycleId, postsOutsideMonth, type CycleMonthRef } from './cycle-nav';
+import { nextMonth, resolveDayCycleId, orphanPosts, type CycleMonthRef } from './cycle-nav';
 
 describe('nextMonth — a cycle labels as the month it PLANS', () => {
   it('cycle_month → the following month', () => {
@@ -62,14 +62,49 @@ describe('cross-month move: labels stay stable, moved post stays reachable', () 
     expect(resolveDayCycleId(cycles, '2026-07-12')).toBe('jul');
   });
 
-  it('the moved post remains reachable in its cycle via the outside-this-month strip', () => {
-    // The Aug cycle's loaded posts (by cycle, not by date) include the moved one.
+  it('a post moved to a PLANNED month is NOT an orphan (it shows in that month’s grid)', () => {
+    // Aug cycle posts; the moved one is dated in July, which the July cycle plans.
     const augPosts = [
       { id: 'a1', date: '2026-08-03' },
-      { id: 'a2', date: '2026-08-19' },
-      { id: 'moved', date: '2026-07-16' },   // moved out of the plan month
+      { id: 'moved', date: '2026-07-16' },   // July IS planned → shown in July's grid
     ];
-    const outside = postsOutsideMonth(augPosts, '2026-08');
-    expect(outside.map((p) => p.id)).toEqual(['moved']);   // surfaced, never dropped
+    const planned = ['2026-07', '2026-08'];
+    expect(orphanPosts(augPosts, planned)).toEqual([]);   // strip empty for the common case
+  });
+
+  it('a post moved to a month NO cycle plans IS an orphan → surfaced in the strip', () => {
+    const augPosts = [
+      { id: 'a1', date: '2026-08-03' },
+      { id: 'orphan', date: '2026-12-25' },  // no cycle plans December → shows in no grid
+    ];
+    const planned = ['2026-07', '2026-08'];
+    expect(orphanPosts(augPosts, planned).map((p) => p.id)).toEqual(['orphan']);
+  });
+});
+
+describe('date bucketing across cycles (calendar grid = posts ∪ crossMonthPosts by date)', () => {
+  // The grid renders calendarPosts (viewed cycle ∪ cross-cycle-in-month) filtered by date.
+  const viewedJulPosts = [
+    { id: 'v-jul', cycleId: 'jul', date: '2026-07-10' },
+    { id: 'v-aug', cycleId: 'jul', date: '2026-08-05' },   // a July-cycle post moved to August
+  ];
+  const crossInJul = [
+    { id: 'c-jul', cycleId: 'aug', date: '2026-07-20' },   // an August-cycle post moved to July
+  ];
+  const calendarPosts = [...viewedJulPosts, ...crossInJul];
+  const inMonth = (m: string) => calendarPosts.filter((p) => p.date.startsWith(m)).map((p) => p.id).sort();
+
+  it('the July grid shows every July-dated post regardless of owning cycle', () => {
+    expect(inMonth('2026-07')).toEqual(['c-jul', 'v-jul']);   // cross-cycle post included
+  });
+  it('a viewed-cycle post moved to August is NOT in the July grid (leaves on its date)', () => {
+    expect(inMonth('2026-07')).not.toContain('v-aug');
+    expect(inMonth('2026-08')).toContain('v-aug');
+  });
+  it('no post renders in more than one month view (exactly one date → one month)', () => {
+    const months = ['2026-07', '2026-08'];
+    const placements = calendarPosts.flatMap((p) => months.filter((m) => p.date.startsWith(m)).map(() => p.id));
+    expect(new Set(placements).size).toBe(placements.length);
+    expect(placements.length).toBe(calendarPosts.length);    // each placed exactly once
   });
 });

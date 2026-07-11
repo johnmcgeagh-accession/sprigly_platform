@@ -7,8 +7,11 @@
  * 401 if no valid session.
  */
 import { NextResponse } from 'next/server';
+import { and, eq } from 'drizzle-orm';
+import { db, contentCycles } from '@sprigly/db';
 import { getSession } from '@/lib/auth';
-import { loadPlanPosts, isCycleReadableByClient } from '@/lib/plan';
+import { loadPlanPosts, loadCrossMonthPosts, isCycleReadableByClient } from '@/lib/plan';
+import { nextMonth } from '@/lib/cycle-nav';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,5 +33,18 @@ export async function GET(req: Request) {
   }
 
   const posts = await loadPlanPosts(session.clientId, cycleId);
-  return NextResponse.json({ posts, readOnly: !isHome });
+
+  // Calendar grid is date-authoritative: also return the client's posts from OTHER cycles
+  // dated within THIS cycle's plan month, so a cross-month-moved post shows on its date in
+  // the month view it belongs to (each carries its own cycleId for edit routing).
+  const [cyc] = await db
+    .select({ channel: contentCycles.channel, cycleMonth: contentCycles.cycleMonth })
+    .from(contentCycles)
+    .where(and(eq(contentCycles.id, cycleId), eq(contentCycles.clientId, session.clientId)))
+    .limit(1);
+  const crossMonthPosts = cyc
+    ? await loadCrossMonthPosts(session.clientId, cyc.channel, nextMonth(cyc.cycleMonth), cycleId)
+    : [];
+
+  return NextResponse.json({ posts, crossMonthPosts, readOnly: !isHome });
 }
