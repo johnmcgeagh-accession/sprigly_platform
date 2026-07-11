@@ -13,6 +13,7 @@
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { db, contentCycles, contentCyclePosts } from '@sprigly/db';
 import { listStepsForPosts } from '@/lib/steps';
+import { nextMonth } from '@/lib/cycle-nav';
 import type {
   CycleSummary, PlanPost, PostChannel, PostFormat, PostStatus, ReviewState,
 } from './types.js';
@@ -34,20 +35,6 @@ function monthLabel(yyyymm: string): string {
   const year = m[1];
   const idx  = Number(m[2]) - 1;
   return `${MONTH_NAMES[idx] ?? yyyymm} ${year}`;
-}
-
-/** cycle_month → the month it PLANS ('YYYY-MM' of cycle_month + 1). A cycle's plan
- *  month is always the month AFTER its cycle_month, so a post-less cycle (no post
- *  dates to derive from) is labelled by the month it is FOR, not its cycle_month —
- *  otherwise an empty cycle collides in month-space with the real cycle whose posts
- *  land in that same plan month. Returns 'YYYY-MM'. */
-function nextMonth(cycleMonth: string): string {
-  const m = /^(\d{4})-(\d{2})/.exec(cycleMonth);
-  if (!m) return cycleMonth.slice(0, 7);
-  let year  = Number(m[1]);
-  let month = Number(m[2]) + 1;
-  if (month > 12) { month = 1; year += 1; }
-  return `${year}-${String(month).padStart(2, '0')}`;
 }
 
 /** Load the plan posts for a cycle, ordered by position then date. Scoped to the
@@ -115,9 +102,6 @@ export async function loadCycleList(
       cycleId:    contentCycles.id,
       cycleMonth: contentCycles.cycleMonth,
       syncStatus: contentCycles.postsSyncStatus,
-      syncedAt:   contentCycles.postsSyncedAt,
-      updatedAt:  contentCycles.updatedAt,
-      firstMonth: sql<string | null>`to_char(min(${contentCyclePosts.scheduledDate}), 'YYYY-MM')`,
       liveCount:  sql<number>`count(${contentCyclePosts.id})::int`,
       preservedEdit:       sql<number>`(count(${contentCyclePosts.id}) filter (where ${contentCyclePosts.reviewState} = 'preserved_edit'))::int`,
       preservedEditOrphan: sql<number>`(count(${contentCyclePosts.id}) filter (where ${contentCyclePosts.reviewState} = 'preserved_edit_orphan'))::int`,
@@ -131,30 +115,20 @@ export async function loadCycleList(
       eq(contentCycles.clientId, clientId),
       eq(contentCycles.channel, channel),
     ))
-    .groupBy(
-      contentCycles.id, contentCycles.cycleMonth, contentCycles.postsSyncStatus,
-      contentCycles.postsSyncedAt, contentCycles.updatedAt,
-    );
+    .groupBy(contentCycles.id, contentCycles.cycleMonth, contentCycles.postsSyncStatus);
 
-  // Qualify, then collapse any month collision to the most recent cycle.
-  const byMonth = new Map<string, {
-    summary: CycleSummary;
-    syncedAt: Date | null;
-    updatedAt: Date | null;
-  }>();
-
+  // A cycle's month is ALWAYS the month it PLANS — nextMonth(cycle_month) — for populated
+  // and empty cycles alike; it is NEVER derived from post dates. cycle_month is unique per
+  // (client, channel) via the unique index, so displayMonth is unique per cycle: distinct
+  // cycles can never collide in month-space, and a cross-month-moved post can no longer
+  // relabel its cycle or shadow another (the old min(scheduled_date)-derived label + the
+  // collision-tiebreak that resolved it are gone — deliberately no residual collision path).
+  const out: CycleSummary[] = [];
   for (const r of rows) {
-    const isHome     = r.cycleId === homeCycleId;
-    const hasPosts   = r.liveCount > 0;
-    const isBadState = r.syncStatus === 'out_of_sync';
-    if (!isHome && (!hasPosts || isBadState)) continue;   // home is always kept
-
-    // Plan month from the earliest live post date. If the cycle has no live posts,
-    // there's no post date to derive from — fall back to the month it PLANS
-    // (nextMonth(cycle_month)), NOT cycle_month, so an empty cycle doesn't mislabel
-    // by one month and collide with the real cycle whose posts land in that month.
-    const displayMonth = r.firstMonth ?? nextMonth(r.cycleMonth);
-    const summary: CycleSummary = {
+    const isHome = r.cycleId === homeCycleId;
+    if (!isHome && (r.liveCount === 0 || r.syncStatus === 'out_of_sync')) continue;   // home is always kept
+    const displayMonth = nextMonth(r.cycleMonth);
+    out.push({
       cycleId:                  r.cycleId,
       displayMonth,
       monthLabel:               monthLabel(displayMonth),
@@ -162,36 +136,9 @@ export async function loadCycleList(
       isHome,
       preservedEditCount:       r.preservedEdit,
       preservedEditOrphanCount: r.preservedEditOrphan,
-    };
-
-    const existing = byMonth.get(displayMonth);
-    if (!existing) {
-      byMonth.set(displayMonth, { summary, syncedAt: r.syncedAt, updatedAt: r.updatedAt });
-      continue;
-    }
-    // Collision: one calendar month resolved to two cycles. A cycle WITH live posts
-    // always beats an empty one — even an empty home cycle — so a not-yet-planned
-    // home cycle can never shadow the real month's posts. Home-preference and
-    // recency only break ties AMONG EQUALS (both populated, or both empty). The
-    // unique index (client, channel, cycle_month) makes this defensive, not expected.
-    const incomingHasPosts = summary.livePostCount > 0;
-    const existingHasPosts = existing.summary.livePostCount > 0;
-    let keepIncoming: boolean;
-    if (incomingHasPosts !== existingHasPosts) {
-      keepIncoming = incomingHasPosts;                 // the populated cycle wins outright
-    } else {
-      const incomingT = (r.syncedAt ?? r.updatedAt)?.getTime() ?? 0;
-      const existingT = (existing.syncedAt ?? existing.updatedAt)?.getTime() ?? 0;
-      keepIncoming = existing.summary.isHome ? false : (summary.isHome || incomingT >= existingT);
-    }
-    // eslint-disable-next-line no-console
-    console.warn(`[loadCycleList] month ${displayMonth} has two cycles for client ${clientId}; keeping ${keepIncoming ? r.cycleId : existing.summary.cycleId}`);
-    if (keepIncoming) byMonth.set(displayMonth, { summary, syncedAt: r.syncedAt, updatedAt: r.updatedAt });
+    });
   }
-
-  return [...byMonth.values()]
-    .map((v) => v.summary)
-    .sort((a, b) => b.displayMonth.localeCompare(a.displayMonth));   // newest month first
+  return out.sort((a, b) => b.displayMonth.localeCompare(a.displayMonth));   // newest month first
 }
 
 /**

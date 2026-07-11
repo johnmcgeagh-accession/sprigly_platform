@@ -6,6 +6,7 @@ import { Drawer, Scrim, Dialog, DISABLED_PRIMARY } from './primitives';
 import { PostEditor } from './PostEditor';
 import { PostChip, ProposalCard, NoteRow, ExtractionSummary, monthDayLabel, postTitle, WeatherCellIcon } from './pieces';
 import { planTasks, lateCount, viewedMonth } from './derive';
+import { postsOutsideMonth } from '@/lib/cycle-nav';
 import {
   SprigMark, ChevronLeft, ChevronRight, CalendarIcon, TimelineIcon, TasksIcon, ApprovalsIcon,
   NotesIcon, MicIcon, SendIcon, SparkIcon, FormatIcon, FORMAT_LABEL,
@@ -87,8 +88,8 @@ export function PlanDesktop({ data }: { data: PlanData }) {
               </span>
             )}
             <span className="flex-1" />
-            {view === 'calendar' && (
-              <button data-testid="today-btn" onClick={() => data.switchCycle(data.homeCycleId)} className="rounded-full border border-line bg-surface px-[15px] py-[7px] text-[12.5px] font-bold text-slate-600 shadow-card">Today</button>
+            {view === 'calendar' && data.todayCycleId && (
+              <button data-testid="today-btn" onClick={() => data.todayCycleId && data.switchCycle(data.todayCycleId)} className="rounded-full border border-line bg-surface px-[15px] py-[7px] text-[12.5px] font-bold text-slate-600 shadow-card">Today</button>
             )}
           </div>
 
@@ -245,6 +246,29 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
           );
         })}
       </div>
+      {/* Reachability: a post whose date was moved OUT of this cycle's plan month still
+          belongs to this cycle, so the calendar grid (which places by day-in-month) can't
+          show it. Surface it here so a cross-month-moved post never silently vanishes;
+          tapping opens its editor. (The Timeline view already lists every post by date.) */}
+      {(() => {
+        const monthStr = `${year}-${pad(month + 1)}`;
+        const outside = postsOutsideMonth(data.posts, monthStr);
+        if (outside.length === 0) return null;
+        return (
+          <div data-testid="outside-month" className="mx-1 mt-6">
+            <div className="mb-2 text-[12px] font-extrabold uppercase tracking-[.09em] text-muted">Outside this month</div>
+            <div className="flex flex-col gap-1.5">
+              {outside.map((p) => (
+                <button key={p.id} data-testid="outside-post" data-post-id={p.id} onClick={() => onSelect(p.id)}
+                  className={`flex items-center gap-2.5 rounded-xl border bg-surface px-3.5 py-2.5 text-left shadow-card hover:border-[#DED9D3] ${p.id === selId ? 'border-coral' : 'border-line'}`}>
+                  <span className="whitespace-nowrap font-serif text-[15px] text-slate-700">{monthDayLabel(p.date)}</span>
+                  <span className="truncate text-[13px] font-semibold text-slate-600">{postTitle(p)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
       {!data.readOnly && <div className="mx-1 mb-0.5 mt-4 text-[12.5px] font-semibold text-muted">Drag any post to another day to reschedule it.</div>}
     </>
   );

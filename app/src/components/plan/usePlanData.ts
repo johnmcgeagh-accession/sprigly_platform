@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PlanPost, CycleSummary, PostStepView, ShapeResult } from '@/lib/types';
 import type { ProposalView } from '@/lib/agent/types';
 import type { NoteView } from '@/lib/agent/notes';
 import { indexForecast, type WeatherDay, type WeatherWireDay } from '@/lib/weather';
+import { resolveDayCycleId } from '@/lib/cycle-nav';
 
 export interface AgentReply { message: string; proposals: ProposalView[] }
 
@@ -40,6 +41,9 @@ export function usePlanData(init: PlanDataInit) {
   // London) — the client clock is never trusted for the gate.
   const readOnly = false;
   const canEdit = useCallback((dateIso: string | undefined) => !!dateIso && dateIso >= init.today, [init.today]);
+  // The cycle that represents "today" — the SAME rule the server landing uses
+  // (resolveDayCycleId), so the Today button and the initial landing never diverge.
+  const todayCycleId = useMemo(() => resolveDayCycleId(cycles, init.today), [cycles, init.today]);
   const [busy, setBusy] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [shapingIds, setShapingIds] = useState<Set<string>>(new Set());
@@ -391,7 +395,7 @@ export function usePlanData(init: PlanDataInit) {
   return {
     // data
     posts, cycles, proposals, notes, today: init.today, clientName: init.clientName,
-    homeCycleId: init.homeCycleId, viewedCycleId, readOnly, canEdit,
+    homeCycleId: init.homeCycleId, viewedCycleId, readOnly, canEdit, todayCycleId,
     // status
     busy, switching, shapingIds, proposalBusy, agentBusy, agentReply, agentError,
     shapeErrors, loadError, flashView, toast,
