@@ -112,16 +112,19 @@ export function CalendarPicker({ value, today, onSelect, autoFocus }: {
               const inMonth = dt.getMonth() === view.m;
               const isSel = d === value;
               const isToday = d === today;
+              const isPast = d < today;   // DATE POLICY: can't schedule/move into the past
               return (
                 <div key={d} role="gridcell" className="flex items-center justify-center py-0.5">
-                  <button type="button" data-date={d} data-testid="day-cell"
+                  <button type="button" data-date={d} data-testid="day-cell" disabled={isPast}
                     tabIndex={d === focus ? 0 : -1}
                     aria-current={isToday ? 'date' : undefined}
-                    aria-label={`${longLabel(dt)}${isSel ? ', selected' : ''}`}
-                    onClick={() => onSelect(d)} onFocus={() => setFocus(d)}
+                    aria-disabled={isPast || undefined}
+                    aria-label={`${longLabel(dt)}${isSel ? ', selected' : ''}${isPast ? ', unavailable (past)' : ''}`}
+                    onClick={() => { if (!isPast) onSelect(d); }} onFocus={() => setFocus(d)}
                     className={[
                       'flex h-9 w-9 items-center justify-center rounded-full text-[13px] font-bold outline-none transition-colors',
-                      isSel ? 'bg-coral text-white'
+                      isPast ? 'cursor-not-allowed text-muted/40'
+                        : isSel ? 'bg-coral text-white'
                         : inMonth ? 'text-slate-700 hover:bg-coral-tint' : 'text-muted hover:bg-line-soft',
                       !isSel && isToday ? 'ring-1 ring-coral ring-offset-1' : '',
                     ].join(' ')}>{dt.getDate()}</button>

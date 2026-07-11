@@ -16,8 +16,17 @@ import type { ActivityActor } from '../activity';
 import { enqueueShape, enqueueHookJob } from '../queue';
 import { getUsageForCycle, isRewriteBlocked } from '../usage';
 import { startPostGeneration } from '../post-generation';
+import { resolvePostForEdit, isEditableDate, editScopeToday } from '../edit-scope';
 import { markNoteIntegrated } from './notes';
 import type { MutatingAction, ProposalPayload, ProposalView } from './types';
+
+/** DATE POLICY for agent actions: a post is editable iff dated today-onward (London).
+ *  Agent rewrite/hook/refine enqueue jobs DIRECTLY (bypassing the date-gated routes),
+ *  so every approve path re-checks here. */
+async function agentPostEditable(clientId: string, postId: string, today: string): Promise<boolean> {
+  const ctx = await resolvePostForEdit(clientId, postId);
+  return !!ctx && isEditableDate(ctx.scheduledDate, today);
+}
 
 const view = (r: Pick<AgentProposalRow, 'id' | 'intent' | 'summary' | 'status' | 'changeSetId'>): ProposalView =>
   ({ id: r.id, intent: r.intent, summary: r.summary, status: r.status, changeSetId: r.changeSetId ?? null });
@@ -187,8 +196,15 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
   // Approved agent changes land in the plan_activity ledger as origin='agent', tagged
   // with this proposal id — one ordered stream with the user's direct edits (AUDIT §3).
   const agentActor: ActivityActor = { origin: 'agent', refProposalId: id };
+  // DATE POLICY: refuse any agent action on a post/date before today (London).
+  const today = editScopeToday();
+  const readOnlyFail = async () => {
+    await setStatus(clientId, id, 'failed', 'That post is in the past — it’s read-only now.', false);
+    return { proposal: view({ ...row, status: 'failed' }) };
+  };
   try {
     if (payload.kind === 'rewrite') {
+      if (!(await agentPostEditable(row.clientId, payload.postId, today))) return readOnlyFail();
       const usage = await getUsageForCycle(row.clientId, payload.cycleId);
       if (isRewriteBlocked(usage)) {
         await setStatus(clientId, id, 'failed', `You’ve used all ${usage.limit} AI changes this month.`, false);
@@ -201,15 +217,20 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
     }
 
     if (payload.kind === 'move') {
-      await patchPost(row.clientId, payload.cycleId, payload.postId, { date: payload.toDate }, agentActor);
+      // Both ends must be today-onward: can't move a past post, nor INTO the past.
+      if (!isEditableDate(payload.toDate, today) || !(await agentPostEditable(row.clientId, payload.postId, today))) return readOnlyFail();
+      await patchPost(row.clientId, payload.cycleId, payload.postId, { date: payload.toDate }, agentActor, today);
     } else if (payload.kind === 'delete') {
-      await softDeletePost(row.clientId, payload.cycleId, payload.postId, agentActor);
+      if (!(await agentPostEditable(row.clientId, payload.postId, today))) return readOnlyFail();
+      await softDeletePost(row.clientId, payload.cycleId, payload.postId, agentActor, today);
     } else if (payload.kind === 'format') {
       // Apply the format change (format_changed ledger, origin agent). The checklist
       // reconcile is left to the editor's keep/replace flow — approving a format change
       // never silently discards checklist progress.
-      await patchPost(row.clientId, payload.cycleId, payload.postId, { format: payload.format }, agentActor);
+      if (!(await agentPostEditable(row.clientId, payload.postId, today))) return readOnlyFail();
+      await patchPost(row.clientId, payload.cycleId, payload.postId, { format: payload.format }, agentActor, today);
     } else if (payload.kind === 'add') {
+      if (!isEditableDate(payload.date, today)) return readOnlyFail();   // create only today-onward
       const channel = payload.channel ?? await cycleChannel(row.clientId, payload.cycleId);
       const format = payload.format ?? 'single';   // the inferred (or defaulted) format
       const instruction = payload.instruction?.trim();
@@ -218,11 +239,12 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
         // generate the caption async. Quota is checked/counted by the shape job.
         // Quota-block or enqueue failure leaves the post in a failed state (not the
         // default placeholder) — the approval still succeeds because the post exists.
-        const { postId } = await addGeneratingPost(row.clientId, payload.cycleId, { channel, date: payload.date, instruction, format }, agentActor);
-        const gen = await startPostGeneration(row.clientId, payload.cycleId, postId, instruction);
+        const created = await addGeneratingPost(row.clientId, payload.cycleId, { channel, date: payload.date, instruction, format }, agentActor, today);
+        if (!created) return readOnlyFail();
+        const gen = await startPostGeneration(row.clientId, payload.cycleId, created.postId, instruction, today);
         if ('jobId' in gen) genJobId = gen.jobId;
       } else {
-        await addDraft(row.clientId, payload.cycleId, channel, payload.date, agentActor, format);
+        await addDraft(row.clientId, payload.cycleId, channel, payload.date, agentActor, format, today);
       }
     } else if (payload.kind === 'generate_hook') {
       // Resolve the target (existing reel/carousel, or the post created by the referenced
@@ -236,6 +258,7 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
           .where(and(eq(agentProposals.id, id), eq(agentProposals.clientId, clientId)));
         return { proposal: view({ ...row, status: 'pending' }), blocked: true, message: target.message };
       }
+      if (!(await agentPostEditable(row.clientId, target.postId, today))) return readOnlyFail();
       // Counts against the AI-change cap like a rewrite (it's an AI generation).
       const usage = await getUsageForCycle(row.clientId, payload.cycleId);
       if (isRewriteBlocked(usage)) {
@@ -256,6 +279,7 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
           .where(and(eq(agentProposals.id, id), eq(agentProposals.clientId, clientId)));
         return { proposal: view({ ...row, status: 'pending' }), blocked: true, message: target.message };
       }
+      if (!(await agentPostEditable(row.clientId, target.postId, today))) return readOnlyFail();
       const usage = await getUsageForCycle(row.clientId, payload.cycleId);
       if (isRewriteBlocked(usage)) {
         await setStatus(clientId, id, 'failed', `You’ve used all ${usage.limit} AI changes this month.`, false);
@@ -268,10 +292,12 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
     } else if (payload.kind === 'apply_caption') {
       // Weekly-session pre-generated rewrite: apply the already-validated caption
       // deterministically (no second generation), and mark any integrated note.
-      await patchPost(row.clientId, payload.cycleId, payload.postId, { caption: payload.caption }, agentActor);
+      if (!(await agentPostEditable(row.clientId, payload.postId, today))) return readOnlyFail();
+      await patchPost(row.clientId, payload.cycleId, payload.postId, { caption: payload.caption }, agentActor, today);
       if (payload.noteId) await markNoteIntegrated(row.clientId, payload.noteId, id);
     } else if (payload.kind === 'add_generated') {
-      await addGeneratedPost(row.clientId, payload.cycleId, { channel: payload.channel, date: payload.date, format: payload.format, pillar: payload.pillar, caption: payload.caption }, agentActor);
+      if (!isEditableDate(payload.date, today)) return readOnlyFail();   // create only today-onward
+      await addGeneratedPost(row.clientId, payload.cycleId, { channel: payload.channel, date: payload.date, format: payload.format, pillar: payload.pillar, caption: payload.caption }, agentActor, today);
     }
     await setStatus(clientId, id, 'applied', null, true);
     return { proposal: view({ ...row, status: 'applied' }), ...(genJobId ? { jobId: genJobId } : {}) };

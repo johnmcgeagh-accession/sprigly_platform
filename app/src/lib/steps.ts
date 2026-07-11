@@ -10,6 +10,7 @@ import type { PostStepRow } from '@sprigly/db';
 import type { PostStepView, StepActor } from './types.js';
 import { recordActivity, USER_ACTOR, type ActivityActor } from '@/lib/activity';
 import { e2eTodayIso } from '@/lib/e2e-fake';
+import { isEditableDate, editScopeToday } from '@/lib/edit-scope';
 
 /**
  * "Today" for at-risk / bucket derivations, in the tenant's timezone. No per-tenant
@@ -37,10 +38,10 @@ function stepView(r: PostStepRow): PostStepView {
   };
 }
 
-/** Verify the post is owned by this client+cycle and live; returns its format or null. */
-async function ownedPostFormat(clientId: string, cycleId: string, postId: string): Promise<string | null> {
+/** Verify the post is owned by this client+cycle and live; returns its format + date, else null. */
+async function ownedPostFormat(clientId: string, cycleId: string, postId: string): Promise<{ format: string; scheduledDate: string } | null> {
   const [row] = await db
-    .select({ format: contentCyclePosts.format })
+    .select({ format: contentCyclePosts.format, scheduledDate: contentCyclePosts.scheduledDate })
     .from(contentCyclePosts)
     .where(and(
       eq(contentCyclePosts.id, postId),
@@ -49,7 +50,18 @@ async function ownedPostFormat(clientId: string, cycleId: string, postId: string
       isNull(contentCyclePosts.deletedAt),
     ))
     .limit(1);
-  return row?.format ?? null;
+  return row ?? null;
+}
+
+/** Owned + editable (scheduled_date >= today London). A read (listStepsForPost) uses
+ *  ownedPostFormat directly (viewing past checklists is allowed); a WRITE uses this. */
+function editableStepPost(
+  owned: { format: string; scheduledDate: string } | null,
+  today: string,
+): { format: string } | null {
+  if (!owned) return null;
+  if (!isEditableDate(owned.scheduledDate, today)) return null;   // past-dated → read-only
+  return owned;
 }
 
 /**
@@ -89,9 +101,9 @@ async function nextSort(postId: string): Promise<number> {
  *  generation are ledgered per Stage 1 scope.) */
 export async function addStep(
   clientId: string, cycleId: string, postId: string,
-  input: { label: string; leadDays: number }, actor: ActivityActor = USER_ACTOR,
+  input: { label: string; leadDays: number }, actor: ActivityActor = USER_ACTOR, today: string = editScopeToday(),
 ): Promise<PostStepView[] | null> {
-  if (!(await ownedPostFormat(clientId, cycleId, postId))) return null;
+  if (!editableStepPost(await ownedPostFormat(clientId, cycleId, postId), today)) return null;
   await db.insert(postSteps).values({
     postId, label: input.label, leadDays: Math.trunc(input.leadDays),
     sort: await nextSort(postId), createdBy: actor.origin,
@@ -103,9 +115,9 @@ export async function addStep(
  *  row (atomically). null if the post isn't owned or the step isn't on it. */
 export async function setStepDone(
   clientId: string, cycleId: string, postId: string, stepId: string,
-  done: boolean, actor: ActivityActor = USER_ACTOR,
+  done: boolean, actor: ActivityActor = USER_ACTOR, today: string = editScopeToday(),
 ): Promise<PostStepView[] | null> {
-  if (!(await ownedPostFormat(clientId, cycleId, postId))) return null;
+  if (!editableStepPost(await ownedPostFormat(clientId, cycleId, postId), today)) return null;
   const [step] = await db
     .select({ id: postSteps.id, label: postSteps.label })
     .from(postSteps)
@@ -130,9 +142,9 @@ export async function setStepDone(
  *  post isn't owned or the step isn't on it; a blank label is rejected upstream (route). */
 export async function renameStep(
   clientId: string, cycleId: string, postId: string, stepId: string,
-  label: string, actor: ActivityActor = USER_ACTOR,
+  label: string, actor: ActivityActor = USER_ACTOR, today: string = editScopeToday(),
 ): Promise<PostStepView[] | null> {
-  if (!(await ownedPostFormat(clientId, cycleId, postId))) return null;
+  if (!editableStepPost(await ownedPostFormat(clientId, cycleId, postId), today)) return null;
   const [step] = await db
     .select({ id: postSteps.id, label: postSteps.label })
     .from(postSteps)
@@ -156,8 +168,8 @@ export async function renameStep(
 }
 
 /** Remove a step from an owned post. null if not owned. */
-export async function removeStep(clientId: string, cycleId: string, postId: string, stepId: string): Promise<PostStepView[] | null> {
-  if (!(await ownedPostFormat(clientId, cycleId, postId))) return null;
+export async function removeStep(clientId: string, cycleId: string, postId: string, stepId: string, today: string = editScopeToday()): Promise<PostStepView[] | null> {
+  if (!editableStepPost(await ownedPostFormat(clientId, cycleId, postId), today)) return null;
   await db.delete(postSteps).where(and(eq(postSteps.id, stepId), eq(postSteps.postId, postId)));
   return (await listStepsForPosts([postId])).get(postId) ?? [];
 }
@@ -176,10 +188,11 @@ export type GenerateResult =
  * (actor.origin = 'agent').
  */
 export async function generateChecklist(
-  clientId: string, cycleId: string, postId: string, actor: ActivityActor = USER_ACTOR,
+  clientId: string, cycleId: string, postId: string, actor: ActivityActor = USER_ACTOR, today: string = editScopeToday(),
 ): Promise<GenerateResult> {
-  const format = await ownedPostFormat(clientId, cycleId, postId);
-  if (!format) return { status: 'not_found' };
+  const owned = editableStepPost(await ownedPostFormat(clientId, cycleId, postId), today);
+  if (!owned) return { status: 'not_found' };
+  const { format } = owned;
 
   const existing = await db.select({ id: postSteps.id }).from(postSteps).where(eq(postSteps.postId, postId)).limit(1);
   if (existing.length > 0) return { status: 'exists' };
@@ -210,10 +223,11 @@ export async function generateChecklist(
  * checklist_generated (replaced=true).
  */
 export async function regenerateChecklist(
-  clientId: string, cycleId: string, postId: string, actor: ActivityActor = USER_ACTOR,
+  clientId: string, cycleId: string, postId: string, actor: ActivityActor = USER_ACTOR, today: string = editScopeToday(),
 ): Promise<GenerateResult> {
-  const format = await ownedPostFormat(clientId, cycleId, postId);
-  if (!format) return { status: 'not_found' };
+  const owned = editableStepPost(await ownedPostFormat(clientId, cycleId, postId), today);
+  if (!owned) return { status: 'not_found' };
+  const { format } = owned;
 
   const [template] = await db.select().from(stepTemplates).where(eq(stepTemplates.contentType, format)).limit(1);
   if (!template || template.steps.length === 0) {

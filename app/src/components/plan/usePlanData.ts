@@ -33,7 +33,13 @@ export function usePlanData(init: PlanDataInit) {
   const [proposals, setProposals] = useState<ProposalView[]>([]);
   const [notes, setNotes] = useState<NoteView[]>([]);
   const [viewedCycleId, setViewedCycleId] = useState(init.initialViewedCycleId ?? init.homeCycleId);
-  const [readOnly, setReadOnly] = useState(init.initialReadOnly ?? false);
+  // DATE POLICY: editability is per-post by scheduled_date (>= today London) across ALL of
+  // the client's months — NOT whole-cycle. The old whole-cycle `readOnly` flag is
+  // superseded (kept at `false` so every month is browsable AND editable); the per-day
+  // `canEdit` gate decides each affordance. `today` is server-computed (init.today,
+  // London) — the client clock is never trusted for the gate.
+  const readOnly = false;
+  const canEdit = useCallback((dateIso: string | undefined) => !!dateIso && dateIso >= init.today, [init.today]);
   const [busy, setBusy] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [shapingIds, setShapingIds] = useState<Set<string>>(new Set());
@@ -164,7 +170,7 @@ export function usePlanData(init: PlanDataInit) {
   }, [readOnly, hookGenerating, flash]);
   const revert = useCallback((id: string) => call(`/api/posts/${id}/revert`, 'POST'), [call]);
   const removePost = useCallback((id: string) => call(`/api/posts/${id}`, 'DELETE'), [call]);
-  const addPost = useCallback((dateIso: string) => call('/api/posts', 'POST', { date: dateIso }), [call]);
+  const addPost = useCallback((dateIso: string) => call('/api/posts', 'POST', { date: dateIso, cycleId: viewedCycleId }), [call, viewedCycleId]);
 
   /** Merge a fresh steps array for one post into local state (steps endpoints return
    *  { steps } for that post). */
@@ -368,15 +374,16 @@ export function usePlanData(init: PlanDataInit) {
     finally { setProposalBusy(null); }
   }, [proposalBusy, flash, refreshPlan, pollJob, pollHookInto, track]);
 
-  /** Switch the rendered cycle (read-only for non-home). */
+  /** Switch the rendered cycle. Every one of the client's months is now editable — the
+   *  per-post `canEdit(date)` gate decides each affordance, so no whole-cycle read-only. */
   const switchCycle = useCallback(async (cycleId: string) => {
     setSwitching(true);
     try {
       const isHome = cycleId === init.homeCycleId;
       const res = await fetch(isHome ? '/api/plan' : `/api/plan?cycleId=${encodeURIComponent(cycleId)}`);
       if (!res.ok) { flash('Could not open that month.'); return; }
-      const d = (await res.json()) as { posts: PlanPost[]; readOnly: boolean };
-      setPosts(d.posts); setReadOnly(!!d.readOnly); setViewedCycleId(cycleId);
+      const d = (await res.json()) as { posts: PlanPost[] };
+      setPosts(d.posts); setViewedCycleId(cycleId);
     } catch { flash('Network error. Please try again.'); }
     finally { setSwitching(false); }
   }, [init.homeCycleId, flash]);
@@ -384,7 +391,7 @@ export function usePlanData(init: PlanDataInit) {
   return {
     // data
     posts, cycles, proposals, notes, today: init.today, clientName: init.clientName,
-    homeCycleId: init.homeCycleId, viewedCycleId, readOnly,
+    homeCycleId: init.homeCycleId, viewedCycleId, readOnly, canEdit,
     // status
     busy, switching, shapingIds, proposalBusy, agentBusy, agentReply, agentError,
     shapeErrors, loadError, flashView, toast,

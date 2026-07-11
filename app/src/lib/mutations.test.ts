@@ -52,6 +52,7 @@ import { patchPost, softDeletePost, addDraft, revertPost } from './mutations';
 const CLIENT = 'client-1';
 const CYCLE = 'cycle-1';
 const POST = 'post-1';
+const TODAY = '2026-09-01';   // injected London 'today' — deterministic (no real clock)
 
 interface EqDescriptor { op: string; col?: string; val?: unknown; parts?: EqDescriptor[] }
 function collectEqs(cond: EqDescriptor | undefined): Array<{ col: string; val: unknown }> {
@@ -82,14 +83,14 @@ beforeEach(() => {
 describe('write-side scoping', () => {
   it('patchPost scopes the UPDATE by id + clientId + cycleId', async () => {
     h.selectResults.push([baseRow]); // ownedPost
-    await patchPost(CLIENT, CYCLE, POST, { date: '2026-09-05' });
+    await patchPost(CLIENT, CYCLE, POST, { date: '2026-09-05' }, undefined, TODAY);
     expect(h.updateWheres).toHaveLength(1);
     expectFullyScoped(h.updateWheres[0]);
   });
 
   it('softDeletePost scopes the UPDATE by id + clientId + cycleId', async () => {
     h.selectResults.push([baseRow]);
-    await softDeletePost(CLIENT, CYCLE, POST);
+    await softDeletePost(CLIENT, CYCLE, POST, undefined, TODAY);
     expect(h.updateWheres).toHaveLength(1);
     expectFullyScoped(h.updateWheres[0]);
   });
@@ -99,14 +100,14 @@ describe('write-side scoping', () => {
       ...baseRow, status: 'edited',
       sourceMeta: { original: { caption: 'orig', format: 'single', pillar: 'Product', scheduledDate: '2026-09-01', position: 2 } },
     }]);
-    await revertPost(CLIENT, CYCLE, POST);
+    await revertPost(CLIENT, CYCLE, POST, undefined, TODAY);
     expect(h.updateWheres).toHaveLength(1);
     expectFullyScoped(h.updateWheres[0]);
   });
 
   it('revertPost (remove of a new draft) scopes the UPDATE by id + clientId + cycleId', async () => {
     h.selectResults.push([{ ...baseRow, status: 'new' }]);
-    await revertPost(CLIENT, CYCLE, POST);
+    await revertPost(CLIENT, CYCLE, POST, undefined, TODAY);
     expect(h.updateWheres).toHaveLength(1);
     expectFullyScoped(h.updateWheres[0]);
   });
@@ -114,15 +115,58 @@ describe('write-side scoping', () => {
   it('addDraft inserts a row scoped to clientId + cycleId', async () => {
     h.selectResults.push([{ position: 5 }]); // max position
     h.insertResults.push([{ id: 'new-post' }]);
-    const r = await addDraft(CLIENT, CYCLE, 'instagram', '2026-09-10');
-    expect(r.mode).toBe('applied');
+    const r = await addDraft(CLIENT, CYCLE, 'instagram', '2026-09-10', undefined, 'single', TODAY);
+    expect(r?.mode).toBe('applied');
     expect(h.insertValues[0]).toMatchObject({ clientId: CLIENT, cycleId: CYCLE });
   });
 
   it('a non-owned post is never written', async () => {
     h.selectResults.push([]); // ownedPost finds nothing
-    const r = await patchPost(CLIENT, CYCLE, 'someone-elses-post', { date: '2026-09-05' });
+    const r = await patchPost(CLIENT, CYCLE, 'someone-elses-post', { date: '2026-09-05' }, undefined, TODAY);
     expect(r).toBeNull();
     expect(h.updateWheres).toHaveLength(0);
+  });
+});
+
+describe('date-based edit scope (DATE POLICY)', () => {
+  it('patchPost refuses a PAST-dated post (read-only) and writes nothing', async () => {
+    h.selectResults.push([{ ...baseRow, scheduledDate: '2026-08-31' }]); // yesterday vs TODAY
+    const r = await patchPost(CLIENT, CYCLE, POST, { caption: 'nope' }, undefined, TODAY);
+    expect(r).toBeNull();
+    expect(h.updateWheres).toHaveLength(0);
+  });
+
+  it('patchPost allows editing a post dated exactly TODAY (inclusive boundary)', async () => {
+    h.selectResults.push([{ ...baseRow, scheduledDate: TODAY }]);
+    const r = await patchPost(CLIENT, CYCLE, POST, { caption: 'ok' }, undefined, TODAY);
+    expect(r?.mode).toBe('applied');
+    expect(h.updateWheres).toHaveLength(1);
+  });
+
+  it('patchPost refuses a date move INTO the past (both-ends rule), even from a future post', async () => {
+    h.selectResults.push([{ ...baseRow, scheduledDate: '2026-09-05' }]); // future post
+    const r = await patchPost(CLIENT, CYCLE, POST, { date: '2026-08-20' }, undefined, TODAY); // → past
+    expect(r).toBeNull();
+    expect(h.updateWheres).toHaveLength(0);
+  });
+
+  it('patchPost allows a date move that stays today-onward', async () => {
+    h.selectResults.push([{ ...baseRow, scheduledDate: '2026-09-05' }]);
+    const r = await patchPost(CLIENT, CYCLE, POST, { date: '2026-09-20' }, undefined, TODAY);
+    expect(r?.mode).toBe('applied');
+    expect(h.updateWheres).toHaveLength(1);
+  });
+
+  it('softDeletePost refuses a past-dated post', async () => {
+    h.selectResults.push([{ ...baseRow, scheduledDate: '2026-08-31' }]);
+    const r = await softDeletePost(CLIENT, CYCLE, POST, undefined, TODAY);
+    expect(r).toBeNull();
+    expect(h.updateWheres).toHaveLength(0);
+  });
+
+  it('addDraft refuses creation on a past date (writes nothing)', async () => {
+    const r = await addDraft(CLIENT, CYCLE, 'instagram', '2026-08-20', undefined, 'single', TODAY);
+    expect(r).toBeNull();
+    expect(h.insertValues).toHaveLength(0);
   });
 });

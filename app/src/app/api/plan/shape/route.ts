@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { enqueueShape } from '@/lib/queue';
 import { getUsageForCycle, isRewriteBlocked } from '@/lib/usage';
+import { gatePostEdit, editScopeToday } from '@/lib/edit-scope';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,8 +24,15 @@ export async function POST(req: Request) {
   } catch { /* below */ }
   if (!targetPostId || !instruction) return NextResponse.json({ error: 'bad_request' }, { status: 400 });
 
-  // AI caption-gen counts — enforce the monthly limit before any spend.
-  const usage = await getUsageForCycle(session.clientId, session.cycleId);
+  // DATE POLICY: gate by the target post's date + resolve its real cycle (the worker
+  // locates the post by that cycle).
+  const today = editScopeToday();
+  const gate = await gatePostEdit(session.clientId, targetPostId, today);
+  if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
+  const cycleId = gate.cycleId;
+
+  // AI caption-gen counts — enforce the monthly limit before any spend (per the post's cycle).
+  const usage = await getUsageForCycle(session.clientId, cycleId);
   if (isRewriteBlocked(usage)) {
     return NextResponse.json({
       mode: 'blocked',
@@ -34,7 +42,7 @@ export async function POST(req: Request) {
   }
 
   const r = await enqueueShape({
-    type: 'shape', scope: 'plan', clientId: session.clientId, cycleId: session.cycleId, targetPostId, instruction, source: 'web',
+    type: 'shape', scope: 'plan', clientId: session.clientId, cycleId, targetPostId, instruction, source: 'web',
   });
   if ('error' in r) return NextResponse.json({ error: r.error }, { status: 503 });
   if ('busy' in r) return NextResponse.json({ mode: 'noop', summary: 'Still working on the last change to this post. One moment.' });

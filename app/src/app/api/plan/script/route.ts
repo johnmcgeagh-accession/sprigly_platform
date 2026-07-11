@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { enqueueScriptJob } from '@/lib/queue';
 import { loadPlanPosts } from '@/lib/plan';
+import { gatePostEdit, editScopeToday } from '@/lib/edit-scope';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,13 +26,18 @@ export async function POST(req: Request) {
   } catch { /* below */ }
   if (!targetPostId || !LENGTHS.has(lengthSeconds)) return NextResponse.json({ error: 'bad_request' }, { status: 400 });
 
-  const posts = await loadPlanPosts(session.clientId, session.cycleId);
+  // DATE POLICY: gate by the post's date + resolve its real cycle for the worker.
+  const gate = await gatePostEdit(session.clientId, targetPostId, editScopeToday());
+  if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
+  const cycleId = gate.cycleId;
+
+  const posts = await loadPlanPosts(session.clientId, cycleId);
   const post = posts.find((p) => p.id === targetPostId);
   if (!post) return NextResponse.json({ error: 'not_found' }, { status: 404 });
   if (post.format !== 'reel') return NextResponse.json({ error: 'format_unsupported' }, { status: 422 });
   if (!post.hook || !post.caption) return NextResponse.json({ error: 'hook_required' }, { status: 422 });
 
-  const r = await enqueueScriptJob({ type: 'script', clientId: session.clientId, cycleId: session.cycleId, targetPostId, lengthSeconds });
+  const r = await enqueueScriptJob({ type: 'script', clientId: session.clientId, cycleId, targetPostId, lengthSeconds });
   if ('error' in r) return NextResponse.json({ error: r.error }, { status: 503 });
   if ('busy' in r) return NextResponse.json({ mode: 'noop', summary: 'Already writing a script for this post. One moment.' });
   return NextResponse.json({ mode: 'pending', jobId: r.jobId });

@@ -201,7 +201,7 @@ export function PlanMobile({ data }: { data: PlanData }) {
               </div>
               {postsOn(iso).length
                 ? postsOn(iso).map((p) => <SwipeCard key={p.id} post={p} data={data} onEdit={() => setEditId(p.id)} onMove={() => setMoveId(p.id)} />)
-                : !data.readOnly && <button onClick={() => data.addPost(iso)} data-testid="add-on-day" className="mb-3 w-full rounded-[18px] border border-dashed border-line bg-surface p-4 text-[13px] font-semibold text-muted">＋ Plan a post for this day</button>}
+                : data.canEdit(iso) && <button onClick={() => data.addPost(iso)} data-testid="add-on-day" className="mb-3 w-full rounded-[18px] border border-dashed border-line bg-surface p-4 text-[13px] font-semibold text-muted">＋ Plan a post for this day</button>}
             </section>
           ))
           : <MobileTasks data={data} onOpen={(id) => setEditId(id)} />}
@@ -255,8 +255,13 @@ function resist(t: number): number {
 }
 
 /** Keyboard/visible alternative to the swipe gestures — an overflow menu per card. */
-function CardMenu({ onEdit, onMove, onDelete }: { onEdit: () => void; onMove: () => void; onDelete: () => void }) {
+// onMove/onDelete are omitted for read-only (past-dated) posts — those items are hidden.
+function CardMenu({ onEdit, onMove, onDelete }: { onEdit: () => void; onMove?: (() => void) | undefined; onDelete?: (() => void) | undefined }) {
   const [open, setOpen] = useState(false);
+  const item = (label: string, tid: string, fn: () => void, danger: boolean) => (
+    <button key={tid} role="menuitem" data-testid={tid} onClick={(e) => { e.stopPropagation(); setOpen(false); fn(); }}
+      className={`block w-full px-3.5 py-2 text-left text-[13.5px] font-bold hover:bg-line-soft ${danger ? 'text-danger' : 'text-slate-700'}`}>{label}</button>
+  );
   return (
     <div className="relative" data-act>
       <button data-testid="card-menu" aria-label="Post actions" aria-haspopup="menu" aria-expanded={open}
@@ -266,10 +271,9 @@ function CardMenu({ onEdit, onMove, onDelete }: { onEdit: () => void; onMove: ()
         <>
           <div className="fixed inset-0 z-[5]" onClick={(e) => { e.stopPropagation(); setOpen(false); }} />
           <div role="menu" data-testid="card-menu-list" className="absolute right-0 top-8 z-[6] w-32 overflow-hidden rounded-xl border border-line bg-surface py-1 shadow-sheet">
-            {([['Edit', 'menu-edit', onEdit, false], ['Move', 'menu-move', onMove, false], ['Delete', 'menu-delete', onDelete, true]] as const).map(([label, tid, fn, danger]) => (
-              <button key={tid} role="menuitem" data-testid={tid} onClick={(e) => { e.stopPropagation(); setOpen(false); fn(); }}
-                className={`block w-full px-3.5 py-2 text-left text-[13.5px] font-bold hover:bg-line-soft ${danger ? 'text-danger' : 'text-slate-700'}`}>{label}</button>
-            ))}
+            {item('Edit', 'menu-edit', onEdit, false)}
+            {onMove && item('Move', 'menu-move', onMove, false)}
+            {onDelete && item('Delete', 'menu-delete', onDelete, true)}
           </div>
         </>
       )}
@@ -283,6 +287,9 @@ function SwipeCard({ post, data, onEdit, onMove }: { post: PlanPost; data: PlanD
   const [open, setOpen] = useState<'' | 'L' | 'R'>('');
   const ring = ringOf(post.steps);
   const risk = postAtRisk(post.steps, post.date, data.today);
+  // DATE POLICY: past posts are read-only — no Move/Delete affordance (Edit still opens
+  // the read-only editor). Editable iff the post is dated today-onward (London).
+  const editable = data.canEdit(post.date);
 
   const down = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest('[data-act]')) return;
@@ -318,19 +325,19 @@ function SwipeCard({ post, data, onEdit, onMove }: { post: PlanPost; data: PlanD
       {/* right-side actions (revealed by swiping LEFT) */}
       <div className="absolute inset-y-0 right-0 flex items-stretch">
         <button data-act onClick={() => { onEdit(); close(); }} className="flex w-[78px] flex-col items-center justify-center gap-1.5 bg-slate-700 text-[11px] font-bold text-white"><ImageIcon className="h-5 w-5" />Edit</button>
-        <button data-act onClick={() => { if (!data.readOnly) { data.removePost(post.id); } close(); }} className="flex w-[78px] flex-col items-center justify-center gap-1.5 bg-danger text-[11px] font-bold text-white"><TrashIcon className="h-5 w-5" />Delete</button>
+        {editable && <button data-act onClick={() => { data.removePost(post.id); close(); }} className="flex w-[78px] flex-col items-center justify-center gap-1.5 bg-danger text-[11px] font-bold text-white"><TrashIcon className="h-5 w-5" />Delete</button>}
       </div>
-      {/* left-side action (revealed by swiping RIGHT) — Move only (D2/D6) */}
-      <div className="absolute inset-y-0 left-0 flex items-stretch">
+      {/* left-side action (revealed by swiping RIGHT) — Move only (D2/D6), today-onward only */}
+      {editable && <div className="absolute inset-y-0 left-0 flex items-stretch">
         <button data-act onClick={() => { onMove(); close(); }} className="flex w-[78px] flex-col items-center justify-center gap-1.5 bg-coral text-[11px] font-bold text-white"><CalendarIcon className="h-5 w-5" />Move</button>
-      </div>
+      </div>}
       <div ref={cardRef} data-testid="swipe-surface" onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end} onClick={tap}
         className="relative z-[2] rounded-[20px] border border-line bg-surface px-4 pb-3 pt-4 shadow-card [touch-action:pan-y] [will-change:transform] [transition:transform_.28s_cubic-bezier(.22,.61,.36,1)]">
         <div className="mb-1.5 flex items-center gap-2">
           <span className="rounded-md bg-coral-tint px-2 py-0.5 text-[10.5px] font-extrabold uppercase tracking-[.06em] text-slate-700">{FORMAT_LABEL[post.format]}</span>
           <span className="ml-auto flex items-center gap-2">
             {ring.total > 0 && <ProgressRing done={ring.done} total={ring.total} risk={risk} size={32} />}
-            <CardMenu onEdit={onEdit} onMove={onMove} onDelete={() => { if (!data.readOnly) data.removePost(post.id); }} />
+            <CardMenu onEdit={onEdit} onMove={editable ? onMove : undefined} onDelete={editable ? () => data.removePost(post.id) : undefined} />
           </span>
         </div>
         <h4 className="mb-1.5 text-[17px] font-extrabold leading-tight tracking-tight text-slate-700">

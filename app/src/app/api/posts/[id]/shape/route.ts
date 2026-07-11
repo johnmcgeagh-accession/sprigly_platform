@@ -10,6 +10,7 @@ import { getSession } from '@/lib/auth';
 import { enqueueShape } from '@/lib/queue';
 import { loadPlanPosts } from '@/lib/plan';
 import { getUsageForCycle, isRewriteBlocked } from '@/lib/usage';
+import { gatePostEdit, editScopeToday } from '@/lib/edit-scope';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,10 +28,17 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   } catch { /* below */ }
   if (!instruction) return NextResponse.json({ error: 'no_instruction' }, { status: 400 });
 
+  // DATE POLICY: editable iff the post is dated today-onward, across any of the client's
+  // cycles. Resolves the post's REAL cycle — the worker locates it by (id, cycleId, client).
+  const today = editScopeToday();
+  const gate = await gatePostEdit(session.clientId, params.id, today);
+  if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
+  const cycleId = gate.cycleId;
+
   // hook/script refine: the field must exist and apply to the format (defense-in-depth —
   // the editor only offers a target whose field exists).
   if (target !== 'caption') {
-    const post = (await loadPlanPosts(session.clientId, session.cycleId)).find((p) => p.id === params.id);
+    const post = (await loadPlanPosts(session.clientId, cycleId)).find((p) => p.id === params.id);
     if (!post) return NextResponse.json({ error: 'not_found' }, { status: 404 });
     const formatOk = target === 'hook' ? (post.format === 'reel' || post.format === 'carousel') : post.format === 'reel';
     if (!formatOk) return NextResponse.json({ error: 'format_unsupported' }, { status: 422 });
@@ -40,8 +48,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     }
   }
 
-  // A refine/rewrite is AI work — enforce the monthly limit before any spend.
-  const usage = await getUsageForCycle(session.clientId, session.cycleId);
+  // A refine/rewrite is AI work — enforce the monthly limit before any spend (per the
+  // post's own cycle, so the quota follows the month being edited).
+  const usage = await getUsageForCycle(session.clientId, cycleId);
   if (isRewriteBlocked(usage)) {
     return NextResponse.json({
       mode: 'blocked',
@@ -51,7 +60,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }
 
   const r = await enqueueShape({
-    type: 'shape', scope: 'post', clientId: session.clientId, cycleId: session.cycleId, targetPostId: params.id, instruction, target, source: 'web',
+    type: 'shape', scope: 'post', clientId: session.clientId, cycleId, targetPostId: params.id, instruction, target, source: 'web',
   });
   if ('error' in r) return NextResponse.json({ error: r.error }, { status: 503 });
   if ('busy' in r) return NextResponse.json({ mode: 'noop', summary: 'Still working on the last change to this post. One moment.' });
