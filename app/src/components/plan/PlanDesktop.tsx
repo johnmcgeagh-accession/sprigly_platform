@@ -125,9 +125,7 @@ export function PlanDesktop({ data }: { data: PlanData }) {
               month ends); sibling cycles open read-only. See design/DECISIONS.md §14. */}
           {!railCollapsed && (
             <div className="mt-auto p-2 text-[12px] leading-relaxed text-muted">
-              {data.readOnly
-                ? 'Shared plan · read-only preview'
-                : `Shared plan · unlimited edits until ${new Date(year, month + 1, 0).getDate()} ${MONTHS[month]!.slice(0, 3)}`}
+              Shared plan · edit from today on; past dates are locked
             </div>
           )}
         </aside>
@@ -222,9 +220,9 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
           const dayPosts = postsOn(day);
           return (
             <div key={day} data-testid="calendar-cell" data-date={isoOf(day)}
-              onDragOver={(e) => { if (!data.readOnly && dragId) { e.preventDefault(); setOver(day); } }}
+              onDragOver={(e) => { if (data.canEdit(isoOf(day)) && dragId) { e.preventDefault(); setOver(day); } }}
               onDragLeave={() => setOver((o) => (o === day ? null : o))}
-              onDrop={(e) => { e.preventDefault(); if (dragId && !data.readOnly) data.reschedule(dragId, isoOf(day)); setOver(null); setDragId(null); }}
+              onDrop={(e) => { e.preventDefault(); if (dragId && data.canEdit(isoOf(day))) data.reschedule(dragId, isoOf(day)); setOver(null); setDragId(null); }}
               className={[
                 'flex min-h-[148px] flex-col gap-[7px] rounded-2xl border p-[11px] transition',
                 isToday ? 'border-coral shadow-[0_0_0_3px_#FCE9E5]' : over === day ? 'border-coral bg-[#FFF7F5] shadow-[0_0_0_3px_#FCE9E5]' : 'border-line bg-surface',
@@ -236,10 +234,10 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
               <div className="flex flex-col gap-1.5">
                 {dayPosts.map((p) => (
                   <PostChip key={p.id} post={p} today={data.today} selected={p.id === selId} onClick={() => onSelect(p.id)}
-                    draggable={!data.readOnly} onDragStart={() => setDragId(p.id)} onDragEnd={() => { setDragId(null); setOver(null); }} />
+                    draggable={data.canEdit(p.date)} onDragStart={() => setDragId(p.id)} onDragEnd={() => { setDragId(null); setOver(null); }} />
                 ))}
               </div>
-              {!data.readOnly && dayPosts.length === 0 && (
+              {data.canEdit(isoOf(day)) && dayPosts.length === 0 && (
                 <button data-testid="add-on-day" onClick={() => data.addPost(isoOf(day))} aria-label={`Add a post on ${isoOf(day)}`}
                   className="mt-auto rounded-[9px] border-[1.5px] border-dashed border-[#C9C3BB] py-0.5 text-center text-[15px] font-bold text-muted hover:border-[#EFC9BF] hover:bg-[#FFF9F7] hover:text-coral">＋</button>
               )}

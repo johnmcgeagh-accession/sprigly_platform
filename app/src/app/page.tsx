@@ -33,16 +33,15 @@ export default async function Page() {
 
   // Empty-home-cycle guard: if the token's home cycle has no live posts (e.g. it was
   // minted for a not-yet-planned cycle), land on the most recent cycle that DOES have
-  // posts, so the default view is never an empty month. The home cycle stays the only
-  // editable one (homeCycleId is unchanged); the landing cycle renders read-only. This
-  // never widens write scope — it only picks a better initial READ.
+  // posts, so the default view is never an empty month. Editability is now per-post by
+  // date (not whole-cycle), so the landing cycle is fully browsable-and-editable for its
+  // today-onward posts — `initialReadOnly` is retained only for the prop shape.
   let initialCycleId  = session.cycleId;
-  let initialReadOnly = false;
+  const initialReadOnly = false;
   if (posts.length === 0) {
     const populated = cycles.find((c) => c.livePostCount > 0 && c.cycleId !== session.cycleId);
     if (populated) {
-      initialCycleId  = populated.cycleId;
-      initialReadOnly = true;
+      initialCycleId = populated.cycleId;
       posts = await loadPlanPosts(session.clientId, populated.cycleId);
     }
   }

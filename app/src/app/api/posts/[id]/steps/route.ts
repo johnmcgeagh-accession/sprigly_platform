@@ -6,6 +6,7 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { listStepsForPost, addStep } from '@/lib/steps';
+import { gatePostEdit, resolvePostForEdit, editScopeToday } from '@/lib/edit-scope';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,7 +15,10 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'no_session' }, { status: 401 });
 
-  const steps = await listStepsForPost(session.clientId, session.cycleId, params.id);
+  // Read: allowed for any of the client's cycles (viewing past checklists is fine).
+  const ctx = await resolvePostForEdit(session.clientId, params.id);
+  if (!ctx) return NextResponse.json({ error: 'not_found' }, { status: 404 });
+  const steps = await listStepsForPost(session.clientId, ctx.cycleId, params.id);
   if (steps === null) return NextResponse.json({ error: 'not_found' }, { status: 404 });
   return NextResponse.json({ steps });
 }
@@ -32,7 +36,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ error: 'bad_step' }, { status: 400 });
   }
 
-  const steps = await addStep(session.clientId, session.cycleId, params.id, { label, leadDays });
+  const today = editScopeToday();
+  const gate = await gatePostEdit(session.clientId, params.id, today);
+  if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
+
+  const steps = await addStep(session.clientId, gate.cycleId, params.id, { label, leadDays }, undefined, today);
   if (steps === null) return NextResponse.json({ error: 'not_found' }, { status: 404 });
   return NextResponse.json({ steps });
 }

@@ -24,14 +24,17 @@ import { startPostGeneration } from './post-generation';
 beforeEach(() => {
   h.blocked = false; h.usage = { used: 0, limit: 30, unlimited: false };
   h.enqueue.mockReset().mockResolvedValue({ jobId: 'shape_cycle-1_post-9' });
-  h.markGenerating.mockReset(); h.markFailed.mockReset();
+  // markPostGenerating returns the post when it's editable (today-onward); startPostGeneration
+  // treats a null return as read-only. Default to editable for these quota/enqueue tests.
+  h.markGenerating.mockReset().mockResolvedValue({ postId: 'post-9' });
+  h.markFailed.mockReset();
 });
 
 describe('startPostGeneration', () => {
   it('quota OK → marks generating and enqueues one shape job with the instruction', async () => {
     const r = await startPostGeneration('client-1', 'cycle-1', 'post-9', 'make it about linen');
     expect(r).toEqual({ jobId: 'shape_cycle-1_post-9' });
-    expect(h.markGenerating).toHaveBeenCalledWith('client-1', 'cycle-1', 'post-9', 'make it about linen');
+    expect(h.markGenerating).toHaveBeenCalledWith('client-1', 'cycle-1', 'post-9', 'make it about linen', expect.any(String));
     expect(h.enqueue).toHaveBeenCalledTimes(1);
     expect(h.enqueue.mock.calls[0]![0]).toMatchObject({ scope: 'post', targetPostId: 'post-9', instruction: 'make it about linen' });
     expect(h.markFailed).not.toHaveBeenCalled();
@@ -51,5 +54,12 @@ describe('startPostGeneration', () => {
     const r = await startPostGeneration('client-1', 'cycle-1', 'post-9', 'x');
     expect(r).toEqual({ error: 'redis down' });
     expect(h.markFailed).toHaveBeenCalledWith('client-1', 'cycle-1', 'post-9', 'redis down');
+  });
+
+  it('DATE POLICY: a past-dated post (markPostGenerating → null) is read-only, no enqueue', async () => {
+    h.markGenerating.mockResolvedValue(null);   // gate refused the post
+    const r = await startPostGeneration('client-1', 'cycle-1', 'post-9', 'x');
+    expect('readOnly' in r && r.readOnly).toBe(true);
+    expect(h.enqueue).not.toHaveBeenCalled();
   });
 });

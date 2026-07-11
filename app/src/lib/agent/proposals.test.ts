@@ -26,6 +26,9 @@ const h = vi.hoisted(() => ({
   enqueueHook: vi.fn(),
   usage: { used: 0, limit: 30, unlimited: false } as Record<string, unknown>,
   blocked: false,
+  // DATE POLICY: default the affected post to far-future (editable); a test can override
+  // to a past date to assert the agent read-only refusal.
+  resolvePost: vi.fn(async () => ({ cycleId: 'cycle-1', scheduledDate: '2999-01-01', channel: 'instagram' }) as { cycleId: string; scheduledDate: string; channel: string } | null),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -72,6 +75,13 @@ vi.mock('../usage', () => ({
   getUsageForCycle: async () => h.usage,
   isRewriteBlocked: () => h.blocked,
 }));
+// DATE POLICY: keep the real rule (both-ends move / boundary), but resolve the post's
+// date via the harness so tests control past/future without a DB.
+vi.mock('../edit-scope', () => ({
+  editScopeToday: () => '2026-07-11',
+  isEditableDate: (d: string, t = '2026-07-11') => d >= t,
+  resolvePostForEdit: (...a: unknown[]) => h.resolvePost(...(a as [])),
+}));
 
 import { createProposal, listPendingProposals, approveProposal, rejectProposal } from './proposals';
 
@@ -95,6 +105,7 @@ beforeEach(() => {
   h.markNote.mockReset(); h.enqueue.mockReset();
   h.enqueueHook.mockReset().mockResolvedValue({ jobId: 'hook_cycle-1_post-9' });
   h.blocked = false; h.usage = { used: 0, limit: 30, unlimited: false };
+  h.resolvePost.mockReset().mockResolvedValue({ cycleId: 'cycle-1', scheduledDate: '2999-01-01', channel: 'instagram' });
 });
 
 describe('createProposal', () => {
@@ -123,7 +134,23 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     const r = await approveProposal(CLIENT, 'prop-1', 'client');
     expect(r.proposal?.status).toBe('applied');
     expect(h.patch).toHaveBeenCalledTimes(1);
-    expect(h.patch).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-9', { date: '2026-09-14' }, { origin: 'agent', refProposalId: 'prop-1' });
+    expect(h.patch).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-9', { date: '2026-09-14' }, { origin: 'agent', refProposalId: 'prop-1' }, '2026-07-11');
+  });
+
+  it('DATE POLICY: a move onto a PAST-dated post is refused (failed, patchPost never called)', async () => {
+    h.resolvePost.mockResolvedValue({ cycleId: 'cycle-1', scheduledDate: '2026-06-01', channel: 'instagram' }); // past
+    h.claimQueue = [[moveRow]];
+    const r = await approveProposal(CLIENT, 'prop-1', 'client');
+    expect(r.proposal?.status).toBe('failed');
+    expect(h.patch).not.toHaveBeenCalled();
+  });
+
+  it('DATE POLICY: a move whose toDate lands in the past is refused (both-ends rule)', async () => {
+    // Post itself is future (editable) but the destination is before today.
+    h.claimQueue = [[{ ...moveRow, payload: { kind: 'move', cycleId: 'cycle-1', postId: 'post-9', toDate: '2026-06-01' } }]];
+    const r = await approveProposal(CLIENT, 'prop-1', 'client');
+    expect(r.proposal?.status).toBe('failed');
+    expect(h.patch).not.toHaveBeenCalled();
   });
 
   it('the claim UPDATE is scoped by clientId AND guarded on status=pending', async () => {
@@ -139,7 +166,7 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     h.claimQueue = [[{ ...moveRow, intent: 'delete_post', payload: { kind: 'delete', cycleId: 'cycle-1', postId: 'post-9' } }]];
     const r = await approveProposal(CLIENT, 'prop-1', 'client');
     expect(r.proposal?.status).toBe('applied');
-    expect(h.softDelete).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-9', { origin: 'agent', refProposalId: 'prop-1' });
+    expect(h.softDelete).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-9', { origin: 'agent', refProposalId: 'prop-1' }, '2026-07-11');
   });
 
   it('a rewrite approval enqueues a shape job and returns its jobId', async () => {
@@ -162,7 +189,7 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     h.claimQueue = [[{ ...moveRow, intent: 'rewrite_post', payload: { kind: 'apply_caption', cycleId: 'cycle-1', postId: 'post-9', caption: 'New warmer caption', noteId: 'note-7' } }]];
     const r = await approveProposal(CLIENT, 'prop-1', 'client');
     expect(r.proposal?.status).toBe('applied');
-    expect(h.patch).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-9', { caption: 'New warmer caption' }, { origin: 'agent', refProposalId: 'prop-1' });
+    expect(h.patch).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-9', { caption: 'New warmer caption' }, { origin: 'agent', refProposalId: 'prop-1' }, '2026-07-11');
     expect(h.markNote).toHaveBeenCalledWith(CLIENT, 'note-7', 'prop-1');
     expect(h.enqueue).not.toHaveBeenCalled();   // pre-generated — no second generation
   });
@@ -177,16 +204,16 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     h.claimQueue = [[{ ...moveRow, intent: 'add_post', payload: { kind: 'add_generated', cycleId: 'cycle-1', date: '2026-07-15', channel: 'instagram', format: 'single', pillar: 'Weather', caption: 'Heatwave edit' } }]];
     const r = await approveProposal(CLIENT, 'prop-1', 'client');
     expect(r.proposal?.status).toBe('applied');
-    expect(h.addGen).toHaveBeenCalledWith(CLIENT, 'cycle-1', { channel: 'instagram', date: '2026-07-15', format: 'single', pillar: 'Weather', caption: 'Heatwave edit' }, { origin: 'agent', refProposalId: 'prop-1' });
+    expect(h.addGen).toHaveBeenCalledWith(CLIENT, 'cycle-1', { channel: 'instagram', date: '2026-07-15', format: 'single', pillar: 'Weather', caption: 'Heatwave edit' }, { origin: 'agent', refProposalId: 'prop-1' }, '2026-07-11');
   });
 
   it('an add_post WITH an instruction inserts the post and enqueues generation (jobId returned)', async () => {
     h.claimQueue = [[{ ...moveRow, intent: 'add_post', payload: { kind: 'add', cycleId: 'cycle-1', date: '2026-07-15', channel: 'instagram', instruction: 'a post about the linen restock' } }]];
     const r = await approveProposal(CLIENT, 'prop-1', 'client');
     expect(r.proposal?.status).toBe('applied');
-    expect(h.addGenerating).toHaveBeenCalledWith(CLIENT, 'cycle-1', { channel: 'instagram', date: '2026-07-15', instruction: 'a post about the linen restock', format: 'single' }, { origin: 'agent', refProposalId: 'prop-1' });
+    expect(h.addGenerating).toHaveBeenCalledWith(CLIENT, 'cycle-1', { channel: 'instagram', date: '2026-07-15', instruction: 'a post about the linen restock', format: 'single' }, { origin: 'agent', refProposalId: 'prop-1' }, '2026-07-11');
     expect(h.startGen).toHaveBeenCalledTimes(1);
-    expect(h.startGen).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-new', 'a post about the linen restock');
+    expect(h.startGen).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-new', 'a post about the linen restock', '2026-07-11');
     expect(r.jobId).toBe('shape_cycle-1_post-new');
     expect(h.add).not.toHaveBeenCalled();   // not the blank-draft path
   });
@@ -195,7 +222,7 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     h.claimQueue = [[{ ...moveRow, intent: 'add_post', payload: { kind: 'add', cycleId: 'cycle-1', date: '2026-07-15', channel: 'instagram' } }]];
     const r = await approveProposal(CLIENT, 'prop-1', 'client');
     expect(r.proposal?.status).toBe('applied');
-    expect(h.add).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'instagram', '2026-07-15', { origin: 'agent', refProposalId: 'prop-1' }, 'single');
+    expect(h.add).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'instagram', '2026-07-15', { origin: 'agent', refProposalId: 'prop-1' }, 'single', '2026-07-11');
     expect(h.addGenerating).not.toHaveBeenCalled();
     expect(h.startGen).not.toHaveBeenCalled();
     expect(r.jobId).toBeUndefined();

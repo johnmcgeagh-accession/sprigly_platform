@@ -10,14 +10,16 @@
 import { getUsageForCycle, isRewriteBlocked } from './usage';
 import { enqueueShape } from './queue';
 import { markPostGenerating, markPostGenerationFailed } from './mutations';
+import { editScopeToday } from './edit-scope';
 
 export type StartGenerationResult =
   | { jobId: string }
   | { blocked: true; message: string }
-  | { error: string };
+  | { error: string }
+  | { readOnly: true };
 
 export async function startPostGeneration(
-  clientId: string, cycleId: string, postId: string, instruction: string,
+  clientId: string, cycleId: string, postId: string, instruction: string, today: string = editScopeToday(),
 ): Promise<StartGenerationResult> {
   const usage = await getUsageForCycle(clientId, cycleId);
   if (isRewriteBlocked(usage)) {
@@ -26,7 +28,8 @@ export async function startPostGeneration(
     return { blocked: true, message };
   }
 
-  await markPostGenerating(clientId, cycleId, postId, instruction);
+  // DATE POLICY: markPostGenerating refuses a past-dated post (null) — surface that.
+  if (!(await markPostGenerating(clientId, cycleId, postId, instruction, today))) return { readOnly: true };
   const r = await enqueueShape({ type: 'shape', scope: 'post', clientId, cycleId, targetPostId: postId, instruction, source: 'web' });
   if ('error' in r) {
     await markPostGenerationFailed(clientId, cycleId, postId, r.error);

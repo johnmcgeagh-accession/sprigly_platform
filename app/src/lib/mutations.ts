@@ -12,6 +12,7 @@ import type { ContentCyclePostRow } from '@sprigly/db';
 import { loadPlanPosts } from '@/lib/plan';
 import { resolveRevert } from '@/lib/revert';
 import { recordActivity, USER_ACTOR, type ActivityActor, type ActivityAction } from '@/lib/activity';
+import { isEditableDate, editScopeToday } from '@/lib/edit-scope';
 import type { ShapeResult, PostFormat } from '@/lib/types';
 
 const FORMATS = new Set<PostFormat>(['reel', 'carousel', 'single', 'email']);
@@ -60,9 +61,15 @@ export interface PostPatch {
 /** PATCH a post: date / format / pillar / position / caption. Flips status to
  *  'edited' (keeps 'new' for an added draft). Returns null if not owned. Records a
  *  plan_activity row (origin from `actor`, default user) atomically with the write. */
-export async function patchPost(clientId: string, cycleId: string, postId: string, patch: PostPatch, actor: ActivityActor = USER_ACTOR): Promise<ShapeResult | null> {
+export async function patchPost(clientId: string, cycleId: string, postId: string, patch: PostPatch, actor: ActivityActor = USER_ACTOR, today: string = editScopeToday()): Promise<ShapeResult | null> {
   const row = await ownedPost(clientId, cycleId, postId);
   if (!row) return null;
+
+  // DATE POLICY: a past-dated post is read-only. A date move must satisfy the rule on
+  // BOTH ends — you can neither edit a post already in the past, nor move a future post
+  // INTO the past. Refuse (null) rather than partially apply.
+  if (!isEditableDate(row.scheduledDate, today)) return null;
+  if (typeof patch.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(patch.date) && !isEditableDate(patch.date, today)) return null;
 
   const set: Partial<ContentCyclePostRow> = {
     status: row.status === 'new' ? 'new' : 'edited',
@@ -101,7 +108,8 @@ export async function patchPost(clientId: string, cycleId: string, postId: strin
 /** Add a draft post (status 'new', placeholder caption) at a given date. `format` is the
  *  post's format (reel/carousel/single; default single — email is not creatable). Records
  *  a post_created ledger row atomically. */
-export async function addDraft(clientId: string, cycleId: string, channel: string, date: string, actor: ActivityActor = USER_ACTOR, format = 'single'): Promise<ShapeResult> {
+export async function addDraft(clientId: string, cycleId: string, channel: string, date: string, actor: ActivityActor = USER_ACTOR, format = 'single', today: string = editScopeToday()): Promise<ShapeResult | null> {
+  if (!isEditableDate(date, today)) return null;   // DATE POLICY: create only for today-onward
   const fmt: PostFormat = FORMATS.has(format as PostFormat) && format !== 'email' ? (format as PostFormat) : 'single';
   // place it last
   const [maxRow] = await db
@@ -139,8 +147,9 @@ export async function addDraft(clientId: string, cycleId: string, channel: strin
 export async function addGeneratedPost(
   clientId: string, cycleId: string,
   spec: { channel: string; date: string; format: string; pillar: string; caption: string },
-  actor: ActivityActor = USER_ACTOR,
-): Promise<ShapeResult> {
+  actor: ActivityActor = USER_ACTOR, today: string = editScopeToday(),
+): Promise<ShapeResult | null> {
+  if (!isEditableDate(spec.date, today)) return null;   // DATE POLICY: create only for today-onward
   const [maxRow] = await db
     .select({ position: contentCyclePosts.position })
     .from(contentCyclePosts)
@@ -173,8 +182,9 @@ export async function addGeneratedPost(
 export async function addGeneratingPost(
   clientId: string, cycleId: string,
   spec: { channel: string; date: string; instruction: string; format?: string | null },
-  actor: ActivityActor = USER_ACTOR,
-): Promise<{ postId: string }> {
+  actor: ActivityActor = USER_ACTOR, today: string = editScopeToday(),
+): Promise<{ postId: string } | null> {
+  if (!isEditableDate(spec.date, today)) return null;   // DATE POLICY: create only for today-onward
   const fmt: PostFormat = spec.format && FORMATS.has(spec.format as PostFormat) && spec.format !== 'email' ? (spec.format as PostFormat) : 'single';
   const [maxRow] = await db
     .select({ position: contentCyclePosts.position })
@@ -203,9 +213,10 @@ export async function addGeneratingPost(
 
 /** Mark a post as generating (retry): status 'generating', clears any prior error,
  *  keeps/refreshes the instruction. Owned-scope only; null if not found. */
-export async function markPostGenerating(clientId: string, cycleId: string, postId: string, instruction: string): Promise<{ postId: string } | null> {
+export async function markPostGenerating(clientId: string, cycleId: string, postId: string, instruction: string, today: string = editScopeToday()): Promise<{ postId: string } | null> {
   const row = await ownedPost(clientId, cycleId, postId);
   if (!row) return null;
+  if (!isEditableDate(row.scheduledDate, today)) return null;   // past-dated → read-only
   const meta = { ...((row.sourceMeta ?? {}) as Record<string, unknown>), pendingInstruction: instruction, generationError: null };
   await db.update(contentCyclePosts).set({ status: 'generating', sourceMeta: meta }).where(scopedPost(clientId, cycleId, postId));
   return { postId };
@@ -221,9 +232,10 @@ export async function markPostGenerationFailed(clientId: string, cycleId: string
 
 /** Soft-delete (recoverable; reconciliation can still see it). Owned-scope only.
  *  Records a post_deleted ledger row atomically. */
-export async function softDeletePost(clientId: string, cycleId: string, postId: string, actor: ActivityActor = USER_ACTOR): Promise<ShapeResult | null> {
+export async function softDeletePost(clientId: string, cycleId: string, postId: string, actor: ActivityActor = USER_ACTOR, today: string = editScopeToday()): Promise<ShapeResult | null> {
   const row = await ownedPost(clientId, cycleId, postId);
   if (!row) return null;
+  if (!isEditableDate(row.scheduledDate, today)) return null;   // past-dated → read-only
   await db.transaction(async (tx) => {
     await tx.update(contentCyclePosts).set({ deletedAt: new Date() }).where(scopedPost(clientId, cycleId, postId));
     await recordActivity(tx, { clientId, cycleId, postId, action: 'post_deleted', actor });
@@ -233,9 +245,10 @@ export async function softDeletePost(clientId: string, cycleId: string, postId: 
 
 /** Revert: a drafted ('new') post is removed; otherwise restore the original
  *  values captured in source_meta.original and clear the 'edited' status. */
-export async function revertPost(clientId: string, cycleId: string, postId: string, actor: ActivityActor = USER_ACTOR): Promise<ShapeResult | null> {
+export async function revertPost(clientId: string, cycleId: string, postId: string, actor: ActivityActor = USER_ACTOR, today: string = editScopeToday()): Promise<ShapeResult | null> {
   const row = await ownedPost(clientId, cycleId, postId);
   if (!row) return null;
+  if (!isEditableDate(row.scheduledDate, today)) return null;   // past-dated → read-only
 
   // Decision is pure (source_meta.original is the baseline — never touched by an
   // edit or regen, so revert always returns to the generated starting point).

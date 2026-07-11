@@ -37,7 +37,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
   // silently regenerate when there's no progress to lose; else ask (keep / replace). Email
   // has no template, so regenerate clears it.
   const changeFormat = async (fmt: string) => {
-    if (fmt === post.format || data.readOnly) return;
+    if (fmt === post.format || !data.canEdit(post.date)) return;
     const doneCount = post.steps.filter((s) => s.done).length;
     await data.changeFormat(post.id, fmt);
     if (fmt === 'email' || post.steps.length === 0 || doneCount === 0) {
@@ -59,7 +59,9 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
   // Autosave: caption / typed hook / script all persist on blur + ~1.5s idle (one
   // ledger row per settled edit). Candidate picks persist immediately (below) and mark
   // the hook autosave baseline so the debounce doesn't save it a second time.
-  const editable = !data.readOnly;
+  // DATE POLICY: this post is editable iff its date is today-onward (London). Past posts
+  // render read-only; future/today posts are editable in ANY of the client's months.
+  const editable = data.canEdit(post.date);
   const capAuto = useAutosave(caption, post.caption, useCallback((v: string) => data.saveCaption(post.id, v), [data, post.id]), editable);
   const hookAuto = useAutosave(hook, post.hook ?? '', useCallback((v: string) => data.saveHook(post.id, v), [data, post.id]), editable);
   const scriptAuto = useAutosave(script, post.script ?? '', useCallback((v: string) => data.saveScript(post.id, v), [data, post.id]), editable);
@@ -94,7 +96,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
       {/* header — pr-12 reserves the drawer/sheet ✕ (absolute, top-right) its own slot so
           Revert can't slide under it; the format/date/badges wrap before Revert clips. */}
       <div className="mb-[22px] mt-1.5 flex flex-wrap items-center gap-[11px] pr-12">
-        {data.readOnly ? (
+        {!editable ? (
           <span className="inline-flex items-center gap-[7px] rounded-[9px] border border-line bg-line-soft px-[11px] py-[7px] text-[13px] font-extrabold text-slate-700">
             <FormatIcon format={post.format} className="h-[15px] w-[15px] text-coral" />{FORMAT_LABEL[post.format]}
           </span>
@@ -105,7 +107,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
         {post.status === 'new'
           ? <span className="rounded-[5px] border border-coral px-[5px] py-px text-[9.5px] font-extrabold tracking-[.06em] text-slate-700">NEW</span>
           : post.status === 'edited' && <span className="rounded-[5px] border border-line px-[5px] py-px text-[9.5px] font-extrabold tracking-[.06em] text-slate-600">EDITED</span>}
-        {!data.readOnly && (
+        {!!editable && (
           <button data-testid="editor-revert" onClick={() => data.revert(post.id)}
             className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[13.5px] font-bold text-slate-600 hover:bg-line-soft hover:text-slate-700">
             <RevertIcon className="h-[15px] w-[15px]" />Revert
@@ -141,7 +143,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
         <div className="mb-[22px]" data-testid="hook-section">
           <div className="mb-[9px] flex items-center justify-between">
             <span className="text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">Hook</span>
-            {!data.readOnly && (
+            {!!editable && (
               <button data-testid="generate-hooks" onClick={() => data.generateHooks(post.id)} disabled={hookGenerating}
                 className={SECONDARY_BTN}>
                 <SparkIcon className="h-3.5 w-3.5" />{hookGenerating ? 'Generating…' : post.hook ? 'Regenerate hooks' : 'Generate hooks'}
@@ -149,7 +151,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
             )}
           </div>
           <input
-            data-testid="editor-hook" aria-label="Hook" value={hook} onChange={(e) => setHook(e.target.value)} onBlur={hookAuto.flush} readOnly={data.readOnly}
+            data-testid="editor-hook" aria-label="Hook" value={hook} onChange={(e) => setHook(e.target.value)} onBlur={hookAuto.flush} readOnly={!editable}
             placeholder="The line that stops the scroll. Write one or generate options."
             className="w-full rounded-xl border border-line p-3 text-[15px] text-slate-700 outline-none focus:border-coral disabled:opacity-60"
           />
@@ -174,7 +176,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
       <span className="mb-[9px] block text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">Caption</span>
       <textarea
         data-testid="editor-caption" value={caption} onChange={(e) => setCaption(e.target.value)} onBlur={capAuto.flush}
-        readOnly={data.readOnly}
+        readOnly={!editable}
         placeholder="Draft idea. Tell Sprigly what this post should be about and it’ll write the caption."
         className="min-h-[200px] w-full resize-y rounded-2xl border border-line p-4 text-[15.5px] leading-relaxed text-slate-700 outline-none focus:border-coral"
       />
@@ -185,7 +187,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
         <div className="mt-[26px]" data-testid="script-section">
           <div className="mb-[9px] flex items-center justify-between gap-3">
             <span className="text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">Script</span>
-            {!data.readOnly && post.hook && (
+            {!!editable && post.hook && (
               <button data-testid="generate-script" onClick={() => data.generateScript(post.id, len)} disabled={scriptGenerating || !caption.trim()}
                 className={SECONDARY_BTN}>
                 <SparkIcon className="h-3.5 w-3.5" />{scriptGenerating ? 'Writing…' : post.script ? 'Regenerate script' : 'Generate script'}
@@ -212,7 +214,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
               )}
               {post.script && (
                 <textarea
-                  data-testid="editor-script" aria-label="Script" value={script} onChange={(e) => setScript(e.target.value)} onBlur={scriptAuto.flush} readOnly={data.readOnly}
+                  data-testid="editor-script" aria-label="Script" value={script} onChange={(e) => setScript(e.target.value)} onBlur={scriptAuto.flush} readOnly={!editable}
                   className="mt-2.5 min-h-[170px] w-full resize-y rounded-2xl border border-line p-4 text-[14px] leading-relaxed text-slate-700 outline-none focus:border-coral disabled:opacity-60"
                 />
               )}
@@ -225,7 +227,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
           drag-reschedule. Selecting a date PATCHes immediately (ledgered). */}
       <div className="mt-[22px]">
         <span className="mb-[9px] block text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">Scheduled date</span>
-        {data.readOnly
+        {!editable
           ? <div className="inline-block rounded-[13px] border border-line bg-line-soft px-[15px] py-3 text-[14.5px] font-semibold text-slate-700">{prettyDate(post.date)}</div>
           : <DateField value={post.date} today={data.today} onSelect={(iso) => data.reschedule(post.id, iso)} />}
       </div>
@@ -237,7 +239,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
         <span className="text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">
           Checklist {ring.total > 0 && <span className="ml-1.5 text-[11px] font-extrabold normal-case tracking-normal text-slate-700">{ring.done}/{ring.total} done</span>}
         </span>
-        {!data.readOnly && !isEmail && (
+        {!!editable && !isEmail && (
           post.steps.length > 0
             ? <button data-testid="editor-add-step" onClick={() => { setAdding(true); data.addStep(post.id, { label: 'Get approval', leadDays: 1 }).finally(() => setAdding(false)); }} disabled={adding}
                 className={SECONDARY_BTN}>+ Add step</button>
@@ -249,14 +251,14 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
         {post.steps.length > 0
           ? post.steps.map((s) => (
             <ChecklistItem key={s.id} step={s} scheduledDate={post.date} today={data.today}
-              onToggle={data.readOnly ? undefined : () => data.toggleStep(post.id, s.id, !s.done)}
-              onRename={data.readOnly ? undefined : (label) => data.renameStep(post.id, s.id, label)} />
+              onToggle={!editable ? undefined : () => data.toggleStep(post.id, s.id, !s.done)}
+              onRename={!editable ? undefined : (label) => data.renameStep(post.id, s.id, label)} />
           ))
           : <div className="py-1 text-[13.5px] text-muted">{isEmail ? 'No checklist for this format.' : 'No steps yet. Build a checklist from the type, or add one.'}</div>}
       </div>
 
       {/* shape this post (async) */}
-      {!data.readOnly && (
+      {!!editable && (
         <div className="mt-[26px]">
           <span className="mb-[9px] block text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">Shape this post</span>
           {/* target control — only when there's more than one field to refine (§26) */}
@@ -299,7 +301,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
       {/* delete — pinned at the very bottom, full width. Conventional destructive
           treatment (John's pick B): white fill, danger #B23A2E border + text (5.94:1);
           coral is never used for destructive. Two-step confirm — never a single tap. */}
-      {!data.readOnly && (
+      {!!editable && (
         <div className="mt-9" data-testid="delete-section">
           {confirmDelete ? (
             <div data-testid="delete-confirm" role="dialog" aria-label="Delete this post?"
