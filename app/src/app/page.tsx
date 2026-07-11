@@ -2,6 +2,8 @@ import { eq } from 'drizzle-orm';
 import { db, clients, clientConfigs, contentCycles } from '@sprigly/db';
 import { getSession } from '@/lib/auth';
 import { loadPlanPosts, loadCycleList } from '@/lib/plan';
+import { editScopeToday } from '@/lib/edit-scope';
+import { resolveDayCycleId } from '@/lib/cycle-nav';
 import { readPlanRedesignFlag } from '@/lib/flags';
 import PlanApp from '@/components/PlanApp';
 import PlanRedesign from '@/components/PlanRedesign';
@@ -26,25 +28,19 @@ export default async function Page() {
     .where(eq(contentCycles.id, session.cycleId))
     .limit(1);
 
-  let posts    = await loadPlanPosts(session.clientId, session.cycleId);
   const cycles = home
     ? await loadCycleList(session.clientId, home.channel, session.cycleId)
     : [];
 
-  // Empty-home-cycle guard: if the token's home cycle has no live posts (e.g. it was
-  // minted for a not-yet-planned cycle), land on the most recent cycle that DOES have
-  // posts, so the default view is never an empty month. Editability is now per-post by
-  // date (not whole-cycle), so the landing cycle is fully browsable-and-editable for its
-  // today-onward posts — `initialReadOnly` is retained only for the prop shape.
-  let initialCycleId  = session.cycleId;
+  // DEFAULT LANDING = TODAY. Land on the cycle whose plan month contains today (London,
+  // server-computed — the SAME editScopeToday source as the edit gate), else the nearest
+  // future cycle, else the most recent past one (see resolveDayCycleId). This supersedes
+  // the old token-home landing AND the newest-populated fallback. Editability is per-post
+  // by date, so the landed cycle is fully editable for its today-onward posts;
+  // `initialReadOnly` is retained only for the prop shape.
   const initialReadOnly = false;
-  if (posts.length === 0) {
-    const populated = cycles.find((c) => c.livePostCount > 0 && c.cycleId !== session.cycleId);
-    if (populated) {
-      initialCycleId = populated.cycleId;
-      posts = await loadPlanPosts(session.clientId, populated.cycleId);
-    }
-  }
+  const initialCycleId  = resolveDayCycleId(cycles, editScopeToday()) ?? session.cycleId;
+  const posts = await loadPlanPosts(session.clientId, initialCycleId);
 
   // Render fork behind the per-tenant plan_redesign flag (default off). Flag-off tenants
   // get the existing PlanApp untouched; flag-on tenants get the redesign shell.

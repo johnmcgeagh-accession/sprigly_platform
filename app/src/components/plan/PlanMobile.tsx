@@ -13,6 +13,7 @@ import {
   SprigMark, ChevronLeft, ChevronRight, MicIcon, FORMAT_LABEL, CalendarIcon, CloseIcon,
 } from './icons';
 import { postAtRisk, ringOf } from '@/lib/checklist';
+import { postsOutsideMonth } from '@/lib/cycle-nav';
 
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -127,10 +128,11 @@ export function PlanMobile({ data }: { data: PlanData }) {
 
   // Mobile "Today" affordance (desktop parity): jump to today when it's in the viewed
   // month, else switch to the cycle that contains today (the effect above then lands on it).
+  // Today resolution defers to the shared rule (data.todayCycleId, = the server landing
+  // rule) rather than a local exact-month match, so the button agrees with the landing.
   const todayInMonth = today.startsWith(monthFirst);
-  const todayCycle = data.cycles.find((c) => c.displayMonth === today.slice(0, 7));
-  const canGoToday = todayInMonth || !!todayCycle;
-  const goToday = () => { if (todayInMonth) pickDay(today); else if (todayCycle) void data.switchCycle(todayCycle.cycleId); };
+  const canGoToday = todayInMonth || !!data.todayCycleId;
+  const goToday = () => { if (todayInMonth) pickDay(today); else if (data.todayCycleId) void data.switchCycle(data.todayCycleId); };
 
   // Month nav walks the client's sibling cycles; disable (not silently no-op) at the ends.
   const sortedCycles = useMemo(() => [...data.cycles].sort((a, b) => a.displayMonth.localeCompare(b.displayMonth)), [data.cycles]);
@@ -191,20 +193,35 @@ export function PlanMobile({ data }: { data: PlanData }) {
 
       {/* feed / tasks */}
       <div ref={feedRef} onScroll={onFeedScroll} className="flex-1 overflow-y-auto overflow-x-hidden px-0 pb-[120px] pt-2" data-testid="feed">
-        {mode === 'plan'
-          ? week.map((iso) => (
-            <section key={iso} data-day={iso} className="px-[18px] pb-0.5 pt-3.5" data-testid="day-section">
-              <div className={`mx-0.5 mb-2.5 flex items-center gap-2 ${iso === selectedDay ? '[&_.big]:text-slate-700' : ''}`}>
-                <span className="big font-serif text-[19px] text-slate-700">{iso === today ? 'Today' : `${DOW[(fromIso(iso).getDay() + 6) % 7]}, ${fromIso(iso).getDate()} ${MON[month]}`}</span>
-                <span className="text-[12px] font-semibold text-muted">{postsOn(iso).length ? `${postsOn(iso).length} post${postsOn(iso).length > 1 ? 's' : ''}` : 'Nothing planned'}</span>
-                <WeatherHeaderBadge day={data.weather.get(iso)} />
-              </div>
-              {postsOn(iso).length
-                ? postsOn(iso).map((p) => <SwipeCard key={p.id} post={p} data={data} onEdit={() => setEditId(p.id)} onMove={() => setMoveId(p.id)} />)
-                : data.canEdit(iso) && <button onClick={() => data.addPost(iso)} data-testid="add-on-day" className="mb-3 w-full rounded-[18px] border border-dashed border-line bg-surface p-4 text-[13px] font-semibold text-muted">＋ Plan a post for this day</button>}
-            </section>
-          ))
-          : <MobileTasks data={data} onOpen={(id) => setEditId(id)} />}
+        {mode === 'plan' ? (
+          <>
+            {week.map((iso) => (
+              <section key={iso} data-day={iso} className="px-[18px] pb-0.5 pt-3.5" data-testid="day-section">
+                <div className={`mx-0.5 mb-2.5 flex items-center gap-2 ${iso === selectedDay ? '[&_.big]:text-slate-700' : ''}`}>
+                  <span className="big font-serif text-[19px] text-slate-700">{iso === today ? 'Today' : `${DOW[(fromIso(iso).getDay() + 6) % 7]}, ${fromIso(iso).getDate()} ${MON[month]}`}</span>
+                  <span className="text-[12px] font-semibold text-muted">{postsOn(iso).length ? `${postsOn(iso).length} post${postsOn(iso).length > 1 ? 's' : ''}` : 'Nothing planned'}</span>
+                  <WeatherHeaderBadge day={data.weather.get(iso)} />
+                </div>
+                {postsOn(iso).length
+                  ? postsOn(iso).map((p) => <SwipeCard key={p.id} post={p} data={data} onEdit={() => setEditId(p.id)} onMove={() => setMoveId(p.id)} />)
+                  : data.canEdit(iso) && <button onClick={() => data.addPost(iso)} data-testid="add-on-day" className="mb-3 w-full rounded-[18px] border border-dashed border-line bg-surface p-4 text-[13px] font-semibold text-muted">＋ Plan a post for this day</button>}
+              </section>
+            ))}
+            {/* Reachability: posts whose date was moved OUT of this cycle's plan month can't
+                sit in any in-month week (week nav is clamped to the month). Surface them so a
+                cross-month-moved post never silently vanishes; the card taps into its editor. */}
+            {(() => {
+              const outside = postsOutsideMonth(posts, monthFirst);
+              if (!outside.length) return null;
+              return (
+                <section data-testid="outside-month" className="px-[18px] pb-2 pt-4">
+                  <div className="mx-0.5 mb-2.5 text-[12px] font-extrabold uppercase tracking-[.08em] text-muted">Outside this month</div>
+                  {outside.map((p) => <SwipeCard key={p.id} post={p} data={data} onEdit={() => setEditId(p.id)} onMove={() => setMoveId(p.id)} />)}
+                </section>
+              );
+            })()}
+          </>
+        ) : <MobileTasks data={data} onOpen={(id) => setEditId(id)} />}
       </div>
 
       {/* voice FAB (opens the disabled voice overlay) */}
