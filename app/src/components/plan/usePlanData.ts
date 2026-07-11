@@ -15,6 +15,9 @@ interface AgentTurn { conversationId: string; message: string; proposals?: Propo
 
 export interface PlanDataInit {
   posts: PlanPost[];
+  // Other cycles' posts dated within the viewed cycle's plan month — the calendar grid is
+  // date-authoritative and renders posts ∪ crossMonthPosts by date (see loadCrossMonthPosts).
+  crossMonthPosts: PlanPost[];
   cycles: CycleSummary[];
   homeCycleId: string;
   today: string;
@@ -30,6 +33,7 @@ export interface PlanDataInit {
  *  (steps arrive batched on PlanPost). */
 export function usePlanData(init: PlanDataInit) {
   const [posts, setPosts] = useState<PlanPost[]>(init.posts);
+  const [crossMonthPosts, setCrossMonthPosts] = useState<PlanPost[]>(init.crossMonthPosts);
   const [cycles, setCycles] = useState<CycleSummary[]>(init.cycles);
   const [proposals, setProposals] = useState<ProposalView[]>([]);
   const [notes, setNotes] = useState<NoteView[]>([]);
@@ -44,6 +48,11 @@ export function usePlanData(init: PlanDataInit) {
   // The cycle that represents "today" — the SAME rule the server landing uses
   // (resolveDayCycleId), so the Today button and the initial landing never diverge.
   const todayCycleId = useMemo(() => resolveDayCycleId(cycles, init.today), [cycles, init.today]);
+  // The calendar grid renders BY DATE across cycles: the viewed cycle's own posts plus the
+  // cross-cycle posts dated in this month. Each post carries its own cycleId (edit routing
+  // is date+client based). The grid buckets by day, so viewed-cycle posts dated OUTSIDE the
+  // month simply don't land in any cell; no post appears in more than one month's grid.
+  const calendarPosts = useMemo(() => [...posts, ...crossMonthPosts], [posts, crossMonthPosts]);
   const [busy, setBusy] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [shapingIds, setShapingIds] = useState<Set<string>>(new Set());
@@ -96,9 +105,18 @@ export function usePlanData(init: PlanDataInit) {
       setLoadError((e) => (e === 'notes' ? null : e));
     } catch { setLoadError('notes'); }
   }, []);
+  // Re-fetch the CURRENT view (viewed cycle) and refresh BOTH sets, so a write that moves a
+  // post across the month boundary (or edits a cross-cycle post) is reflected in the grid.
   const refreshPlan = useCallback(async () => {
-    try { const r = await fetch('/api/plan'); if (r.ok) setPosts(((await r.json()) as { posts: PlanPost[] }).posts); } catch { /* non-fatal */ }
-  }, []);
+    try {
+      const isHome = viewedCycleId === init.homeCycleId;
+      const r = await fetch(isHome ? '/api/plan' : `/api/plan?cycleId=${encodeURIComponent(viewedCycleId)}`);
+      if (!r.ok) return;
+      const d = (await r.json()) as { posts: PlanPost[]; crossMonthPosts?: PlanPost[] };
+      setPosts(d.posts);
+      setCrossMonthPosts(d.crossMonthPosts ?? []);
+    } catch { /* non-fatal */ }
+  }, [viewedCycleId, init.homeCycleId]);
 
   useEffect(() => { void refreshProposals(); void refreshNotes(); }, [refreshProposals, refreshNotes]);
 
@@ -121,7 +139,9 @@ export function usePlanData(init: PlanDataInit) {
     return () => { cancelled = true; };
   }, []);
 
-  /** Structural write → swap in the returned post set. No-op in a read-only cycle. */
+  /** Structural write → refresh the current view (both sets). We re-fetch rather than
+   *  trust the response's post set because a cross-cycle edit (a post shown from ANOTHER
+   *  cycle in this month's grid) returns THAT cycle's posts, not the viewed cycle's. */
   const call = useCallback(async (url: string, method: string, payload?: unknown): Promise<void> => {
     if (readOnly) return;
     setBusy(true);
@@ -131,10 +151,10 @@ export function usePlanData(init: PlanDataInit) {
       const res = await fetch(url, init2);
       if (!res.ok) { flash('Something went wrong. Please try again.'); return; }
       const r = (await res.json()) as ShapeResult;
-      if (r.mode === 'applied') { setPosts(r.posts); flash(r.summary); }
+      if (r.mode === 'applied') { flash(r.summary); await refreshPlan(); }
     } catch { flash('Network error. Please try again.'); }
     finally { setBusy(false); }
-  }, [readOnly, flash]);
+  }, [readOnly, flash, refreshPlan]);
 
   const reschedule = useCallback((id: string, dateIso: string) => call(`/api/posts/${id}`, 'PATCH', { date: dateIso }), [call]);
   const saveCaption = useCallback((id: string, caption: string) => call(`/api/posts/${id}`, 'PATCH', { caption }), [call]);
@@ -235,7 +255,7 @@ export function usePlanData(init: PlanDataInit) {
       await new Promise((r) => setTimeout(r, 1600));
       let j: { status: string; posts?: PlanPost[]; summary?: string };
       try { const res = await fetch(`/api/jobs/${jobId}`); if (!res.ok) continue; j = (await res.json()) as typeof j; } catch { continue; }
-      if (j.status === 'done') { if (j.posts) setPosts(j.posts); flash(j.summary ?? 'Updated the caption.'); return 'done'; }
+      if (j.status === 'done') { flash(j.summary ?? 'Updated the caption.'); await refreshPlan(); return 'done'; }
       if (j.status === 'error') { return 'error'; }
       if (j.status === 'gone') { await refreshPlan(); return 'gone'; }
     }
@@ -386,15 +406,15 @@ export function usePlanData(init: PlanDataInit) {
       const isHome = cycleId === init.homeCycleId;
       const res = await fetch(isHome ? '/api/plan' : `/api/plan?cycleId=${encodeURIComponent(cycleId)}`);
       if (!res.ok) { flash('Could not open that month.'); return; }
-      const d = (await res.json()) as { posts: PlanPost[] };
-      setPosts(d.posts); setViewedCycleId(cycleId);
+      const d = (await res.json()) as { posts: PlanPost[]; crossMonthPosts?: PlanPost[] };
+      setPosts(d.posts); setCrossMonthPosts(d.crossMonthPosts ?? []); setViewedCycleId(cycleId);
     } catch { flash('Network error. Please try again.'); }
     finally { setSwitching(false); }
   }, [init.homeCycleId, flash]);
 
   return {
     // data
-    posts, cycles, proposals, notes, today: init.today, clientName: init.clientName,
+    posts, crossMonthPosts, calendarPosts, cycles, proposals, notes, today: init.today, clientName: init.clientName,
     homeCycleId: init.homeCycleId, viewedCycleId, readOnly, canEdit, todayCycleId,
     // status
     busy, switching, shapingIds, proposalBusy, agentBusy, agentReply, agentError,

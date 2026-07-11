@@ -10,12 +10,13 @@
  *                          another client's plan.
  * Neither widens WRITE scope: mutations stay bound to the session's own cycleId.
  */
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, isNull, lt, ne, sql } from 'drizzle-orm';
+import type { ContentCyclePostRow } from '@sprigly/db';
 import { db, contentCycles, contentCyclePosts } from '@sprigly/db';
 import { listStepsForPosts } from '@/lib/steps';
 import { nextMonth } from '@/lib/cycle-nav';
 import type {
-  CycleSummary, PlanPost, PostChannel, PostFormat, PostStatus, ReviewState,
+  CycleSummary, PlanPost, PostChannel, PostFormat, PostStatus, ReviewState, PostStepView,
 } from './types.js';
 
 const FORMATS  = new Set<PostFormat>(['reel', 'carousel', 'single', 'email']);
@@ -37,23 +38,11 @@ function monthLabel(yyyymm: string): string {
   return `${MONTH_NAMES[idx] ?? yyyymm} ${year}`;
 }
 
-/** Load the plan posts for a cycle, ordered by position then date. Scoped to the
- *  session's client+cycle — pass both so a token can only ever read its own plan. */
-export async function loadPlanPosts(clientId: string, cycleId: string): Promise<PlanPost[]> {
-  const rows = await db
-    .select()
-    .from(contentCyclePosts)
-    .where(and(
-      eq(contentCyclePosts.cycleId, cycleId),
-      eq(contentCyclePosts.clientId, clientId),
-      isNull(contentCyclePosts.deletedAt),                 // exclude soft-deleted
-    ))
-    .orderBy(asc(contentCyclePosts.position), asc(contentCyclePosts.scheduledDate));
-
-  // Batch the checklist for every post in ONE query (no N+1), then fold it in.
-  const stepsByPost = await listStepsForPosts(rows.map((r) => r.id));
-
-  return rows.map((r) => ({
+/** Map a content_cycle_posts row (+ its batched steps) to the PlanPost contract.
+ *  Every post carries its OWN cycleId, so a post surfaced in another cycle's month view
+ *  still routes edits to its real cycle (edit gates are date+client based, not cycle based). */
+function toPlanPost(r: ContentCyclePostRow, stepsByPost: Map<string, PostStepView[]>): PlanPost {
+  return {
     id:          r.id,
     cycleId:     r.cycleId,
     clientId:    r.clientId,
@@ -71,7 +60,55 @@ export async function loadPlanPosts(clientId: string, cycleId: string): Promise<
     overlay:     r.overlay ?? null,
     pendingInstruction: metaStr(r.sourceMeta, 'pendingInstruction'),
     generationError:    metaStr(r.sourceMeta, 'generationError'),
-  }));
+  };
+}
+
+/** Load the plan posts for a cycle, ordered by position then date. Scoped to the
+ *  session's client+cycle — pass both so a token can only ever read its own plan. */
+export async function loadPlanPosts(clientId: string, cycleId: string): Promise<PlanPost[]> {
+  const rows = await db
+    .select()
+    .from(contentCyclePosts)
+    .where(and(
+      eq(contentCyclePosts.cycleId, cycleId),
+      eq(contentCyclePosts.clientId, clientId),
+      isNull(contentCyclePosts.deletedAt),                 // exclude soft-deleted
+    ))
+    .orderBy(asc(contentCyclePosts.position), asc(contentCyclePosts.scheduledDate));
+
+  // Batch the checklist for every post in ONE query (no N+1), then fold it in.
+  const stepsByPost = await listStepsForPosts(rows.map((r) => r.id));
+  return rows.map((r) => toPlanPost(r, stepsByPost));
+}
+
+/**
+ * The calendar grid is DATE-authoritative across cycles: the month view for M shows every
+ * live post of the client (ANY cycle, same channel) whose scheduled_date falls in M. This
+ * returns the OTHER cycles' posts dated in M — the viewed cycle's own posts already load
+ * via loadPlanPosts, so excluding it here keeps every post in exactly ONE set (no dupes).
+ * A cross-month-moved post therefore appears in the month view its date lands in, on its
+ * date. Client-scoped read; edit routing is unchanged (each post keeps its own cycleId).
+ */
+export async function loadCrossMonthPosts(
+  clientId: string, channel: string, month: string, excludeCycleId: string,
+): Promise<PlanPost[]> {
+  const start = `${month}-01`;
+  const end   = `${nextMonth(month)}-01`;   // exclusive upper bound
+  const rows = await db
+    .select()
+    .from(contentCyclePosts)
+    .where(and(
+      eq(contentCyclePosts.clientId, clientId),
+      eq(contentCyclePosts.channel, channel),
+      ne(contentCyclePosts.cycleId, excludeCycleId),
+      isNull(contentCyclePosts.deletedAt),
+      gte(contentCyclePosts.scheduledDate, start),
+      lt(contentCyclePosts.scheduledDate, end),
+    ))
+    .orderBy(asc(contentCyclePosts.scheduledDate));
+
+  const stepsByPost = await listStepsForPosts(rows.map((r) => r.id));
+  return rows.map((r) => toPlanPost(r, stepsByPost));
 }
 
 /** Read a string field off a post's source_meta jsonb (null if absent/non-string). */

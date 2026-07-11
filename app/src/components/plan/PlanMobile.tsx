@@ -13,7 +13,7 @@ import {
   SprigMark, ChevronLeft, ChevronRight, MicIcon, FORMAT_LABEL, CalendarIcon, CloseIcon,
 } from './icons';
 import { postAtRisk, ringOf } from '@/lib/checklist';
-import { postsOutsideMonth } from '@/lib/cycle-nav';
+import { orphanPosts } from '@/lib/cycle-nav';
 
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -43,7 +43,7 @@ export function PlanMobile({ data }: { data: PlanData }) {
   const monthFirst = `${year}-${pad(month + 1)}`;
 
   const [mode, setMode] = useState<'plan' | 'tasks'>('plan');
-  const [selectedDay, setSelectedDay] = useState<string>(() => defaultDayFor(year, month, today, posts));
+  const [selectedDay, setSelectedDay] = useState<string>(() => defaultDayFor(year, month, today, data.calendarPosts));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [moveId, setMoveId] = useState<string | null>(null);
@@ -58,12 +58,14 @@ export function PlanMobile({ data }: { data: PlanData }) {
     const mon = mondayOf(fromIso(selectedDay));
     return Array.from({ length: 7 }, (_, i) => { const d = new Date(mon); d.setDate(mon.getDate() + i); return toIso(d); });
   }, [selectedDay]);
-  const postsOn = useCallback((iso: string) => posts.filter((p) => p.date === iso), [posts]);
-  const hasPosts = (iso: string) => posts.some((p) => p.date === iso);
+  // Date-authoritative feed: every client post (any cycle) dated on a day.
+  const postsOn = useCallback((iso: string) => data.calendarPosts.filter((p) => p.date === iso), [data.calendarPosts]);
+  const hasPosts = (iso: string) => data.calendarPosts.some((p) => p.date === iso);
 
   const lateN = lateCount(posts, today);
-  const editPost = posts.find((p) => p.id === editId) ?? null;
-  const movePost = posts.find((p) => p.id === moveId) ?? null;
+  // Editor/Move target may be a cross-cycle post shown in this month's feed — search both.
+  const editPost = data.calendarPosts.find((p) => p.id === editId) ?? null;
+  const movePost = data.calendarPosts.find((p) => p.id === moveId) ?? null;
 
   // ── scroll-spy: selected day follows the feed (rAF, spy-locked during jumps) ──
   const updateActiveDay = useCallback(() => {
@@ -115,7 +117,7 @@ export function PlanMobile({ data }: { data: PlanData }) {
   // invoked mount effect can't fire the scroll on load — its 700ms spy-lock would otherwise
   // swallow the user's first scroll. The initial render already lands on the right day (via
   // the useState initializer) with the feed at its natural top.
-  const postsRef = useRef(posts); postsRef.current = posts;
+  const postsRef = useRef(data.calendarPosts); postsRef.current = data.calendarPosts;
   const anchoredCycle = useRef(data.viewedCycleId);
   useEffect(() => {
     if (anchoredCycle.current === data.viewedCycleId) return;   // mount / strict-remount → no-op
@@ -211,7 +213,9 @@ export function PlanMobile({ data }: { data: PlanData }) {
                 sit in any in-month week (week nav is clamped to the month). Surface them so a
                 cross-month-moved post never silently vanishes; the card taps into its editor. */}
             {(() => {
-              const outside = postsOutsideMonth(posts, monthFirst);
+              // Strip = TRUE orphans only (dated in a month no cycle plans); cross-month
+              // posts dated in a planned month now appear in that month's feed by date.
+              const outside = orphanPosts(posts, data.cycles.map((c) => c.displayMonth));
               if (!outside.length) return null;
               return (
                 <section data-testid="outside-month" className="px-[18px] pb-2 pt-4">

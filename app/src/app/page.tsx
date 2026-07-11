@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db, clients, clientConfigs, contentCycles } from '@sprigly/db';
 import { getSession } from '@/lib/auth';
-import { loadPlanPosts, loadCycleList } from '@/lib/plan';
+import { loadPlanPosts, loadCrossMonthPosts, loadCycleList } from '@/lib/plan';
 import { editScopeToday } from '@/lib/edit-scope';
 import { resolveDayCycleId } from '@/lib/cycle-nav';
 import { readPlanRedesignFlag } from '@/lib/flags';
@@ -41,6 +41,12 @@ export default async function Page() {
   const initialReadOnly = false;
   const initialCycleId  = resolveDayCycleId(cycles, editScopeToday()) ?? session.cycleId;
   const posts = await loadPlanPosts(session.clientId, initialCycleId);
+  // Cross-cycle posts dated in the landed cycle's plan month, so the calendar grid is
+  // date-authoritative from first paint (see loadCrossMonthPosts).
+  const initialMonth   = cycles.find((c) => c.cycleId === initialCycleId)?.displayMonth;
+  const crossMonthPosts = home && initialMonth
+    ? await loadCrossMonthPosts(session.clientId, home.channel, initialMonth, initialCycleId)
+    : [];
 
   // Render fork behind the per-tenant plan_redesign flag (default off). Flag-off tenants
   // get the existing PlanApp untouched; flag-on tenants get the redesign shell.
@@ -55,6 +61,7 @@ export default async function Page() {
       <PlanRedesign
         clientName={client?.name ?? 'your'}
         posts={posts}
+        crossMonthPosts={crossMonthPosts}
         cycles={cycles}
         homeCycleId={session.cycleId}
         initialCycleId={initialCycleId}

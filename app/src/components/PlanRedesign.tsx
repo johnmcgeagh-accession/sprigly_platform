@@ -6,6 +6,7 @@ import { PlanRoot } from '@/components/plan/PlanRoot';
 interface PlanRedesignProps {
   clientName: string;
   posts: PlanPost[];
+  crossMonthPosts?: PlanPost[];
   cycles: CycleSummary[];
   homeCycleId: string;
   initialCycleId?: string;
@@ -18,12 +19,13 @@ interface PlanRedesignProps {
  * resolves "today" once, server-side, from the tenant timezone default. Everything
  * interactive lives in <PlanRoot>, which chooses the desktop or mobile layout.
  */
-export default function PlanRedesign({ clientName, posts, cycles, homeCycleId, initialCycleId, initialReadOnly }: PlanRedesignProps) {
+export default function PlanRedesign({ clientName, posts, crossMonthPosts, cycles, homeCycleId, initialCycleId, initialReadOnly }: PlanRedesignProps) {
   return (
     <div className={`plan-redesign ${jakarta.variable} ${dmSerif.variable} font-sans`}>
       <PlanRoot
         clientName={clientName}
         posts={posts}
+        crossMonthPosts={crossMonthPosts ?? []}
         cycles={cycles}
         homeCycleId={homeCycleId}
         initialViewedCycleId={initialCycleId}

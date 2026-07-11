@@ -24,13 +24,15 @@ export function nextMonth(cycleMonth: string): string {
 }
 
 /**
- * Posts in the given cycle whose scheduled_date falls OUTSIDE the cycle's plan month
- * ('YYYY-MM'). These belong to the cycle but can't sit in its calendar/week grid, so the
- * views surface them under an "outside this month" strip — a cross-month-moved post is
- * never silently dropped from every view. Pure; sorts by date ascending.
+ * TRUE-ORPHAN posts: those whose scheduled_date falls in a month that NO cycle plans, so
+ * they appear in no month grid at all (a post dated in a planned month now shows in that
+ * month's date-authoritative grid — see loadCrossMonthPosts). The viewed cycle surfaces
+ * its orphans under an "outside this month" strip so they're never silently dropped.
+ * `plannedMonths` = every cycle's displayMonth. Pure; sorts by date ascending.
  */
-export function postsOutsideMonth<T extends { date: string }>(posts: readonly T[], month: string): T[] {
-  return posts.filter((p) => !p.date.startsWith(month)).sort((a, b) => a.date.localeCompare(b.date));
+export function orphanPosts<T extends { date: string }>(posts: readonly T[], plannedMonths: readonly string[]): T[] {
+  const planned = new Set(plannedMonths);
+  return posts.filter((p) => !planned.has(p.date.slice(0, 7))).sort((a, b) => a.date.localeCompare(b.date));
 }
 
 /**

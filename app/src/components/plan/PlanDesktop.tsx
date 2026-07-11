@@ -6,7 +6,7 @@ import { Drawer, Scrim, Dialog, DISABLED_PRIMARY } from './primitives';
 import { PostEditor } from './PostEditor';
 import { PostChip, ProposalCard, NoteRow, ExtractionSummary, monthDayLabel, postTitle, WeatherCellIcon } from './pieces';
 import { planTasks, lateCount, viewedMonth } from './derive';
-import { postsOutsideMonth } from '@/lib/cycle-nav';
+import { orphanPosts } from '@/lib/cycle-nav';
 import {
   SprigMark, ChevronLeft, ChevronRight, CalendarIcon, TimelineIcon, TasksIcon, ApprovalsIcon,
   NotesIcon, MicIcon, SendIcon, SparkIcon, FormatIcon, FORMAT_LABEL,
@@ -34,7 +34,8 @@ export function PlanDesktop({ data }: { data: PlanData }) {
   const nextCycle = idx >= 0 && idx < cyclesByMonth.length - 1 ? cyclesByMonth[idx + 1] : null;
 
   const lateN = lateCount(posts, today);
-  const sel = posts.find((p) => p.id === selId) ?? null;
+  // Editor target may be a cross-cycle post shown in this month's grid — search both sets.
+  const sel = data.calendarPosts.find((p) => p.id === selId) ?? null;
   const select = (id: string) => { setSelId(id); setDrawerOpen(true); };
 
   // Agent submit: clear the input only on a successful turn (preserve it on failure).
@@ -201,7 +202,8 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
   const lead = (first.getDay() + 6) % 7;
   const dim = new Date(year, month + 1, 0).getDate();
   const isoOf = (day: number) => `${year}-${pad(month + 1)}-${pad(day)}`;
-  const postsOn = (day: number) => data.posts.filter((p) => p.date === isoOf(day));
+  // Date-authoritative grid: every client post (any cycle) dated on this day.
+  const postsOn = (day: number) => data.calendarPosts.filter((p) => p.date === isoOf(day));
 
   return (
     <>
@@ -211,7 +213,7 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
       <div className="grid grid-cols-7 gap-3" data-testid="calendar-grid">
         {lead > 0 && (
           <div className="flex items-center rounded-2xl border border-line bg-surface p-4 shadow-card" style={{ gridColumn: `span ${lead}` }} data-testid="month-summary">
-            <div className="font-serif text-[19px] text-slate-700">{data.posts.length} posts planned</div>
+            <div className="font-serif text-[19px] text-slate-700">{data.calendarPosts.filter((p) => p.date.startsWith(`${year}-${pad(month + 1)}`)).length} posts planned</div>
           </div>
         )}
         {Array.from({ length: dim }, (_, i) => i + 1).map((day) => {
@@ -251,8 +253,10 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
           show it. Surface it here so a cross-month-moved post never silently vanishes;
           tapping opens its editor. (The Timeline view already lists every post by date.) */}
       {(() => {
-        const monthStr = `${year}-${pad(month + 1)}`;
-        const outside = postsOutsideMonth(data.posts, monthStr);
+        // Strip = TRUE orphans only: the viewed cycle's posts dated in a month no cycle
+        // plans (so they show in no grid). Cross-month posts dated in a PLANNED month now
+        // live in that month's grid, so they no longer appear here.
+        const outside = orphanPosts(data.posts, data.cycles.map((c) => c.displayMonth));
         if (outside.length === 0) return null;
         return (
           <div data-testid="outside-month" className="mx-1 mt-6">
