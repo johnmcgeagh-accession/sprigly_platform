@@ -10,7 +10,7 @@ import { ProgressRing, postTitle, isUntitled, WeatherHeaderBadge } from './piece
 import { CalendarPicker } from './pickers';
 import { planTasks, lateCount, viewedMonth } from './derive';
 import {
-  SprigMark, ChevronLeft, ChevronRight, MicIcon, FORMAT_LABEL, TrashIcon, ImageIcon, CalendarIcon, CloseIcon,
+  SprigMark, ChevronLeft, ChevronRight, MicIcon, FORMAT_LABEL, CalendarIcon, CloseIcon,
 } from './icons';
 import { postAtRisk, ringOf } from '@/lib/checklist';
 
@@ -246,8 +246,11 @@ export function PlanMobile({ data }: { data: PlanData }) {
   );
 }
 
-/* ── swipe card (axis-lock + rubber-band; left Edit/Delete, right Move only) ─── */
-const ACT = 156, MAXEXTRA = 32, RB = 0.55;
+/* ── swipe card (axis-lock + rubber-band; swipe RIGHT reveals Move only) ──────
+   Move is the single swipe action — Edit and Delete live in the tap-in editor.
+   ACT is both the Move panel's width and its snap-open distance, so the panel and
+   card slide as one continuous surface (no detached column). */
+const ACT = 104, MAXEXTRA = 32, RB = 0.55;
 function resist(t: number): number {
   if (t > ACT) { const o = t - ACT; return ACT + (1 - 1 / (o * RB / MAXEXTRA + 1)) * MAXEXTRA; }
   if (t < -ACT) { const o = -t - ACT; return -(ACT + (1 - 1 / (o * RB / MAXEXTRA + 1)) * MAXEXTRA); }
@@ -284,16 +287,18 @@ function CardMenu({ onEdit, onMove, onDelete }: { onEdit: () => void; onMove?: (
 function SwipeCard({ post, data, onEdit, onMove }: { post: PlanPost; data: PlanData; onEdit: () => void; onMove: () => void }) {
   const cardRef = useRef<HTMLDivElement>(null);
   const st = useRef({ startX: 0, startY: 0, dx: 0, base: 0, dragging: false, moved: false, axis: '' as '' | 'v' | 'h', pid: -1 });
-  const [open, setOpen] = useState<'' | 'L' | 'R'>('');
+  const [open, setOpen] = useState<'' | 'L'>('');
   const ring = ringOf(post.steps);
   const risk = postAtRisk(post.steps, post.date, data.today);
-  // DATE POLICY: past posts are read-only — no Move/Delete affordance (Edit still opens
-  // the read-only editor). Editable iff the post is dated today-onward (London).
+  // DATE POLICY: past posts are read-only — no swipe actions at all (the whole gesture is
+  // inert). Editable iff the post is dated today-onward (London). Edit + Delete live in the
+  // tap-in editor for every editable post, so the swipe carries Move alone.
   const editable = data.canEdit(post.date);
 
   const down = (e: React.PointerEvent) => {
+    if (!editable) return;                                             // past posts: swipe inert
     if ((e.target as HTMLElement).closest('[data-act]')) return;
-    const c = cardRef.current!; st.current = { ...st.current, startX: e.clientX, startY: e.clientY, dragging: true, moved: false, axis: '', pid: e.pointerId, base: open === 'L' ? ACT : open === 'R' ? -ACT : 0 };
+    st.current = { ...st.current, startX: e.clientX, startY: e.clientY, dragging: true, moved: false, axis: '', pid: e.pointerId, base: open === 'L' ? ACT : 0 };
     st.current.dx = st.current.base;
   };
   const move = (e: React.PointerEvent) => {
@@ -305,7 +310,9 @@ function SwipeCard({ post, data, onEdit, onMove }: { post: PlanPost; data: PlanD
     }
     if (s.axis === 'v') { s.dragging = false; try { cardRef.current!.releasePointerCapture(s.pid); } catch { /* ignore */ } cardRef.current!.style.transition = ''; return; }
     if (s.axis !== 'h') return;
-    s.moved = true; s.dx = resist(rawX + s.base);
+    // Rightward reveal only (Move sits on the left); clamp so the card never slides left
+    // past its resting edge (nothing lives on the right anymore).
+    s.moved = true; s.dx = Math.max(0, resist(rawX + s.base));
     cardRef.current!.style.transform = `translateX(${s.dx}px)`;
   };
   const end = () => {
@@ -314,7 +321,6 @@ function SwipeCard({ post, data, onEdit, onMove }: { post: PlanPost; data: PlanD
     cardRef.current!.style.transition = '';
     if (!wasH) return;
     if (s.dx > 62) { setOpen('L'); cardRef.current!.style.transform = `translateX(${ACT}px)`; }
-    else if (s.dx < -62) { setOpen('R'); cardRef.current!.style.transform = `translateX(-${ACT}px)`; }
     else { setOpen(''); cardRef.current!.style.transform = 'translateX(0)'; }
   };
   const close = () => { setOpen(''); if (cardRef.current) cardRef.current.style.transform = 'translateX(0)'; };
@@ -322,17 +328,22 @@ function SwipeCard({ post, data, onEdit, onMove }: { post: PlanPost; data: PlanD
 
   return (
     <div className="relative mb-3 overflow-hidden rounded-[20px]" data-testid="swipe-card" data-post-id={post.id}>
-      {/* right-side actions (revealed by swiping LEFT) */}
-      <div className="absolute inset-y-0 right-0 flex items-stretch">
-        <button data-act onClick={() => { onEdit(); close(); }} className="flex w-[78px] flex-col items-center justify-center gap-1.5 bg-slate-700 text-[11px] font-bold text-white"><ImageIcon className="h-5 w-5" />Edit</button>
-        {editable && <button data-act onClick={() => { data.removePost(post.id); close(); }} className="flex w-[78px] flex-col items-center justify-center gap-1.5 bg-danger text-[11px] font-bold text-white"><TrashIcon className="h-5 w-5" />Delete</button>}
-      </div>
-      {/* left-side action (revealed by swiping RIGHT) — Move only (D2/D6), today-onward only */}
-      {editable && <div className="absolute inset-y-0 left-0 flex items-stretch">
-        <button data-act onClick={() => { onMove(); close(); }} className="flex w-[78px] flex-col items-center justify-center gap-1.5 bg-coral text-[11px] font-bold text-white"><CalendarIcon className="h-5 w-5" />Move</button>
-      </div>}
+      {/* Card + Move panel are ONE translating surface (flex row). At rest the panel is
+          tucked ACTpx off the left (negative margin) so only the card shows; swiping the
+          card right slides both together, revealing Move flush against the card's edge —
+          shared square seam, matching outer radius via the clip. Editable posts only; a
+          past post renders the card alone (swipe inert). */}
       <div ref={cardRef} data-testid="swipe-surface" onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end} onClick={tap}
-        className="relative z-[2] rounded-[20px] border border-line bg-surface px-4 pb-3 pt-4 shadow-card [touch-action:pan-y] [will-change:transform] [transition:transform_.28s_cubic-bezier(.22,.61,.36,1)]">
+        style={editable ? { width: `calc(100% + ${ACT}px)`, marginLeft: `-${ACT}px` } : undefined}
+        className="flex [touch-action:pan-y] [will-change:transform] [transition:transform_.28s_cubic-bezier(.22,.61,.36,1)]">
+        {editable && (
+          <button data-act data-testid="swipe-move" aria-label="Move to another day" onClick={() => { onMove(); close(); }}
+            style={{ width: ACT }}
+            className="flex flex-none flex-col items-center justify-center gap-1.5 rounded-l-[20px] bg-coral text-[11.5px] font-extrabold text-white">
+            <CalendarIcon className="h-[22px] w-[22px]" />Move
+          </button>
+        )}
+        <div className={`min-w-0 flex-1 bg-surface px-4 pb-3 pt-4 shadow-card ${editable ? 'rounded-r-[20px] border-y border-r border-line' : 'rounded-[20px] border border-line'}`}>
         <div className="mb-1.5 flex items-center gap-2">
           <span className="rounded-md bg-coral-tint px-2 py-0.5 text-[10.5px] font-extrabold uppercase tracking-[.06em] text-slate-700">{FORMAT_LABEL[post.format]}</span>
           <span className="ml-auto flex items-center gap-2">
@@ -345,6 +356,7 @@ function SwipeCard({ post, data, onEdit, onMove }: { post: PlanPost; data: PlanD
         </h4>
         <p className="mb-1 text-[13.5px] leading-normal text-slate-600">{post.caption || 'Draft idea. Tell Sprigly what this post should be about.'}</p>
         {post.status === 'new' && <span className="text-[11px] font-bold text-slate-700">NEW</span>}
+        </div>
       </div>
     </div>
   );
