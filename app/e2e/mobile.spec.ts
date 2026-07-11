@@ -48,14 +48,20 @@ test('swipe axis-lock: a vertical drag does not translate the card', async ({ pa
   expect(tf === '' || tf === 'none' || tf === 'translateX(0px)').toBeTruthy();
 });
 
-test('swipe left reveals Edit/Delete; Edit opens the editor sheet', async ({ page }) => {
+test('swipe left is inert (no Edit/Delete swipe); Edit + Delete live in the tap-in editor', async ({ page }) => {
   const card = page.getByTestId('swipe-card').first();
   const surf = card.getByTestId('swipe-surface');
+  // Swiping LEFT reveals nothing now — the card never opens on its right side.
   await drag(surf, { x: 320, y: 400 }, [[-15, 2], [-50, 3], [-110, 4], [-165, 5]]);
-  await expect.poll(() => transformOf(surf)).toContain('translateX(-156');
-  await card.getByRole('button', { name: 'Edit' }).click();
+  const tf = await transformOf(surf);
+  expect(tf === '' || tf === 'none' || tf === 'translateX(0px)').toBeTruthy();
+  await expect(card.getByRole('button', { name: 'Edit' })).toHaveCount(0);
+  await expect(card.getByRole('button', { name: 'Delete' })).toHaveCount(0);
+  // Both capabilities remain reachable by tapping into the editor.
+  await surf.click();
   await expect(page.getByTestId('editor-sheet')).toBeVisible();
-  await expect(page.getByTestId('editor-caption')).toBeVisible();
+  await expect(page.getByTestId('editor-caption')).toBeVisible();   // edit surface
+  await expect(page.getByTestId('editor-delete')).toBeVisible();    // delete affordance
 });
 
 test('swipe right reveals Move; the date picker round-trips a reschedule', async ({ page }) => {
@@ -63,7 +69,7 @@ test('swipe right reveals Move; the date picker round-trips a reschedule', async
   const id = (await card.getAttribute('data-post-id'))!;
   const surf = card.getByTestId('swipe-surface');
   await drag(surf, { x: 90, y: 400 }, [[15, 2], [55, 3], [120, 4], [170, 5]]);
-  await expect.poll(() => transformOf(surf)).toContain('translateX(156');
+  await expect.poll(() => transformOf(surf)).toContain('translateX(104');
   await card.getByRole('button', { name: 'Move' }).click();
   await expect(page.getByTestId('move-sheet')).toBeVisible();
   await expect(page.getByTestId('move-sheet').getByTestId('calendar-picker')).toBeVisible();
