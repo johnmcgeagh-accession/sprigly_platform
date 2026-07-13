@@ -42,6 +42,11 @@ export interface PlanBeat {
   note:      string;
 }
 
+/** The viewed cycle's saved intake, for the capture form to pre-fill (FIX 1). */
+export interface PlanIntake { answers: Record<string, string>; freeNotes: string }
+/** A client's active durable plan_input (idea/next_cycle) — read-only "remembered" list. */
+export interface DurableItemView { id: string; type: string; content: string; createdAt: string }
+
 export interface PlanPost {
   id:          string;
   cycleId:     string;

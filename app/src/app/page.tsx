@@ -1,6 +1,6 @@
-import { and, eq } from 'drizzle-orm';
-import { db, clients, clientConfigs, contentCycles, clientChannels } from '@sprigly/db';
-import { BASE_QUESTIONS } from '@sprigly/engine';
+import { and, desc, eq, inArray } from 'drizzle-orm';
+import { db, clients, clientConfigs, contentCycles, clientChannels, planInputs } from '@sprigly/db';
+import { BASE_QUESTIONS, type IntakeJson } from '@sprigly/engine';
 import { getSession } from '@/lib/auth';
 import { loadPlanPosts, loadCrossMonthPosts, loadCycleList, beatsInMonth } from '@/lib/plan';
 import { editScopeToday } from '@/lib/edit-scope';
@@ -51,13 +51,21 @@ export default async function Page({ searchParams }: { searchParams: { intake?: 
     ? await loadCrossMonthPosts(session.clientId, home.channel, initialMonth, initialCycleId)
     : [];
 
-  // Beats: the landed cycle's structured_brief dated in its display month (null-safe → []).
+  // Beats + saved intake (FIX 1) for the landed cycle.
   const [landed] = await db
-    .select({ structuredBrief: contentCycles.structuredBrief })
+    .select({ structuredBrief: contentCycles.structuredBrief, intakeJson: contentCycles.intakeJson })
     .from(contentCycles)
     .where(eq(contentCycles.id, initialCycleId))
     .limit(1);
   const beats = initialMonth ? beatsInMonth(landed?.structuredBrief, initialMonth) : [];
+  const landedPlanContent = (landed?.intakeJson as IntakeJson | null)?.planContent ?? { answers: {}, freeNotes: '' };
+  const intake = { answers: landedPlanContent.answers ?? {}, freeNotes: landedPlanContent.freeNotes ?? '' };
+  const durableRows = await db
+    .select({ id: planInputs.id, type: planInputs.type, content: planInputs.content, createdAt: planInputs.createdAt })
+    .from(planInputs)
+    .where(and(eq(planInputs.clientId, session.clientId), inArray(planInputs.type, ['idea', 'next_cycle']), eq(planInputs.status, 'active')))
+    .orderBy(desc(planInputs.createdAt));
+  const durable = durableRows.map((r) => ({ id: r.id, type: r.type, content: r.content, createdAt: r.createdAt.toISOString() }));
 
   // Intake question source = BASE + this channel's extra_questions (server-assembled).
   const [chan] = home
@@ -90,6 +98,8 @@ export default async function Page({ searchParams }: { searchParams: { intake?: 
         initialReadOnly={initialReadOnly}
         initialIntakeOpen={initialIntakeOpen}
         questions={questions}
+        intake={intake}
+        durable={durable}
       />
     );
   }

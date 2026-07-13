@@ -74,3 +74,11 @@ export {
   MERGE_FIELDS, KNOWN_MERGE_FIELDS, unknownMergeFields, renderField, renderEmailTemplate,
 } from './email-render.js';
 export type { MergeField, MergeData, RenderableTemplate, RenderedEmail } from './email-render.js';
+
+// Structured-brief extractor (Build 5, FIX 2) — moved here so the worker (planning) AND the app
+// (intake route, extract-on-submit) share one extractor.
+export {
+  EMPTY_STRUCTURED_BRIEF, buildBriefExtractUserMessage, parseBriefResponse, validateStructuredBrief,
+  isEmptyBrief, extractStructuredBrief,
+} from './brief-extract.js';
+export type { BriefExtractParams } from './brief-extract.js';

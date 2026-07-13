@@ -385,8 +385,13 @@ export async function runContentCycleTick(params: {
   const now = params.now ?? new Date();
 
   const today     = getLondonToday(now);
-  const dataMonth = getDataMonth(today);
-  logger.info({ today, dataMonth }, 'content-cycle-scheduler: tick started');
+  const dataMonth = getDataMonth(today);   // last COMPLETED month (legacy cohort → plans this month)
+  // Intake-workflow cohort (clients WITH a cutoffDay): the cycle_month is the CURRENT month, so
+  // the plan targets nextMonth = M+1 (FIX 3). Legacy clients (no cutoffDay) keep the data-month
+  // behaviour byte-identically — a cohort split, not a global change.
+  const currentMonth = `${today.year}-${String(today.month).padStart(2, '0')}`;
+  const cohortMonth = (s: CycleSchedule) => (s.cutoffDay != null ? currentMonth : dataMonth);
+  logger.info({ today, dataMonth, currentMonth }, 'content-cycle-scheduler: tick started');
 
   const enabledRows = await db
     .select({
@@ -408,10 +413,10 @@ export async function runContentCycleTick(params: {
 
   for (const row of enabledRows) {
     const { clientId, channel, contentCycleSchedule } = row;
-    const logCtx = { clientId, channel, dataMonth };
-
     try {
       const schedule: CycleSchedule = contentCycleSchedule ?? DEFAULT_SCHEDULE;
+      const cycleMonth = cohortMonth(schedule);   // intake cohort → currentMonth; legacy → dataMonth
+      const logCtx = { clientId, channel, dataMonth: cycleMonth };
       if (!contentCycleSchedule) {
         logger.info({ ...logCtx, schedule: DEFAULT_SCHEDULE },
           'content-cycle-scheduler: content_cycle_schedule absent — using default');
@@ -424,12 +429,12 @@ export async function runContentCycleTick(params: {
         continue;
       }
 
-      const result = await enqueueCycleForClient({ db, queue, clientId, channel, dataMonth, logger });
+      const result = await enqueueCycleForClient({ db, queue, clientId, channel, dataMonth: cycleMonth, logger });
       if (result === 'enqueued') enqueued++;
       else skipped++;
 
     } catch (err) {
-      logger.warn({ ...logCtx, err: String(err) },
+      logger.warn({ clientId, channel, err: String(err) },
         'content-cycle-scheduler: error processing client — skipping');
       skipped++;
     }
@@ -443,7 +448,7 @@ export async function runContentCycleTick(params: {
     const schedule: CycleSchedule = row.contentCycleSchedule ?? DEFAULT_SCHEDULE;
     try {
       const outcome = await evaluateAutoRunForClient({
-        db, queue, clientId: row.clientId, channel: row.channel, dataMonth, schedule, today, logger,
+        db, queue, clientId: row.clientId, channel: row.channel, dataMonth: cohortMonth(schedule), schedule, today, logger,
         notify: params.autoRunNotify,
       });
       if (outcome === 'dry') autoRunDry++;
@@ -461,7 +466,7 @@ export async function runContentCycleTick(params: {
     const schedule: CycleSchedule = row.contentCycleSchedule ?? DEFAULT_SCHEDULE;
     try {
       const outcome = await evaluateThreeTouchForClient({
-        db, clientId: row.clientId, channel: row.channel, dataMonth, schedule, today, logger,
+        db, clientId: row.clientId, channel: row.channel, dataMonth: cohortMonth(schedule), schedule, today, logger,
         sendEmail: params.sendEmail, resolveAppLink: params.resolveAppLink,
       });
       if (outcome === 'sent') touchSent++;
@@ -471,6 +476,6 @@ export async function runContentCycleTick(params: {
     }
   }
 
-  logger.info({ dataMonth, enqueued, skipped, autoRunDry, autoRunEnabled: AUTO_RUN_ENABLED, touchSent },
+  logger.info({ dataMonth, currentMonth, enqueued, skipped, autoRunDry, autoRunEnabled: AUTO_RUN_ENABLED, touchSent },
     'content-cycle-scheduler: tick complete');
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PlanPost, PlanBeat, CycleSummary, PostStepView, ShapeResult } from '@/lib/types';
+import type { PlanPost, PlanBeat, PlanIntake, DurableItemView, CycleSummary, PostStepView, ShapeResult } from '@/lib/types';
 import type { ProposalView } from '@/lib/agent/types';
 import type { NoteView } from '@/lib/agent/notes';
 import { indexForecast, type WeatherDay, type WeatherWireDay } from '@/lib/weather';
@@ -29,6 +29,10 @@ export interface PlanDataInit {
   // the intake surface on landing (from the Ask email's {{intakeLink}} ?intake=1).
   questions: string[];
   initialIntakeOpen?: boolean | undefined;
+  // FIX 1 (Build 5): the viewed cycle's saved intake (form pre-fill) + the client's active
+  // durable items (read-only "remembered" list).
+  intake: PlanIntake;
+  durable: DurableItemView[];
   // Landing overrides (empty-home-cycle guard): the cycle initially rendered and
   // whether it's read-only. Default to the home cycle / editable when unset.
   initialViewedCycleId?: string | undefined;
@@ -42,6 +46,8 @@ export function usePlanData(init: PlanDataInit) {
   const [posts, setPosts] = useState<PlanPost[]>(init.posts);
   const [crossMonthPosts, setCrossMonthPosts] = useState<PlanPost[]>(init.crossMonthPosts);
   const [beats, setBeats] = useState<PlanBeat[]>(init.beats);
+  const [intake, setIntake] = useState<PlanIntake>(init.intake);
+  const [durable, setDurable] = useState<DurableItemView[]>(init.durable);
   const [cycles, setCycles] = useState<CycleSummary[]>(init.cycles);
   const [proposals, setProposals] = useState<ProposalView[]>([]);
   const [notes, setNotes] = useState<NoteView[]>([]);
@@ -130,10 +136,12 @@ export function usePlanData(init: PlanDataInit) {
       const isHome = viewedCycleId === init.homeCycleId;
       const r = await fetch(isHome ? '/api/plan' : `/api/plan?cycleId=${encodeURIComponent(viewedCycleId)}`);
       if (!r.ok) return;
-      const d = (await r.json()) as { posts: PlanPost[]; crossMonthPosts?: PlanPost[]; beats?: PlanBeat[] };
+      const d = (await r.json()) as { posts: PlanPost[]; crossMonthPosts?: PlanPost[]; beats?: PlanBeat[]; intake?: PlanIntake; durable?: DurableItemView[] };
       setPosts(d.posts);
       setCrossMonthPosts(d.crossMonthPosts ?? []);
       setBeats(d.beats ?? []);
+      if (d.intake) setIntake(d.intake);
+      if (d.durable) setDurable(d.durable);
     } catch { /* non-fatal */ }
   }, [viewedCycleId, init.homeCycleId]);
 
@@ -425,8 +433,9 @@ export function usePlanData(init: PlanDataInit) {
       const isHome = cycleId === init.homeCycleId;
       const res = await fetch(isHome ? '/api/plan' : `/api/plan?cycleId=${encodeURIComponent(cycleId)}`);
       if (!res.ok) { flash('Could not open that month.'); return; }
-      const d = (await res.json()) as { posts: PlanPost[]; crossMonthPosts?: PlanPost[]; beats?: PlanBeat[] };
+      const d = (await res.json()) as { posts: PlanPost[]; crossMonthPosts?: PlanPost[]; beats?: PlanBeat[]; intake?: PlanIntake; durable?: DurableItemView[] };
       setPosts(d.posts); setCrossMonthPosts(d.crossMonthPosts ?? []); setBeats(d.beats ?? []); setViewedCycleId(cycleId);
+      if (d.intake) setIntake(d.intake); if (d.durable) setDurable(d.durable);
     } catch { flash('Network error. Please try again.'); }
     finally { setSwitching(false); }
   }, [init.homeCycleId, flash]);
@@ -470,7 +479,7 @@ export function usePlanData(init: PlanDataInit) {
   return {
     // data
     posts, crossMonthPosts, calendarPosts, beats, beatsOn, cycles, proposals, notes, today: init.today, clientName: init.clientName,
-    questions: init.questions, intakeOpen, intakeBusy, viewedCyclePrePlanning, openIntake, closeIntake, submitIntake,
+    questions: init.questions, intake, durable, intakeOpen, intakeBusy, viewedCyclePrePlanning, openIntake, closeIntake, submitIntake,
     homeCycleId: init.homeCycleId, viewedCycleId, readOnly, canEdit, todayCycleId,
     // status
     busy, switching, shapingIds, proposalBusy, agentBusy, agentReply, agentError,
