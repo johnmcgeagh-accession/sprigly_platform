@@ -9,6 +9,18 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./touch-schedule": {
+      "import": "./dist/touch-schedule.js",
+      "types": "./dist/touch-schedule.d.ts"
+    },
+    "./email-render": {
+      "import": "./dist/email-render.js",
+      "types": "./dist/email-render.d.ts"
+    },
+    "./base-questions": {
+      "import": "./dist/base-questions.js",
+      "types": "./dist/base-questions.d.ts"
     }
   },
   "scripts": {
