@@ -66,3 +66,11 @@ export { buildCatalogue, parseProductTitle } from './catalogue/parse-catalogue.j
 export type {
   Catalogue, ParsedProduct, ProductFamily, ProductStatus, SalesRow, VariantSales,
 } from './catalogue/parse-catalogue.js';
+
+// Intake-capture shared pure logic (Build 4) — sender + admin source these so they can't drift.
+export { AUTO_RUN_MIN_WINDOW, deriveTouchSchedule, dueTouchForDay } from './touch-schedule.js';
+export type { Touch, TouchSchedule } from './touch-schedule.js';
+export {
+  MERGE_FIELDS, KNOWN_MERGE_FIELDS, unknownMergeFields, renderField, renderEmailTemplate,
+} from './email-render.js';
+export type { MergeField, MergeData, RenderableTemplate, RenderedEmail } from './email-render.js';

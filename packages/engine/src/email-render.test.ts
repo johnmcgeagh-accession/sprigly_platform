@@ -4,7 +4,19 @@
  * Part A/C of intake-capture Build 2.
  */
 import { describe, it, expect } from 'vitest';
-import { renderField, renderEmailTemplate, KNOWN_MERGE_FIELDS } from './email-render.js';
+import { renderField, renderEmailTemplate, KNOWN_MERGE_FIELDS, unknownMergeFields, MERGE_FIELDS } from './email-render.js';
+
+describe('unknownMergeFields (the admin editor’s publish gate)', () => {
+  it('returns [] when every field is known (subject + body)', () => {
+    expect(unknownMergeFields('{{clientName}}: hi', 'Hi {{contactName}}, {{intakeLink}} {{leanLine}}')).toEqual([]);
+  });
+  it('surfaces unknown fields (first-seen, de-duped) across subject + body', () => {
+    expect(unknownMergeFields('{{clientName}} {{bogus}}', 'x {{alsoBad}} {{bogus}} {{leanLine}}')).toEqual(['bogus', 'alsoBad']);
+  });
+  it('the field list and descriptions cover exactly the known fields', () => {
+    expect(Object.keys(MERGE_FIELDS).sort()).toEqual([...KNOWN_MERGE_FIELDS].sort());
+  });
+});
 
 describe('renderField', () => {
   it('substitutes every known merge field', () => {

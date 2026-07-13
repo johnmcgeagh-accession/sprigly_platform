@@ -19,8 +19,13 @@ vi.mock('drizzle-orm', () => ({
   inArray: vi.fn(() => 'inArray'),
 }));
 
-// scheduler.ts imports BASE_QUESTIONS (value) from @sprigly/engine for the Ask questions block.
-vi.mock('@sprigly/engine', () => ({ BASE_QUESTIONS: ['Q1 dates?', 'Q2 new?'] }));
+// scheduler.ts imports BASE_QUESTIONS + the shared touch derivation from @sprigly/engine. Keep
+// the real derivation (importOriginal) so the sender + shared logic can't diverge in the test;
+// only override BASE_QUESTIONS so the questions-block assertion stays stable.
+vi.mock('@sprigly/engine', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@sprigly/engine')>()),
+  BASE_QUESTIONS: ['Q1 dates?', 'Q2 new?'],
+}));
 
 // consumer.ts imports needed by transitive dependencies
 vi.mock('./extract.js',       () => ({ extractVoiceDeltasForCycle: vi.fn() }));

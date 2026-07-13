@@ -18,13 +18,12 @@
 
 import { eq, and } from 'drizzle-orm';
 import { db as _db, clients, clientChannels, contentCycles, type EmailTemplateKey } from '@sprigly/db';
-import { BASE_QUESTIONS } from '@sprigly/engine';
+import { BASE_QUESTIONS, deriveTouchSchedule, dueTouchForDay, type Touch, type MergeData } from '@sprigly/engine';
 import type { Queue } from 'bullmq';
 import type { Logger } from 'pino';
 import { IG_TRAWL_JOB_OPTIONS, igTrawlJobId, PLANNING_JOB_OPTIONS, planningJobId } from './job-options.js';
 import { transitionCycle } from './machine.js';
 import { hasAnyIntakeInput } from './intake-input.js';
-import type { MergeData } from './email-render.js';
 
 type Db = typeof _db;
 
@@ -263,24 +262,15 @@ export async function evaluateAutoRunForClient(params: {
 // client's Gmail tokens (Stage 1 — no client-facing email). Driven from the tick as a sibling
 // pass to the auto-run branch. Clients with no cutoffDay never match → legacy draft path only.
 
-export type Touch = 'ask' | 'nudge' | 'last_call';
 const TOUCH_KEY: Record<Touch, EmailTemplateKey> = { ask: 'ask', nudge: 'nudge', last_call: 'last_call' };
-const AUTO_RUN_MIN_WINDOW = 5;   // reminder→cutoff gap below this drops the Nudge (Ask + Last Call only)
 
 /**
- * Which touch (if any) is due on `todayDay` for this schedule. Ask = reminder day; Last Call =
- * cutoffDay − 1; Nudge = cutoffDay − 3 but ONLY when the window (cutoffDay − reminderDay) is at
- * least AUTO_RUN_MIN_WINDOW (which also guarantees the nudge lands strictly after the reminder).
- * Pure — no DB. Returns null (no touch) when cutoffDay is unset.
+ * Which touch (if any) is due on `todayDay` for this schedule — via the SHARED derivation in
+ * @sprigly/engine (deriveTouchSchedule + dueTouchForDay), so the sender and the admin "what
+ * fires when" readout can never disagree. Pure — no DB. Null when cutoffDay is unset.
  */
 export function dueTouch(schedule: CycleSchedule, todayDay: number): Touch | null {
-  const cutoffDay = schedule.cutoffDay ?? null;
-  if (cutoffDay == null) return null;
-  const gap = cutoffDay - schedule.day;
-  if (todayDay === schedule.day)   return 'ask';
-  if (todayDay === cutoffDay - 1)  return 'last_call';
-  if (gap >= AUTO_RUN_MIN_WINDOW && todayDay === cutoffDay - 3) return 'nudge';
-  return null;
+  return dueTouchForDay(deriveTouchSchedule(schedule.day, schedule.cutoffDay ?? null), todayDay);
 }
 
 /** Plan-month label ("August 2026") for a cycle's data month (cycleMonth + 1). */

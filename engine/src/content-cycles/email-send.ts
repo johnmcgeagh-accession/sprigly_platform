@@ -14,7 +14,7 @@ import { GmailReplyWithAttachment } from '@sprigly/destinations';
 import type { EncryptionProvider } from '@sprigly/oauth-tokens';
 import type { DestinationConfig, DeliveryContext, IncomingEvent } from '@sprigly/engine';
 import type { Logger } from 'pino';
-import { renderEmailTemplate, type MergeData } from './email-render.js';
+import { renderEmailTemplate, type MergeData } from '@sprigly/engine';
 
 type Db = typeof _db;
 

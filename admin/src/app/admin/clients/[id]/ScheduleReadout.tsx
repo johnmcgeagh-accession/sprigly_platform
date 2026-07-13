@@ -1,0 +1,75 @@
+'use client';
+
+import { deriveTouchSchedule } from '@sprigly/engine';
+
+/** The current cycle's send-log stamps + input-landed flag, for the "where are we" readout. */
+export interface CurrentCycleStatus {
+  monthLabel:     string;         // the plan month, e.g. "August 2026"
+  askSentAt:      string | null;  // ISO or null
+  nudgeSentAt:    string | null;
+  lastCallSentAt: string | null;
+  inputLanded:    boolean;        // hasAnyIntakeInput for this cycle
+}
+
+function ord(n: number): string {
+  const v = n % 100;
+  const suffix = v >= 11 && v <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th');
+  return `${n}${suffix}`;
+}
+function shortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+/**
+ * "What fires when" — derived ENTIRELY from the two dates via the SHARED derivation
+ * (deriveTouchSchedule, same as the sender), plus the current cycle's live status. No new
+ * storage. Window-collapse hides the Nudge and says so; no cutoffDay → manual-only.
+ */
+export function ScheduleReadout({ reminderDay, cutoffDay, currentCycle }: {
+  reminderDay: number | null;
+  cutoffDay:   number | null;
+  currentCycle: CurrentCycleStatus | null;
+}) {
+  if (reminderDay == null) {
+    return <p className="text-xs text-gray-400">Set a reminder day to preview the schedule.</p>;
+  }
+  const s = deriveTouchSchedule(reminderDay, cutoffDay);
+
+  if (!s.configured) {
+    return (
+      <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+        <span className="font-medium text-gray-700">Auto-run not configured — manual runs only.</span>{' '}
+        The reminder/ask email fires on the {ord(reminderDay)}.
+      </div>
+    );
+  }
+
+  const parts = [
+    `Ask: ${ord(s.askDay!)}`,
+    s.nudgeDay != null ? `Nudge: ${ord(s.nudgeDay)}` : null,
+    `Last Call: ${ord(s.lastCallDay!)}`,
+    `Plan runs: ${ord(s.planRunDay!)}`,
+  ].filter(Boolean);
+
+  const status = (label: string, at: string | null) => (at ? `${label} sent ${shortDate(at)}` : `${label} pending`);
+
+  return (
+    <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-gray-700">
+      <div className="font-medium text-gray-800">{parts.join(' · ')}</div>
+      {s.nudgeSuppressed && (
+        <div className="mt-0.5 text-gray-500">Nudge skipped — the reminder→cutoff window is under 5 days.</div>
+      )}
+      {currentCycle && (
+        <div className="mt-2 border-t border-blue-100 pt-2 text-gray-600">
+          <div className="font-medium text-gray-700">This month ({currentCycle.monthLabel}):</div>
+          <div>
+            {status('Ask', currentCycle.askSentAt)}
+            {s.nudgeDay != null ? ` · ${status('Nudge', currentCycle.nudgeSentAt)}` : ''}
+            {` · ${status('Last Call', currentCycle.lastCallSentAt)}`}
+          </div>
+          <div>Input landed: {currentCycle.inputLanded ? 'yes — reminders now suppressed' : 'not yet'}</div>
+        </div>
+      )}
+    </div>
+  );
+}

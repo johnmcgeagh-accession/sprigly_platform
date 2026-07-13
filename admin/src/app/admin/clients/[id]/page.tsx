@@ -5,7 +5,7 @@ import { formatDateTimeShort } from '@/lib/format-date';
 
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { db, clients, clientConfigs, clientChannels, oauthConnections, incomingEvents, routingRules, promptTemplates, workflowRuns, contentCycles, clientPlanningConfig } from '@sprigly/db';
+import { db, clients, clientConfigs, clientChannels, oauthConnections, incomingEvents, routingRules, promptTemplates, workflowRuns, contentCycles, clientPlanningConfig, planInputs } from '@sprigly/db';
 import { eq, desc, and, isNull, sql, inArray } from 'drizzle-orm';
 import { workflowMeta, type WorkflowMeta } from '@sprigly/workflows';
 import { getTokens, storeTokens, createEncryptionProvider } from '@sprigly/oauth-tokens';
@@ -104,7 +104,19 @@ type CycleInfo = {
   postsSyncStatus: string | null;
   postsSyncedAt:   string | null;  // ISO; provenance for a verified 'synced' (0061)
   postsSyncedRunId: string | null;
+  // Intake-capture (Build 4) — send-log stamps + whether input has landed (for the readout).
+  askSentAt:       string | null;
+  nudgeSentAt:     string | null;
+  lastCallSentAt:  string | null;
+  inputLanded:     boolean;
 };
+
+/** Mirror of the sender's hasIntakeContent (worker) — any non-empty answer or free notes. */
+function hasIntakeContent(intake: IntakeJson | null): boolean {
+  const answers = intake?.planContent?.answers ?? {};
+  const freeNotes = (intake?.planContent?.freeNotes ?? '').trim();
+  return freeNotes.length > 0 || Object.values(answers).some((v) => (v ?? '').trim().length > 0);
+}
 
 async function getCompetitorsByChannel(
   clientId: string,
@@ -136,6 +148,10 @@ async function getCyclesByChannel(
       postsSyncStatus: contentCycles.postsSyncStatus,
       postsSyncedAt:   contentCycles.postsSyncedAt,
       postsSyncedRunId: contentCycles.postsSyncedRunId,
+      askSentAt:       contentCycles.askSentAt,
+      nudgeSentAt:     contentCycles.nudgeSentAt,
+      lastCallSentAt:  contentCycles.lastCallSentAt,
+      createdAt:       contentCycles.createdAt,
     })
     .from(contentCycles)
     .where(
@@ -145,6 +161,16 @@ async function getCyclesByChannel(
         inArray(contentCycles.channel, channelNames),
       ),
     );
+  // Durable inputs (active idea|next_cycle) for the client — for the "input landed" flag we
+  // count those created at/after the cycle (mirrors the sender's hasAnyIntakeInput recency bound).
+  const durable = await db
+    .select({ createdAt: planInputs.createdAt })
+    .from(planInputs)
+    .where(and(
+      eq(planInputs.clientId, clientId),
+      inArray(planInputs.type, ['idea', 'next_cycle']),
+      eq(planInputs.status, 'active'),
+    ));
   return new Map(rows.map(r => [r.channel, {
     id:            r.id,
     status:        r.status,
@@ -155,6 +181,10 @@ async function getCyclesByChannel(
     postsSyncStatus: r.postsSyncStatus ?? null,
     postsSyncedAt:   r.postsSyncedAt ? r.postsSyncedAt.toISOString() : null,
     postsSyncedRunId: r.postsSyncedRunId ?? null,
+    askSentAt:       r.askSentAt ? r.askSentAt.toISOString() : null,
+    nudgeSentAt:     r.nudgeSentAt ? r.nudgeSentAt.toISOString() : null,
+    lastCallSentAt:  r.lastCallSentAt ? r.lastCallSentAt.toISOString() : null,
+    inputLanded:     hasIntakeContent((r.intakeJson as IntakeJson | null) ?? null) || durable.some((d) => d.createdAt >= r.createdAt),
   }]));
 }
 
@@ -402,6 +432,13 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                   contentCycleSchedule={ch.contentCycleSchedule ?? null}
                   extraQuestions={ch.extraQuestions ?? null}
                   contentCycleEnabled={client.contentCycleEnabled}
+                  currentCycle={(() => {
+                    const c = cyclesByChannel.get(ch.channel);
+                    if (!c) return null;
+                    const [y, m] = dataMonth.split('-').map(Number);   // plan month = dataMonth + 1
+                    const monthLabel = new Date(Date.UTC(y!, m!, 1)).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+                    return { monthLabel, askSentAt: c.askSentAt, nudgeSentAt: c.nudgeSentAt, lastCallSentAt: c.lastCallSentAt, inputLanded: c.inputLanded };
+                  })()}
                 />
               </div>
             ))}
