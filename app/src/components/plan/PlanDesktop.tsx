@@ -5,7 +5,7 @@ import type { PlanData } from './usePlanData';
 import { Drawer, Scrim, Dialog, DISABLED_PRIMARY } from './primitives';
 import { PostEditor } from './PostEditor';
 import { PostChip, ProposalCard, NoteRow, ExtractionSummary, monthDayLabel, postTitle, WeatherCellIcon } from './pieces';
-import { BeatMarker } from './BeatMarker';
+import { BeatMarker, beatFlashText } from './BeatMarker';
 import { planTasks, lateCount, viewedMonth } from './derive';
 import { orphanPosts } from '@/lib/cycle-nav';
 import {
@@ -248,7 +248,7 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
                 ))}
                 {/* Brief beats — read-only markers, visually secondary, distinct from posts. */}
                 {data.beatsOn(isoOf(day)).map((b, i) => (
-                  <BeatMarker key={`beat-${i}`} beat={b} onClick={() => data.flash(b.note || b.type || 'Beat')} />
+                  <BeatMarker key={`beat-${i}`} beat={b} day={isoOf(day)} onClick={() => data.flash(beatFlashText(b))} />
                 ))}
               </div>
               {data.canEdit(isoOf(day)) && dayPosts.length === 0 && (

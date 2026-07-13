@@ -207,7 +207,11 @@ function renderStructuredBriefSection(sb: StructuredBrief): string {
   }).join('\n');
   const schedule = sb.schedule.map((b) => {
     const who = [b.product, b.colourway].filter(Boolean).join(' ');
-    return `  - ${b.date} (${b.type})${who ? ` — ${who}` : ''}: ${b.note}`;
+    // Range beats render their resolved span (e.g. "2026-08-25 to 2026-08-31"); the note still
+    // carries the client's original vague phrasing so the generator sees BOTH the concrete
+    // window and the "last week of August" framing.
+    const when = b.dateRange ? `${b.dateRange.start} to ${b.dateRange.end}` : b.date;
+    return `  - ${when} (${b.type})${who ? ` — ${who}` : ''}: ${b.note}`;
   }).join('\n');
   const asks = sb.content_asks.map((a) => `  - ${a.type}${a.product ? ` (${a.product})` : ''}: ${a.note}`).join('\n');
   const pw = sb.plan_window;
@@ -221,7 +225,7 @@ function renderStructuredBriefSection(sb: StructuredBrief): string {
     'BRIEFED LAUNCHES / RESTOCKS (the ONLY launches and restocks this month — feature these; do NOT frame any other product as launching, new, or returning):',
     products || '  (none)',
     '',
-    'FIXED DATED BEATS (authoritative schedule — use THESE dates exactly; do not invent, shift, or de-collide dates. Two beats may legitimately share a date):',
+    'FIXED DATED BEATS (authoritative schedule — use THESE dates exactly; do not invent, shift, or de-collide dates. Two beats may legitimately share a date. A beat given as a range "X to Y" is a VAGUE window: place it on a sensible single day INSIDE that window, keeping the window\'s framing):',
     schedule || '  (none)',
     '',
     'UNDATED CONTENT PIECES (each MUST appear once somewhere in the month, on a sensible date inside the plan window — do NOT drop any):',

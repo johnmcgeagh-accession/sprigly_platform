@@ -4,8 +4,13 @@
  * extracts (no longer short-circuited to empty).
  */
 import { describe, it, expect, vi } from 'vitest';
-import { buildBriefExtractUserMessage, extractStructuredBrief, EMPTY_STRUCTURED_BRIEF } from './brief-extract.js';
+import { buildBriefExtractUserMessage, extractStructuredBrief, validateStructuredBrief, EMPTY_STRUCTURED_BRIEF } from './brief-extract.js';
 import type { ModelClient } from '@sprigly/model-client';
+
+/** A structurally-valid brief with one supplied schedule beat — for gate tests. */
+function briefWithBeat(beat: Record<string, unknown>) {
+  return { products: [], schedule: [beat], content_asks: [], focus: [], conflicts: [], plan_window: { from: null, month: '2026-08' } };
+}
 
 describe('buildBriefExtractUserMessage', () => {
   it('includes a DURABLE CONTEXT section, after and distinct from the brief', () => {
@@ -57,5 +62,44 @@ describe('extractStructuredBrief — durable context', () => {
     const r = await extractStructuredBrief({ planContent: { answers: {}, freeNotes: '' }, planMonth: '2026-08', model, durableContext: [] });
     expect(complete).not.toHaveBeenCalled();
     expect(r).toEqual(EMPTY_STRUCTURED_BRIEF);
+  });
+});
+
+// Build 6 — the extract-gate WIDENS to accept range beats but stays STRICT: a beat must set
+// exactly one of date / dateRange, and a range must be two ISO dates with start <= end.
+describe('validateStructuredBrief — schedule beats: single vs range (fail-loud gate)', () => {
+  it('accepts a single-day beat (date set, dateRange null)', () => {
+    const b = validateStructuredBrief(briefWithBeat({ date: '2026-08-25', dateRange: null, type: 'launch', product: null, colourway: null, note: 'the 25th' }));
+    expect(b.schedule[0]).toMatchObject({ date: '2026-08-25', dateRange: null });
+  });
+
+  it('accepts a range beat (date null, dateRange set) and preserves the note phrasing', () => {
+    const b = validateStructuredBrief(briefWithBeat({ date: null, dateRange: { start: '2026-08-25', end: '2026-08-31' }, type: 'sale', product: null, colourway: null, note: 'the last week of August' }));
+    expect(b.schedule[0]).toMatchObject({ date: null, dateRange: { start: '2026-08-25', end: '2026-08-31' }, note: 'the last week of August' });
+  });
+
+  it('accepts a persisted pre-range beat (date only, dateRange key absent)', () => {
+    const b = validateStructuredBrief(briefWithBeat({ date: '2026-08-10', type: 'feature', product: null, colourway: null, note: 'legacy' }));
+    expect(b.schedule[0]).toMatchObject({ date: '2026-08-10', dateRange: null });
+  });
+
+  it('REJECTS a beat that sets BOTH date and dateRange', () => {
+    expect(() => validateStructuredBrief(briefWithBeat({ date: '2026-08-25', dateRange: { start: '2026-08-25', end: '2026-08-31' }, type: 't', product: null, colourway: null, note: 'n' })))
+      .toThrow(/must not set BOTH/);
+  });
+
+  it('REJECTS a beat that sets NEITHER date nor dateRange', () => {
+    expect(() => validateStructuredBrief(briefWithBeat({ date: null, dateRange: null, type: 't', product: null, colourway: null, note: 'n' })))
+      .toThrow(/must set EITHER/);
+  });
+
+  it('REJECTS a range whose start is after its end', () => {
+    expect(() => validateStructuredBrief(briefWithBeat({ date: null, dateRange: { start: '2026-08-31', end: '2026-08-25' }, type: 't', product: null, colourway: null, note: 'n' })))
+      .toThrow(/must not be after/);
+  });
+
+  it('REJECTS a range with a non-ISO endpoint', () => {
+    expect(() => validateStructuredBrief(briefWithBeat({ date: null, dateRange: { start: '2026-08-25', end: 'soon' }, type: 't', product: null, colourway: null, note: 'n' })))
+      .toThrow(/must be an ISO date/);
   });
 });

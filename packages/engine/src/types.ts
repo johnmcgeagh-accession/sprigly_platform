@@ -273,13 +273,17 @@ export interface BriefProduct {
   content_from: string | null;        // ISO date content may start, or null
 }
 
-// A dated content beat from the brief (a specific placement on a specific date).
+// A dated content beat from the brief. EXACTLY ONE of `date` (a single day) or
+// `dateRange` (an inclusive span, for vague timing like "the last week of August")
+// is non-null — the extract-gate rejects a beat with both or neither. Persisted
+// pre-range beats carry `date` only; they read back as single-day beats unchanged.
 export interface BriefScheduleBeat {
-  date:      string;                   // ISO date (YYYY-MM-DD) — must appear literally in the brief
+  date:      string | null;            // ISO date (YYYY-MM-DD) for a single-day beat; null for a range beat
+  dateRange: { start: string; end: string } | null;  // inclusive ISO range for a vague-timing beat; null for a single day
   type:      string;                   // beat kind, e.g. "launch" | "weekend-style-guide" | "sunday-style"
   product:   string | null;           // the product this beat features, if named
   colourway: string | null;           // the colourway for this beat, if named
-  note:      string;                   // the beat text, verbatim from the brief
+  note:      string;                   // the beat text, verbatim from the brief (vague phrasing preserved)
 }
 
 // An UNDATED content ask: a piece the brief asks for this month with no fixed

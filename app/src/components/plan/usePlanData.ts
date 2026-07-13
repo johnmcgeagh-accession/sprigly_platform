@@ -68,9 +68,20 @@ export function usePlanData(init: PlanDataInit) {
   // month simply don't land in any cell; no post appears in more than one month's grid.
   const calendarPosts = useMemo(() => [...posts, ...crossMonthPosts], [posts, crossMonthPosts]);
   // Beats bucketed by ISO date for the calendar (read-only markers; independent of posts).
+  // A range beat (endDate set) is placed on EVERY day of its clipped span so it renders as a
+  // spanning indicator; a single-day beat lands on its one date. The same beat object is
+  // shared across its days — the marker uses the current `day` to pick its segment.
   const beatsByDate = useMemo(() => {
     const m = new Map<string, PlanBeat[]>();
-    for (const b of beats) { const a = m.get(b.date) ?? []; a.push(b); m.set(b.date, a); }
+    const put = (iso: string, b: PlanBeat) => { const a = m.get(iso) ?? []; a.push(b); m.set(iso, a); };
+    for (const b of beats) {
+      if (!b.endDate || b.endDate <= b.date) { put(b.date, b); continue; }
+      for (let d = new Date(`${b.date}T00:00:00Z`); ; d.setUTCDate(d.getUTCDate() + 1)) {
+        const iso = d.toISOString().slice(0, 10);
+        put(iso, b);
+        if (iso >= b.endDate) break;
+      }
+    }
     return m;
   }, [beats]);
   const beatsOn = useCallback((dateIso: string) => beatsByDate.get(dateIso) ?? [], [beatsByDate]);

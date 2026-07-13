@@ -50,6 +50,17 @@ const config: Config = {
         'line-soft': '#F1EFEC',
         'amber-tint': '#FDF0D8',
         danger: '#B23A2E',
+        // Brief-beat accent (Build 6, Part D). Beats are the immediate briefing feedback and
+        // must read VIVID — the one chromatically-assertive small element on the calendar.
+        // The system's existing ambers are a pale tint (#FDF0D8) and a dark text-only shade
+        // (amber-deep #7A5200); neither is a saturated FILL, so `beat` is a deliberate new
+        // accent. Hue ~40° (gold-amber) is well clear of coral's ~9° salmon, and beats are
+        // FILLED where posts are white cards, so the two never read alike. Contrasts (see
+        // DECISIONS): ink on fill 5.99:1 (AA small text); border on white 3.87:1 / on paper
+        // 3.59:1 (≥3:1 UI-component edge); fill hue vs coral is unmistakable.
+        beat: '#EC9A0C',           // vivid gold-amber fill
+        'beat-border': '#B4740A',  // deeper amber — strong defining edge
+        'beat-ink': '#3E2A00',     // espresso-amber text/glyph on the fill (5.99:1)
       },
       fontFamily: {
         sans: ['var(--font-jakarta)', 'system-ui', 'sans-serif'],

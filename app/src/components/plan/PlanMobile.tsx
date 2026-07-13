@@ -7,7 +7,7 @@ import { Scrim, Sheet, SegmentedControl } from './primitives';
 import { MonthWheelPicker } from './MonthWheelPicker';
 import { PostEditor } from './PostEditor';
 import { ProgressRing, postTitle, isUntitled, WeatherHeaderBadge } from './pieces';
-import { BeatMarker } from './BeatMarker';
+import { BeatMarker, beatFlashText } from './BeatMarker';
 import { CalendarPicker } from './pickers';
 import { planTasks, lateCount, viewedMonth } from './derive';
 import {
@@ -215,7 +215,7 @@ export function PlanMobile({ data }: { data: PlanData }) {
                 {/* Brief beats — read-only markers, distinct from posts. */}
                 {data.beatsOn(iso).length > 0 && (
                   <div className="mb-3 flex flex-col gap-1">
-                    {data.beatsOn(iso).map((b, i) => <BeatMarker key={`beat-${i}`} beat={b} onClick={() => data.flash(b.note || b.type || 'Beat')} />)}
+                    {data.beatsOn(iso).map((b, i) => <BeatMarker key={`beat-${i}`} beat={b} day={iso} mobile onClick={() => data.flash(beatFlashText(b))} />)}
                   </div>
                 )}
               </section>
