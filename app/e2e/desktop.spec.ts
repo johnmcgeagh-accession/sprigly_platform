@@ -143,21 +143,23 @@ test('shape pending → disabled + pending copy → caption swaps on completion'
 });
 
 test('month nav: round-trips to the adjacent August cycle and disables at boundaries', async ({ page }) => {
-  // July is the home cycle and the earliest — prev is disabled, next available.
+  // July is the landed (today = 2026-07-08) cycle and the earliest — prev disabled, next available.
   await expect(page.getByText('July 2026')).toBeVisible();
   await expect(page.getByTestId('prev-month')).toBeDisabled();
   await expect(page.getByTestId('next-month')).toBeEnabled();
 
-  // Forward to August: a read-only sibling with its own posts, no editing controls.
+  // Forward to August: a sibling cycle with its own posts. Editability is date-based, not
+  // whole-cycle — every August day is future (>= today), so the month is fully editable and
+  // its empty days offer the add affordance (regardless of which cycle the token was minted for).
   await page.getByTestId('next-month').click();
   await expect(page.getByText('August 2026')).toBeVisible();
   await expect(page.getByTestId('post-chip')).toHaveCount(3);
-  await expect(page.getByTestId('add-on-day')).toHaveCount(0);
+  await expect(page.getByTestId('add-on-day').first()).toBeVisible();
   // August is the far boundary — next disabled, prev available.
   await expect(page.getByTestId('next-month')).toBeDisabled();
   await expect(page.getByTestId('prev-month')).toBeEnabled();
 
-  // Back to July (home, editable again).
+  // Back to July (today-onward posts editable; the two pre-8th posts are read-only).
   await page.getByTestId('prev-month').click();
   await expect(page.getByText('July 2026')).toBeVisible();
   await expect(page.getByTestId('post-chip')).toHaveCount(12);
