@@ -176,6 +176,33 @@ export const promptTemplates = pgTable(
 export type PromptTemplate = typeof promptTemplates.$inferSelect;
 export type NewPromptTemplate = typeof promptTemplates.$inferInsert;
 
+// ─── email_templates ──────────────────────────────────────────────────────────
+// Platform-level GLOBAL email copy (intake-capture Build 2). NO client_id by
+// construction — no per-client forks. Versioned; the PUBLISHED row per key is the one
+// resolved. "one published per key" is enforced by a PARTIAL unique index defined in
+// migration 0077 (email_templates_published_key … WHERE is_published) — not expressible
+// in drizzle's index builder, so it lives in the migration only (runtime-irrelevant here).
+
+export const emailTemplates = pgTable(
+  'email_templates',
+  {
+    id:              uuid('id').primaryKey().defaultRandom(),
+    key:             text('key').notNull(),   // 'ask' | 'nudge' | 'last_call' | 'plan_ready'
+    subjectTemplate: text('subject_template').notNull(),
+    bodyTemplate:    text('body_template').notNull(),
+    version:         integer('version').notNull().default(1),
+    isPublished:     boolean('is_published').notNull().default(false),
+    createdAt:       timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    keyVersionUniq: uniqueIndex('email_templates_key_version').on(t.key, t.version),
+  }),
+);
+
+export type EmailTemplate    = typeof emailTemplates.$inferSelect;
+export type NewEmailTemplate = typeof emailTemplates.$inferInsert;
+export type EmailTemplateKey = 'ask' | 'nudge' | 'last_call' | 'plan_ready';
+
 // ─── incoming_events ──────────────────────────────────────────────────────────
 
 export type EventStatus =

@@ -60,8 +60,8 @@ import { DriveApiClient } from '@sprigly/sources';
 import type { ModelClient } from '@sprigly/model-client';
 import type { AuditLogger } from '@sprigly/audit';
 import type { DbPromptResolver } from '@sprigly/prompts';
-import type { IntakeJson, CompetitorGatherData, StructuredBrief, IncomingEvent, DestinationConfig, DeliveryContext } from '@sprigly/engine';
-import { GmailReplyWithAttachment } from '@sprigly/destinations';
+import type { IntakeJson, CompetitorGatherData, StructuredBrief } from '@sprigly/engine';
+import { deliverTemplatedEmail } from './email-send.js';
 import type { Logger } from 'pino';
 import { transitionCycle } from './machine.js';
 import { applyCodeGate, applyCritic, normaliseDashes } from './plan-validation.js';
@@ -587,11 +587,6 @@ export async function assembleShapeContext(
 
 // ── App-surface delivery helpers (Drive-free path) ────────────────────────────
 
-/** The pinned test-inbox recipient for the app-ready notification. IDENTICAL to the
- *  build-workbook workflow's pin — deliberately NOT real client delivery (that is the
- *  deferred go-live toggle). Do not change without changing the workflow pin too. */
-const APP_DELIVERY_PIN = 'john.mcgeagh@gmail.com';
-
 /**
  * Ensure a per-cycle app magic link exists, IDEMPOTENTLY: reuse a live (non-revoked,
  * unexpired) token for this cycle if one exists, else mint one. Returns the /p/<token>
@@ -643,11 +638,12 @@ export async function ensureAppLink(
 }
 
 /**
- * Send the app-surface "plan ready" notification as a LINK-ONLY email (no attachment,
- * no Drive URL), PINNED to the test inbox — reusing the existing gmail-reply-with-attachment
- * destination that sheet/both already use, invoked directly (no workbook workflow). The
- * cycle's plan is already in content_cycle_posts; this send is best-effort — a failure is
- * logged and never fails the cycle. Requires the client's Gmail tokens (same as sheet/both).
+ * Send the app-surface "plan ready" notification as a LINK-ONLY email, PINNED to the test
+ * inbox, with the client's Gmail tokens — now rendered from the PUBLISHED 'plan_ready' email
+ * template (migration 0077) rather than hardcoded copy, so all four intake-capture emails
+ * live in one system. Output is byte-equivalent to the previous hardcoded copy for the same
+ * inputs (snapshot-tested). Best-effort: a failure is logged inside deliverTemplatedEmail and
+ * never fails the cycle. {{appUrl}} became {{appLink}} in the template — same rendered URL.
  */
 async function sendAppReadyNotification(
   deps:      PlanningDeps,
@@ -656,30 +652,10 @@ async function sendAppReadyNotification(
   monthLabel: string,
   appUrl:    string,
 ): Promise<void> {
-  try {
-    const dest = new GmailReplyWithAttachment(deps.db, deps.encProvider, deps.googleClientId, deps.googleClientSecret);
-    const event = { clientId, reply: { data: {} } } as unknown as IncomingEvent;
-    const config = {
-      settings: {
-        to: { mode: 'address', address: APP_DELIVERY_PIN },
-        subjectTemplate: '{{clientName}}: your content plan for {{monthLabel}} is ready',
-        bodyTemplate:
-          'Hi,\n\nYour Sprigly content plan for {{monthLabel}} is ready.\n\n' +
-          'Open and shape it here:\n{{appUrl}}\n\n' +
-          'Move posts, edit captions and add ideas — your changes save as you go.\n\nBest,\nSprigly',
-        noAttachment: true,
-      },
-    } as unknown as DestinationConfig;
-    const ctx = { clientId } as unknown as DeliveryContext;
-    const result = await dest.deliver({ clientName, monthLabel, appUrl }, event, config, ctx);
-    if (result.success) {
-      deps.logger.info({ clientId, to: APP_DELIVERY_PIN }, 'content-cycles: app-ready link-only notification sent (pinned test inbox)');
-    } else {
-      deps.logger.warn({ clientId, err: result.error }, 'content-cycles: app-ready notification not sent (non-fatal)');
-    }
-  } catch (err) {
-    deps.logger.warn({ clientId, err: String(err) }, 'content-cycles: app-ready notification failed (non-fatal)');
-  }
+  await deliverTemplatedEmail(
+    { db: deps.db, encProvider: deps.encProvider, googleClientId: deps.googleClientId, googleClientSecret: deps.googleClientSecret, logger: deps.logger },
+    { key: 'plan_ready', clientId, merge: { clientName, monthLabel, appLink: appUrl } },
+  );
 }
 
 /**

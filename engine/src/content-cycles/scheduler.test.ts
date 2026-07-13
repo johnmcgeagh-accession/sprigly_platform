@@ -19,6 +19,9 @@ vi.mock('drizzle-orm', () => ({
   inArray: vi.fn(() => 'inArray'),
 }));
 
+// scheduler.ts imports BASE_QUESTIONS (value) from @sprigly/engine for the Ask questions block.
+vi.mock('@sprigly/engine', () => ({ BASE_QUESTIONS: ['Q1 dates?', 'Q2 new?'] }));
+
 // consumer.ts imports needed by transitive dependencies
 vi.mock('./extract.js',       () => ({ extractVoiceDeltasForCycle: vi.fn() }));
 vi.mock('./apply.js',         () => ({ applyVoiceDeltasForCycle:  vi.fn() }));
@@ -35,6 +38,8 @@ import {
   enqueueCycleForClient,
   runContentCycleTick,
   planAutoRunTransitions,
+  dueTouch,
+  evaluateThreeTouchForClient,
   type CycleSchedule,
 } from './scheduler.js';
 import { igTrawlJobId, IG_TRAWL_JOB_OPTIONS } from './job-options.js';
@@ -449,5 +454,115 @@ describe('runContentCycleTick — auto-run DARK (AUTO_RUN_ENABLED unset ⇒ fals
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const dryCalls = (LOGGER.info as any).mock.calls.filter((c: unknown[]) => typeof c[1] === 'string' && (c[1] as string).includes('[auto-run:dry]'));
     expect(dryCalls).toHaveLength(0);
+  });
+});
+
+// ── Three-touch reminder sender (intake-capture Build 2) ──────────────────────
+
+describe('dueTouch', () => {
+  const sched = (day: number, cutoffDay?: number): CycleSchedule => ({ day, hour: 6, ...(cutoffDay != null ? { cutoffDay } : {}) });
+
+  it('Ask on the reminder day', () => expect(dueTouch(sched(5, 20), 5)).toBe('ask'));
+  it('Last Call on cutoffDay − 1', () => expect(dueTouch(sched(5, 20), 19)).toBe('last_call'));
+  it('Nudge on cutoffDay − 3 when the window is ≥ 5', () => expect(dueTouch(sched(5, 20), 17)).toBe('nudge'));
+  it('no touch on an ordinary day', () => expect(dueTouch(sched(5, 20), 12)).toBeNull());
+  it('window-collapse (<5): cutoffDay − 3 yields NO nudge', () => {
+    // day 18, cutoff 20 → gap 2; cutoff−3 = 17 must NOT be a nudge day.
+    expect(dueTouch(sched(18, 20), 17)).toBeNull();
+    expect(dueTouch(sched(18, 20), 18)).toBe('ask');        // still Ask on reminder day
+    expect(dueTouch(sched(18, 20), 19)).toBe('last_call');  // still Last Call on cutoff−1
+  });
+  it('no cutoffDay → never any touch', () => expect(dueTouch(sched(5), 5)).toBeNull());
+});
+
+describe('evaluateThreeTouchForClient', () => {
+  const TODAY = { year: 2026, month: 6, day: 5 };   // 5 June 2026
+  const SCHED: CycleSchedule = { day: 5, hour: 6, cutoffDay: 20 };
+  const emptyCycle = {
+    id: 'cyc-1', status: 'scheduled', cycleMonth: '2026-06',
+    intakeJson: { planContent: { answers: {}, freeNotes: '' } }, createdAt: new Date('2026-06-01T00:00:00Z'),
+    askSentAt: null, nudgeSentAt: null, lastCallSentAt: null,
+  };
+  const clientRow = { name: 'Ivy T' };
+  const chanRow   = { contactName: 'Sally', extraQuestions: null };
+
+  // Ordered results for each select().…​.limit() call.
+  function makeSenderDb(limitResults: unknown[][]) {
+    let i = 0;
+    const updateWhere = vi.fn().mockResolvedValue(undefined);
+    const update = vi.fn().mockReturnValue({ set: vi.fn().mockReturnValue({ where: updateWhere }) });
+    const db = {
+      select: vi.fn().mockReturnValue({
+        from:  vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockImplementation(() => Promise.resolve(limitResults[i++] ?? [])),
+      }),
+      update,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any;
+    return { db, update };
+  }
+  const base = (db: unknown, over: Partial<Parameters<typeof evaluateThreeTouchForClient>[0]> = {}) => ({
+    db: db as never, clientId: 'c1', channel: 'instagram', dataMonth: '2026-06',
+    schedule: SCHED, today: TODAY, logger: LOGGER as never,
+    sendEmail: vi.fn().mockResolvedValue(true),
+    resolveAppLink: vi.fn().mockResolvedValue('https://app/p/tok'),
+    ...over,
+  });
+
+  it('Ask fires on the reminder day, sends key=ask with a full merge, and stamps ask_sent_at', async () => {
+    const { db, update } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
+    const args = base(db);
+    const res = await evaluateThreeTouchForClient(args);
+    expect(res).toBe('sent');
+    expect(args.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+      key: 'ask', clientId: 'c1',
+      merge: expect.objectContaining({
+        clientName: 'Ivy T', contactName: 'Sally', monthLabel: 'July 2026',
+        cutoffDate: '20 June', daysToCutoff: '15', intakeLink: 'https://app/p/tok', appLink: 'https://app/p/tok',
+        questionsBlock: expect.stringContaining('1. Q1 dates?'),
+      }),
+    }));
+    expect(update).toHaveBeenCalledTimes(1);   // stamp
+  });
+
+  it('is at-most-once: a set ask_sent_at → skip, no send, no stamp', async () => {
+    const { db, update } = makeSenderDb([[{ ...emptyCycle, askSentAt: new Date() }]]);
+    const args = base(db);
+    expect(await evaluateThreeTouchForClient(args)).toBe('skipped');
+    expect(args.sendEmail).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('is suppressed when intake input already exists → skip, no send, no stamp', async () => {
+    const withInput = { ...emptyCycle, intakeJson: { planContent: { answers: { q1: 'launch' }, freeNotes: '' } } };
+    const { db, update } = makeSenderDb([[withInput]]);
+    const args = base(db);
+    expect(await evaluateThreeTouchForClient(args)).toBe('skipped');
+    expect(args.sendEmail).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('a send FAILURE is non-fatal and does NOT stamp', async () => {
+    const { db, update } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
+    const args = base(db, { sendEmail: vi.fn().mockResolvedValue(false) });
+    expect(await evaluateThreeTouchForClient(args)).toBe('skipped');
+    expect(args.sendEmail).toHaveBeenCalledTimes(1);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('Last Call fires on cutoffDay − 1 with key=last_call', async () => {
+    const { db } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
+    const args = base(db, { today: { year: 2026, month: 6, day: 19 } });
+    expect(await evaluateThreeTouchForClient(args)).toBe('sent');
+    expect(args.sendEmail).toHaveBeenCalledWith(expect.objectContaining({ key: 'last_call' }));
+  });
+
+  it('a client with no cutoffDay is untouched — no DB read, no send', async () => {
+    const { db } = makeSenderDb([]);
+    const args = base(db, { schedule: { day: 5, hour: 6 } });   // no cutoffDay
+    expect(await evaluateThreeTouchForClient(args)).toBe('skipped');
+    expect((db as { select: ReturnType<typeof vi.fn> }).select).not.toHaveBeenCalled();
+    expect(args.sendEmail).not.toHaveBeenCalled();
   });
 });

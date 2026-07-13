@@ -17,14 +17,33 @@
  */
 
 import { eq, and } from 'drizzle-orm';
-import { db as _db, clients, clientChannels, contentCycles } from '@sprigly/db';
+import { db as _db, clients, clientChannels, contentCycles, type EmailTemplateKey } from '@sprigly/db';
+import { BASE_QUESTIONS } from '@sprigly/engine';
 import type { Queue } from 'bullmq';
 import type { Logger } from 'pino';
 import { IG_TRAWL_JOB_OPTIONS, igTrawlJobId, PLANNING_JOB_OPTIONS, planningJobId } from './job-options.js';
 import { transitionCycle } from './machine.js';
 import { hasAnyIntakeInput } from './intake-input.js';
+import type { MergeData } from './email-render.js';
 
 type Db = typeof _db;
+
+/** Injected send capability (constructed in the consumer with real Gmail deps): resolve +
+ *  render + deliver a templated email to the pinned inbox. Returns true on a confirmed send. */
+export type SendTemplatedEmailFn = (input: { key: EmailTemplateKey; clientId: string; merge: MergeData }) => Promise<boolean>;
+/** Injected app-link resolver (planning.ensureAppLink), so the scheduler stays free of the
+ *  heavy planning module. Returns the /p/<token> URL for the cycle, or null. */
+export type ResolveAppLinkFn = (clientId: string, cycleId: string) => Promise<string | null>;
+
+/** Payload for the optional post-go-live operator notify hook (auto-run). */
+export interface AutoRunNotifyInfo {
+  clientId:      string;
+  channel:       string;
+  cycleId:       string;
+  dataMonth:     string;
+  monthLabel:    string;
+  intakePresent: boolean;
+}
 
 // Statuses indicating the cycle for this (client, channel, month) is already underway.
 // 'scheduled'  is intentionally absent: the row exists but the BullMQ job may have been
@@ -168,7 +187,7 @@ export async function evaluateAutoRunForClient(params: {
   schedule:  CycleSchedule;
   today:     { day: number };
   logger:    Logger;
-  notify?:   ((info: { clientId: string; channel: string; cycleId: string; dataMonth: string }) => Promise<void>) | undefined;
+  notify?:   ((info: AutoRunNotifyInfo) => Promise<void>) | undefined;
 }): Promise<'dry' | 'ran' | 'skipped'> {
   const { db, queue, clientId, channel, dataMonth, schedule, today, logger, notify } = params;
   const logCtx = { clientId, channel, dataMonth };
@@ -202,7 +221,7 @@ export async function evaluateAutoRunForClient(params: {
 
   const transitions    = planAutoRunTransitions(cycle.status);
   const hasIntakeInput = await hasAnyIntakeInput(db, { clientId: cycle.clientId, createdAt: cycle.createdAt, intakeJson: cycle.intakeJson });
-  const notifySummary  = `pinned app-ready notification for cycle ${cycle.id} (${dataMonth} plan)`;
+  const monthLabel     = planMonthLabel(dataMonth);   // dataMonth === this cycle's cycleMonth
 
   if (!AUTO_RUN_ENABLED) {
     logger.info({
@@ -211,11 +230,11 @@ export async function evaluateAutoRunForClient(params: {
       currentStatus:   cycle.status,
       cutoffDay,
       todayDay:        today.day,
+      monthLabel,
       wouldTransition: transitions,
       hasIntakeInput,
       wouldEnqueue:    `planning:${cycle.id}`,
-      wouldNotify:     notifySummary,
-    }, `${AUTO_RUN_DRY_PREFIX} would advance cycle ${cycle.id} ${cycle.status} → intake_confirmed via [${transitions.join(', ')}], then enqueue planning (intake ${hasIntakeInput ? 'present' : 'empty — baseline run'}); would notify: ${notifySummary}`);
+    }, `${AUTO_RUN_DRY_PREFIX} would advance cycle ${cycle.id} ${cycle.status} → intake_confirmed via [${transitions.join(', ')}], then enqueue planning (intake ${hasIntakeInput ? 'present' : 'empty — baseline run'}) and log [auto-run:kicked]. No enqueue-time email — the completion-path plan_ready send (pinned) is the Stage-1 observation.`);
     return 'dry';
   }
 
@@ -227,23 +246,150 @@ export async function evaluateAutoRunForClient(params: {
     await transitionCycle(db, cycle.id, to, {}, logger);
   }
   await queue.add('planning', { type: 'planning', cycleId: cycle.id }, { ...PLANNING_JOB_OPTIONS, jobId: planningJobId(cycle.id) });
-  logger.info({ ...logCtx, cycleId: cycle.id, hasIntakeInput },
-    'content-cycle-scheduler: auto-run advanced cycle to intake_confirmed and enqueued planning');
+  // Trigger-time signal is LOG-ONLY (no email): the completion-path plan_ready send (pinned) is
+  // the Stage-1 observation. The `notify` hook is kept as a seam so an operator notification can
+  // be wired post-go-live — it is intentionally NOT wired to email in this build.
+  logger.info({ ...logCtx, cycleId: cycle.id, monthLabel, intakePresent: hasIntakeInput },
+    `[auto-run:kicked] advanced ${cycle.status} → intake_confirmed and enqueued planning for ${monthLabel} (intake ${hasIntakeInput ? 'present' : 'empty — baseline run'})`);
   if (notify) {
-    try { await notify({ clientId, channel, cycleId: cycle.id, dataMonth }); }
-    catch (err) { logger.warn({ ...logCtx, cycleId: cycle.id, err: String(err) }, 'content-cycle-scheduler: auto-run notification failed (non-fatal)'); }
+    try { await notify({ clientId, channel, cycleId: cycle.id, dataMonth, monthLabel, intakePresent: hasIntakeInput }); }
+    catch (err) { logger.warn({ ...logCtx, cycleId: cycle.id, err: String(err) }, 'content-cycle-scheduler: auto-run operator notify failed (non-fatal)'); }
   }
   return 'ran';
 }
+
+// ── Three-touch reminder sender (intake-capture Build 2) ──────────────────────
+// Sends the Ask / Nudge / Last-Call reminder emails, always PINNED to the test inbox with the
+// client's Gmail tokens (Stage 1 — no client-facing email). Driven from the tick as a sibling
+// pass to the auto-run branch. Clients with no cutoffDay never match → legacy draft path only.
+
+export type Touch = 'ask' | 'nudge' | 'last_call';
+const TOUCH_KEY: Record<Touch, EmailTemplateKey> = { ask: 'ask', nudge: 'nudge', last_call: 'last_call' };
+const AUTO_RUN_MIN_WINDOW = 5;   // reminder→cutoff gap below this drops the Nudge (Ask + Last Call only)
+
+/**
+ * Which touch (if any) is due on `todayDay` for this schedule. Ask = reminder day; Last Call =
+ * cutoffDay − 1; Nudge = cutoffDay − 3 but ONLY when the window (cutoffDay − reminderDay) is at
+ * least AUTO_RUN_MIN_WINDOW (which also guarantees the nudge lands strictly after the reminder).
+ * Pure — no DB. Returns null (no touch) when cutoffDay is unset.
+ */
+export function dueTouch(schedule: CycleSchedule, todayDay: number): Touch | null {
+  const cutoffDay = schedule.cutoffDay ?? null;
+  if (cutoffDay == null) return null;
+  const gap = cutoffDay - schedule.day;
+  if (todayDay === schedule.day)   return 'ask';
+  if (todayDay === cutoffDay - 1)  return 'last_call';
+  if (gap >= AUTO_RUN_MIN_WINDOW && todayDay === cutoffDay - 3) return 'nudge';
+  return null;
+}
+
+/** Plan-month label ("August 2026") for a cycle's data month (cycleMonth + 1). */
+function planMonthLabel(cycleMonth: string): string {
+  const [y, m] = cycleMonth.split('-').map(Number);
+  // m is 1-based, so Date.UTC month index m == the NEXT month (the plan month); JS rolls the year.
+  return new Date(Date.UTC(y!, m!, 1)).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+}
+/** "20 June" for a day-of-month in the tick's current London month. */
+function formatCutoffDate(year: number, month: number, day: number): string {
+  return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' });
+}
+/** Numbered base + extra questions for the Ask email. */
+function buildQuestionsBlock(extraQuestions: string[] | null): string {
+  return [...BASE_QUESTIONS, ...(extraQuestions ?? [])].map((q, i) => `${i + 1}. ${q}`).join('\n');
+}
+
+/**
+ * Evaluate + send the three-touch reminder due today for one enabled client+channel with a
+ * cutoffDay. Suppresses when any intake input has landed (does NOT stamp — a later tick
+ * re-evaluates); stamps make each touch at-most-once; a send failure is non-fatal and does NOT
+ * stamp. The intake link homes on the cycle being asked about (the current data month's cycle).
+ */
+export async function evaluateThreeTouchForClient(params: {
+  db:        Db;
+  clientId:  string;
+  channel:   string;
+  dataMonth: string;
+  schedule:  CycleSchedule;
+  today:     { year: number; month: number; day: number };
+  logger:    Logger;
+  sendEmail?:      SendTemplatedEmailFn | undefined;
+  resolveAppLink?: ResolveAppLinkFn | undefined;
+}): Promise<'sent' | 'skipped'> {
+  const { db, clientId, channel, dataMonth, schedule, today, logger, sendEmail, resolveAppLink } = params;
+  const touch = dueTouch(schedule, today.day);
+  if (!touch) return 'skipped';   // no touch due today (covers no-cutoffDay clients)
+  const logCtx = { clientId, channel, dataMonth, touch };
+
+  const [cycle] = await db
+    .select({
+      id: contentCycles.id, status: contentCycles.status, intakeJson: contentCycles.intakeJson,
+      createdAt: contentCycles.createdAt, cycleMonth: contentCycles.cycleMonth,
+      askSentAt: contentCycles.askSentAt, nudgeSentAt: contentCycles.nudgeSentAt, lastCallSentAt: contentCycles.lastCallSentAt,
+    })
+    .from(contentCycles)
+    .where(and(eq(contentCycles.clientId, clientId), eq(contentCycles.channel, channel), eq(contentCycles.cycleMonth, dataMonth)))
+    .limit(1);
+  if (!cycle) { logger.info(logCtx, '[touch:skipped reason=no_cycle]'); return 'skipped'; }
+
+  const alreadySent = touch === 'ask' ? cycle.askSentAt : touch === 'nudge' ? cycle.nudgeSentAt : cycle.lastCallSentAt;
+  if (alreadySent != null) { logger.info(logCtx, '[touch:skipped reason=already_sent]'); return 'skipped'; }
+
+  // Suppression: any input landed → skip, do NOT stamp (a later tick re-checks).
+  if (await hasAnyIntakeInput(db, { clientId, createdAt: cycle.createdAt, intakeJson: cycle.intakeJson })) {
+    logger.info(logCtx, '[touch:skipped reason=has_input]');
+    return 'skipped';
+  }
+
+  if (!sendEmail) { logger.warn(logCtx, '[touch:skipped reason=no_sender_wired]'); return 'skipped'; }
+
+  const [client] = await db.select({ name: clients.name }).from(clients).where(eq(clients.id, clientId)).limit(1);
+  const [chan] = await db
+    .select({ contactName: clientChannels.contactName, extraQuestions: clientChannels.extraQuestions })
+    .from(clientChannels)
+    .where(and(eq(clientChannels.clientId, clientId), eq(clientChannels.channel, channel)))
+    .limit(1);
+
+  const appLink   = resolveAppLink ? (await resolveAppLink(clientId, cycle.id)) ?? '' : '';
+  const cutoffDay = schedule.cutoffDay ?? 0;
+  const merge: MergeData = {
+    contactName:    chan?.contactName ?? 'there',
+    clientName:     client?.name ?? 'there',
+    monthLabel:     planMonthLabel(cycle.cycleMonth),
+    cutoffDate:     formatCutoffDate(today.year, today.month, cutoffDay),
+    daysToCutoff:   String(Math.max(0, cutoffDay - today.day)),
+    intakeLink:     appLink,
+    appLink,
+    questionsBlock: touch === 'ask' ? buildQuestionsBlock(chan?.extraQuestions ?? null) : '',
+    // leanLine + beatsSummary render blank in this build (their sources wire in later builds).
+  };
+
+  const ok = await sendEmail({ key: TOUCH_KEY[touch], clientId, merge });
+  if (!ok) { logger.warn(logCtx, '[touch:skipped reason=send_failed]'); return 'skipped'; }
+
+  // Stamp at-most-once AFTER a confirmed send.
+  const patch = touch === 'ask' ? { askSentAt: new Date() } : touch === 'nudge' ? { nudgeSentAt: new Date() } : { lastCallSentAt: new Date() };
+  await db.update(contentCycles).set(patch).where(eq(contentCycles.id, cycle.id));
+  logger.info({ ...logCtx, to: APP_DELIVERY_PIN_LABEL }, '[touch:sent]');
+  return 'sent';
+}
+
+// Log-only label (the real pinned address lives in email-send.ts; the scheduler never sends
+// directly — it delegates to the injected sendEmail).
+const APP_DELIVERY_PIN_LABEL = 'pinned-test-inbox';
 
 export async function runContentCycleTick(params: {
   db:     Db;
   queue:  Queue;
   logger: Logger;
   now?:   Date;  // injectable for tests; defaults to new Date()
-  // Auto-run pinned-notification hook, wired at go-live (the tick has no planning deps).
-  // Absent in the dark build; the auto-run branch is gated OFF regardless.
-  autoRunNotify?: (info: { clientId: string; channel: string; cycleId: string; dataMonth: string }) => Promise<void>;
+  // Optional OPERATOR notify hook for a real auto-run (post-go-live seam). NOT wired in this
+  // build: the trigger-time signal is the log-only [auto-run:kicked] line, and the completion
+  // plan_ready email is the Stage-1 observation. Absent here; the auto-run branch is dark anyway.
+  autoRunNotify?: (info: AutoRunNotifyInfo) => Promise<void>;
+  // Three-touch reminder send capability + app-link resolver (wired in the consumer where the
+  // Gmail/planning deps exist). Absent ⇒ the sender pass logs and sends nothing.
+  sendEmail?:      SendTemplatedEmailFn;
+  resolveAppLink?: ResolveAppLinkFn;
 }): Promise<void> {
   const { db, queue, logger } = params;
   const now = params.now ?? new Date();
@@ -317,6 +463,24 @@ export async function runContentCycleTick(params: {
     }
   }
 
-  logger.info({ dataMonth, enqueued, skipped, autoRunDry, autoRunEnabled: AUTO_RUN_ENABLED },
+  // ── Three-touch reminder pass (intake-capture Build 2). Sibling to auto-run; rows without a
+  // cutoffDay short-circuit (dueTouch → null) with NO DB read, so no-cutoffDay clients are
+  // untouched. Each touch is at-most-once (send-log stamps) and suppressed once input lands. ──
+  let touchSent = 0;
+  for (const row of enabledRows) {
+    const schedule: CycleSchedule = row.contentCycleSchedule ?? DEFAULT_SCHEDULE;
+    try {
+      const outcome = await evaluateThreeTouchForClient({
+        db, clientId: row.clientId, channel: row.channel, dataMonth, schedule, today, logger,
+        sendEmail: params.sendEmail, resolveAppLink: params.resolveAppLink,
+      });
+      if (outcome === 'sent') touchSent++;
+    } catch (err) {
+      logger.warn({ clientId: row.clientId, channel: row.channel, dataMonth, err: String(err) },
+        'content-cycle-scheduler: three-touch evaluation error — skipping');
+    }
+  }
+
+  logger.info({ dataMonth, enqueued, skipped, autoRunDry, autoRunEnabled: AUTO_RUN_ENABLED, touchSent },
     'content-cycle-scheduler: tick complete');
 }

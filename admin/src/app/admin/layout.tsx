@@ -12,6 +12,7 @@ const navItems = [
   { href: '/admin/mailboxes',      label: 'Mailboxes' },
   { href: '/admin/triage-config',    label: 'Triage Config' },
   { href: '/admin/planning-config', label: 'Planning Config' },
+  { href: '/admin/email-templates', label: 'Client Emails' },
   { href: '/admin/gmail-errors',  label: 'Gmail Errors' },
 ];
 
