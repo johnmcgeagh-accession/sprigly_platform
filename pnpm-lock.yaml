@@ -103,6 +103,9 @@ importers:
       '@sprigly/embedding-client':
         specifier: workspace:*
         version: link:../packages/embedding-client
+      '@sprigly/engine':
+        specifier: workspace:*
+        version: link:../packages/engine
       '@sprigly/knowledge':
         specifier: workspace:*
         version: link:../packages/knowledge

@@ -32,7 +32,7 @@
  */
 
 import { randomBytes, randomUUID } from 'node:crypto';
-import { eq, and, desc, gt, isNull, isNotNull, inArray } from 'drizzle-orm';
+import { eq, and, or, desc, gt, gte, lte, isNull, isNotNull, inArray } from 'drizzle-orm';
 import {
   db as _db,
   contentCycles,
@@ -47,6 +47,7 @@ import {
   clientProductCatalogue,
   contentCyclePosts,
   postEdits,
+  planInputs,
   stampPostsSyncStatus,
 } from '@sprigly/db';
 import type { NewContentCyclePostRow } from '@sprigly/db';
@@ -60,8 +61,8 @@ import { DriveApiClient } from '@sprigly/sources';
 import type { ModelClient } from '@sprigly/model-client';
 import type { AuditLogger } from '@sprigly/audit';
 import type { DbPromptResolver } from '@sprigly/prompts';
-import type { IntakeJson, CompetitorGatherData, StructuredBrief, IncomingEvent, DestinationConfig, DeliveryContext } from '@sprigly/engine';
-import { GmailReplyWithAttachment } from '@sprigly/destinations';
+import type { IntakeJson, CompetitorGatherData, StructuredBrief } from '@sprigly/engine';
+import { deliverTemplatedEmail } from './email-send.js';
 import type { Logger } from 'pino';
 import { transitionCycle } from './machine.js';
 import { applyCodeGate, applyCritic, normaliseDashes } from './plan-validation.js';
@@ -587,11 +588,6 @@ export async function assembleShapeContext(
 
 // ── App-surface delivery helpers (Drive-free path) ────────────────────────────
 
-/** The pinned test-inbox recipient for the app-ready notification. IDENTICAL to the
- *  build-workbook workflow's pin — deliberately NOT real client delivery (that is the
- *  deferred go-live toggle). Do not change without changing the workflow pin too. */
-const APP_DELIVERY_PIN = 'john.mcgeagh@gmail.com';
-
 /**
  * Ensure a per-cycle app magic link exists, IDEMPOTENTLY: reuse a live (non-revoked,
  * unexpired) token for this cycle if one exists, else mint one. Returns the /p/<token>
@@ -643,11 +639,12 @@ export async function ensureAppLink(
 }
 
 /**
- * Send the app-surface "plan ready" notification as a LINK-ONLY email (no attachment,
- * no Drive URL), PINNED to the test inbox — reusing the existing gmail-reply-with-attachment
- * destination that sheet/both already use, invoked directly (no workbook workflow). The
- * cycle's plan is already in content_cycle_posts; this send is best-effort — a failure is
- * logged and never fails the cycle. Requires the client's Gmail tokens (same as sheet/both).
+ * Send the app-surface "plan ready" notification as a LINK-ONLY email, PINNED to the test
+ * inbox, with the client's Gmail tokens — now rendered from the PUBLISHED 'plan_ready' email
+ * template (migration 0077) rather than hardcoded copy, so all four intake-capture emails
+ * live in one system. Output is byte-equivalent to the previous hardcoded copy for the same
+ * inputs (snapshot-tested). Best-effort: a failure is logged inside deliverTemplatedEmail and
+ * never fails the cycle. {{appUrl}} became {{appLink}} in the template — same rendered URL.
  */
 async function sendAppReadyNotification(
   deps:      PlanningDeps,
@@ -656,41 +653,50 @@ async function sendAppReadyNotification(
   monthLabel: string,
   appUrl:    string,
 ): Promise<void> {
+  await deliverTemplatedEmail(
+    { db: deps.db, encProvider: deps.encProvider, googleClientId: deps.googleClientId, googleClientSecret: deps.googleClientSecret, logger: deps.logger },
+    { key: 'plan_ready', clientId, merge: { clientName, monthLabel, appLink: appUrl } },
+  );
+}
+
+/**
+ * Live durable cross-cycle context for a client: active plan_inputs of type idea|next_cycle
+ * whose relevance window overlaps the plan month (null bounds are open). Read at extraction
+ * time so the latest standing notes are always current. Best-effort — a failure yields [].
+ */
+async function loadDurableContext(db: Db, clientId: string, planMonth: string): Promise<string[]> {
+  const monthStart = `${planMonth}-01`;
+  const monthEnd   = `${planMonth}-31`;   // lexical upper bound for the month
   try {
-    const dest = new GmailReplyWithAttachment(deps.db, deps.encProvider, deps.googleClientId, deps.googleClientSecret);
-    const event = { clientId, reply: { data: {} } } as unknown as IncomingEvent;
-    const config = {
-      settings: {
-        to: { mode: 'address', address: APP_DELIVERY_PIN },
-        subjectTemplate: '{{clientName}}: your content plan for {{monthLabel}} is ready',
-        bodyTemplate:
-          'Hi,\n\nYour Sprigly content plan for {{monthLabel}} is ready.\n\n' +
-          'Open and shape it here:\n{{appUrl}}\n\n' +
-          'Move posts, edit captions and add ideas — your changes save as you go.\n\nBest,\nSprigly',
-        noAttachment: true,
-      },
-    } as unknown as DestinationConfig;
-    const ctx = { clientId } as unknown as DeliveryContext;
-    const result = await dest.deliver({ clientName, monthLabel, appUrl }, event, config, ctx);
-    if (result.success) {
-      deps.logger.info({ clientId, to: APP_DELIVERY_PIN }, 'content-cycles: app-ready link-only notification sent (pinned test inbox)');
-    } else {
-      deps.logger.warn({ clientId, err: result.error }, 'content-cycles: app-ready notification not sent (non-fatal)');
-    }
-  } catch (err) {
-    deps.logger.warn({ clientId, err: String(err) }, 'content-cycles: app-ready notification failed (non-fatal)');
+    const rows = await db
+      .select({ type: planInputs.type, content: planInputs.content })
+      .from(planInputs)
+      .where(and(
+        eq(planInputs.clientId, clientId),
+        inArray(planInputs.type, ['idea', 'next_cycle']),
+        eq(planInputs.status, 'active'),
+        or(isNull(planInputs.relevantFrom), lte(planInputs.relevantFrom, monthEnd)),
+        or(isNull(planInputs.relevantTo),   gte(planInputs.relevantTo,   monthStart)),
+      ));
+    return rows.map((r) => `[${r.type}] ${r.content}`);
+  } catch {
+    return [];
   }
 }
 
 /**
  * Extract-once persistence of the structured brief (Phase 3a). If the cycle already
  * has a persisted structured_brief, re-read it — no extraction (regen is cheap and
- * stable). Otherwise extract from intake_json.planContent, persist it, and return
- * it. An EMPTY brief extracts to the empty structure with NO model call and is still
- * persisted so it is not re-extracted. Never blocks planning: an extraction or
- * persist failure logs and falls back to the empty structure in memory (NOT
- * persisted, so a later run retries). Reading/writing structured_brief requires
- * migration 0058 applied on the DB.
+ * stable). Otherwise extract from intake_json.planContent (+ live durable context), persist
+ * it, and return it. An EMPTY brief with no durable context extracts to the empty structure
+ * with NO model call and is still persisted so it is not re-extracted. Never blocks planning:
+ * an extraction or persist failure logs and falls back to the empty structure in memory (NOT
+ * persisted, so a later run retries). Reading/writing structured_brief requires migration 0058.
+ *
+ * RE-EXTRACTION CORRECTNESS: an intake change clears structured_brief (Build 1 helper), which
+ * is the ONLY re-extraction trigger; durable context is queried LIVE here, so whenever a
+ * re-extraction runs both sources are current. (Adding a durable item alone does not force a
+ * re-extraction — it is picked up at the next intake-triggered extraction or first generation.)
  */
 async function ensureStructuredBrief(
   cycle: typeof contentCycles.$inferSelect,
@@ -703,12 +709,16 @@ async function ensureStructuredBrief(
   const planContent = intake?.planContent ?? { answers: {}, freeNotes: '' };
   const planMonth   = nextMonth(cycle.cycleMonth);
   const logCtx      = { cycleId: cycle.id, clientId: cycle.clientId, channel: cycle.channel };
+  // Durable cross-cycle context (plan_inputs idea|next_cycle), read LIVE here so the latest
+  // standing notes are current at extraction (Build 3, Part B — closes the businessContext gap).
+  const durableContext = await loadDurableContext(deps.db, cycle.clientId, planMonth);
 
   let brief: StructuredBrief;
   try {
     brief = await extractStructuredBrief({
       planContent, planMonth, model: deps.model,
       logger: deps.logger, audit: deps.audit, clientId: cycle.clientId,
+      durableContext,
     });
   } catch (err) {
     deps.logger.warn({ ...logCtx, err: String(err) }, 'content-cycles: brief extraction failed — planning continues without a structured brief (retries next run)');

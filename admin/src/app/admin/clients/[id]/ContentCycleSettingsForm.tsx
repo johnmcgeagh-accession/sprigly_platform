@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { updateContentCycleSettings, updateContentCycleEnabled } from './actions';
+import { ScheduleReadout, type CurrentCycleStatus } from './ScheduleReadout';
 
 interface Props {
   clientId:             string;
@@ -10,9 +11,11 @@ interface Props {
   instagramHandle:      string | null;
   contactEmail:         string | null;
   contactName:          string | null;
-  contentCycleSchedule: { day: number; hour: number } | null;
+  contentCycleSchedule: { day: number; hour: number; cutoffDay?: number | null } | null;
   extraQuestions:       string[] | null;
   contentCycleEnabled:  boolean;
+  // The current cycle's send-log stamps + input-landed flag for the "where are we" readout.
+  currentCycle:         CurrentCycleStatus | null;
 }
 
 export function ContentCycleSettingsForm({
@@ -25,6 +28,7 @@ export function ContentCycleSettingsForm({
   contentCycleSchedule,
   extraQuestions,
   contentCycleEnabled,
+  currentCycle,
 }: Props) {
   const settingsFormRef  = useRef<HTMLFormElement>(null);
   const enableFormRef    = useRef<HTMLFormElement>(null);
@@ -32,6 +36,11 @@ export function ContentCycleSettingsForm({
 
   const [enabled, setEnabled]     = useState(contentCycleEnabled);
   const [showConfirm, setShowConfirm] = useState(false);
+  // Live readout state — mirrors the day/cutoff inputs so "what fires when" updates as you type
+  // (the inputs stay uncontrolled for the auto-save; these only drive the preview).
+  const [reminderDay, setReminderDay] = useState<number | null>(contentCycleSchedule?.day ?? null);
+  const [cutoffDay,   setCutoffDay]   = useState<number | null>(contentCycleSchedule?.cutoffDay ?? null);
+  const parseDay = (v: string) => { const n = parseInt(v, 10); return Number.isNaN(n) ? null : n; };
 
   function submitSettings() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -135,6 +144,7 @@ export function ContentCycleSettingsForm({
                   min={1}
                   max={28}
                   defaultValue={contentCycleSchedule?.day ?? ''}
+                  onChange={(e) => setReminderDay(parseDay(e.target.value))}
                   onBlur={submitSettings}
                   placeholder="1"
                   className="w-16 border border-gray-200 rounded px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-400"
@@ -154,6 +164,34 @@ export function ContentCycleSettingsForm({
                 />
               </div>
             </div>
+          </div>
+
+          {/* cutoffDay — the auto-run plan-run day */}
+          <div className="col-span-2">
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Plan runs on this day (auto-run){' '}
+              <span className="font-normal text-gray-400">— leave blank to keep manual runs</span>
+            </label>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500">Day of month</span>
+              <input
+                name="scheduleCutoffDay"
+                type="number"
+                min={1}
+                max={28}
+                defaultValue={contentCycleSchedule?.cutoffDay ?? ''}
+                onChange={(e) => setCutoffDay(parseDay(e.target.value))}
+                onBlur={submitSettings}
+                placeholder="(blank)"
+                className="w-20 border border-gray-200 rounded px-2 py-1.5 text-sm text-gray-900 placeholder:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              />
+              <span className="text-xs text-gray-400">must be after the reminder day</span>
+            </div>
+          </div>
+
+          {/* "what fires when" readout — derived from the two dates (shared derivation) */}
+          <div className="col-span-2">
+            <ScheduleReadout reminderDay={reminderDay} cutoffDay={cutoffDay} currentCycle={currentCycle} />
           </div>
 
           {/* extra_questions */}

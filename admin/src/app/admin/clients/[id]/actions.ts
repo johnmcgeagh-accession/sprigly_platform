@@ -475,15 +475,24 @@ export async function updateContentCycleSettings(formData: FormData): Promise<vo
     throw new Error(`Invalid email address: "${contactEmail}"`);
   }
 
-  const dayRaw  = (formData.get('scheduleDay')  as string).trim();
-  const hourRaw = (formData.get('scheduleHour') as string).trim();
-  let contentCycleSchedule: { day: number; hour: number } | null = null;
+  const dayRaw      = (formData.get('scheduleDay')      as string).trim();
+  const hourRaw     = (formData.get('scheduleHour')     as string).trim();
+  const cutoffRaw   = ((formData.get('scheduleCutoffDay') as string) ?? '').trim();
+  let contentCycleSchedule: { day: number; hour: number; cutoffDay?: number | null } | null = null;
   if (dayRaw && hourRaw) {
     const day  = parseInt(dayRaw,  10);
     const hour = parseInt(hourRaw, 10);
     if (isNaN(day)  || day  < 1  || day  > 28) throw new Error(`Schedule day must be 1–28, got "${dayRaw}"`);
     if (isNaN(hour) || hour < 0  || hour > 23) throw new Error(`Schedule hour must be 0–23, got "${hourRaw}"`);
-    contentCycleSchedule = { day, hour };
+    // cutoffDay (auto-run plan-run day) — nullable (blank = manual only). If set: 1–28 AND
+    // strictly AFTER the reminder day (the three-touch derivation assumes cutoff after ask).
+    let cutoffDay: number | null = null;
+    if (cutoffRaw) {
+      cutoffDay = parseInt(cutoffRaw, 10);
+      if (isNaN(cutoffDay) || cutoffDay < 1 || cutoffDay > 28) throw new Error(`Plan-run day must be 1–28, got "${cutoffRaw}"`);
+      if (cutoffDay <= day) throw new Error(`Plan-run day (${cutoffDay}) must be AFTER the reminder day (${day}). Leave it blank to keep manual runs.`);
+    }
+    contentCycleSchedule = cutoffDay != null ? { day, hour, cutoffDay } : { day, hour };
   }
 
   const extraQuestionsRaw = (formData.get('extraQuestions') as string) ?? '';

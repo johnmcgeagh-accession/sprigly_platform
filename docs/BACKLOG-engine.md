@@ -120,3 +120,10 @@ Currently, Tavily failures (`WebSearchError`) propagate up through the BullMQ jo
 4. Add admin UI panel alongside the Gmail errors panel
 
 **Why deferred:** Current visibility (Railway logs + `workflow_runs.error`) is sufficient. "Fail loudly with visibility" is already met. The table adds queryability for trends (e.g. recurring provider outages) but is not urgent.
+
+
+- [ ] Fix drizzle migration drift: journal stops at 0026, migrations 0027–0074
+      hand-applied via psql (schema.ts is source of truth). migrate() no-ops on
+      27+ and generate would recreate them. Fix = squash to one fresh baseline
+      from schema.ts + mark already-applied in __drizzle_migrations. Isolated
+      task, clean tree, read-only state check first (version-specific).

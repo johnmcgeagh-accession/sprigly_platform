@@ -35,7 +35,7 @@ interface ParsedConfig {
   instagramHandle?:      string;
   contactEmail?:         string;
   contactName?:          string;
-  contentCycleSchedule?: { day: number; hour: number };
+  contentCycleSchedule?: { day: number; hour: number; cutoffDay?: number | null };
   extraQuestions?:       string[];
 }
 
@@ -59,8 +59,10 @@ function parseConfig(raw: Record<string, unknown>, logCtx: Record<string, unknow
     const s = sched as Record<string, unknown>;
     const day  = typeof s['day']  === 'number' ? Math.max(1, Math.min(28, s['day']))  : undefined;
     const hour = typeof s['hour'] === 'number' ? Math.max(0, Math.min(23, s['hour'])) : undefined;
+    // Optional auto-run cutoff date; carried through when present so config seeds can set it.
+    const cutoffDay = typeof s['cutoffDay'] === 'number' ? Math.max(1, Math.min(28, s['cutoffDay'])) : undefined;
     if (day !== undefined && hour !== undefined) {
-      out.contentCycleSchedule = { day, hour };
+      out.contentCycleSchedule = cutoffDay !== undefined ? { day, hour, cutoffDay } : { day, hour };
     } else {
       logger.warn(logCtx, 'seed-cycle-config: content_cycle_schedule present but invalid shape — skipping field');
     }

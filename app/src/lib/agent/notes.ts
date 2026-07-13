@@ -37,6 +37,32 @@ export async function saveNote(args: SaveNoteArgs): Promise<string> {
   return row!.id;
 }
 
+/**
+ * Durable cross-cycle context (plan_inputs, type 'idea' | 'next_cycle'). Unlike notes (which
+ * are cycle-scoped and consumed by the weekly session), durable items are cycle-INDEPENDENT
+ * (cycle_id null) and are read live by the brief extractor at generation time (Build 3, Part B).
+ */
+export interface SaveDurableInputArgs {
+  clientId: string;
+  type:     'idea' | 'next_cycle';
+  content:  string;
+  source?:  'web' | 'voice';
+}
+export async function saveDurableInput(args: SaveDurableInputArgs): Promise<string> {
+  const [row] = await db
+    .insert(planInputs)
+    .values({
+      clientId: args.clientId,
+      cycleId:  null,                 // cycle-independent durable context
+      type:     args.type,
+      content:  args.content,
+      source:   args.source ?? 'web',
+      status:   'active',
+    })
+    .returning({ id: planInputs.id });
+  return row!.id;
+}
+
 export interface NoteView {
   id: string;
   content: string;

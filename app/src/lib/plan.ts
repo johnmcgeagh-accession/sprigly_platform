@@ -12,12 +12,31 @@
  */
 import { and, asc, eq, gte, isNull, lt, ne, sql } from 'drizzle-orm';
 import type { ContentCyclePostRow } from '@sprigly/db';
-import { db, contentCycles, contentCyclePosts } from '@sprigly/db';
+import { db, contentCycles, contentCyclePosts, PRE_PLANNING_STATUSES } from '@sprigly/db';
 import { listStepsForPosts } from '@/lib/steps';
 import { nextMonth } from '@/lib/cycle-nav';
 import type {
-  CycleSummary, PlanPost, PostChannel, PostFormat, PostStatus, ReviewState, PostStepView,
+  CycleSummary, PlanPost, PlanBeat, PostChannel, PostFormat, PostStatus, ReviewState, PostStepView,
 } from './types.js';
+export type { PlanBeat } from './types.js';
+
+/** Beats from a (possibly null) structured_brief whose dates fall in `month` ('YYYY-MM').
+ *  Pure + defensive: a null/malformed brief or schedule yields []. Viewed-cycle-only —
+ *  cross-cycle brief beats are intentionally not merged (see Build 3 report). */
+export function beatsInMonth(brief: unknown, month: string): PlanBeat[] {
+  const schedule = (brief as { schedule?: unknown } | null)?.schedule;
+  if (!Array.isArray(schedule)) return [];
+  return schedule
+    .filter((b): b is Record<string, unknown> => !!b && typeof b === 'object' && typeof (b as Record<string, unknown>).date === 'string')
+    .filter((b) => (b.date as string).startsWith(month))
+    .map((b) => ({
+      date:      String(b.date),
+      type:      String(b.type ?? ''),
+      product:   typeof b.product === 'string' ? b.product : null,
+      colourway: typeof b.colourway === 'string' ? b.colourway : null,
+      note:      String(b.note ?? ''),
+    }));
+}
 
 const FORMATS  = new Set<PostFormat>(['reel', 'carousel', 'single', 'email']);
 const STATUSES = new Set<PostStatus>(['planned', 'edited', 'new', 'generating', 'generation_failed']);
@@ -138,6 +157,7 @@ export async function loadCycleList(
     .select({
       cycleId:    contentCycles.id,
       cycleMonth: contentCycles.cycleMonth,
+      status:     contentCycles.status,
       syncStatus: contentCycles.postsSyncStatus,
       liveCount:  sql<number>`count(${contentCyclePosts.id})::int`,
       preservedEdit:       sql<number>`(count(${contentCyclePosts.id}) filter (where ${contentCyclePosts.reviewState} = 'preserved_edit'))::int`,
@@ -152,7 +172,7 @@ export async function loadCycleList(
       eq(contentCycles.clientId, clientId),
       eq(contentCycles.channel, channel),
     ))
-    .groupBy(contentCycles.id, contentCycles.cycleMonth, contentCycles.postsSyncStatus);
+    .groupBy(contentCycles.id, contentCycles.cycleMonth, contentCycles.status, contentCycles.postsSyncStatus);
 
   // A cycle's month is ALWAYS the month it PLANS — nextMonth(cycle_month) — for populated
   // and empty cycles alike; it is NEVER derived from post dates. cycle_month is unique per
@@ -171,6 +191,7 @@ export async function loadCycleList(
       monthLabel:               monthLabel(displayMonth),
       livePostCount:            r.liveCount,
       isHome,
+      prePlanning:              PRE_PLANNING_STATUSES.has(r.status),   // pre-cutoff → intake still open
       preservedEditCount:       r.preservedEdit,
       preservedEditOrphanCount: r.preservedEditOrphan,
     });

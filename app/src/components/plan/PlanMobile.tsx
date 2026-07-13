@@ -7,6 +7,7 @@ import { Scrim, Sheet, SegmentedControl } from './primitives';
 import { MonthWheelPicker } from './MonthWheelPicker';
 import { PostEditor } from './PostEditor';
 import { ProgressRing, postTitle, isUntitled, WeatherHeaderBadge } from './pieces';
+import { BeatMarker } from './BeatMarker';
 import { CalendarPicker } from './pickers';
 import { planTasks, lateCount, viewedMonth } from './derive';
 import {
@@ -158,6 +159,10 @@ export function PlanMobile({ data }: { data: PlanData }) {
             <button data-testid="next-month" aria-label="Next month" disabled={!nextCycle} onClick={() => nextCycle && data.switchCycle(nextCycle.cycleId)}
               className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-surface text-slate-700 shadow-card disabled:cursor-not-allowed disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
           </div>
+          <button data-testid="brief-month-btn" onClick={data.openIntake}
+            className="mx-auto mt-2.5 block rounded-full border border-coral/40 bg-surface px-3.5 py-1.5 text-[12.5px] font-bold text-coral shadow-card">
+            {data.viewedCyclePrePlanning ? 'Brief this month' : 'Add to your plan'}
+          </button>
         </div>
         {/* week strip — flanked by week steppers so you can move between weeks */}
         <div className="flex items-center gap-0.5 bg-bg px-1.5 pb-1.5 pt-3.5">
@@ -207,6 +212,12 @@ export function PlanMobile({ data }: { data: PlanData }) {
                 {postsOn(iso).length
                   ? postsOn(iso).map((p) => <SwipeCard key={p.id} post={p} data={data} onEdit={() => setEditId(p.id)} onMove={() => setMoveId(p.id)} />)
                   : data.canEdit(iso) && <button onClick={() => data.addPost(iso)} data-testid="add-on-day" className="mb-3 w-full rounded-[18px] border border-dashed border-line bg-surface p-4 text-[13px] font-semibold text-muted">＋ Plan a post for this day</button>}
+                {/* Brief beats — read-only markers, distinct from posts. */}
+                {data.beatsOn(iso).length > 0 && (
+                  <div className="mb-3 flex flex-col gap-1">
+                    {data.beatsOn(iso).map((b, i) => <BeatMarker key={`beat-${i}`} beat={b} onClick={() => data.flash(b.note || b.type || 'Beat')} />)}
+                  </div>
+                )}
               </section>
             ))}
             {/* Reachability: posts whose date was moved OUT of this cycle's plan month can't

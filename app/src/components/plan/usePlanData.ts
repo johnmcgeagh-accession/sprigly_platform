@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PlanPost, CycleSummary, PostStepView, ShapeResult } from '@/lib/types';
+import type { PlanPost, PlanBeat, CycleSummary, PostStepView, ShapeResult } from '@/lib/types';
 import type { ProposalView } from '@/lib/agent/types';
 import type { NoteView } from '@/lib/agent/notes';
 import { indexForecast, type WeatherDay, type WeatherWireDay } from '@/lib/weather';
@@ -18,10 +18,17 @@ export interface PlanDataInit {
   // Other cycles' posts dated within the viewed cycle's plan month — the calendar grid is
   // date-authoritative and renders posts ∪ crossMonthPosts by date (see loadCrossMonthPosts).
   crossMonthPosts: PlanPost[];
+  // Dated content beats (structured_brief.schedule) for the viewed month — read-only markers,
+  // not posts. May be empty when the brief is null (pre-extraction).
+  beats: PlanBeat[];
   cycles: CycleSummary[];
   homeCycleId: string;
   today: string;
   clientName: string;
+  // Intake capture (Build 3): the guided question source (BASE + extra) and whether to open
+  // the intake surface on landing (from the Ask email's {{intakeLink}} ?intake=1).
+  questions: string[];
+  initialIntakeOpen?: boolean | undefined;
   // Landing overrides (empty-home-cycle guard): the cycle initially rendered and
   // whether it's read-only. Default to the home cycle / editable when unset.
   initialViewedCycleId?: string | undefined;
@@ -34,6 +41,7 @@ export interface PlanDataInit {
 export function usePlanData(init: PlanDataInit) {
   const [posts, setPosts] = useState<PlanPost[]>(init.posts);
   const [crossMonthPosts, setCrossMonthPosts] = useState<PlanPost[]>(init.crossMonthPosts);
+  const [beats, setBeats] = useState<PlanBeat[]>(init.beats);
   const [cycles, setCycles] = useState<CycleSummary[]>(init.cycles);
   const [proposals, setProposals] = useState<ProposalView[]>([]);
   const [notes, setNotes] = useState<NoteView[]>([]);
@@ -53,8 +61,18 @@ export function usePlanData(init: PlanDataInit) {
   // is date+client based). The grid buckets by day, so viewed-cycle posts dated OUTSIDE the
   // month simply don't land in any cell; no post appears in more than one month's grid.
   const calendarPosts = useMemo(() => [...posts, ...crossMonthPosts], [posts, crossMonthPosts]);
+  // Beats bucketed by ISO date for the calendar (read-only markers; independent of posts).
+  const beatsByDate = useMemo(() => {
+    const m = new Map<string, PlanBeat[]>();
+    for (const b of beats) { const a = m.get(b.date) ?? []; a.push(b); m.set(b.date, a); }
+    return m;
+  }, [beats]);
+  const beatsOn = useCallback((dateIso: string) => beatsByDate.get(dateIso) ?? [], [beatsByDate]);
   const [busy, setBusy] = useState(false);
   const [switching, setSwitching] = useState(false);
+  // Intake capture (Build 3): the guided-form surface open state + in-flight guard.
+  const [intakeOpen, setIntakeOpen] = useState(init.initialIntakeOpen ?? false);
+  const [intakeBusy, setIntakeBusy] = useState(false);
   const [shapingIds, setShapingIds] = useState<Set<string>>(new Set());
   const [proposalBusy, setProposalBusy] = useState<string | null>(null);
   const [agentBusy, setAgentBusy] = useState(false);
@@ -112,9 +130,10 @@ export function usePlanData(init: PlanDataInit) {
       const isHome = viewedCycleId === init.homeCycleId;
       const r = await fetch(isHome ? '/api/plan' : `/api/plan?cycleId=${encodeURIComponent(viewedCycleId)}`);
       if (!r.ok) return;
-      const d = (await r.json()) as { posts: PlanPost[]; crossMonthPosts?: PlanPost[] };
+      const d = (await r.json()) as { posts: PlanPost[]; crossMonthPosts?: PlanPost[]; beats?: PlanBeat[] };
       setPosts(d.posts);
       setCrossMonthPosts(d.crossMonthPosts ?? []);
+      setBeats(d.beats ?? []);
     } catch { /* non-fatal */ }
   }, [viewedCycleId, init.homeCycleId]);
 
@@ -406,15 +425,52 @@ export function usePlanData(init: PlanDataInit) {
       const isHome = cycleId === init.homeCycleId;
       const res = await fetch(isHome ? '/api/plan' : `/api/plan?cycleId=${encodeURIComponent(cycleId)}`);
       if (!res.ok) { flash('Could not open that month.'); return; }
-      const d = (await res.json()) as { posts: PlanPost[]; crossMonthPosts?: PlanPost[] };
-      setPosts(d.posts); setCrossMonthPosts(d.crossMonthPosts ?? []); setViewedCycleId(cycleId);
+      const d = (await res.json()) as { posts: PlanPost[]; crossMonthPosts?: PlanPost[]; beats?: PlanBeat[] };
+      setPosts(d.posts); setCrossMonthPosts(d.crossMonthPosts ?? []); setBeats(d.beats ?? []); setViewedCycleId(cycleId);
     } catch { flash('Network error. Please try again.'); }
     finally { setSwitching(false); }
   }, [init.homeCycleId, flash]);
 
+  // Whether the viewed cycle is pre-cutoff (intake merges into the brief) vs post-cutoff
+  // (intake routes to proposals). Unknown cycle defaults to pre-cutoff (safe: merges, doesn't
+  // silently create proposals). Drives the intake surface's copy.
+  const viewedCyclePrePlanning = useMemo(
+    () => cycles.find((c) => c.cycleId === viewedCycleId)?.prePlanning ?? true,
+    [cycles, viewedCycleId],
+  );
+  const openIntake  = useCallback(() => setIntakeOpen(true), []);
+  const closeIntake = useCallback(() => setIntakeOpen(false), []);
+  /** Submit the intake form to POST /api/plan/intake for the VIEWED cycle. The route
+   *  classifies pre/post-cutoff; we reflect the outcome and refresh the affected surface. */
+  const submitIntake = useCallback(async (payload: {
+    answers: Record<string, string>;
+    freeNotes: string;
+    durableItems: { type: 'idea' | 'next_cycle'; text: string }[];
+    source?: 'web' | 'voice';
+    sessionId?: string;
+  }): Promise<boolean> => {
+    if (intakeBusy) return false;
+    setIntakeBusy(true);
+    try {
+      const res = await fetch('/api/plan/intake', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ cycleId: viewedCycleId, source: 'web', ...payload }),
+      });
+      if (!res.ok) { flash('Couldn’t save that just now. Please try again.'); return false; }
+      const d = (await res.json()) as { mode?: string };
+      if (d.mode === 'proposed') { flash('This month has generated — added to your plan for approval.'); void refreshProposals(); }
+      else if (d.mode === 'brief_updated') { flash('Thanks — saved for this month’s plan.'); await refreshPlan(); }
+      else { flash('Thanks — noted for the future.'); }
+      setIntakeOpen(false);
+      return true;
+    } catch { flash('Network error. Please try again.'); return false; }
+    finally { setIntakeBusy(false); }
+  }, [intakeBusy, viewedCycleId, flash, refreshProposals, refreshPlan]);
+
   return {
     // data
-    posts, crossMonthPosts, calendarPosts, cycles, proposals, notes, today: init.today, clientName: init.clientName,
+    posts, crossMonthPosts, calendarPosts, beats, beatsOn, cycles, proposals, notes, today: init.today, clientName: init.clientName,
+    questions: init.questions, intakeOpen, intakeBusy, viewedCyclePrePlanning, openIntake, closeIntake, submitIntake,
     homeCycleId: init.homeCycleId, viewedCycleId, readOnly, canEdit, todayCycleId,
     // status
     busy, switching, shapingIds, proposalBusy, agentBusy, agentReply, agentError,

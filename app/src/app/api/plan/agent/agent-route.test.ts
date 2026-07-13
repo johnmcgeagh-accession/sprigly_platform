@@ -26,8 +26,10 @@ vi.mock('@/lib/plan', () => ({
 }));
 vi.mock('@/lib/agent/model', () => ({ getModelClient: () => ({}), getEmbeddingClient: () => ({}), AGENT_MODEL: 'haiku' }));
 vi.mock('@/lib/agent/task-parser', () => ({ parseTasks: async () => h.tasks }));
+vi.mock('@/lib/agent/catalogue', () => ({ loadProductIndex: async () => ({}) }));
 vi.mock('@/lib/agent/cycle-state', () => ({
   getClientCycleMonths: async () => 'months', weekDigest: () => 'digest', resolveCycleForMonth: async () => 'cycle-x',
+  getCycleMonth: async () => '2026-09',   // the seed post is 2026-09-03; same-month moves proceed
 }));
 vi.mock('@/lib/agent/conversation', () => ({
   ensureConversation: async () => 'conv-1',

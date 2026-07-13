@@ -14,6 +14,6 @@ export default defineConfig({
     environment: 'node',
     // Unit/integration tests live under src/; e2e/ is Playwright's (its *.spec.ts must
     // not be collected by Vitest).
-    include: ['src/**/*.{test,spec}.ts'],
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
   },
 });

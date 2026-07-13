@@ -36,7 +36,8 @@ import type { AuditLogger } from '@sprigly/audit';
 import type { Logger } from 'pino';
 import { extractVoiceDeltasForCycle } from './extract.js';
 import { applyVoiceDeltasForCycle } from './apply.js';
-import { runPlanningForCycle } from './planning.js';
+import { runPlanningForCycle, ensureAppLink } from './planning.js';
+import { deliverTemplatedEmail } from './email-send.js';
 import { runShapeForCycle, type ShapeJob } from './shape.js';
 import { runHookForPost, type HookJob } from './hook.js';
 import { runScriptForPost, type ScriptJob } from './script.js';
@@ -188,10 +189,20 @@ export function createContentCycleConsumer(
           await requestEmailStub(data.clientId, data.channel, data.dataMonth);
           break;
 
-        case 'scheduler-tick':
+        case 'scheduler-tick': {
           logger.info(logCtx, 'content-cycles: starting scheduler-tick job');
-          await runContentCycleTick({ db, queue, logger });
+          // Real Gmail/planning deps live here — wire the three-touch reminder sender and the
+          // app-link resolver (all sends pinned to the test inbox). The auto-run notify hook is
+          // deliberately NOT wired: on a real auto-run the trigger-time signal is the log-only
+          // [auto-run:kicked] line, and the completion-path plan_ready email is the observation.
+          const emailDeps = { db, encProvider, googleClientId, googleClientSecret, logger };
+          const sendEmail = (input: { key: 'ask' | 'nudge' | 'last_call' | 'plan_ready'; clientId: string; merge: Record<string, string> }) =>
+            deliverTemplatedEmail(emailDeps, input);
+          const resolveAppLink = (clientId: string, cycleId: string) =>
+            ensureAppLink(db, clientId, cycleId, process.env['APP_BASE_URL'] ?? '', logger);
+          await runContentCycleTick({ db, queue, logger, sendEmail, resolveAppLink });
           break;
+        }
 
         case 'weekly-session':
           logger.info({ ...logCtx, clientId: data.clientId, cycleId: data.cycleId, weekStart: data.weekStart }, 'content-cycles: starting weekly-session job');

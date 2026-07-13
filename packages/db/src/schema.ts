@@ -176,6 +176,33 @@ export const promptTemplates = pgTable(
 export type PromptTemplate = typeof promptTemplates.$inferSelect;
 export type NewPromptTemplate = typeof promptTemplates.$inferInsert;
 
+// ─── email_templates ──────────────────────────────────────────────────────────
+// Platform-level GLOBAL email copy (intake-capture Build 2). NO client_id by
+// construction — no per-client forks. Versioned; the PUBLISHED row per key is the one
+// resolved. "one published per key" is enforced by a PARTIAL unique index defined in
+// migration 0077 (email_templates_published_key … WHERE is_published) — not expressible
+// in drizzle's index builder, so it lives in the migration only (runtime-irrelevant here).
+
+export const emailTemplates = pgTable(
+  'email_templates',
+  {
+    id:              uuid('id').primaryKey().defaultRandom(),
+    key:             text('key').notNull(),   // 'ask' | 'nudge' | 'last_call' | 'plan_ready'
+    subjectTemplate: text('subject_template').notNull(),
+    bodyTemplate:    text('body_template').notNull(),
+    version:         integer('version').notNull().default(1),
+    isPublished:     boolean('is_published').notNull().default(false),
+    createdAt:       timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    keyVersionUniq: uniqueIndex('email_templates_key_version').on(t.key, t.version),
+  }),
+);
+
+export type EmailTemplate    = typeof emailTemplates.$inferSelect;
+export type NewEmailTemplate = typeof emailTemplates.$inferInsert;
+export type EmailTemplateKey = 'ask' | 'nudge' | 'last_call' | 'plan_ready';
+
 // ─── incoming_events ──────────────────────────────────────────────────────────
 
 export type EventStatus =
@@ -526,7 +553,10 @@ export const clientChannels = pgTable(
     instagramHandle:      text('instagram_handle'),
     contactEmail:         text('contact_email'),
     contactName:          text('contact_name'),
-    contentCycleSchedule: jsonb('content_cycle_schedule').$type<{ day: number; hour: number } | null>(),
+    // { day, hour } = the reminder/ask date (gates cycle CREATION, unchanged). Optional
+    // cutoffDay = the auto-run (plan-run) date for intake-capture; nullable/absent means
+    // auto-run is not configured for this client. JSONB — no migration to add cutoffDay.
+    contentCycleSchedule: jsonb('content_cycle_schedule').$type<{ day: number; hour: number; cutoffDay?: number | null } | null>(),
     extraQuestions:       jsonb('extra_questions').$type<string[] | null>(),
     deliverySurface:      text('delivery_surface').notNull().default('both'),  // 'app' | 'sheet' | 'both' (Phase 2)
     // Phase 4 — AI-change allowance (rewrites/regen only; structural edits never counted).
@@ -660,6 +690,12 @@ export const contentCycles = pgTable(
     structuredBrief:   jsonb('structured_brief').$type<unknown>(),
     requestSentAt:     timestamp('request_sent_at'),
     remindedAt:        timestamp('reminded_at'),
+    // Intake-capture send log (migration 0076): when each outbound touch of the reminder
+    // sequence actually SENT. DISTINCT from request_sent_at (legacy request-email DRAFT
+    // creation, not a send). Nullable = that touch has not fired for this cycle.
+    askSentAt:         timestamp('ask_sent_at'),
+    nudgeSentAt:       timestamp('nudge_sent_at'),
+    lastCallSentAt:    timestamp('last_call_sent_at'),
     replyReceivedAt:   timestamp('reply_received_at'),
     deliveredAt:       timestamp('delivered_at'),
     finalisedAt:       timestamp('finalised_at'),

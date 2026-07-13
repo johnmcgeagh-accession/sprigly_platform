@@ -13,6 +13,7 @@
   "dependencies": {
     "@sprigly/db": "workspace:*",
     "@sprigly/embedding-client": "workspace:*",
+    "@sprigly/engine": "workspace:*",
     "@sprigly/knowledge": "workspace:*",
     "@sprigly/model-client": "workspace:*",
     "@sprigly/weather": "workspace:*",
