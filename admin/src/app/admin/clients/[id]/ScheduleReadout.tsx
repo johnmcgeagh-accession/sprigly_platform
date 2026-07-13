@@ -1,6 +1,9 @@
 'use client';
 
-import { deriveTouchSchedule } from '@sprigly/engine';
+// Deep import (not the @sprigly/engine barrel): this is a CLIENT component, and the barrel
+// re-exports server modules that pull @sprigly/db → postgres → Node builtins, which the browser
+// bundle can't resolve. touch-schedule.ts is pure (zero imports), so the subpath is clean.
+import { deriveTouchSchedule } from '@sprigly/engine/touch-schedule';
 
 /** The current cycle's send-log stamps + input-landed flag, for the "where are we" readout. */
 export interface CurrentCycleStatus {

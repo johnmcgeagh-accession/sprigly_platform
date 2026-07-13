@@ -1,7 +1,11 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { BASE_QUESTIONS, MERGE_FIELDS, renderEmailTemplate, unknownMergeFields } from '@sprigly/engine';
+// Deep imports (not the @sprigly/engine barrel): this is a CLIENT component; the barrel
+// re-exports server modules that pull @sprigly/db → postgres → Node builtins, unbundlable for the
+// browser. base-questions.ts + email-render.ts are pure (zero imports), so the subpaths are clean.
+import { BASE_QUESTIONS } from '@sprigly/engine/base-questions';
+import { MERGE_FIELDS, renderEmailTemplate, unknownMergeFields } from '@sprigly/engine/email-render';
 import { publishTemplateVersion } from './actions';
 
 export interface TemplateVersion {
