@@ -215,7 +215,7 @@ export function PlanMobile({ data }: { data: PlanData }) {
                 {/* Brief beats — read-only markers, distinct from posts. */}
                 {data.beatsOn(iso).length > 0 && (
                   <div className="mb-3 flex flex-col gap-1">
-                    {data.beatsOn(iso).map((b, i) => <BeatMarker key={`beat-${i}`} beat={b} day={iso} mobile onClick={() => data.flash(beatFlashText(b))} />)}
+                    {data.beatsOn(iso).map((b, i) => <BeatMarker key={`beat-${i}`} beat={b} onClick={() => data.flash(beatFlashText(b))} />)}
                   </div>
                 )}
               </section>

@@ -22,49 +22,39 @@ export function rangeSuffix(startIso: string, endIso: string): string {
 /** The tap/toast text for a beat: its note (or type), plus the resolved span for a range beat. */
 export function beatFlashText(beat: PlanBeat): string {
   const base = beat.note || beat.type || 'Beat';
-  return beat.endDate ? `${base} (${rangeSuffix(beat.date, beat.endDate)})` : base;
+  return beat.range ? `${base} (${rangeSuffix(beat.range.start, beat.range.end)})` : base;
 }
 
 /**
  * A dated brief beat rendered on the calendar — DELIBERATELY distinct from a post chip:
- * a dashed amber marker with a diamond glyph, NO format icon/tag, visually secondary. Tap
- * surfaces the beat's note + resolved span. Read-only: beats are not editable as posts.
+ * a vivid solid-amber marker with a diamond glyph, NO format icon/tag. Tap surfaces the
+ * beat's note + resolved span. Read-only: beats are not editable as posts.
  *
- * Range beats span multiple days. `day` is the ISO date of the cell this marker sits in:
- *  - desktop (default): the FIRST day of the span shows the full label + span suffix; the
- *    continuation days render as a slim amber band (glyph only) so the beat reads as one
- *    spanning window across the week.
- *  - mobile: every day in the span lists the label + span suffix (each day stands alone).
+ * A range beat renders ONCE, on its placement day (the first day of its span visible in the
+ * viewed month) — the same labelled pill as a single-day beat, with the full span appended
+ * as a suffix ("warehouse sale · 25–31 Aug"). Continuation-day bands were removed after live
+ * review, so desktop and mobile behave identically.
  */
-export function BeatMarker({ beat, day, onClick, mobile = false }: {
-  beat: PlanBeat; day: string; onClick?: () => void; mobile?: boolean;
-}) {
-  const isRange = beat.endDate != null;
-  const suffix  = isRange ? rangeSuffix(beat.date, beat.endDate as string) : '';
-  // Desktop continuation cell (a range day that is not the start): band-only, no label text.
-  const bandOnly = isRange && !mobile && day !== beat.date;
-  const titleSpan = isRange ? ` (${suffix})` : '';
+export function BeatMarker({ beat, onClick }: { beat: PlanBeat; onClick?: () => void }) {
+  const suffix = beat.range ? rangeSuffix(beat.range.start, beat.range.end) : '';
+  const titleSpan = suffix ? ` (${suffix})` : '';
 
   return (
     <button
       type="button"
       data-testid="beat-marker"
       data-beat-type={beat.type}
-      data-beat-range={isRange ? `${beat.date}/${beat.endDate}` : undefined}
-      data-beat-segment={isRange ? (bandOnly ? 'continuation' : 'start') : 'single'}
+      data-beat-range={beat.range ? `${beat.range.start}/${beat.range.end}` : undefined}
+      data-beat-segment={beat.range ? 'range' : 'single'}
       onClick={onClick}
       title={`${beat.note || beat.type}${titleSpan}`}
-      aria-label={`Beat: ${beatLabel(beat)}${isRange ? ` (${suffix})` : ''}${beat.note ? ` — ${beat.note}` : ''}`}
-      className={`flex w-full items-center gap-1 rounded-[6px] border-[1.5px] border-beat-border bg-beat text-left font-bold leading-tight text-beat-ink shadow-[0_1px_2px_rgba(120,80,0,.22)] ${
-        bandOnly ? 'px-1.5 py-px text-[9px]' : 'px-1.5 py-0.5 text-[11px]'
-      }`}
+      aria-label={`Beat: ${beatLabel(beat)}${suffix ? ` (${suffix})` : ''}${beat.note ? ` — ${beat.note}` : ''}`}
+      className="flex w-full items-center gap-1 rounded-[6px] border-[1.5px] border-beat-border bg-beat px-1.5 py-0.5 text-left text-[11px] font-bold leading-tight text-beat-ink shadow-[0_1px_2px_rgba(120,80,0,.22)]"
     >
       <span aria-hidden className="flex-shrink-0 text-[9px]">◆</span>
-      {!bandOnly && (
-        <span className="overflow-hidden text-ellipsis whitespace-nowrap">
-          {beatLabel(beat)}{isRange ? <span className="font-semibold text-beat-ink/85"> · {suffix}</span> : null}
-        </span>
-      )}
+      <span className="overflow-hidden text-ellipsis whitespace-nowrap">
+        {beatLabel(beat)}{suffix ? <span className="font-semibold text-beat-ink/85"> · {suffix}</span> : null}
+      </span>
     </button>
   );
 }

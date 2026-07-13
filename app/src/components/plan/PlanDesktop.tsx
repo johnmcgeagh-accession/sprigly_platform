@@ -248,7 +248,7 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
                 ))}
                 {/* Brief beats — read-only markers, visually secondary, distinct from posts. */}
                 {data.beatsOn(isoOf(day)).map((b, i) => (
-                  <BeatMarker key={`beat-${i}`} beat={b} day={isoOf(day)} onClick={() => data.flash(beatFlashText(b))} />
+                  <BeatMarker key={`beat-${i}`} beat={b} onClick={() => data.flash(beatFlashText(b))} />
                 ))}
               </div>
               {data.canEdit(isoOf(day)) && dayPosts.length === 0 && (
