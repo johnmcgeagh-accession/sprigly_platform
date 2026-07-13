@@ -1,7 +1,8 @@
-import { eq } from 'drizzle-orm';
-import { db, clients, clientConfigs, contentCycles } from '@sprigly/db';
+import { and, eq } from 'drizzle-orm';
+import { db, clients, clientConfigs, contentCycles, clientChannels } from '@sprigly/db';
+import { BASE_QUESTIONS } from '@sprigly/engine';
 import { getSession } from '@/lib/auth';
-import { loadPlanPosts, loadCrossMonthPosts, loadCycleList } from '@/lib/plan';
+import { loadPlanPosts, loadCrossMonthPosts, loadCycleList, beatsInMonth } from '@/lib/plan';
 import { editScopeToday } from '@/lib/edit-scope';
 import { resolveDayCycleId } from '@/lib/cycle-nav';
 import { readPlanRedesignFlag } from '@/lib/flags';
@@ -10,9 +11,11 @@ import PlanRedesign from '@/components/PlanRedesign';
 
 export const dynamic = 'force-dynamic';
 
-export default async function Page() {
+export default async function Page({ searchParams }: { searchParams: { intake?: string } }) {
   const session = await getSession();
   if (!session) return <Gate />;
+  // Landed from the Ask email's {{intakeLink}} (…/p/<token>?intake=1 → /?intake=1).
+  const initialIntakeOpen = searchParams?.intake === '1';
 
   const [client] = await db
     .select({ name: clients.name })
@@ -48,6 +51,24 @@ export default async function Page() {
     ? await loadCrossMonthPosts(session.clientId, home.channel, initialMonth, initialCycleId)
     : [];
 
+  // Beats: the landed cycle's structured_brief dated in its display month (null-safe → []).
+  const [landed] = await db
+    .select({ structuredBrief: contentCycles.structuredBrief })
+    .from(contentCycles)
+    .where(eq(contentCycles.id, initialCycleId))
+    .limit(1);
+  const beats = initialMonth ? beatsInMonth(landed?.structuredBrief, initialMonth) : [];
+
+  // Intake question source = BASE + this channel's extra_questions (server-assembled).
+  const [chan] = home
+    ? await db.select({ extra: clientChannels.extraQuestions })
+        .from(clientChannels)
+        .where(and(eq(clientChannels.clientId, session.clientId), eq(clientChannels.channel, home.channel)))
+        .limit(1)
+    : [];
+  const extraQuestions = Array.isArray(chan?.extra) ? (chan!.extra as unknown[]).filter((q): q is string => typeof q === 'string') : [];
+  const questions = [...BASE_QUESTIONS, ...extraQuestions];
+
   // Render fork behind the per-tenant plan_redesign flag (default off). Flag-off tenants
   // get the existing PlanApp untouched; flag-on tenants get the redesign shell.
   const [cfg] = await db
@@ -62,10 +83,13 @@ export default async function Page() {
         clientName={client?.name ?? 'your'}
         posts={posts}
         crossMonthPosts={crossMonthPosts}
+        beats={beats}
         cycles={cycles}
         homeCycleId={session.cycleId}
         initialCycleId={initialCycleId}
         initialReadOnly={initialReadOnly}
+        initialIntakeOpen={initialIntakeOpen}
+        questions={questions}
       />
     );
   }

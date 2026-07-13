@@ -230,6 +230,12 @@ export interface PlanContentAnswers {
   freeNotes: string;
 }
 
+/**
+ * @deprecated Captured-but-unconsumed. Durable cross-cycle context now lives in `plan_inputs`
+ * (type 'idea' | 'next_cycle'), which the brief extractor reads live at generation time
+ * (Build 3, Part B). `intake_json.businessContext` is per-cycle and NOT consumed by generation;
+ * do not add new writers. New durable context must go to plan_inputs via saveDurableInput.
+ */
 export interface BusinessContextNote {
   note:       string;
   capturedAt: string;  // ISO date

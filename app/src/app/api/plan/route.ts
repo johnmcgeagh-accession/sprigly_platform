@@ -10,7 +10,7 @@ import { NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import { db, contentCycles } from '@sprigly/db';
 import { getSession } from '@/lib/auth';
-import { loadPlanPosts, loadCrossMonthPosts, isCycleReadableByClient } from '@/lib/plan';
+import { loadPlanPosts, loadCrossMonthPosts, isCycleReadableByClient, beatsInMonth } from '@/lib/plan';
 import { nextMonth } from '@/lib/cycle-nav';
 
 export const runtime = 'nodejs';
@@ -38,13 +38,17 @@ export async function GET(req: Request) {
   // dated within THIS cycle's plan month, so a cross-month-moved post shows on its date in
   // the month view it belongs to (each carries its own cycleId for edit routing).
   const [cyc] = await db
-    .select({ channel: contentCycles.channel, cycleMonth: contentCycles.cycleMonth })
+    .select({ channel: contentCycles.channel, cycleMonth: contentCycles.cycleMonth, structuredBrief: contentCycles.structuredBrief })
     .from(contentCycles)
     .where(and(eq(contentCycles.id, cycleId), eq(contentCycles.clientId, session.clientId)))
     .limit(1);
+  const viewedMonth = cyc ? nextMonth(cyc.cycleMonth) : '';
   const crossMonthPosts = cyc
-    ? await loadCrossMonthPosts(session.clientId, cyc.channel, nextMonth(cyc.cycleMonth), cycleId)
+    ? await loadCrossMonthPosts(session.clientId, cyc.channel, viewedMonth, cycleId)
     : [];
+  // Beats: the VIEWED cycle's structured_brief dated in the viewed month (null-safe → []).
+  // Viewed-cycle-only (cross-cycle brief beats not merged — see Build 3 report).
+  const beats = cyc ? beatsInMonth(cyc.structuredBrief, viewedMonth) : [];
 
-  return NextResponse.json({ posts, crossMonthPosts, readOnly: !isHome });
+  return NextResponse.json({ posts, crossMonthPosts, beats, readOnly: !isHome });
 }

@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { usePlanData, type PlanDataInit } from './usePlanData';
 import { PlanDesktop } from './PlanDesktop';
 import { PlanMobile } from './PlanMobile';
+import { IntakeCapture } from './IntakeCapture';
 import { Toast } from './primitives';
 
 /**
@@ -23,9 +24,21 @@ export function PlanRoot(props: PlanDataInit) {
     return () => mq.removeEventListener('change', sync);
   }, []);
 
+  const viewedMonthLabel = data.cycles.find((c) => c.cycleId === data.viewedCycleId)?.monthLabel ?? 'this month';
+
   return (
     <>
       {desktop === null ? null : desktop ? <PlanDesktop data={data} /> : <PlanMobile data={data} />}
+      {data.intakeOpen && (
+        <IntakeCapture
+          questions={data.questions}
+          prePlanning={data.viewedCyclePrePlanning}
+          busy={data.intakeBusy}
+          monthLabel={viewedMonthLabel}
+          onSubmit={data.submitIntake}
+          onClose={data.closeIntake}
+        />
+      )}
       <Toast message={data.toast} />
     </>
   );

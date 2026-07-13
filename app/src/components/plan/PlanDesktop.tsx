@@ -5,6 +5,7 @@ import type { PlanData } from './usePlanData';
 import { Drawer, Scrim, Dialog, DISABLED_PRIMARY } from './primitives';
 import { PostEditor } from './PostEditor';
 import { PostChip, ProposalCard, NoteRow, ExtractionSummary, monthDayLabel, postTitle, WeatherCellIcon } from './pieces';
+import { BeatMarker } from './BeatMarker';
 import { planTasks, lateCount, viewedMonth } from './derive';
 import { orphanPosts } from '@/lib/cycle-nav';
 import {
@@ -89,6 +90,12 @@ export function PlanDesktop({ data }: { data: PlanData }) {
               </span>
             )}
             <span className="flex-1" />
+            {view === 'calendar' && (
+              <button data-testid="brief-month-btn" onClick={data.openIntake}
+                className="rounded-full border border-coral/40 bg-surface px-[15px] py-[7px] text-[12.5px] font-bold text-coral shadow-card">
+                {data.viewedCyclePrePlanning ? 'Brief this month' : 'Add to your plan'}
+              </button>
+            )}
             {view === 'calendar' && data.todayCycleId && (
               <button data-testid="today-btn" onClick={() => data.todayCycleId && data.switchCycle(data.todayCycleId)} className="rounded-full border border-line bg-surface px-[15px] py-[7px] text-[12.5px] font-bold text-slate-600 shadow-card">Today</button>
             )}
@@ -238,6 +245,10 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
                 {dayPosts.map((p) => (
                   <PostChip key={p.id} post={p} today={data.today} selected={p.id === selId} onClick={() => onSelect(p.id)}
                     draggable={data.canEdit(p.date)} onDragStart={() => setDragId(p.id)} onDragEnd={() => { setDragId(null); setOver(null); }} />
+                ))}
+                {/* Brief beats — read-only markers, visually secondary, distinct from posts. */}
+                {data.beatsOn(isoOf(day)).map((b, i) => (
+                  <BeatMarker key={`beat-${i}`} beat={b} onClick={() => data.flash(b.note || b.type || 'Beat')} />
                 ))}
               </div>
               {data.canEdit(isoOf(day)) && dayPosts.length === 0 && (

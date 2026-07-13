@@ -519,7 +519,7 @@ describe('evaluateThreeTouchForClient', () => {
       key: 'ask', clientId: 'c1',
       merge: expect.objectContaining({
         clientName: 'Ivy T', contactName: 'Sally', monthLabel: 'July 2026',
-        cutoffDate: '20 June', daysToCutoff: '15', intakeLink: 'https://app/p/tok', appLink: 'https://app/p/tok',
+        cutoffDate: '20 June', daysToCutoff: '15', intakeLink: 'https://app/p/tok?intake=1', appLink: 'https://app/p/tok',
         questionsBlock: expect.stringContaining('1. Q1 dates?'),
       }),
     }));

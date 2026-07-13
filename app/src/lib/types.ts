@@ -32,6 +32,16 @@ export interface PostStepView {
   createdBy: StepActor;
 }
 
+/** A dated content beat (from a cycle's structured_brief.schedule) surfaced on the calendar.
+ *  Lightweight + read-only — beats are NOT posts (no format, not editable). */
+export interface PlanBeat {
+  date:      string;         // 'YYYY-MM-DD'
+  type:      string;         // beat kind, e.g. 'launch' | 'weekend-style-guide'
+  product:   string | null;
+  colourway: string | null;
+  note:      string;
+}
+
 export interface PlanPost {
   id:          string;
   cycleId:     string;
@@ -65,6 +75,7 @@ export interface CycleSummary {
   monthLabel:               string;   // 'July 2026'
   livePostCount:            number;
   isHome:                   boolean;  // === session.cycleId (the one editable month)
+  prePlanning:              boolean;  // cycle status is pre-cutoff → intake capture still open
   preservedEditCount:       number;
   preservedEditOrphanCount: number;
 }

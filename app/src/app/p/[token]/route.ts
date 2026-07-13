@@ -17,5 +17,8 @@ export async function GET(_req: Request, { params }: { params: { token: string }
   }
   await touchLink(token);
   setSessionCookie(token, claims.exp);
-  return NextResponse.redirect(new URL('/', _req.url));
+  // Preserve the intake marker from the Ask email's {{intakeLink}} (…/p/<token>?intake=1) so
+  // the plan lands with the intake capture surface open.
+  const intake = new URL(_req.url).searchParams.get('intake') === '1';
+  return NextResponse.redirect(new URL(intake ? '/?intake=1' : '/', _req.url));
 }

@@ -357,7 +357,7 @@ export async function evaluateThreeTouchForClient(params: {
     monthLabel:     planMonthLabel(cycle.cycleMonth),
     cutoffDate:     formatCutoffDate(today.year, today.month, cutoffDay),
     daysToCutoff:   String(Math.max(0, cutoffDay - today.day)),
-    intakeLink:     appLink,
+    intakeLink:     appLink ? `${appLink}?intake=1` : '',   // lands with the intake surface open
     appLink,
     questionsBlock: touch === 'ask' ? buildQuestionsBlock(chan?.extraQuestions ?? null) : '',
     // leanLine + beatsSummary render blank in this build (their sources wire in later builds).

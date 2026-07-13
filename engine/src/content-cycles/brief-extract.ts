@@ -83,14 +83,17 @@ Return ONE JSON object and nothing else. No prose, no markdown, no code fences.`
 
 // ── User message ─────────────────────────────────────────────────────────────
 
-/** Assemble the single user message: the plan month (date-resolution context)
- *  plus the client's answers and free notes, clearly sectioned. */
-export function buildBriefExtractUserMessage(planContent: PlanContentAnswers, planMonth: string): string {
+/** Assemble the single user message: the plan month (date-resolution context), the client's
+ *  answers and free notes, and — clearly labelled as a DISTINCT section — the durable
+ *  cross-cycle context (plan_inputs idea|next_cycle), so the model treats standing background
+ *  notes differently from this month's brief. */
+export function buildBriefExtractUserMessage(planContent: PlanContentAnswers, planMonth: string, durableContext: string[] = []): string {
   const answerLines = Object.entries(planContent.answers ?? {})
     .filter(([, v]) => typeof v === 'string' && v.trim().length > 0)
     .map(([q, a]) => `- ${q}\n  ${a.trim()}`)
     .join('\n');
   const freeNotes = (planContent.freeNotes ?? '').trim();
+  const durable = durableContext.filter((s) => typeof s === 'string' && s.trim().length > 0);
 
   return [
     `PLAN MONTH: ${planMonth}`,
@@ -98,6 +101,9 @@ export function buildBriefExtractUserMessage(planContent: PlanContentAnswers, pl
     'BRIEF — structured answers:',
     answerLines || '(none)',
     freeNotes ? `\nFREE NOTES:\n${freeNotes}` : '',
+    durable.length
+      ? `\nDURABLE CONTEXT (standing client notes carried across months — background, NOT this month's brief; only extract a beat/product from it if it explicitly names a date or a launch/restock):\n${durable.map((d) => `- ${d}`).join('\n')}`
+      : '',
     '',
     'Extract the structured brief now. Output the JSON object specified, JSON only.',
   ].filter((l) => l !== '').join('\n');
@@ -258,12 +264,15 @@ export function isEmptyBrief(planContent: PlanContentAnswers | null | undefined)
 }
 
 export interface BriefExtractParams {
-  planContent: PlanContentAnswers;
-  planMonth:   string;          // YYYY-MM the plan is for — date-resolution context
-  model:       ModelClient;
-  logger?:     Logger;
-  audit?:      AuditLogger;     // optional — logs the model call when provided
-  clientId?:   string;          // required to audit
+  planContent:     PlanContentAnswers;
+  planMonth:       string;          // YYYY-MM the plan is for — date-resolution context
+  model:           ModelClient;
+  logger?:         Logger;
+  audit?:          AuditLogger;     // optional — logs the model call when provided
+  clientId?:       string;          // required to audit
+  // Durable cross-cycle context (plan_inputs idea|next_cycle), read live by the caller and
+  // threaded in as a distinct section. Closes the businessContext non-consumption gap.
+  durableContext?: string[];
 }
 
 /**
@@ -273,14 +282,15 @@ export interface BriefExtractParams {
  * (the caller decides whether to fail the cycle) — no silent partial brief.
  */
 export async function extractStructuredBrief(params: BriefExtractParams): Promise<StructuredBrief> {
-  const { planContent, planMonth, model, logger, audit, clientId } = params;
+  const { planContent, planMonth, model, logger, audit, clientId, durableContext } = params;
 
-  if (isEmptyBrief(planContent)) {
-    logger?.info({ planMonth }, 'brief-extract: empty brief — returning empty structure (no model call)');
+  // Nothing to extract only when BOTH the brief and durable context are empty.
+  if (isEmptyBrief(planContent) && !(durableContext ?? []).some((s) => s.trim().length > 0)) {
+    logger?.info({ planMonth }, 'brief-extract: empty brief + no durable context — returning empty structure (no model call)');
     return EMPTY_STRUCTURED_BRIEF;
   }
 
-  const userMessage = buildBriefExtractUserMessage(planContent, planMonth);
+  const userMessage = buildBriefExtractUserMessage(planContent, planMonth, durableContext ?? []);
   const result = await model.complete({
     model:     BRIEF_EXTRACT_MODEL,
     system:    BRIEF_EXTRACT_SYSTEM,
