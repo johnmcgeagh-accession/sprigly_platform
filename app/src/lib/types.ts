@@ -34,11 +34,14 @@ export interface PostStepView {
 
 /** A dated content beat (from a cycle's structured_brief.schedule) surfaced on the calendar.
  *  Lightweight + read-only — beats are NOT posts (no format, not editable).
- *  A beat is a RANGE iff `endDate` is non-null: it spans `date`..`endDate` (inclusive,
- *  clipped to the viewed month). A single-day beat has `endDate: null`. */
+ *  A beat is a RANGE iff `range` is non-null. A range renders ONCE, on `date` — the first
+ *  day of its span that is visible in the viewed month (== range.start when the span starts
+ *  inside the month; clamped to the month's first day when the span started earlier). `range`
+ *  is the FULL, unclipped span, so the pill's suffix and tap always show the true window even
+ *  when it began before (or ends after) the viewed month. A single-day beat has `range: null`. */
 export interface PlanBeat {
-  date:      string;         // 'YYYY-MM-DD' — the day (single) or the in-month range START
-  endDate:   string | null;  // 'YYYY-MM-DD' in-month range END for a range beat; null for single-day
+  date:      string;                               // 'YYYY-MM-DD' placement day (the pill renders here, once)
+  range:     { start: string; end: string } | null;  // full span for the label suffix + tap; null for single-day
   type:      string;         // beat kind, e.g. 'launch' | 'weekend-style-guide'
   product:   string | null;
   colourway: string | null;

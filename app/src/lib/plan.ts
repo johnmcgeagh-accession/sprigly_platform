@@ -29,10 +29,12 @@ function monthEndIso(month: string): string {
 }
 
 /** Beats from a (possibly null) structured_brief whose dates fall in `month` ('YYYY-MM').
- *  Handles BOTH single-day beats ({ date }) and range beats ({ dateRange: { start, end } }):
- *  a range that overlaps the month is kept and CLIPPED to the month (endDate set); a single
- *  day in the month is kept as-is (endDate null). Pure + defensive: a null/malformed brief or
- *  beat is skipped. Viewed-cycle-only — cross-cycle brief beats are not merged (Build 3). */
+ *  Handles BOTH single-day beats ({ date }) and range beats ({ dateRange: { start, end } }).
+ *  A range beat renders ONCE (no continuation bands): it is placed on the FIRST day of its
+ *  span visible in the viewed month (== range.start, or the month's first day when the span
+ *  began earlier), and carries its FULL, unclipped span for the label suffix + tap. Pure +
+ *  defensive: a null/malformed brief or beat is skipped. Viewed-cycle-only — cross-cycle
+ *  brief beats are not merged (Build 3). */
 export function beatsInMonth(brief: unknown, month: string): PlanBeat[] {
   const schedule = (brief as { schedule?: unknown } | null)?.schedule;
   if (!Array.isArray(schedule)) return [];
@@ -52,16 +54,17 @@ export function beatsInMonth(brief: unknown, month: string): PlanBeat[] {
     if (dr && typeof dr === 'object'
         && typeof (dr as Record<string, unknown>).start === 'string'
         && typeof (dr as Record<string, unknown>).end === 'string') {
-      // Range beat: clip [start, end] to the viewed month; keep only if it overlaps.
+      // Range beat: keep only if the FULL span overlaps the viewed month; place it on the
+      // first visible day (clamped up to the month's first day when it started earlier), but
+      // keep the full span for display so a prior-month start still reads the true window.
       const start = String((dr as Record<string, unknown>).start);
       const end   = String((dr as Record<string, unknown>).end);
-      const clippedStart = start > monthStart ? start : monthStart;
-      const clippedEnd   = end   < monthEnd   ? end   : monthEnd;
-      if (clippedStart > clippedEnd) continue;                        // no overlap with this month
-      out.push({ date: clippedStart, endDate: clippedEnd, ...base });
+      if (start > monthEnd || end < monthStart) continue;             // no overlap with this month
+      const placement = start > monthStart ? start : monthStart;      // first day visible this month
+      out.push({ date: placement, range: { start, end }, ...base });
     } else if (typeof r.date === 'string' && r.date.startsWith(month)) {
       // Single-day beat (incl. persisted pre-range beats that carry `date` only).
-      out.push({ date: r.date, endDate: null, ...base });
+      out.push({ date: r.date, range: null, ...base });
     }
   }
   return out;

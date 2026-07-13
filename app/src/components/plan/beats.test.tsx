@@ -1,9 +1,9 @@
 /**
  * beats test (Build 3, Part D; extended Build 6) — beatsInMonth filters a structured_brief's
- * schedule to the viewed month, handles single-day AND range beats (clipping ranges to the
- * month), and is null-safe; BeatMarker renders a marker DISTINCT from a post, and renders a
- * range beat as a spanning indicator (start-day label + suffix, continuation-day band).
- * Component render uses react-dom/server (app vitest env is node).
+ * schedule to the viewed month and handles single-day AND range beats; a range beat renders
+ * ONCE, on its placement day (first day visible in the viewed month), carrying its FULL span.
+ * BeatMarker renders a marker DISTINCT from a post. Component render uses react-dom/server
+ * (app vitest env is node).
  */
 import { describe, it, expect, vi } from 'vitest';
 import React from 'react';
@@ -32,29 +32,36 @@ describe('beatsInMonth', () => {
     expect(beatsInMonth({ schedule: 'nope' }, '2026-08')).toEqual([]);
   });
 
-  it('filters to the viewed month and maps single-day beats with endDate null', () => {
+  it('filters to the viewed month and maps single-day beats with range null', () => {
     const beats = beatsInMonth(brief, '2026-08');
     expect(beats).toHaveLength(2);
     expect(beats.map((b) => b.date)).toEqual(['2026-08-05', '2026-08-21']);
-    expect(beats[0]).toEqual({ date: '2026-08-05', endDate: null, type: 'launch', product: 'Wren vest', colourway: 'sage', note: 'Wren vest goes live' });
+    expect(beats[0]).toEqual({ date: '2026-08-05', range: null, type: 'launch', product: 'Wren vest', colourway: 'sage', note: 'Wren vest goes live' });
     expect(Object.keys(beats[0]!)).not.toContain('format');
   });
 
   it('reads persisted pre-range beats (date only, no dateRange key) as single-day beats', () => {
     const legacy = { schedule: [{ date: '2026-08-10', type: 'feature', product: null, colourway: null, note: 'legacy' }] };
-    expect(beatsInMonth(legacy, '2026-08')).toEqual([{ date: '2026-08-10', endDate: null, type: 'feature', product: null, colourway: null, note: 'legacy' }]);
+    expect(beatsInMonth(legacy, '2026-08')).toEqual([{ date: '2026-08-10', range: null, type: 'feature', product: null, colourway: null, note: 'legacy' }]);
   });
 
-  it('keeps a range beat overlapping the month and CLIPS it to the month bounds', () => {
+  it('places a range beat on range.start and carries the full span (single placement)', () => {
     const b = { schedule: [{ date: null, dateRange: { start: '2026-08-25', end: '2026-08-31' }, type: 'warehouse-sale', product: null, colourway: null, note: 'the last week of August' }] };
     const [beat] = beatsInMonth(b, '2026-08');
-    expect(beat).toEqual({ date: '2026-08-25', endDate: '2026-08-31', type: 'warehouse-sale', product: null, colourway: null, note: 'the last week of August' });
+    expect(beat).toEqual({ date: '2026-08-25', range: { start: '2026-08-25', end: '2026-08-31' }, type: 'warehouse-sale', product: null, colourway: null, note: 'the last week of August' });
   });
 
-  it('clips a range that straddles the month boundary to the in-month portion', () => {
-    const b = { schedule: [{ date: null, dateRange: { start: '2026-07-28', end: '2026-08-04' }, type: 'x', product: null, colourway: null, note: 'straddle' }] };
-    expect(beatsInMonth(b, '2026-08')[0]).toMatchObject({ date: '2026-08-01', endDate: '2026-08-04' });
-    expect(beatsInMonth(b, '2026-07')[0]).toMatchObject({ date: '2026-07-28', endDate: '2026-07-31' });
+  it('overlap-from-prior-month: a range starting BEFORE the viewed month renders on the first visible day, full span kept', () => {
+    const b = { schedule: [{ date: null, dateRange: { start: '2026-07-28', end: '2026-08-04' }, type: 'x', product: null, colourway: null, note: 'late July into August' }] };
+    // Viewed in August: placed on Aug 1 (first visible day), but the suffix span stays the FULL 28 Jul–4 Aug.
+    expect(beatsInMonth(b, '2026-08')[0]).toEqual({ date: '2026-08-01', range: { start: '2026-07-28', end: '2026-08-04' }, type: 'x', product: null, colourway: null, note: 'late July into August' });
+    // Viewed in July: placed on its true start, same full span.
+    expect(beatsInMonth(b, '2026-07')[0]).toMatchObject({ date: '2026-07-28', range: { start: '2026-07-28', end: '2026-08-04' } });
+  });
+
+  it('range ending AFTER the viewed month renders once on its in-month start, full span kept', () => {
+    const b = { schedule: [{ date: null, dateRange: { start: '2026-08-28', end: '2026-09-03' }, type: 'x', product: null, colourway: null, note: 'into September' }] };
+    expect(beatsInMonth(b, '2026-08')[0]).toEqual({ date: '2026-08-28', range: { start: '2026-08-28', end: '2026-09-03' }, type: 'x', product: null, colourway: null, note: 'into September' });
   });
 
   it('drops a range beat that does not overlap the viewed month', () => {
@@ -64,8 +71,8 @@ describe('beatsInMonth', () => {
 });
 
 describe('BeatMarker', () => {
-  const beat = { date: '2026-08-21', endDate: null, type: 'weekend-style-guide', product: null, colourway: null, note: 'Style the new midi' };
-  const range = { date: '2026-08-25', endDate: '2026-08-31', type: 'warehouse-sale', product: 'Sale', colourway: null, note: 'the last week of August' };
+  const beat = { date: '2026-08-21', range: null, type: 'weekend-style-guide', product: null, colourway: null, note: 'Style the new midi' };
+  const range = { date: '2026-08-25', range: { start: '2026-08-25', end: '2026-08-31' }, type: 'warehouse-sale', product: 'Sale', colourway: null, note: 'the last week of August' };
 
   it('beatLabel prefers the product, else the (de-kebabed) type', () => {
     expect(beatLabel({ ...beat, product: 'Wren vest' })).toBe('Wren vest');
@@ -80,7 +87,7 @@ describe('BeatMarker', () => {
   });
 
   it('renders a distinct, tap-able, read-only single-day marker (note in the tooltip)', () => {
-    const html = renderToStaticMarkup(<BeatMarker beat={beat} day="2026-08-21" onClick={() => {}} />);
+    const html = renderToStaticMarkup(<BeatMarker beat={beat} onClick={() => {}} />);
     expect(html).toContain('data-testid="beat-marker"');
     expect(html).toContain('<button');                 // tap-able
     expect(html).toContain('weekend style guide');     // label
@@ -92,27 +99,18 @@ describe('BeatMarker', () => {
     expect(html).not.toContain('data-testid="post-chip"');
   });
 
-  it('range beat: START day shows the label + span suffix (desktop)', () => {
-    const html = renderToStaticMarkup(<BeatMarker beat={range} day="2026-08-25" onClick={() => {}} />);
-    expect(html).toContain('data-beat-segment="start"');
+  it('range beat renders ONCE as the labelled pill with the span suffix', () => {
+    const html = renderToStaticMarkup(<BeatMarker beat={range} onClick={() => {}} />);
+    expect(html).toContain('data-beat-segment="range"');
     expect(html).toContain('data-beat-range="2026-08-25/2026-08-31"');
-    expect(html).toContain('Sale');            // label
-    expect(html).toContain('25–31 Aug');       // span suffix
+    expect(html).toContain('Sale');            // label always visible
+    expect(html).toContain('25–31 Aug');       // span suffix always visible
+    expect(html).toContain('text-ellipsis');   // the labelled pill (not a band)
   });
 
-  it('range beat: CONTINUATION day renders a band with no VISIBLE label text (desktop)', () => {
-    const html = renderToStaticMarkup(<BeatMarker beat={range} day="2026-08-28" onClick={() => {}} />);
-    expect(html).toContain('data-beat-segment="continuation"');
-    // Band-only: the visible label span (text-ellipsis) is absent; the beat still carries its
-    // name/span in aria-label + title so a screen reader announces it on continuation days.
-    expect(html).not.toContain('text-ellipsis');
-    expect(html).toContain('aria-label="Beat: Sale (25–31 Aug) — the last week of August"');
-  });
-
-  it('range beat on mobile: EVERY day lists the label + span suffix', () => {
-    const html = renderToStaticMarkup(<BeatMarker beat={range} day="2026-08-28" mobile onClick={() => {}} />);
-    expect(html).toContain('Sale');
-    expect(html).toContain('25–31 Aug');
-    expect(html).toContain('data-beat-segment="start"');   // mobile never uses the continuation band
+  it('a prior-month-start range shows the FULL span in its suffix', () => {
+    const spanning = { date: '2026-08-01', range: { start: '2026-07-28', end: '2026-08-04' }, type: 'x', product: 'Promo', colourway: null, note: 'late July into August' };
+    const html = renderToStaticMarkup(<BeatMarker beat={spanning} onClick={() => {}} />);
+    expect(html).toContain('28 Jul–4 Aug');
   });
 });
