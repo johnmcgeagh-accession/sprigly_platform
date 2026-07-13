@@ -1,4 +1,4 @@
-import type { PlanPost, PlanBeat, CycleSummary } from '@/lib/types';
+import type { PlanPost, PlanBeat, PlanIntake, DurableItemView, CycleSummary } from '@/lib/types';
 import { resolveTodayIso } from '@/lib/steps';
 import { jakarta, dmSerif } from '@/app/fonts';
 import { PlanRoot } from '@/components/plan/PlanRoot';
@@ -14,6 +14,8 @@ interface PlanRedesignProps {
   initialReadOnly?: boolean;
   initialIntakeOpen?: boolean;   // landed from the Ask email's {{intakeLink}} (?intake=1)
   questions: string[];           // BASE + this channel's extra_questions (intake form source)
+  intake: PlanIntake;            // the landed cycle's saved intake (form pre-fill, FIX 1)
+  durable: DurableItemView[];    // client's active durable items (read-only list)
 }
 
 /**
@@ -22,7 +24,7 @@ interface PlanRedesignProps {
  * resolves "today" once, server-side, from the tenant timezone default. Everything
  * interactive lives in <PlanRoot>, which chooses the desktop or mobile layout.
  */
-export default function PlanRedesign({ clientName, posts, crossMonthPosts, beats, cycles, homeCycleId, initialCycleId, initialReadOnly, initialIntakeOpen, questions }: PlanRedesignProps) {
+export default function PlanRedesign({ clientName, posts, crossMonthPosts, beats, cycles, homeCycleId, initialCycleId, initialReadOnly, initialIntakeOpen, questions, intake, durable }: PlanRedesignProps) {
   return (
     <div className={`plan-redesign ${jakarta.variable} ${dmSerif.variable} font-sans`}>
       <PlanRoot
@@ -36,6 +38,8 @@ export default function PlanRedesign({ clientName, posts, crossMonthPosts, beats
         initialReadOnly={initialReadOnly}
         initialIntakeOpen={initialIntakeOpen}
         questions={questions}
+        intake={intake}
+        durable={durable}
         today={resolveTodayIso()}
       />
     </div>

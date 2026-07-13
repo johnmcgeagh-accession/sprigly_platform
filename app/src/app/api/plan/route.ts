@@ -7,8 +7,9 @@
  * 401 if no valid session.
  */
 import { NextResponse } from 'next/server';
-import { and, eq } from 'drizzle-orm';
-import { db, contentCycles } from '@sprigly/db';
+import { and, desc, eq, inArray } from 'drizzle-orm';
+import { db, contentCycles, planInputs } from '@sprigly/db';
+import type { IntakeJson } from '@sprigly/engine';
 import { getSession } from '@/lib/auth';
 import { loadPlanPosts, loadCrossMonthPosts, isCycleReadableByClient, beatsInMonth } from '@/lib/plan';
 import { nextMonth } from '@/lib/cycle-nav';
@@ -38,7 +39,7 @@ export async function GET(req: Request) {
   // dated within THIS cycle's plan month, so a cross-month-moved post shows on its date in
   // the month view it belongs to (each carries its own cycleId for edit routing).
   const [cyc] = await db
-    .select({ channel: contentCycles.channel, cycleMonth: contentCycles.cycleMonth, structuredBrief: contentCycles.structuredBrief })
+    .select({ channel: contentCycles.channel, cycleMonth: contentCycles.cycleMonth, structuredBrief: contentCycles.structuredBrief, intakeJson: contentCycles.intakeJson })
     .from(contentCycles)
     .where(and(eq(contentCycles.id, cycleId), eq(contentCycles.clientId, session.clientId)))
     .limit(1);
@@ -50,5 +51,16 @@ export async function GET(req: Request) {
   // Viewed-cycle-only (cross-cycle brief beats not merged — see Build 3 report).
   const beats = cyc ? beatsInMonth(cyc.structuredBrief, viewedMonth) : [];
 
-  return NextResponse.json({ posts, crossMonthPosts, beats, readOnly: !isHome });
+  // FIX 1: the viewed cycle's saved intake (for the capture form to remember) + the client's
+  // active durable context (read-only "remembered for the future" list). Session-scoped.
+  const planContent = (cyc?.intakeJson as IntakeJson | null)?.planContent ?? { answers: {}, freeNotes: '' };
+  const intake = { answers: planContent.answers ?? {}, freeNotes: planContent.freeNotes ?? '' };
+  const durableRows = await db
+    .select({ id: planInputs.id, type: planInputs.type, content: planInputs.content, createdAt: planInputs.createdAt })
+    .from(planInputs)
+    .where(and(eq(planInputs.clientId, session.clientId), inArray(planInputs.type, ['idea', 'next_cycle']), eq(planInputs.status, 'active')))
+    .orderBy(desc(planInputs.createdAt));
+  const durable = durableRows.map((r) => ({ id: r.id, type: r.type, content: r.content, createdAt: r.createdAt.toISOString() }));
+
+  return NextResponse.json({ posts, crossMonthPosts, beats, intake, durable, readOnly: !isHome });
 }

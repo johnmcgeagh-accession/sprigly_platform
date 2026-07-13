@@ -61,6 +61,16 @@ function getDataMonth(): string {
   const m = month === 1 ? 12       : month - 1;
   return `${y}-${String(m).padStart(2, '0')}`;
 }
+// Intake-workflow cohort (clients WITH a cutoffDay): the cycle is at the CURRENT month (FIX 3).
+function getCurrentMonth(): string {
+  const { year, month } = getLondonToday();
+  return `${year}-${String(month).padStart(2, '0')}`;
+}
+/** Plan-month label ("August 2026") for a cycle's cycle_month ('YYYY-MM' → +1 month). */
+function planMonthLabelOf(cycleMonth: string): string {
+  const [y, m] = cycleMonth.split('-').map(Number);
+  return new Date(Date.UTC(y!, m!, 1)).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+}
 
 /** The client's most-recent cycle month (cycle_month is 'YYYY-MM', so lexical desc =
  *  chronological). Used to anchor the page to the latest cycle (incl. on-demand cycles
@@ -367,9 +377,11 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
   if (!client) notFound();
 
   const channelNames = channels.map(c => c.channel);
-  const [promptCoverage, cyclesByChannel, driveByChannel, competitorsByChannel] = await Promise.all([
+  const currentMonth = getCurrentMonth();   // intake cohort's cycle month (FIX 3)
+  const [promptCoverage, cyclesByChannel, cyclesByChannelCurrent, driveByChannel, competitorsByChannel] = await Promise.all([
     getPromptCoverage(params.id, clientRules.map((r) => r.workflowId)),
     getCyclesByChannel(params.id, channelNames, dataMonth),
+    getCyclesByChannel(params.id, channelNames, currentMonth),   // for the intake-cohort readout
     getDriveFilesByChannel(params.id, channels.map(c => ({ channel: c.channel, driveFolderId: c.driveFolderId ?? null }))),
     getCompetitorsByChannel(params.id, channelNames),
   ]);
@@ -433,11 +445,13 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                   extraQuestions={ch.extraQuestions ?? null}
                   contentCycleEnabled={client.contentCycleEnabled}
                   currentCycle={(() => {
-                    const c = cyclesByChannel.get(ch.channel);
+                    // FIX 3 cohort: a client WITH a cutoffDay runs on the CURRENT-month cycle; a
+                    // legacy client (no cutoffDay) on the data-month cycle. Read the right one.
+                    const intakeCohort = ch.contentCycleSchedule?.cutoffDay != null;
+                    const cohortMonth = intakeCohort ? currentMonth : dataMonth;
+                    const c = (intakeCohort ? cyclesByChannelCurrent : cyclesByChannel).get(ch.channel);
                     if (!c) return null;
-                    const [y, m] = dataMonth.split('-').map(Number);   // plan month = dataMonth + 1
-                    const monthLabel = new Date(Date.UTC(y!, m!, 1)).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
-                    return { monthLabel, askSentAt: c.askSentAt, nudgeSentAt: c.nudgeSentAt, lastCallSentAt: c.lastCallSentAt, inputLanded: c.inputLanded };
+                    return { monthLabel: planMonthLabelOf(cohortMonth), askSentAt: c.askSentAt, nudgeSentAt: c.nudgeSentAt, lastCallSentAt: c.lastCallSentAt, inputLanded: c.inputLanded };
                   })()}
                 />
               </div>

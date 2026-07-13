@@ -17,13 +17,58 @@
  * (same transport; destination is intake/brief, not proposals, pre-cutoff).
  */
 import { NextResponse } from 'next/server';
-import { and, eq } from 'drizzle-orm';
-import { db, contentCycles, clearStructuredBriefIfPrePlanning, PRE_PLANNING_STATUSES } from '@sprigly/db';
-import type { IntakeJson } from '@sprigly/engine';
+import { and, eq, gte, inArray, isNull, lte, or } from 'drizzle-orm';
+import { db, contentCycles, planInputs, clearStructuredBriefIfPrePlanning, PRE_PLANNING_STATUSES } from '@sprigly/db';
+import { extractStructuredBrief, type IntakeJson } from '@sprigly/engine';
 import { getSession } from '@/lib/auth';
 import { allowRequest } from '@/lib/rate-limit';
 import { saveDurableInput } from '@/lib/agent/notes';
 import { runPlanAgentTurn } from '@/lib/agent/turn';
+import { getModelClient } from '@/lib/agent/model';
+import { nextMonth } from '@/lib/cycle-nav';
+
+/** ms budget for the inline brief extraction (one Sonnet call). On timeout the intake is still
+ *  saved and the brief is left null for the lazy planning-path retry. */
+const EXTRACT_TIMEOUT_MS = 25_000;
+
+/** Live durable cross-cycle context for the plan month (mirrors the worker's loadDurableContext). */
+async function loadDurableContext(clientId: string, planMonth: string): Promise<string[]> {
+  try {
+    const rows = await db
+      .select({ type: planInputs.type, content: planInputs.content })
+      .from(planInputs)
+      .where(and(
+        eq(planInputs.clientId, clientId),
+        inArray(planInputs.type, ['idea', 'next_cycle']),
+        eq(planInputs.status, 'active'),
+        or(isNull(planInputs.relevantFrom), lte(planInputs.relevantFrom, `${planMonth}-31`)),
+        or(isNull(planInputs.relevantTo),   gte(planInputs.relevantTo,   `${planMonth}-01`)),
+      ));
+    return rows.map((r) => `[${r.type}] ${r.content}`);
+  } catch { return []; }
+}
+
+/**
+ * FIX 2 — extract the structured brief inline and persist it, so beats appear immediately after
+ * Send. The intake_json is already SAVED before this runs, so a failed/slow/malformed extraction
+ * never loses the brief: on any error we return false and leave structured_brief null (the
+ * extract-gate's fail-loud validation still applies — a malformed brief is never persisted), and
+ * the lazy planning-path re-extracts later. Returns whether beats are now ready.
+ */
+async function extractAndPersistBrief(cycleId: string, cycleMonth: string, intake: IntakeJson, clientId: string): Promise<boolean> {
+  try {
+    const planMonth = nextMonth(cycleMonth);
+    const durableContext = await loadDurableContext(clientId, planMonth);
+    const brief = await Promise.race([
+      extractStructuredBrief({ planContent: intake.planContent, planMonth, model: getModelClient(), clientId, durableContext }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('extract timeout')), EXTRACT_TIMEOUT_MS)),
+    ]);
+    await db.update(contentCycles).set({ structuredBrief: brief as unknown, updatedAt: new Date() }).where(eq(contentCycles.id, cycleId));
+    return true;
+  } catch {
+    return false;   // intake is saved; brief stays null for the lazy retry
+  }
+}
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -80,7 +125,7 @@ export async function POST(req: Request) {
 
   // Ownership: the cycle must belong to the session's client (standard check).
   const [cycle] = await db
-    .select({ status: contentCycles.status, intakeJson: contentCycles.intakeJson })
+    .select({ status: contentCycles.status, intakeJson: contentCycles.intakeJson, cycleMonth: contentCycles.cycleMonth })
     .from(contentCycles)
     .where(and(eq(contentCycles.id, cycleId), eq(contentCycles.clientId, clientId)))
     .limit(1);
@@ -98,13 +143,16 @@ export async function POST(req: Request) {
 
   // ── THE CLASSIFIER ──────────────────────────────────────────────────────────
   if (prePlanning) {
+    let beatsReady = false;
     if (hasIntakeContent) {
       const next = mergeIntake(cycle.intakeJson as IntakeJson | null, answers, freeNotes, source);
       await db.update(contentCycles).set({ intakeJson: next as unknown, updatedAt: new Date() }).where(eq(contentCycles.id, cycleId));
-      // Intake changed → clear the extract-once brief so it re-extracts (Build 1 helper).
+      // Intake changed → clear the extract-once brief (Build 1 helper), then FIX 2: extract + persist
+      // inline so beats appear immediately. Intake is already saved; extraction failure is non-fatal.
       await clearStructuredBriefIfPrePlanning(db, cycleId);
+      beatsReady = await extractAndPersistBrief(cycleId, cycle.cycleMonth, next, clientId);
     }
-    return NextResponse.json({ mode: 'brief_updated', prePlanning: true, briefCleared: hasIntakeContent, durableSaved });
+    return NextResponse.json({ mode: 'brief_updated', prePlanning: true, briefCleared: hasIntakeContent, beatsReady, durableSaved });
   }
 
   // POST-cutoff: do NOT touch intake_json — route the info to proposals via the agent loop.

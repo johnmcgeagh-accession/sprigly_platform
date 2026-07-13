@@ -35,6 +35,8 @@ export function PlanRoot(props: PlanDataInit) {
           prePlanning={data.viewedCyclePrePlanning}
           busy={data.intakeBusy}
           monthLabel={viewedMonthLabel}
+          intake={data.intake}
+          durable={data.durable}
           onSubmit={data.submitIntake}
           onClose={data.closeIntake}
         />

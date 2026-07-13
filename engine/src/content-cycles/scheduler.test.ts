@@ -74,7 +74,7 @@ function makeEnqueueDb(existingCycle?: { status: string }) {
 // For runContentCycleTick: first select = enabled-clients (directly awaitable),
 // subsequent selects = cycle-status checks (awaited via .limit()).
 function makeTickDb(
-  enabledClients: Array<{ clientId: string; channel: string; contentCycleSchedule: { day: number; hour: number } | null }>,
+  enabledClients: Array<{ clientId: string; channel: string; contentCycleSchedule: { day: number; hour: number; cutoffDay?: number } | null }>,
   existingCycle?: { status: string } | null,
 ) {
   let selectIdx = 0;
@@ -263,6 +263,23 @@ describe('runContentCycleTick', () => {
     );
   });
 
+  it('FIX 3: a cutoffDay client targets the CURRENT month (plan = M+1), not the data month', async () => {
+    // Day 10 June: creation is due (10≥5); auto-run (cutoff 20) not reached; three-touch not a
+    // touch day (5/17/19) → ONLY the creation branch acts. cutoffDay set ⇒ cycle_month = 2026-06.
+    const { db } = makeTickDb(
+      [{ clientId: 'c1', channel: 'instagram', contentCycleSchedule: { day: 5, hour: 6, cutoffDay: 20 } }],
+      null,
+    );
+    const { queue, add } = makeQueue();
+    await runContentCycleTick({ db, queue, logger: LOGGER as never, now: new Date('2026-06-10T04:00:00Z') });
+    expect(add).toHaveBeenCalledOnce();
+    expect(add).toHaveBeenCalledWith(
+      'ig-trawl',
+      expect.objectContaining({ dataMonth: '2026-06' }),   // current month, NOT 2026-05
+      expect.objectContaining({ jobId: igTrawlJobId('c1', 'instagram', '2026-06') }),
+    );
+  });
+
   it('skips an enabled client when today is before the scheduled day', async () => {
     const { db } = makeTickDb(
       [{ clientId: 'c1', channel: 'instagram', contentCycleSchedule: { day: 15, hour: 6 } }],
@@ -426,6 +443,7 @@ describe('runContentCycleTick — auto-run DARK (AUTO_RUN_ENABLED unset ⇒ fals
         cycleId: 'cyc-1', currentStatus: 'scheduled', cutoffDay: 20, hasIntakeInput: false,
         wouldTransition: ['scheduled->requested', 'requested->intake_confirmed'],
         wouldEnqueue: 'planning:cyc-1',
+        monthLabel: 'July 2026',   // FIX 3: cohort month 2026-06 → plans July 2026
       }),
       expect.stringContaining('[auto-run:dry]'),
     );
