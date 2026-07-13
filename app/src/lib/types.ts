@@ -33,9 +33,12 @@ export interface PostStepView {
 }
 
 /** A dated content beat (from a cycle's structured_brief.schedule) surfaced on the calendar.
- *  Lightweight + read-only — beats are NOT posts (no format, not editable). */
+ *  Lightweight + read-only — beats are NOT posts (no format, not editable).
+ *  A beat is a RANGE iff `endDate` is non-null: it spans `date`..`endDate` (inclusive,
+ *  clipped to the viewed month). A single-day beat has `endDate: null`. */
 export interface PlanBeat {
-  date:      string;         // 'YYYY-MM-DD'
+  date:      string;         // 'YYYY-MM-DD' — the day (single) or the in-month range START
+  endDate:   string | null;  // 'YYYY-MM-DD' in-month range END for a range beat; null for single-day
   type:      string;         // beat kind, e.g. 'launch' | 'weekend-style-guide'
   product:   string | null;
   colourway: string | null;

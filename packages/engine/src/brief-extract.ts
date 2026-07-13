@@ -60,7 +60,7 @@ You are given, in the user message:
 Extract into this EXACT shape:
 {
   "products": [ { "product": "", "colourway": null, "status": "new", "launch_date": null, "content_from": null } ],
-  "schedule": [ { "date": "", "type": "", "product": null, "colourway": null, "note": "" } ],
+  "schedule": [ { "date": "", "dateRange": null, "type": "", "product": null, "colourway": null, "note": "" } ],
   "content_asks": [ { "type": "", "product": null, "note": "" } ],
   "focus": [ "" ],
   "conflicts": [ { "description": "", "dates": null, "items": null } ],
@@ -69,11 +69,24 @@ Extract into this EXACT shape:
 
 Rules:
 - products: one entry per product-and-colourway the brief says is LAUNCHING or RETURNING this month. "status" is "new" for a brand-new product or colourway, "restock" for one returning or being restocked. "colourway" is the stated colourway, or null if none is named. "launch_date" is the ISO date it goes live if the brief gives one, else null. "content_from" is an ISO date if the brief says when to start posting about it, else null. Do NOT list products merely mentioned in passing: only genuine launch or restock declarations.
-- schedule: one entry per DATED content beat the brief specifies (a placement on a specific date). "date" is the ISO date. "type" is a short kebab-case label for the beat kind (for example "launch", "weekend-style-guide", "sunday-style", "feature", "colour-palette", "note-from-founder"). "product" and "colourway" name what the beat features, or null. "note" is the beat text as the brief states it.
+- schedule: one entry per DATED content beat the brief specifies. A beat is EITHER a single day OR a date range — set EXACTLY ONE of these two fields and set the other to null:
+    - "date": the ISO day (YYYY-MM-DD) for a beat the brief pins to ONE specific day. When you use "date", "dateRange" MUST be null.
+    - "dateRange": { "start": ISO day, "end": ISO day } (inclusive) for a beat the brief gives only VAGUE timing (a week, an "early/mid/late", an "around the Nth", a "weekend of the Nth"). When you use "dateRange", "date" MUST be null.
+  NEVER set both, and NEVER set neither. "type" is a short kebab-case label for the beat kind (for example "launch", "weekend-style-guide", "sunday-style", "feature", "colour-palette", "note-from-founder"). "product" and "colourway" name what the beat features, or null. "note" is the beat text as the brief states it — PRESERVE the client's original vague phrasing verbatim (e.g. keep "the last week of August" in the note even though you resolved it to a range).
 - content_asks: one entry per content piece the brief asks for this month with NO fixed date (for example "Connie details post", "customer quotes about Connie", "organic-cotton-for-sensitive-skin education", "BTS of receiving the shipment", "Refer a Friend reminder"). "type" is a short kebab-case label. "product" names what it is about, or null. "note" is the ask text as the brief states it. An ask with a specific date belongs in schedule, NOT here; an ask with no date belongs here, NOT in schedule.
 - focus: the primary hero product families the brief says to feature heavily this month. Names only.
 - conflicts: one entry per internal CONTRADICTION in the brief (for example the same date given to two different beats, or a date whose weekday does not match). "description" states the contradiction. "dates" lists the ISO dates involved (or null). "items" lists the colliding beats/labels (or null).
 - plan_window.from: the ISO date the brief says to start planning from (for example "plan from 13 July"), or null. plan_window.month: the PLAN MONTH you were given (YYYY-MM).
+
+VAGUE TIMING → RANGES (resolve against the PLAN MONTH, London calendar). When the brief gives only a fuzzy window rather than a specific day, produce a "dateRange" (start/end inclusive, both in the plan month) using THESE fixed conventions, and keep the original phrasing in "note":
+- "first week of <month>" → the first 7 days: the 1st through the 7th.
+- "last week of <month>" → the last 7 days: (last day − 6) through the last day (e.g. a 31-day month → the 25th–31st; a 30-day month → the 24th–30th).
+- "early <month>" → the 1st–10th. "mid <month>" → the 11th–20th. "late <month>" → the 21st through the last day.
+- "around the Nth" / "about the Nth" → a 3-day window centred on N: the (N−1)th–(N+1)th.
+- "the weekend of the Nth" → the Saturday–Sunday of the week that contains the Nth.
+- Clip every resolved range to the PLAN MONTH. If a resolved range lies WHOLLY OUTSIDE the plan month (e.g. "early September" while planning August), do NOT put it in schedule — put it in content_asks (undated) with the original phrasing.
+- An explicit single day ("the 25th", "17 July") stays a single-day beat: set "date", leave "dateRange" null. Never widen a specific day into a range.
+- If timing is so vague it cannot be resolved to any range in the plan month at all, put the item in content_asks (undated), NOT schedule.
 
 STRICT LITERAL DATES (this overrides any instinct to tidy the brief):
 - A "date" in schedule MUST be a date the brief states LITERALLY (a day number, resolved to ISO in the plan month/year). NEVER invent, shift, or de-collide a date.
@@ -168,6 +181,18 @@ function isoDateOrNull(v: unknown, ctx: string): string | null {
   if (s !== null && !ISO_DATE.test(s)) fail(`${ctx} must be an ISO date (YYYY-MM-DD), got "${s}"`);
   return s;
 }
+/** Optional inclusive ISO date range: null/undefined → null; else { start, end } with
+ *  both an ISO date and start <= end, otherwise reject (fail-loud). */
+function dateRangeOrNull(v: unknown, ctx: string): { start: string; end: string } | null {
+  if (v == null) return null;
+  if (!isObj(v)) fail(`${ctx} must be an object { start, end } or null`);
+  const start = reqStr((v as Record<string, unknown>)['start'], `${ctx}.start`);
+  const end   = reqStr((v as Record<string, unknown>)['end'], `${ctx}.end`);
+  if (!ISO_DATE.test(start)) fail(`${ctx}.start must be an ISO date (YYYY-MM-DD), got "${start}"`);
+  if (!ISO_DATE.test(end)) fail(`${ctx}.end must be an ISO date (YYYY-MM-DD), got "${end}"`);
+  if (start > end) fail(`${ctx}.start (${start}) must not be after ${ctx}.end (${end})`);
+  return { start, end };
+}
 /** Optional array of non-empty strings: null/undefined → null; else each a string. */
 function strArrayOrNull(v: unknown, ctx: string): string[] | null {
   if (v == null) return null;
@@ -207,10 +232,15 @@ export function validateStructuredBrief(parsed: unknown): StructuredBrief {
 
   const outSchedule: BriefScheduleBeat[] = schedule.map((b, i) => {
     if (!isObj(b)) fail(`schedule[${i}] is not an object`);
-    const date = reqStr(b['date'], `schedule[${i}].date`);
-    if (!ISO_DATE.test(date)) fail(`schedule[${i}].date must be an ISO date (YYYY-MM-DD), got "${date}"`);
+    // A beat is EITHER a single day OR a range — exactly one of date / dateRange is present.
+    // Fail loud on both or neither (this widens the schema; it does NOT loosen the gate).
+    const date      = isoDateOrNull(b['date'], `schedule[${i}].date`);
+    const dateRange = dateRangeOrNull(b['dateRange'], `schedule[${i}].dateRange`);
+    if (date !== null && dateRange !== null) fail(`schedule[${i}] must not set BOTH date and dateRange`);
+    if (date === null && dateRange === null) fail(`schedule[${i}] must set EITHER date or dateRange (got neither)`);
     return {
       date,
+      dateRange,
       type:      reqStr(b['type'], `schedule[${i}].type`),
       product:   strOrNull(b['product'], `schedule[${i}].product`),
       colourway: strOrNull(b['colourway'], `schedule[${i}].colourway`),

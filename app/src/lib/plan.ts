@@ -20,22 +20,51 @@ import type {
 } from './types.js';
 export type { PlanBeat } from './types.js';
 
+/** The last ISO day ('YYYY-MM-DD') of a 'YYYY-MM' month. */
+function monthEndIso(month: string): string {
+  const y = Number(month.slice(0, 4));
+  const m = Number(month.slice(5, 7));
+  const dom = new Date(Date.UTC(y, m, 0)).getUTCDate();   // Date.UTC(y, m, 0) = last day of 1-based month m
+  return `${month}-${String(dom).padStart(2, '0')}`;
+}
+
 /** Beats from a (possibly null) structured_brief whose dates fall in `month` ('YYYY-MM').
- *  Pure + defensive: a null/malformed brief or schedule yields []. Viewed-cycle-only —
- *  cross-cycle brief beats are intentionally not merged (see Build 3 report). */
+ *  Handles BOTH single-day beats ({ date }) and range beats ({ dateRange: { start, end } }):
+ *  a range that overlaps the month is kept and CLIPPED to the month (endDate set); a single
+ *  day in the month is kept as-is (endDate null). Pure + defensive: a null/malformed brief or
+ *  beat is skipped. Viewed-cycle-only — cross-cycle brief beats are not merged (Build 3). */
 export function beatsInMonth(brief: unknown, month: string): PlanBeat[] {
   const schedule = (brief as { schedule?: unknown } | null)?.schedule;
   if (!Array.isArray(schedule)) return [];
-  return schedule
-    .filter((b): b is Record<string, unknown> => !!b && typeof b === 'object' && typeof (b as Record<string, unknown>).date === 'string')
-    .filter((b) => (b.date as string).startsWith(month))
-    .map((b) => ({
-      date:      String(b.date),
-      type:      String(b.type ?? ''),
-      product:   typeof b.product === 'string' ? b.product : null,
-      colourway: typeof b.colourway === 'string' ? b.colourway : null,
-      note:      String(b.note ?? ''),
-    }));
+  const monthStart = `${month}-01`;
+  const monthEnd   = monthEndIso(month);
+  const out: PlanBeat[] = [];
+  for (const b of schedule) {
+    if (!b || typeof b !== 'object') continue;
+    const r = b as Record<string, unknown>;
+    const base = {
+      type:      String(r.type ?? ''),
+      product:   typeof r.product === 'string' ? r.product : null,
+      colourway: typeof r.colourway === 'string' ? r.colourway : null,
+      note:      String(r.note ?? ''),
+    };
+    const dr = r.dateRange;
+    if (dr && typeof dr === 'object'
+        && typeof (dr as Record<string, unknown>).start === 'string'
+        && typeof (dr as Record<string, unknown>).end === 'string') {
+      // Range beat: clip [start, end] to the viewed month; keep only if it overlaps.
+      const start = String((dr as Record<string, unknown>).start);
+      const end   = String((dr as Record<string, unknown>).end);
+      const clippedStart = start > monthStart ? start : monthStart;
+      const clippedEnd   = end   < monthEnd   ? end   : monthEnd;
+      if (clippedStart > clippedEnd) continue;                        // no overlap with this month
+      out.push({ date: clippedStart, endDate: clippedEnd, ...base });
+    } else if (typeof r.date === 'string' && r.date.startsWith(month)) {
+      // Single-day beat (incl. persisted pre-range beats that carry `date` only).
+      out.push({ date: r.date, endDate: null, ...base });
+    }
+  }
+  return out;
 }
 
 const FORMATS  = new Set<PostFormat>(['reel', 'carousel', 'single', 'email']);
