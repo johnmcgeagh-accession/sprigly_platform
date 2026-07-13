@@ -1,6 +1,6 @@
 'use server';
 
-import { db, contentCycles } from '@sprigly/db';
+import { db, contentCycles, clearStructuredBriefIfPrePlanning } from '@sprigly/db';
 import { eq } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import type { IntakeJson } from '@sprigly/engine';
@@ -34,6 +34,11 @@ export async function saveIntake(formData: FormData): Promise<IntakeActionResult
       .update(contentCycles)
       .set({ intakeJson: intakeJson as unknown, updatedAt: new Date() })
       .where(eq(contentCycles.id, cycleId));
+
+    // Intake changed → the extract-once structured_brief is now stale. Clear it so the next
+    // planning run re-extracts (no-op at/after planning; the shared @sprigly/db helper is the
+    // same one Build 3's app intake route will call).
+    await clearStructuredBriefIfPrePlanning(db, cycleId);
 
     revalidatePath(`/admin/clients/${clientId}`);
     return { ok: true };

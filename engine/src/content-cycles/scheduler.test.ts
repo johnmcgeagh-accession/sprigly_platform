@@ -8,12 +8,15 @@ vi.mock('@sprigly/db', () => ({
   db:             {},
   clients:        { id: {}, contentCycleEnabled: {} },
   clientChannels: { clientId: {}, channel: {}, contentCycleSchedule: {} },
-  contentCycles:  { clientId: {}, channel: {}, cycleMonth: {}, status: {} },
+  contentCycles:  { id: {}, clientId: {}, channel: {}, cycleMonth: {}, status: {}, intakeJson: {}, createdAt: {} },
+  planInputs:     { id: {}, clientId: {}, type: {}, status: {}, createdAt: {} },
 }));
 
 vi.mock('drizzle-orm', () => ({
-  eq:  vi.fn(() => 'eq'),
-  and: vi.fn(() => 'and'),
+  eq:      vi.fn(() => 'eq'),
+  and:     vi.fn(() => 'and'),
+  gte:     vi.fn(() => 'gte'),
+  inArray: vi.fn(() => 'inArray'),
 }));
 
 // consumer.ts imports needed by transitive dependencies
@@ -31,6 +34,7 @@ import {
   isDue,
   enqueueCycleForClient,
   runContentCycleTick,
+  planAutoRunTransitions,
   type CycleSchedule,
 } from './scheduler.js';
 import { igTrawlJobId, IG_TRAWL_JOB_OPTIONS } from './job-options.js';
@@ -341,5 +345,109 @@ describe('runContentCycleTick', () => {
       expect.objectContaining({ clientId: 'c1', err: 'Error: DB unavailable' }),
       expect.any(String),
     );
+  });
+});
+
+// ── Auto-run (intake-capture) — SHIPS DARK ────────────────────────────────────
+
+describe('planAutoRunTransitions', () => {
+  it('scheduled advances through requested to intake_confirmed (run-anyway)', () => {
+    expect(planAutoRunTransitions('scheduled')).toEqual(['scheduled->requested', 'requested->intake_confirmed']);
+  });
+  it('requested / reply_received / awaiting_confirmation advance directly', () => {
+    expect(planAutoRunTransitions('requested')).toEqual(['requested->intake_confirmed']);
+    expect(planAutoRunTransitions('reply_received')).toEqual(['reply_received->intake_confirmed']);
+    expect(planAutoRunTransitions('awaiting_confirmation')).toEqual(['awaiting_confirmation->intake_confirmed']);
+  });
+  it('returns [] for intake_confirmed or later (nothing to advance)', () => {
+    expect(planAutoRunTransitions('intake_confirmed')).toEqual([]);
+    expect(planAutoRunTransitions('planning')).toEqual([]);
+  });
+});
+
+describe('runContentCycleTick — auto-run DARK (AUTO_RUN_ENABLED unset ⇒ false)', () => {
+  // Day 25 June 2026 (London, BST). dataMonth = 2026-05.
+  const DAY_25_JUN_2026 = new Date('2026-06-25T04:00:00Z');
+
+  // select[0] = enabled clients (thenable). One client: ask day 28 (NOT due on the 25th, so
+  // the creation branch issues no cycle-check select) + cutoffDay 20 (reached on the 25th).
+  // select[1] = auto-run cycle lookup (.limit → [cycle]); select[2] = plan_inputs (.limit → []).
+  function makeAutoRunDb(cycle: { id: string; status: string; intakeJson: unknown; createdAt: Date }) {
+    const enabled = [{ clientId: 'c1', channel: 'instagram', contentCycleSchedule: { day: 28, hour: 6, cutoffDay: 20 } }];
+    let idx = 0;
+    const update = vi.fn();
+    const insert = vi.fn();
+    const db = {
+      select: vi.fn().mockImplementation(() => {
+        if (idx++ === 0) {
+          const resolved = Promise.resolve(enabled);
+          return {
+            from:      vi.fn().mockReturnThis(),
+            innerJoin: vi.fn().mockReturnThis(),
+            where:     vi.fn().mockReturnValue({
+              then: resolved.then.bind(resolved), catch: resolved.catch.bind(resolved), finally: resolved.finally.bind(resolved),
+            }),
+          };
+        }
+        const rows = idx === 2 ? [cycle] : [];   // idx 2 = cycle lookup; idx 3 = plan_inputs
+        return { from: vi.fn().mockReturnThis(), where: vi.fn().mockReturnThis(), limit: vi.fn().mockResolvedValue(rows) };
+      }),
+      insert, update,
+    } as unknown as Parameters<typeof runContentCycleTick>[0]['db'];
+    return { db, update, insert };
+  }
+
+  it('logs [auto-run:dry] and changes NOTHING for a matched pre-cutoff cycle', async () => {
+    const { db, update, insert } = makeAutoRunDb({
+      id: 'cyc-1', status: 'scheduled',
+      intakeJson: { planContent: { answers: {}, freeNotes: '' } }, createdAt: new Date('2026-05-01T00:00:00Z'),
+    });
+    const { queue, add } = makeQueue();
+
+    await runContentCycleTick({ db, queue, logger: LOGGER as never, now: DAY_25_JUN_2026 });
+
+    // Zero mutation: no enqueue, no insert, no update (⇒ no transition either).
+    expect(add).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    // The [auto-run:dry] line carries the full plan it WOULD execute + the intake predicate.
+    expect(LOGGER.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cycleId: 'cyc-1', currentStatus: 'scheduled', cutoffDay: 20, hasIntakeInput: false,
+        wouldTransition: ['scheduled->requested', 'requested->intake_confirmed'],
+        wouldEnqueue: 'planning:cyc-1',
+      }),
+      expect.stringContaining('[auto-run:dry]'),
+    );
+  });
+
+  it('reports hasIntakeInput:true when the cycle already has intake content', async () => {
+    const { db, update } = makeAutoRunDb({
+      id: 'cyc-2', status: 'requested',
+      intakeJson: { planContent: { answers: { q1: 'launch on the 5th' }, freeNotes: '' } }, createdAt: new Date('2026-05-01T00:00:00Z'),
+    });
+    const { queue, add } = makeQueue();
+
+    await runContentCycleTick({ db, queue, logger: LOGGER as never, now: DAY_25_JUN_2026 });
+
+    expect(add).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    expect(LOGGER.info).toHaveBeenCalledWith(
+      expect.objectContaining({ cycleId: 'cyc-2', currentStatus: 'requested', hasIntakeInput: true }),
+      expect.stringContaining('[auto-run:dry]'),
+    );
+  });
+
+  it('does not fire (no dry line) when the cycle is already intake_confirmed', async () => {
+    const { db, update } = makeAutoRunDb({ id: 'cyc-3', status: 'intake_confirmed', intakeJson: null, createdAt: new Date('2026-05-01T00:00:00Z') });
+    const { queue, add } = makeQueue();
+
+    await runContentCycleTick({ db, queue, logger: LOGGER as never, now: DAY_25_JUN_2026 });
+
+    expect(add).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const dryCalls = (LOGGER.info as any).mock.calls.filter((c: unknown[]) => typeof c[1] === 'string' && (c[1] as string).includes('[auto-run:dry]'));
+    expect(dryCalls).toHaveLength(0);
   });
 });

@@ -10,7 +10,7 @@ interface Props {
   instagramHandle:      string | null;
   contactEmail:         string | null;
   contactName:          string | null;
-  contentCycleSchedule: { day: number; hour: number } | null;
+  contentCycleSchedule: { day: number; hour: number; cutoffDay?: number | null } | null;
   extraQuestions:       string[] | null;
   contentCycleEnabled:  boolean;
 }

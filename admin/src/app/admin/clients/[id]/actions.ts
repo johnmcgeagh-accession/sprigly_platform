@@ -477,13 +477,22 @@ export async function updateContentCycleSettings(formData: FormData): Promise<vo
 
   const dayRaw  = (formData.get('scheduleDay')  as string).trim();
   const hourRaw = (formData.get('scheduleHour') as string).trim();
-  let contentCycleSchedule: { day: number; hour: number } | null = null;
+  let contentCycleSchedule: { day: number; hour: number; cutoffDay?: number | null } | null = null;
   if (dayRaw && hourRaw) {
     const day  = parseInt(dayRaw,  10);
     const hour = parseInt(hourRaw, 10);
     if (isNaN(day)  || day  < 1  || day  > 28) throw new Error(`Schedule day must be 1–28, got "${dayRaw}"`);
     if (isNaN(hour) || hour < 0  || hour > 23) throw new Error(`Schedule hour must be 0–23, got "${hourRaw}"`);
-    contentCycleSchedule = { day, hour };
+    // This form edits day/hour only. Preserve any auto-run cutoffDay already stored so
+    // rebuilding {day,hour} from scratch never silently drops it (the cutoffDay editor is a
+    // later build). No client has a cutoffDay yet, so this is a no-op today.
+    const [existing] = await db
+      .select({ schedule: clientChannels.contentCycleSchedule })
+      .from(clientChannels)
+      .where(and(eq(clientChannels.clientId, clientId), eq(clientChannels.channel, channel)))
+      .limit(1);
+    const cutoffDay = existing?.schedule?.cutoffDay ?? null;
+    contentCycleSchedule = cutoffDay != null ? { day, hour, cutoffDay } : { day, hour };
   }
 
   const extraQuestionsRaw = (formData.get('extraQuestions') as string) ?? '';

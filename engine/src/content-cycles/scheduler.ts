@@ -20,7 +20,9 @@ import { eq, and } from 'drizzle-orm';
 import { db as _db, clients, clientChannels, contentCycles } from '@sprigly/db';
 import type { Queue } from 'bullmq';
 import type { Logger } from 'pino';
-import { IG_TRAWL_JOB_OPTIONS, igTrawlJobId } from './job-options.js';
+import { IG_TRAWL_JOB_OPTIONS, igTrawlJobId, PLANNING_JOB_OPTIONS, planningJobId } from './job-options.js';
+import { transitionCycle } from './machine.js';
+import { hasAnyIntakeInput } from './intake-input.js';
 
 type Db = typeof _db;
 
@@ -35,11 +37,45 @@ const ACTIVE_STATUSES: ReadonlyArray<string> = [
 ];
 
 export interface CycleSchedule {
-  day:  number;  // day-of-month (1–28) on which the cycle triggers
+  day:  number;  // day-of-month (1–28) on which the cycle triggers CREATION (the ask-chain)
   hour: number;  // hour in Europe/London (stored; not used by the daily tick currently)
+  // Auto-run (intake-capture): day-of-month the plan RUN fires (cutoff). Optional —
+  // null/absent ⇒ auto-run is not configured for this client (the default). `day` above
+  // stays the reminder/ask date; unchanged semantics.
+  cutoffDay?: number | null;
 }
 
 const DEFAULT_SCHEDULE: CycleSchedule = { day: 1, hour: 6 };
+
+// ── Auto-run (intake-capture) — SHIPS DARK in this build ──────────────────────
+// Master switch. Default OFF (only 'true' enables). While false the auto-run branch takes
+// NO action — it logs, at info, exactly what it WOULD do. Flipping this env var to 'true' is
+// the switch that makes the run fire (the pinned notification is wired at the tick call site).
+const AUTO_RUN_ENABLED = process.env.AUTO_RUN_ENABLED === 'true';
+const AUTO_RUN_DRY_PREFIX = '[auto-run:dry]';
+
+// A cycle is auto-runnable only from a status BEFORE intake_confirmed — i.e. the ask-chain
+// ran (or hasn't) but the plan hasn't been confirmed/started. At intake_confirmed or beyond
+// there is nothing to auto-advance.
+const AUTO_RUN_PRESTART_STATUSES: ReadonlyArray<string> = [
+  'scheduled', 'requested', 'reply_received', 'awaiting_confirmation',
+];
+
+/**
+ * The ordered machine edges auto-run would traverse to reach intake_confirmed from a given
+ * pre-start status. All of these edges already exist (machine.ts) — this build never adds a
+ * transition. scheduled advances through requested (run-anyway: empty intake is the valid
+ * baseline). Returns "from->to" strings for logging + (when live) sequential transitionCycle.
+ */
+export function planAutoRunTransitions(from: string): string[] {
+  switch (from) {
+    case 'scheduled':             return ['scheduled->requested', 'requested->intake_confirmed'];
+    case 'requested':             return ['requested->intake_confirmed'];
+    case 'reply_received':        return ['reply_received->intake_confirmed'];
+    case 'awaiting_confirmation': return ['awaiting_confirmation->intake_confirmed'];
+    default:                      return [];
+  }
+}
 
 export function getLondonToday(now: Date = new Date()): { year: number; month: number; day: number } {
   const fmt = new Intl.DateTimeFormat('en-GB', {
@@ -115,11 +151,99 @@ export async function enqueueCycleForClient(params: {
   return 'enqueued';
 }
 
+/**
+ * Auto-run (intake-capture) — SHIPS DARK. For one enabled client+channel whose schedule has
+ * a cutoffDay: if the cutoff day is reached AND a cycle for the current data month is still
+ * before intake_confirmed, this is where the plan RUN would fire. While AUTO_RUN_ENABLED is
+ * false it takes NO action — it logs, at info with the [auto-run:dry] prefix, exactly what it
+ * WOULD do (client, cycle, status, transitions, intake-input predicate, enqueue, notify) and
+ * returns. Rows without a cutoffDay short-circuit before any DB read.
+ */
+export async function evaluateAutoRunForClient(params: {
+  db:        Db;
+  queue:     Queue;
+  clientId:  string;
+  channel:   string;
+  dataMonth: string;
+  schedule:  CycleSchedule;
+  today:     { day: number };
+  logger:    Logger;
+  notify?:   ((info: { clientId: string; channel: string; cycleId: string; dataMonth: string }) => Promise<void>) | undefined;
+}): Promise<'dry' | 'ran' | 'skipped'> {
+  const { db, queue, clientId, channel, dataMonth, schedule, today, logger, notify } = params;
+  const logCtx = { clientId, channel, dataMonth };
+
+  const cutoffDay = schedule.cutoffDay ?? null;
+  if (cutoffDay == null) return 'skipped';       // auto-run not configured for this client
+  if (today.day < cutoffDay) return 'skipped';   // cutoff not reached yet this month
+
+  const [cycle] = await db
+    .select({
+      id:         contentCycles.id,
+      status:     contentCycles.status,
+      intakeJson: contentCycles.intakeJson,
+      createdAt:  contentCycles.createdAt,
+      clientId:   contentCycles.clientId,
+    })
+    .from(contentCycles)
+    .where(and(
+      eq(contentCycles.clientId,   clientId),
+      eq(contentCycles.channel,    channel),
+      eq(contentCycles.cycleMonth, dataMonth),
+    ))
+    .limit(1);
+
+  if (!cycle) {
+    logger.info({ ...logCtx, cutoffDay, todayDay: today.day },
+      'content-cycle-scheduler: auto-run cutoff reached but no cycle for data month — nothing to run');
+    return 'skipped';
+  }
+  if (!AUTO_RUN_PRESTART_STATUSES.includes(cycle.status)) return 'skipped';  // confirmed or beyond
+
+  const transitions    = planAutoRunTransitions(cycle.status);
+  const hasIntakeInput = await hasAnyIntakeInput(db, { clientId: cycle.clientId, createdAt: cycle.createdAt, intakeJson: cycle.intakeJson });
+  const notifySummary  = `pinned app-ready notification for cycle ${cycle.id} (${dataMonth} plan)`;
+
+  if (!AUTO_RUN_ENABLED) {
+    logger.info({
+      ...logCtx,
+      cycleId:         cycle.id,
+      currentStatus:   cycle.status,
+      cutoffDay,
+      todayDay:        today.day,
+      wouldTransition: transitions,
+      hasIntakeInput,
+      wouldEnqueue:    `planning:${cycle.id}`,
+      wouldNotify:     notifySummary,
+    }, `${AUTO_RUN_DRY_PREFIX} would advance cycle ${cycle.id} ${cycle.status} → intake_confirmed via [${transitions.join(', ')}], then enqueue planning (intake ${hasIntakeInput ? 'present' : 'empty — baseline run'}); would notify: ${notifySummary}`);
+    return 'dry';
+  }
+
+  // ── LIVE (AUTO_RUN_ENABLED=true) — NOT exercised in this build ────────────────
+  // Uses only existing machine edges + the engine planning enqueue primitive; changes
+  // NOTHING in runPlanningForCycle, confirmIntake, or the transition map.
+  for (const edge of transitions) {
+    const to = edge.split('->')[1] as 'requested' | 'intake_confirmed';
+    await transitionCycle(db, cycle.id, to, {}, logger);
+  }
+  await queue.add('planning', { type: 'planning', cycleId: cycle.id }, { ...PLANNING_JOB_OPTIONS, jobId: planningJobId(cycle.id) });
+  logger.info({ ...logCtx, cycleId: cycle.id, hasIntakeInput },
+    'content-cycle-scheduler: auto-run advanced cycle to intake_confirmed and enqueued planning');
+  if (notify) {
+    try { await notify({ clientId, channel, cycleId: cycle.id, dataMonth }); }
+    catch (err) { logger.warn({ ...logCtx, cycleId: cycle.id, err: String(err) }, 'content-cycle-scheduler: auto-run notification failed (non-fatal)'); }
+  }
+  return 'ran';
+}
+
 export async function runContentCycleTick(params: {
   db:     Db;
   queue:  Queue;
   logger: Logger;
   now?:   Date;  // injectable for tests; defaults to new Date()
+  // Auto-run pinned-notification hook, wired at go-live (the tick has no planning deps).
+  // Absent in the dark build; the auto-run branch is gated OFF regardless.
+  autoRunNotify?: (info: { clientId: string; channel: string; cycleId: string; dataMonth: string }) => Promise<void>;
 }): Promise<void> {
   const { db, queue, logger } = params;
   const now = params.now ?? new Date();
@@ -175,5 +299,24 @@ export async function runContentCycleTick(params: {
     }
   }
 
-  logger.info({ dataMonth, enqueued, skipped }, 'content-cycle-scheduler: tick complete');
+  // ── Auto-run (intake-capture) — SHIPS DARK. Separate pass so the creation branch above is
+  // byte-identical: rows without a schedule.cutoffDay short-circuit inside
+  // evaluateAutoRunForClient with NO DB read, so nothing changes for existing clients. ──
+  let autoRunDry = 0;
+  for (const row of enabledRows) {
+    const schedule: CycleSchedule = row.contentCycleSchedule ?? DEFAULT_SCHEDULE;
+    try {
+      const outcome = await evaluateAutoRunForClient({
+        db, queue, clientId: row.clientId, channel: row.channel, dataMonth, schedule, today, logger,
+        notify: params.autoRunNotify,
+      });
+      if (outcome === 'dry') autoRunDry++;
+    } catch (err) {
+      logger.warn({ clientId: row.clientId, channel: row.channel, dataMonth, err: String(err) },
+        'content-cycle-scheduler: auto-run evaluation error — skipping');
+    }
+  }
+
+  logger.info({ dataMonth, enqueued, skipped, autoRunDry, autoRunEnabled: AUTO_RUN_ENABLED },
+    'content-cycle-scheduler: tick complete');
 }

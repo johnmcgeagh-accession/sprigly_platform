@@ -526,7 +526,10 @@ export const clientChannels = pgTable(
     instagramHandle:      text('instagram_handle'),
     contactEmail:         text('contact_email'),
     contactName:          text('contact_name'),
-    contentCycleSchedule: jsonb('content_cycle_schedule').$type<{ day: number; hour: number } | null>(),
+    // { day, hour } = the reminder/ask date (gates cycle CREATION, unchanged). Optional
+    // cutoffDay = the auto-run (plan-run) date for intake-capture; nullable/absent means
+    // auto-run is not configured for this client. JSONB — no migration to add cutoffDay.
+    contentCycleSchedule: jsonb('content_cycle_schedule').$type<{ day: number; hour: number; cutoffDay?: number | null } | null>(),
     extraQuestions:       jsonb('extra_questions').$type<string[] | null>(),
     deliverySurface:      text('delivery_surface').notNull().default('both'),  // 'app' | 'sheet' | 'both' (Phase 2)
     // Phase 4 — AI-change allowance (rewrites/regen only; structural edits never counted).
@@ -660,6 +663,12 @@ export const contentCycles = pgTable(
     structuredBrief:   jsonb('structured_brief').$type<unknown>(),
     requestSentAt:     timestamp('request_sent_at'),
     remindedAt:        timestamp('reminded_at'),
+    // Intake-capture send log (migration 0076): when each outbound touch of the reminder
+    // sequence actually SENT. DISTINCT from request_sent_at (legacy request-email DRAFT
+    // creation, not a send). Nullable = that touch has not fired for this cycle.
+    askSentAt:         timestamp('ask_sent_at'),
+    nudgeSentAt:       timestamp('nudge_sent_at'),
+    lastCallSentAt:    timestamp('last_call_sent_at'),
     replyReceivedAt:   timestamp('reply_received_at'),
     deliveredAt:       timestamp('delivered_at'),
     finalisedAt:       timestamp('finalised_at'),
