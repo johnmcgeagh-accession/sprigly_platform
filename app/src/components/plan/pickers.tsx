@@ -153,7 +153,7 @@ export function DateField({ value, today, disabled, onSelect }: {
       <button ref={triggerRef} type="button" data-testid="editor-date" disabled={disabled}
         aria-haspopup="dialog" aria-expanded={open} aria-label={`Scheduled date: ${prettyDate(value)}`}
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex items-center gap-2 rounded-[13px] border border-line bg-surface px-[15px] py-3 text-[14.5px] font-semibold text-slate-700 outline-none hover:border-[#DED9D3] focus-visible:border-coral disabled:opacity-60">
+        className="inline-flex items-center gap-2 rounded-[13px] border border-line bg-surface px-[15px] py-3 text-[14.5px] font-semibold text-slate-700 outline-none hover:border-line focus-visible:border-coral disabled:opacity-60">
         <CalendarIcon className="h-4 w-4 text-slate-600" />
         <span>{prettyDate(value)}</span>
         <ChevronDown className="h-3.5 w-3.5 text-muted" />
@@ -209,7 +209,7 @@ export function FormatDropdown({ value, disabled, onChange }: {
       <button ref={triggerRef} type="button" data-testid="format-select" disabled={disabled}
         aria-haspopup="listbox" aria-expanded={open} aria-label={`Post format: ${FORMAT_LABEL[value]}`}
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex items-center gap-[7px] rounded-[9px] border border-line bg-line-soft px-[11px] py-[6px] text-[13px] font-extrabold text-slate-700 outline-none hover:border-[#DED9D3] focus-visible:border-coral">
+        className="inline-flex items-center gap-[7px] rounded-[9px] border border-line bg-line-soft px-[11px] py-[6px] text-[13px] font-extrabold text-slate-700 outline-none hover:border-line focus-visible:border-coral">
         <FormatIcon format={value} className="h-[15px] w-[15px] text-coral" />
         {FORMAT_LABEL[value]}
         <ChevronDown className="h-3 w-3 text-muted" />

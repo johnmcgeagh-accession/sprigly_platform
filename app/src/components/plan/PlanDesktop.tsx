@@ -54,7 +54,7 @@ export function PlanDesktop({ data }: { data: PlanData }) {
       <Icon className={`h-[19px] w-[19px] flex-none ${view === v ? 'text-coral' : 'text-muted'}`} />
       {!railCollapsed && <span className="flex-1">{label}</span>}
       {!railCollapsed && count > 0 && (
-        <span className={`ml-auto rounded-full px-2 py-px text-[11px] font-extrabold ${warn ? 'bg-amber-tint text-amber-deep' : view === v ? 'bg-white text-slate-600' : 'bg-[#ECEAE6] text-slate-600'}`}>{warn ? `${count} late` : count}</span>
+        <span className={`ml-auto rounded-full px-2 py-px text-[11px] font-extrabold ${warn ? 'bg-amber-tint text-amber-deep' : view === v ? 'bg-white text-slate-600' : 'bg-line/20 text-slate-600'}`}>{warn ? `${count} late` : count}</span>
       )}
       {railCollapsed && dot && count > 0 && <span className="absolute right-2 top-1.5 h-[7px] w-[7px] rounded-full bg-coral" />}
     </button>
@@ -142,11 +142,11 @@ export function PlanDesktop({ data }: { data: PlanData }) {
 
       {/* agent FAB */}
       <button data-testid="agent-fab" onClick={() => setAgentOpen(true)}
-        className="fixed bottom-[34px] z-40 flex h-[60px] items-center gap-[11px] rounded-full bg-slate-700 pl-[18px] pr-[22px] text-[15px] font-extrabold text-white shadow-[0_16px_34px_-10px_rgba(51,65,85,.55)]"
+        className="fixed bottom-[34px] z-40 flex h-[60px] items-center gap-[11px] rounded-full bg-ink pl-[18px] pr-[22px] text-[15px] font-extrabold text-white shadow-[0_16px_34px_-10px_rgba(35,39,47,.55)]"
         style={{ right: (railCollapsed ? 72 : 224) + 22 }}>
         <span className="flex h-[34px] w-[34px] items-center justify-center rounded-full bg-coral"><SparkIcon className="h-[19px] w-[19px] text-white" /></span>
         Talk to your plan
-        {proposals.length > 0 && <span className="ml-0.5 flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-amber-500 px-1.5 text-[11.5px] font-extrabold text-[#3A2A05]">{proposals.length}</span>}
+        {proposals.length > 0 && <span className="ml-0.5 flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-coral-100 px-1.5 text-[11.5px] font-extrabold text-coral-800">{proposals.length}</span>}
       </button>
 
       {/* editor drawer */}
@@ -183,7 +183,7 @@ export function PlanDesktop({ data }: { data: PlanData }) {
           </div>
           {data.agentError && <div data-testid="agent-error" role="alert" className="mt-3 text-[13px] font-semibold text-danger">{data.agentError}</div>}
           {data.agentBusy ? (
-            <div data-testid="agent-thinking" role="status" aria-live="polite" className="mt-[18px] rounded-[14px] border border-line bg-[#FAF9F7] px-4 py-3.5">
+            <div data-testid="agent-thinking" role="status" aria-live="polite" className="mt-[18px] rounded-[14px] border border-line bg-line-soft px-4 py-3.5">
               <div className="flex items-center gap-2 text-[13px] font-bold text-slate-600"><SparkIcon className="h-4 w-4 animate-pulse text-coral" aria-hidden="true" />Sprigly is thinking…</div>
               <div className="mt-3 space-y-2" aria-hidden="true">
                 <div className="h-3 w-3/4 animate-pulse rounded bg-line-soft" />
@@ -235,7 +235,7 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
               onDrop={(e) => { e.preventDefault(); if (dragId && data.canEdit(isoOf(day))) data.reschedule(dragId, isoOf(day)); setOver(null); setDragId(null); }}
               className={[
                 'flex min-h-[148px] flex-col gap-[7px] rounded-2xl border p-[11px] transition',
-                isToday ? 'border-coral shadow-[0_0_0_3px_#FCE9E5]' : over === day ? 'border-coral bg-[#FFF7F5] shadow-[0_0_0_3px_#FCE9E5]' : 'border-line bg-surface',
+                isToday ? 'border-coral shadow-[0_0_0_3px_#FADDD6]' : over === day ? 'border-coral bg-coral-100 shadow-[0_0_0_3px_#FADDD6]' : 'border-line bg-surface',
               ].join(' ')}>
               <div className="flex items-start justify-between gap-1">
                 <span className={`px-[3px] py-px text-[13px] font-extrabold ${isToday ? 'text-slate-700' : wknd ? 'text-muted' : 'text-slate-600'}`}>{day}</span>
@@ -253,7 +253,7 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
               </div>
               {data.canEdit(isoOf(day)) && dayPosts.length === 0 && (
                 <button data-testid="add-on-day" onClick={() => data.addPost(isoOf(day))} aria-label={`Add a post on ${isoOf(day)}`}
-                  className="mt-auto rounded-[9px] border-[1.5px] border-dashed border-[#C9C3BB] py-0.5 text-center text-[15px] font-bold text-muted hover:border-[#EFC9BF] hover:bg-[#FFF9F7] hover:text-coral">＋</button>
+                  className="mt-auto rounded-[9px] border-[1.5px] border-dashed border-line py-0.5 text-center text-[15px] font-bold text-muted hover:border-coral-600 hover:bg-coral-100 hover:text-coral">＋</button>
               )}
             </div>
           );
@@ -275,7 +275,7 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
             <div className="flex flex-col gap-1.5">
               {outside.map((p) => (
                 <button key={p.id} data-testid="outside-post" data-post-id={p.id} onClick={() => onSelect(p.id)}
-                  className={`flex items-center gap-2.5 rounded-xl border bg-surface px-3.5 py-2.5 text-left shadow-card hover:border-[#DED9D3] ${p.id === selId ? 'border-coral' : 'border-line'}`}>
+                  className={`flex items-center gap-2.5 rounded-xl border bg-surface px-3.5 py-2.5 text-left shadow-card hover:border-line ${p.id === selId ? 'border-coral' : 'border-line'}`}>
                   <span className="whitespace-nowrap font-serif text-[15px] text-slate-700">{monthDayLabel(p.date)}</span>
                   <span className="truncate text-[13px] font-semibold text-slate-600">{postTitle(p)}</span>
                 </button>
@@ -310,7 +310,7 @@ function TimelineView({ data, selId, onSelect }: { data: PlanData; selId: string
                 <div className="flex items-center gap-2.5"><span className="font-serif text-[19px] text-slate-700">{monthDayLabel(p.date)}</span>
                   {p.status === 'new' ? <span className="rounded-[5px] bg-coral-tint px-1.5 py-px text-[9px] font-extrabold tracking-[.06em] text-slate-700">NEW</span> : p.status === 'edited' && <span className="rounded-[5px] border border-line px-1.5 py-px text-[9px] font-bold tracking-[.06em] text-muted">EDITED</span>}
                 </div>
-                <div className="my-[7px] flex items-center gap-2 text-[14px] font-bold"><FormatIcon format={p.format} className="h-4 w-4 text-slate-600" /><span className="text-slate-700">{FORMAT_LABEL[p.format]}</span><span className="text-[#CFCBC5]">·</span><span className="font-semibold text-muted">{postTitle(p)}</span></div>
+                <div className="my-[7px] flex items-center gap-2 text-[14px] font-bold"><FormatIcon format={p.format} className="h-4 w-4 text-slate-600" /><span className="text-slate-700">{FORMAT_LABEL[p.format]}</span><span className="text-muted">·</span><span className="font-semibold text-muted">{postTitle(p)}</span></div>
                 <div className="overflow-hidden text-[15.5px] leading-relaxed text-slate-600 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">{p.caption || 'Draft idea. Tell Sprigly what this post should be about.'}</div>
               </div>
             </div>
@@ -332,12 +332,12 @@ function TasksView({ data, onSelect }: { data: PlanData; onSelect: (id: string) 
       {/* Summary card removed (John): redundant with the section counts + rail badge. */}
       {sections.map(([key, label, items]) => items.length > 0 && (
         <div key={key}>
-          <div className="flex items-center gap-2.5 px-1 pb-2.5 pt-5"><span className={`text-[12px] font-extrabold uppercase tracking-[.06em] ${key === 'overdue' ? 'text-danger' : key === 'week' ? 'text-slate-700' : 'text-muted'}`}>{label}</span><span className={`rounded-full px-2 py-px text-[11px] font-extrabold ${key === 'overdue' ? 'bg-[#F7E1D7] text-danger' : 'bg-[#ECEAE6] text-slate-600'}`}>{items.length}</span></div>
+          <div className="flex items-center gap-2.5 px-1 pb-2.5 pt-5"><span className={`text-[12px] font-extrabold uppercase tracking-[.06em] ${key === 'overdue' ? 'text-danger' : key === 'week' ? 'text-slate-700' : 'text-muted'}`}>{label}</span><span className={`rounded-full px-2 py-px text-[11px] font-extrabold ${key === 'overdue' ? 'bg-danger/10 text-danger' : 'bg-line/20 text-slate-600'}`}>{items.length}</span></div>
           {items.map((t) => (
             <div key={t.item.step.id} data-testid="task-row" onClick={() => onSelect(t.item.post.id)}
               className={`mb-2 flex cursor-pointer items-center gap-3 rounded-[14px] border border-line bg-surface px-4 py-[13px] shadow-card ${t.bucket === 'overdue' ? 'border-l-[3px] border-l-amber-500' : ''}`}>
               <button data-testid="task-check" onClick={(e) => { e.stopPropagation(); data.toggleStep(t.item.post.id, t.item.step.id, true); }} aria-label="Mark done"
-                className="h-[22px] w-[22px] flex-none rounded-full border-2 border-[#D9D6D1] bg-surface hover:border-coral" />
+                className="h-[22px] w-[22px] flex-none rounded-full border-2 border-line bg-surface hover:border-coral" />
               <div className="flex-1 text-[14.5px] font-bold text-slate-700">{t.item.step.label}<small className="mt-0.5 block font-semibold text-muted"><span className="mr-1.5 rounded-md bg-line-soft px-1.5 py-0.5 text-[9.5px] font-extrabold uppercase tracking-[.05em] text-slate-600">{FORMAT_LABEL[t.item.post.format]}</span>{postTitle(t.item.post)}</small></div>
               <div className={`whitespace-nowrap text-[11.5px] font-extrabold ${t.bucket === 'overdue' ? 'text-danger' : 'text-muted'}`}>{t.bucket === 'overdue' ? 'Late' : `by ${monthDayLabel(t.due).replace(/ \w+ /, ' ')}`}</div>
             </div>

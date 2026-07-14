@@ -92,13 +92,13 @@ export function postTitle(p: PlanPost): string {
 export function ProgressRing({ done, total, risk, size = 34 }: { done: number; total: number; risk?: boolean; size?: number }) {
   const r = 11, C = 2 * Math.PI * r, frac = total ? done / total : 0, off = C * (1 - frac);
   const complete = total > 0 && done === total;
-  const stroke = complete ? '#E87766' : risk ? '#F59E0B' : '#E87766';
+  const stroke = complete ? '#E8705F' : risk ? '#C4523F' : '#E8705F';
   const num = complete ? 'text-slate-700' : risk ? 'text-amber-deep' : 'text-slate-600';
   return (
     <span data-testid="progress-ring" role="img" aria-label={`${done} of ${total} steps done`}
       className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
       <svg viewBox="0 0 34 34" className="absolute inset-0 -rotate-90" aria-hidden="true">
-        <circle cx="17" cy="17" r={r} fill="none" stroke="#ECEAE6" strokeWidth="3" />
+        <circle cx="17" cy="17" r={r} fill="none" stroke="#8F9296" strokeWidth="3" />
         <circle cx="17" cy="17" r={r} fill="none" stroke={stroke} strokeWidth="3" strokeLinecap="round"
           style={{ strokeDasharray: C.toFixed(1), strokeDashoffset: off.toFixed(1), transition: 'stroke-dashoffset .4s ease' }} />
       </svg>
@@ -123,7 +123,7 @@ export function PostChip({ post, selected, today, onClick, draggable, onDragStar
       className={[
         'group relative flex cursor-pointer select-none items-start gap-2 rounded-[10px] border bg-surface px-[9px] py-[7px]',
         'text-[12.5px] font-bold text-slate-700 transition hover:shadow-card',
-        selected ? 'border-coral shadow-[0_0_0_3px_rgba(232,119,102,.14)]' : 'border-line hover:border-[#DED9D3]',
+        selected ? 'border-coral shadow-[0_0_0_3px_rgba(232,119,102,.14)]' : 'border-line hover:border-line',
       ].join(' ')}
     >
       <span className="flex h-[22px] w-[22px] flex-none items-center justify-center rounded-[7px] bg-coral-tint text-coral">
@@ -133,7 +133,7 @@ export function PostChip({ post, selected, today, onClick, draggable, onDragStar
         <span className="block overflow-hidden leading-[1.3] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
           {isUntitled(post) ? <span className="font-semibold italic text-muted">Untitled draft</span> : postTitle(post)}
         </span>
-        <span className="mt-0.5 block text-[10px] font-bold uppercase tracking-[.04em] text-muted">{FORMAT_LABEL[post.format]}</span>
+        <span className="mt-0.5 block text-[11px] font-bold uppercase tracking-[.04em] text-muted">{FORMAT_LABEL[post.format]}</span>
       </span>
       {post.status === 'new'
         ? <span className="mt-0.5 flex-none rounded-[4px] border border-coral px-[3px] text-[8.5px] font-extrabold tracking-[.06em] text-slate-700">NEW</span>
@@ -163,12 +163,12 @@ export function ChecklistItem({ step, scheduledDate, today, onToggle, onRename, 
   return (
     <div data-testid={testid ?? 'checklist-item'} className={[
       'flex items-center gap-3 rounded-[13px] border px-[13px] py-3',
-      step.done ? 'border-transparent bg-[#F7F6F4]' : late ? 'border-[#F1D6AE] bg-[#FEFAF3]' : 'border-line bg-surface',
+      step.done ? 'border-transparent bg-line-soft' : late ? 'border-coral-600 bg-coral-100' : 'border-line bg-surface',
     ].join(' ')}>
       <button data-testid="step-toggle" onClick={onToggle} disabled={!onToggle} aria-pressed={step.done} aria-label={step.done ? 'Mark not done' : 'Mark done'}
         className={[
           'flex h-[22px] w-[22px] flex-none items-center justify-center rounded-[7px] border-2 text-white',
-          step.done ? 'border-coral bg-coral' : 'border-[#D9D6D1] bg-surface',
+          step.done ? 'border-coral bg-coral' : 'border-line bg-surface',
         ].join(' ')}>
         {step.done && <CheckIcon className="h-3 w-3" />}
       </button>
@@ -207,7 +207,7 @@ export function ProposalCard({ proposal, onApprove, onDiscard, busy }: {
           <CheckIcon className="h-3.5 w-3.5" aria-hidden="true" />Approve
         </button>
         <button data-testid="proposal-discard" disabled={busy} onClick={onDiscard} aria-label={`Discard: ${proposal.summary}`}
-          className="rounded-[10px] border border-line bg-surface px-3.5 py-2.5 text-[13px] font-bold text-slate-600 hover:border-[#DED9D3] disabled:opacity-50">
+          className="rounded-[10px] border border-line bg-surface px-3.5 py-2.5 text-[13px] font-bold text-slate-600 hover:border-line disabled:opacity-50">
           Discard
         </button>
       </div>
@@ -218,7 +218,7 @@ export function ProposalCard({ proposal, onApprove, onDiscard, busy }: {
 /** A read-only captured note (plan_inputs where source='voice'). */
 export function NoteRow({ note }: { note: NoteView }) {
   return (
-    <div data-testid="note-row" className="mb-2 flex items-start gap-3 rounded-[12px] bg-[#F7F6F4] px-3.5 py-3 text-[14px] leading-snug text-slate-700">
+    <div data-testid="note-row" className="mb-2 flex items-start gap-3 rounded-[12px] bg-line-soft px-3.5 py-3 text-[14px] leading-snug text-slate-700">
       <NotesIcon className="mt-0.5 h-[15px] w-[15px] flex-none text-muted" />
       <span>{note.content}</span>
     </div>
@@ -259,7 +259,7 @@ export function ExtractionSummary({ reply, onDecide, busy }: {
   const anyBusy = pending !== null || !!busy;
 
   return (
-    <div data-testid="extraction-summary" className="mt-[18px] rounded-[14px] border border-line bg-[#FAF9F7] px-4 py-3.5">
+    <div data-testid="extraction-summary" className="mt-[18px] rounded-[14px] border border-line bg-line-soft px-4 py-3.5">
       <div className="mb-2 text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-600">From your ask, Sprigly took</div>
       {reply.proposals.map((p) => {
         const st = status[p.id];
@@ -278,7 +278,7 @@ export function ExtractionSummary({ reply, onDecide, busy }: {
                 <button data-testid="extraction-approve" disabled={anyBusy} onClick={() => decide(p.id, 'approve')} aria-label={`Approve: ${p.summary}`}
                   className={`inline-flex items-center gap-1 rounded-[9px] bg-coral px-3 py-1.5 text-[12px] font-extrabold text-white ${DISABLED_PRIMARY}`}><CheckIcon className="h-3 w-3" aria-hidden="true" />Approve</button>
                 <button data-testid="extraction-discard" disabled={anyBusy} onClick={() => decide(p.id, 'reject')} aria-label={`Discard: ${p.summary}`}
-                  className="rounded-[9px] border border-line bg-surface px-3 py-1.5 text-[12px] font-bold text-slate-600 hover:border-[#DED9D3] disabled:opacity-50">Discard</button>
+                  className="rounded-[9px] border border-line bg-surface px-3 py-1.5 text-[12px] font-bold text-slate-600 hover:border-line disabled:opacity-50">Discard</button>
               </span>
             ) : (
               <span className="mt-1 whitespace-nowrap text-[11px] font-bold text-slate-700">→ Approvals</span>

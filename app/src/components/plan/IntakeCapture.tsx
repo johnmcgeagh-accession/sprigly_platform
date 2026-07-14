@@ -82,7 +82,7 @@ export function IntakeCapture({ questions, prePlanning, busy, monthLabel, intake
         )}
 
         {!prePlanning && step === 0 && (
-          <p data-testid="intake-postcutoff-note" className="mb-3 rounded-xl bg-[#FFF3F0] p-3 text-[13px] text-coralDeep">
+          <p data-testid="intake-postcutoff-note" className="mb-3 rounded-xl bg-coral-100 p-3 text-[13px] text-coral-800">
             This month has generated. Anything you add here goes to your plan as a suggestion to approve.
           </p>
         )}

@@ -27,8 +27,10 @@ export function beatFlashText(beat: PlanBeat): string {
 
 /**
  * A dated brief beat rendered on the calendar — DELIBERATELY distinct from a post chip:
- * a vivid solid-amber marker with a diamond glyph, NO format icon/tag. Tap surfaces the
- * beat's note + resolved span. Read-only: beats are not editable as posts.
+ * a solid coral-tinted PILL with a diamond glyph, NO format icon/tag. In the one-accent
+ * system beats and posts differ by FORM, not hue: a filled coral-100 pill (coral-700 border,
+ * coral-800 ink, 6.35:1) vs a white post card. Tap surfaces the beat's note + resolved span.
+ * Read-only: beats are not editable as posts.
  *
  * A range beat renders ONCE, on its placement day (the first day of its span visible in the
  * viewed month) — the same labelled pill as a single-day beat, with the full span appended
@@ -49,11 +51,11 @@ export function BeatMarker({ beat, onClick }: { beat: PlanBeat; onClick?: () => 
       onClick={onClick}
       title={`${beat.note || beat.type}${titleSpan}`}
       aria-label={`Beat: ${beatLabel(beat)}${suffix ? ` (${suffix})` : ''}${beat.note ? ` — ${beat.note}` : ''}`}
-      className="flex w-full items-center gap-1 rounded-[6px] border-[1.5px] border-beat-border bg-beat px-1.5 py-0.5 text-left text-[11px] font-bold leading-tight text-beat-ink shadow-[0_1px_2px_rgba(120,80,0,.22)]"
+      className="flex w-full items-center gap-1 rounded-[6px] border-[1.5px] border-coral-700 bg-coral-100 px-1.5 py-0.5 text-left text-[11px] font-bold leading-tight text-coral-800 shadow-[0_1px_2px_rgba(138,51,35,.18)]"
     >
       <span aria-hidden className="flex-shrink-0 text-[9px]">◆</span>
       <span className="overflow-hidden text-ellipsis whitespace-nowrap">
-        {beatLabel(beat)}{suffix ? <span className="font-semibold text-beat-ink/85"> · {suffix}</span> : null}
+        {beatLabel(beat)}{suffix ? <span className="font-semibold text-coral-800/85"> · {suffix}</span> : null}
       </span>
     </button>
   );
