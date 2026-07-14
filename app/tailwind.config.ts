@@ -51,13 +51,17 @@ const config: Config = {
         'amber-deep': '#8A3323',   // → coral-800
         'amber-tint': '#FADDD6',   // → coral-100
 
-        // Neutral ink + borders (cool-neutral, never warm). The ink family is also the
-        // DARK-CHROME zone (depth pass): the workspace rail + the "Talk to your plan" pill.
-        ink:         '#23272F',    // base dark chrome — rail bg + FAB pill (kin); white text 14.98:1
-        'ink-800':   '#262B33',    // rail hover
-        'ink-700':   '#313742',    // rail active-item pill (white label 11.9:1; coral-600 icon 3.94:1 ≥3)
-        'ink-mute':  '#9AA1AC',    // secondary text/icons on ink (5.74:1 on ink, 5.43:1 on ink-800)
-        muted:       '#5C6470',    // secondary text (5.98:1 on white) — unchanged
+        // DARK-CHROME zone = the BRAND slate (slate correction). Sampled from the landing
+        // page's "Why Sprigly" section: bg-[#334155] (= Tailwind slate-700, the exact hex the
+        // app's body text already uses). Named `chrome*` — NOT bare `slate`, which would clobber
+        // Tailwind's built-in slate scale that 91 body-text usages depend on.
+        chrome:        '#334155',  // the slate zone — rail bg + "Talk to your plan" pill (kin)
+        'chrome-deep': '#1E293B',  // active pill / hover / dividers (= Tailwind slate-800)
+        'chrome-soft': '#B8BFC9',  // secondary text/icons on slate (5.59:1 on chrome — clears AA comfortably)
+        // Primary TEXT ink stays slate-700 #334155 (the brand slate itself) — see report; the
+        // old #23272F was only the invented chrome bg and is gone. Text and chrome are now the
+        // same brand slate, so no side-by-side mismatch is possible.
+        muted:       '#5C6470',    // secondary text on WHITE (5.98:1) — unchanged
         line:        '#8F9296',    // border token: ONE grey, 3.13:1 on white (was invisible #ECEAE6)
         border:      '#8F9296',    // explicit alias of the border token
         'line-soft': '#F4F5F6',    // the ONE near-white inset/well neutral (used as a FILL, not a border)
