@@ -67,7 +67,7 @@ export function IntakeCapture({ questions, prePlanning, busy, monthLabel, intake
     <div data-testid="intake-overlay" onClick={onClose}
       className="fixed inset-0 z-[60] flex items-end justify-center bg-[rgba(30,42,74,.32)] sm:items-center">
       <div data-testid="intake-panel" onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[92vh] w-full max-w-[560px] flex-col overflow-y-auto rounded-t-3xl bg-bg p-5 shadow-[0_-16px_44px_rgba(30,42,74,.18)] sm:rounded-3xl">
+        className="flex max-h-[92vh] w-full max-w-[560px] flex-col overflow-y-auto rounded-t-3xl bg-surface p-5 shadow-[0_-16px_44px_rgba(30,42,74,.18)] sm:rounded-3xl">
 
         {/* header + progress */}
         <div className="mb-1 flex items-center justify-between">

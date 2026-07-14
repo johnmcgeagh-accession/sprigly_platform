@@ -48,13 +48,13 @@ export function PlanDesktop({ data }: { data: PlanData }) {
       className={[
         'relative flex w-full items-center gap-[11px] rounded-xl px-3 py-[11px] text-left text-[14.5px] font-bold',
         railCollapsed ? 'justify-center px-0' : '',
-        view === v ? 'bg-coral-tint text-coral-on-tint' : 'text-slate-600 hover:bg-line-soft',
+        view === v ? 'bg-ink-700 text-white' : 'text-ink-mute hover:bg-ink-800',
       ].join(' ')}
     >
-      <Icon className={`h-[19px] w-[19px] flex-none ${view === v ? 'text-coral' : 'text-muted'}`} />
+      <Icon className={`h-[19px] w-[19px] flex-none ${view === v ? 'text-coral-600' : 'text-ink-mute'}`} />
       {!railCollapsed && <span className="flex-1">{label}</span>}
       {!railCollapsed && count > 0 && (
-        <span className={`ml-auto rounded-full px-2 py-px text-[11px] font-extrabold ${warn ? 'bg-amber-tint text-amber-deep' : view === v ? 'bg-white text-slate-600' : 'bg-line/20 text-slate-600'}`}>{warn ? `${count} late` : count}</span>
+        <span className={`ml-auto rounded-full px-2 py-px text-[11px] font-extrabold ${warn ? 'bg-coral-100 text-coral-800' : 'bg-white/12 text-white'}`}>{warn ? `${count} late` : count}</span>
       )}
       {railCollapsed && dot && count > 0 && <span className="absolute right-2 top-1.5 h-[7px] w-[7px] rounded-full bg-coral" />}
     </button>
@@ -113,15 +113,15 @@ export function PlanDesktop({ data }: { data: PlanData }) {
         </main>
 
         {/* right rail */}
-        <aside data-testid="rail" className={`order-2 flex flex-none flex-col gap-1.5 overflow-hidden border-l border-line bg-surface px-3.5 py-[18px] transition-[width] duration-300 ease-sheet ${railCollapsed ? 'w-[72px] px-3' : 'w-[224px]'}`}>
+        <aside data-testid="rail" className={`order-2 flex flex-none flex-col gap-1.5 overflow-hidden bg-ink px-3.5 py-[18px] transition-[width] duration-300 ease-sheet ${railCollapsed ? 'w-[72px] px-3' : 'w-[224px]'}`}>
           <div className="mb-2.5 flex min-h-[40px] items-center justify-between gap-2">
-            {!railCollapsed && <div className="font-serif text-[19px] leading-tight text-slate-700">{data.clientName} · <em className="not-italic text-slate-700">{MONTHS[month]}</em></div>}
+            {!railCollapsed && <div className="font-serif text-[19px] leading-tight text-white">{data.clientName} · <em className="not-italic text-white">{MONTHS[month]}</em></div>}
             <button data-testid="rail-toggle" onClick={() => setRailCollapsed((c) => !c)} aria-label="Collapse menu"
-              className="flex h-10 w-10 flex-none items-center justify-center rounded-[11px] border border-line bg-surface text-slate-600 shadow-card">
+              className="flex h-10 w-10 flex-none items-center justify-center rounded-[11px] border border-ink-700 bg-ink-800 text-ink-mute">
               <ChevronRight className={`h-[17px] w-[17px] transition-transform duration-300 ${railCollapsed ? 'rotate-180' : ''}`} />
             </button>
           </div>
-          {!railCollapsed && <div className="mb-2.5 border-b border-line px-2 pb-3.5 text-[11.5px] font-semibold leading-snug text-muted">{posts.length} posts · opened from your link, no password needed</div>}
+          {!railCollapsed && <div className="mb-2.5 border-b border-ink-700 px-2 pb-3.5 text-[11.5px] font-semibold leading-snug text-ink-mute">{posts.length} posts · opened from your link, no password needed</div>}
           <nav className="flex flex-col gap-1">
             <div className={data.flashView === 'approvals' && view !== 'approvals' ? '' : ''}>{railBtn('calendar', 'Calendar', CalendarIcon, posts.length, false, false)}</div>
             {railBtn('timeline', 'Timeline', TimelineIcon, 0)}
@@ -129,11 +129,11 @@ export function PlanDesktop({ data }: { data: PlanData }) {
             <div className={data.flashView === 'approvals' ? 'pr-flash rounded-xl' : ''}>{railBtn('approvals', 'Approvals', ApprovalsIcon, proposals.length, false, true)}</div>
             {railBtn('notes', 'Notes', NotesIcon, notes.length, false, true)}
           </nav>
-          <div className="my-3 h-px bg-line" />
+          <div className="my-3 h-px bg-ink-700" />
           {/* One true line: the session edits its home cycle (unlimited, until the cycle
               month ends); sibling cycles open read-only. See design/DECISIONS.md §14. */}
           {!railCollapsed && (
-            <div className="mt-auto p-2 text-[12px] leading-relaxed text-muted">
+            <div className="mt-auto p-2 text-[12px] leading-relaxed text-ink-mute">
               Shared plan · edit from today on; past dates are locked
             </div>
           )}

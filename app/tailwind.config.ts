@@ -22,9 +22,12 @@ const config: Config = {
         // border. Surfaces are crisp WHITE (the warm cream page bg is gone). Contrasts are
         // stated per token below; see the design-pass report for the full maths.
 
-        // Surfaces — white everywhere; one near-white inset neutral for recessed wells.
-        bg: '#FFFFFF',
-        surface: '#FFFFFF',
+        // Surfaces — a cool near-white CANVAS behind the grid/content; WHITE cards sit on it
+        // (depth pass: all-white read flat). Canvas is in the border grey's cool family
+        // (#8F9296 → tinted up to #F2F3F5), never the old warm cream. Modals/steppers keep
+        // `surface` white over the canvas.
+        bg: '#F2F3F5',       // page canvas (cool near-white; white cards lift off it, ~1.10:1 + border + shadow)
+        surface: '#FFFFFF',  // cards, modals, steppers
 
         // The coral scale (Option A). One ramp; consumers use these directly and every legacy
         // coral/amber alias below RE-POINTS onto it (token-level consolidation, no per-
@@ -48,8 +51,12 @@ const config: Config = {
         'amber-deep': '#8A3323',   // → coral-800
         'amber-tint': '#FADDD6',   // → coral-100
 
-        // Neutral ink + borders (cool-neutral, never warm).
-        ink:         '#23272F',    // primary / dark-surface ink — the FAB pill joins this
+        // Neutral ink + borders (cool-neutral, never warm). The ink family is also the
+        // DARK-CHROME zone (depth pass): the workspace rail + the "Talk to your plan" pill.
+        ink:         '#23272F',    // base dark chrome — rail bg + FAB pill (kin); white text 14.98:1
+        'ink-800':   '#262B33',    // rail hover
+        'ink-700':   '#313742',    // rail active-item pill (white label 11.9:1; coral-600 icon 3.94:1 ≥3)
+        'ink-mute':  '#9AA1AC',    // secondary text/icons on ink (5.74:1 on ink, 5.43:1 on ink-800)
         muted:       '#5C6470',    // secondary text (5.98:1 on white) — unchanged
         line:        '#8F9296',    // border token: ONE grey, 3.13:1 on white (was invisible #ECEAE6)
         border:      '#8F9296',    // explicit alias of the border token

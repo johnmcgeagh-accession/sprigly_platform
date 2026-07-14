@@ -241,7 +241,7 @@ export function PlanMobile({ data }: { data: PlanData }) {
 
       {/* voice FAB (opens the disabled voice overlay) */}
       <button data-testid="voice-fab" onClick={() => setVoiceOpen(true)} aria-label="Speak to your plan"
-        className="fixed bottom-[30px] right-[22px] z-20 flex h-[62px] w-[62px] items-center justify-center rounded-full bg-gradient-to-br from-coral-strong to-coral shadow-[0_12px_26px_-6px_rgba(232,119,102,.65)]"><MicIcon className="h-[26px] w-[26px] text-white" /></button>
+        className="fixed bottom-[30px] right-[22px] z-20 flex h-[62px] w-[62px] items-center justify-center rounded-full bg-gradient-to-br from-coral-strong to-coral shadow-[0_12px_26px_-6px_rgba(232,112,95,.65)]"><MicIcon className="h-[26px] w-[26px] text-white" /></button>
 
       {/* month picker */}
       <MonthWheelPicker show={pickerOpen} year={year} month={month} onClose={() => setPickerOpen(false)}
