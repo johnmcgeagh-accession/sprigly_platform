@@ -149,7 +149,7 @@ export function PlanMobile({ data }: { data: PlanData }) {
       <div className="z-[4] flex-none bg-bg">
         <div className="px-5 pb-3 pt-1.5">
           <div className="mb-4 flex items-center justify-between">
-            <div className="flex items-center gap-2"><SprigMark className="h-[26px] w-[26px]" /><span className="text-[20px] font-extrabold tracking-tight text-slate-700">Sprigly</span></div>
+            <div className="flex items-center gap-2"><SprigMark className="h-[26px] w-[26px]" /><span className="font-logo text-[20px] font-extrabold tracking-tight text-slate-700">Sprigly</span></div>
             <div className="flex h-[34px] w-[34px] items-center justify-center rounded-full bg-gradient-to-br from-coral-100 to-coral text-[13px] font-extrabold text-white shadow-[0_2px_8px_rgba(232,112,95,.35)]">{data.clientName.slice(0, 2).toUpperCase()}</div>
           </div>
           <div className="mt-0.5 flex items-center justify-center gap-[18px]">

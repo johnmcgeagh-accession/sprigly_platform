@@ -1,6 +1,6 @@
 import type { PlanPost, PlanBeat, PlanIntake, DurableItemView, CycleSummary } from '@/lib/types';
 import { resolveTodayIso } from '@/lib/steps';
-import { jakarta, dmSerif } from '@/app/fonts';
+import { fraunces, inter, jakarta } from '@/app/fonts';
 import { PlanRoot } from '@/components/plan/PlanRoot';
 
 interface PlanRedesignProps {
@@ -26,7 +26,7 @@ interface PlanRedesignProps {
  */
 export default function PlanRedesign({ clientName, posts, crossMonthPosts, beats, cycles, homeCycleId, initialCycleId, initialReadOnly, initialIntakeOpen, questions, intake, durable }: PlanRedesignProps) {
   return (
-    <div className={`plan-redesign ${jakarta.variable} ${dmSerif.variable} font-sans`}>
+    <div className={`plan-redesign ${fraunces.variable} ${inter.variable} ${jakarta.variable} font-sans`}>
       <PlanRoot
         clientName={clientName}
         posts={posts}

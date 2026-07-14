@@ -64,7 +64,7 @@ export function PlanDesktop({ data }: { data: PlanData }) {
     <div className="flex h-screen flex-col bg-bg text-slate-700" data-testid="plan-desktop">
       {/* topbar */}
       <header className="flex h-[66px] flex-none items-center justify-between border-b border-line bg-surface px-7">
-        <div className="flex items-center gap-2.5"><SprigMark className="h-[26px] w-[26px]" /><span className="text-[22px] font-extrabold tracking-tight text-coral-heading">Sprigly</span></div>
+        <div className="flex items-center gap-2.5"><SprigMark className="h-[26px] w-[26px]" /><span className="font-logo text-[22px] font-extrabold tracking-tight text-coral-heading">Sprigly</span></div>
         <span className="text-[12.5px] font-semibold text-muted">Plan workspace</span>
       </header>
 
@@ -159,7 +159,7 @@ export function PlanDesktop({ data }: { data: PlanData }) {
       <Scrim show={agentOpen} onClick={() => setAgentOpen(false)} />
       <Dialog show={agentOpen} onClose={() => setAgentOpen(false)} testid="agent-sheet" labelledBy="agent-sheet-title">
         <div className="w-full overflow-y-auto px-8 pb-8 pt-9">
-          <div id="agent-sheet-title" className="text-center font-serif text-[27px] text-slate-700">Talk to your <em className="italic text-coral-heading">plan</em></div>
+          <div id="agent-sheet-title" className="text-center font-serif text-[27px] text-slate-700">Talk to your <em className="fraunces-soft text-coral-heading">plan</em></div>
           <p className="mx-auto mb-5 mt-1.5 whitespace-nowrap text-center text-[13px] font-semibold leading-snug text-muted">Ask in plain English. <b className="text-slate-700">Nothing happens until you approve it.</b></p>
           <div className="flex items-center gap-2.5 rounded-2xl border-[1.5px] border-line bg-surface py-2 pl-[18px] pr-2 focus-within:border-coral">
             {/* The container owns the focus indicator (focus-within:border-coral). The inner
