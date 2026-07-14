@@ -6,9 +6,9 @@ export const metadata: Metadata = {
   description: 'Your monthly content plan',
 };
 
-// Brand rule: theme-color is the strong coral (#FF6F62). See design/DECISIONS.md §13.
+// Brand rule: theme-color is the strong coral (#E8705F). See design/DECISIONS.md §13.
 export const viewport: Viewport = {
-  themeColor: '#FF6F62',
+  themeColor: '#E8705F',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

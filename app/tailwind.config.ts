@@ -17,50 +17,47 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Page background: a soft WARM light-grey so white surface cards read as cards in
-        // the warm (coral) palette. #F5F4F2 is the original mockup value; #F3F4F6 (cool)
-        // was John's first pick but clashed warm. Cards stay #FFFFFF. See DECISIONS §15.
-        bg: '#F5F4F2',
+        // ── ONE-ACCENT SYSTEM (design pass, supersedes the dual-coral + amber tokens) ────
+        // Sprigly coral is the ONLY saturated hue; everything else is neutral ink / white /
+        // border. Surfaces are crisp WHITE (the warm cream page bg is gone). Contrasts are
+        // stated per token below; see the design-pass report for the full maths.
+
+        // Surfaces — white everywhere; one near-white inset neutral for recessed wells.
+        bg: '#FFFFFF',
         surface: '#FFFFFF',
-        // Dual-coral is deliberate: coral is the primary/mark, coral-strong the strong
-        // interactive variant (and the HTML theme-color). Recorded in DECISIONS §13.
-        coral: '#E87766',
-        'coral-strong': '#FF6F62',
-        'coral-tint': '#FCE9E5',
-        // AA-safe filled-coral for primary CTAs/saves carrying WHITE text (white on
-        // #C24C34 = 4.80:1). Brand coral #E87766 fails white text (2.89); use this when a
-        // filled coral button needs white text. See DECISIONS §15.
-        'coral-cta': '#C24C34',
-        // Coral TEXT rule (supersedes Stage 5 coral-deep): coral is never used for small
-        // text. These two tokens are the ONLY coral text allowed, each with a hard
-        // constraint baked into the name:
-        //  · coral-heading — large display/serif text ONLY (≥24px, or ≥18.66px bold).
-        //    #DE6E5C = 3.24:1 on white (WCAG large-text ≥3:1). Never for small text.
-        'coral-heading': '#DE6E5C',
-        //  · coral-on-tint — coral text ONLY on coral-tint (active-nav label).
-        //    #B04830 = 4.70:1 on #FCE9E5 (small-text AA). Never on white.
-        'coral-on-tint': '#B04830',
-        // slate #334155 (= slate-700) is the brand dark-surface colour; ink was dropped.
-        // Small coral emphasis text now uses slate — emphasis via weight, not colour.
-        // Text tokens below re-verified against pure white: muted 5.98, amber-deep 6.92,
-        // danger 5.94 — all still clear AA, no re-darkening needed.
-        muted: '#5C6470',
-        'amber-deep': '#7A5200',
-        line: '#ECEAE6',
-        'line-soft': '#F1EFEC',
-        'amber-tint': '#FDF0D8',
+
+        // The coral scale (Option A). One ramp; consumers use these directly and every legacy
+        // coral/amber alias below RE-POINTS onto it (token-level consolidation, no per-
+        // component colour freelancing).
+        'coral-600': '#E8705F',   // primary actions, brand marks, active nav, focus rings
+        'coral-700': '#C4523F',   // filled buttons w/ white text (4.54:1 AA), hover-ink, strong borders, small coral text on white (4.54:1)
+        'coral-800': '#8A3323',   // ink on coral-100 fills (6.35:1 AA)
+        'coral-100': '#FADDD6',   // tints: beat fills, badges, selected states, hovers
+
+        // Legacy aliases → the scale (so existing `coral`/`coral-tint`/… classes resolve to
+        // one ramp). White text is AA only on coral-700; coral-600 carries white for LARGE
+        // text (≥18.66px bold / ≥24px) only — see coral-cta / coral-heading.
+        coral:            '#E8705F',   // → coral-600 (brand hue, icons, borders, dots, focus)
+        'coral-strong':   '#E8705F',   // → coral-600 (the old second bright coral is gone)
+        'coral-tint':     '#FADDD6',   // → coral-100
+        'coral-cta':      '#C4523F',   // → coral-700 (filled buttons w/ white text, 4.54:1)
+        'coral-heading':  '#E8705F',   // → coral-600 (large display text ≥24px, 3.04:1 ≥3:1)
+        'coral-on-tint':  '#8A3323',   // → coral-800 (small text on coral-100, 6.35:1)
+
+        // Warm ambers RE-POINTED onto coral — no amber in a one-accent system.
+        'amber-deep': '#8A3323',   // → coral-800
+        'amber-tint': '#FADDD6',   // → coral-100
+
+        // Neutral ink + borders (cool-neutral, never warm).
+        ink:         '#23272F',    // primary / dark-surface ink — the FAB pill joins this
+        muted:       '#5C6470',    // secondary text (5.98:1 on white) — unchanged
+        line:        '#8F9296',    // border token: ONE grey, 3.13:1 on white (was invisible #ECEAE6)
+        border:      '#8F9296',    // explicit alias of the border token
+        'line-soft': '#F4F5F6',    // the ONE near-white inset/well neutral (used as a FILL, not a border)
+
+        // Functional status signal — RETAINED (see report): a true error/overdue red, kept
+        // distinct from the coral accent so failures never read as brand. Not decorative.
         danger: '#B23A2E',
-        // Brief-beat accent (Build 6, Part D). Beats are the immediate briefing feedback and
-        // must read VIVID — the one chromatically-assertive small element on the calendar.
-        // The system's existing ambers are a pale tint (#FDF0D8) and a dark text-only shade
-        // (amber-deep #7A5200); neither is a saturated FILL, so `beat` is a deliberate new
-        // accent. Hue ~40° (gold-amber) is well clear of coral's ~9° salmon, and beats are
-        // FILLED where posts are white cards, so the two never read alike. Contrasts (see
-        // DECISIONS): ink on fill 5.99:1 (AA small text); border on white 3.87:1 / on paper
-        // 3.59:1 (≥3:1 UI-component edge); fill hue vs coral is unmistakable.
-        beat: '#EC9A0C',           // vivid gold-amber fill
-        'beat-border': '#B4740A',  // deeper amber — strong defining edge
-        'beat-ink': '#3E2A00',     // espresso-amber text/glyph on the fill (5.99:1)
       },
       fontFamily: {
         sans: ['var(--font-jakarta)', 'system-ui', 'sans-serif'],
@@ -69,7 +66,7 @@ const config: Config = {
       boxShadow: {
         card: '0 1px 2px rgba(51,65,85,.04), 0 6px 18px rgba(51,65,85,.06)',
         sheet: '0 24px 60px -16px rgba(51,65,85,.34)',
-        coral: '0 8px 20px -6px rgba(232,119,102,.55)',
+        coral: '0 8px 20px -6px rgba(232,112,95,.55)',
       },
       transitionTimingFunction: {
         sheet: 'cubic-bezier(.22,.61,.36,1)',

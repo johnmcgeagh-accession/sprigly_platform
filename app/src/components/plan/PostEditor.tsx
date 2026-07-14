@@ -126,7 +126,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
             <button data-testid="format-replace" onClick={async () => { const p = pendingFormat; setPendingFormat(null); if (p) await data.regenerateChecklist(post.id); }}
               className="rounded-[11px] bg-coral-cta px-4 py-2 text-[13px] font-extrabold text-white">Replace checklist</button>
             <button data-testid="format-keep" onClick={() => setPendingFormat(null)}
-              className="rounded-[11px] border border-line bg-surface px-4 py-2 text-[13px] font-bold text-slate-600 hover:border-[#DED9D3]">Keep existing steps</button>
+              className="rounded-[11px] border border-line bg-surface px-4 py-2 text-[13px] font-bold text-slate-600 hover:border-line">Keep existing steps</button>
           </div>
         </div>
       )}
@@ -313,12 +313,12 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
                   <TrashIcon className="h-4 w-4" />Delete post
                 </button>
                 <button data-testid="delete-cancel" onClick={() => setConfirmDelete(false)}
-                  className="rounded-[13px] border border-line bg-surface px-5 py-3 text-[14px] font-bold text-slate-600 hover:border-[#DED9D3]">Cancel</button>
+                  className="rounded-[13px] border border-line bg-surface px-5 py-3 text-[14px] font-bold text-slate-600 hover:border-line">Cancel</button>
               </div>
             </div>
           ) : (
             <button data-testid="editor-delete" onClick={() => setConfirmDelete(true)}
-              className="flex w-full items-center justify-center gap-2 rounded-[14px] border-[1.5px] border-danger bg-surface px-5 py-3.5 text-[14.5px] font-extrabold text-danger hover:bg-[#FDF4F3]">
+              className="flex w-full items-center justify-center gap-2 rounded-[14px] border-[1.5px] border-danger bg-surface px-5 py-3.5 text-[14.5px] font-extrabold text-danger hover:bg-danger/10">
               <TrashIcon className="h-[17px] w-[17px]" />Delete post
             </button>
           )}

@@ -118,10 +118,10 @@ export default async function Page({ searchParams }: { searchParams: { intake?: 
 
 function Gate() {
   return (
-    <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24, background: '#F8F9FB', color: '#1E2A4A' }}>
+    <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24, background: '#FFFFFF', color: '#23272F' }}>
       <div style={{ maxWidth: 420, textAlign: 'center' }}>
         <div style={{ fontFamily: "'DM Serif Display', Georgia, serif", fontSize: 26 }}>Your plan</div>
-        <p style={{ color: '#5B647A', fontSize: 15, lineHeight: 1.6, marginTop: 12 }}>
+        <p style={{ color: '#5C6470', fontSize: 15, lineHeight: 1.6, marginTop: 12 }}>
           Open your plan from the link Sprigly emailed you. There&rsquo;s no password &mdash; the link is
           your way in.
         </p>

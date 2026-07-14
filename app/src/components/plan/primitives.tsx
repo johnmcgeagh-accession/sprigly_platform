@@ -50,9 +50,9 @@ export function Sheet({
         show ? 'translate-y-0' : 'pointer-events-none translate-y-full',
       ].join(' ')}
     >
-      <div className="mx-auto mt-2.5 h-[5px] w-11 flex-none rounded-full bg-[#E2DED9]" aria-hidden="true" />
+      <div className="mx-auto mt-2.5 h-[5px] w-11 flex-none rounded-full bg-line" aria-hidden="true" />
       <button data-testid="sheet-close" onClick={onClose} aria-label="Close"
-        className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-line-soft text-slate-700 hover:bg-[#E9E6E1]">
+        className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-line-soft text-slate-700 hover:bg-coral-100">
         <CloseIcon className="h-3.5 w-3.5" />
       </button>
       {children}
@@ -84,7 +84,7 @@ export function Dialog({
         ].join(' ')}
       >
         <button data-testid="dialog-close" onClick={onClose} aria-label="Close"
-          className="absolute right-4 top-4 z-[2] flex h-9 w-9 items-center justify-center rounded-full bg-line-soft text-slate-700 hover:bg-[#E9E6E1]">
+          className="absolute right-4 top-4 z-[2] flex h-9 w-9 items-center justify-center rounded-full bg-line-soft text-slate-700 hover:bg-coral-100">
           <CloseIcon className="h-3.5 w-3.5" />
         </button>
         {children}
@@ -110,7 +110,7 @@ export function Drawer({
       ].join(' ')}
     >
       <button data-testid="drawer-close" onClick={onClose} aria-label="Close"
-        className="absolute right-[18px] top-4 z-[2] flex h-9 w-9 items-center justify-center rounded-full bg-line-soft text-slate-700 hover:bg-[#E9E6E1]">
+        className="absolute right-[18px] top-4 z-[2] flex h-9 w-9 items-center justify-center rounded-full bg-line-soft text-slate-700 hover:bg-coral-100">
         <CloseIcon className="h-3.5 w-3.5" />
       </button>
       {children}
@@ -154,7 +154,7 @@ export function SegmentedControl<T extends string>({
   }, [value, options]);
 
   return (
-    <div ref={wrap} role="tablist" aria-label={label ?? 'View'} data-testid="segmented" className={`relative inline-flex rounded-full bg-[#ECEAE6] p-1 ${className}`}>
+    <div ref={wrap} role="tablist" aria-label={label ?? 'View'} data-testid="segmented" className={`relative inline-flex rounded-full bg-line/20 p-1 ${className}`}>
       <span ref={pill} aria-hidden="true" className="absolute inset-y-1 left-1 z-[1] rounded-full bg-surface shadow-card transition-[transform,width] duration-300 ease-sheet" />
       {options.map((o) => (
         <button
@@ -166,7 +166,7 @@ export function SegmentedControl<T extends string>({
           ].join(' ')}
         >
           {o.label}
-          {o.dot && <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />}
+          {o.dot && <span className="inline-block h-1.5 w-1.5 rounded-full bg-coral-600" aria-hidden="true" />}
         </button>
       ))}
     </div>

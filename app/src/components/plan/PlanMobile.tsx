@@ -150,7 +150,7 @@ export function PlanMobile({ data }: { data: PlanData }) {
         <div className="px-5 pb-3 pt-1.5">
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2"><SprigMark className="h-[26px] w-[26px]" /><span className="text-[20px] font-extrabold tracking-tight text-slate-700">Sprigly</span></div>
-            <div className="flex h-[34px] w-[34px] items-center justify-center rounded-full bg-gradient-to-br from-[#F3C6BC] to-coral text-[13px] font-extrabold text-white shadow-[0_2px_8px_rgba(232,119,102,.35)]">{data.clientName.slice(0, 2).toUpperCase()}</div>
+            <div className="flex h-[34px] w-[34px] items-center justify-center rounded-full bg-gradient-to-br from-coral-100 to-coral text-[13px] font-extrabold text-white shadow-[0_2px_8px_rgba(232,112,95,.35)]">{data.clientName.slice(0, 2).toUpperCase()}</div>
           </div>
           <div className="mt-0.5 flex items-center justify-center gap-[18px]">
             <button data-testid="prev-month" aria-label="Previous month" disabled={!prevCycle} onClick={() => prevCycle && data.switchCycle(prevCycle.cycleId)}
@@ -405,11 +405,11 @@ function MobileTasks({ data, onOpen }: { data: PlanData; onOpen: (id: string) =>
       {total === 0 && <div className="mx-8 my-11 text-center"><span className="mb-2 block font-serif text-[22px] text-slate-700">All caught up ✨</span><span className="text-[14px] leading-relaxed text-muted">Every post has what it needs.</span></div>}
       {secs.map(([key, label, items]) => items.length > 0 && (
         <div key={key}>
-          <div className="flex items-center gap-2.5 px-5 pb-2 pt-4.5"><span className={`text-[12px] font-extrabold uppercase tracking-[.06em] ${key === 'overdue' ? 'text-danger' : key === 'today' ? 'text-slate-700' : 'text-muted'}`}>{label}</span><span className="rounded-full bg-[#ECEAE6] px-2 py-px text-[11px] font-extrabold text-slate-600">{items.length}</span></div>
+          <div className="flex items-center gap-2.5 px-5 pb-2 pt-4.5"><span className={`text-[12px] font-extrabold uppercase tracking-[.06em] ${key === 'overdue' ? 'text-danger' : key === 'today' ? 'text-slate-700' : 'text-muted'}`}>{label}</span><span className="rounded-full bg-line/20 px-2 py-px text-[11px] font-extrabold text-slate-600">{items.length}</span></div>
           {items.map((t) => (
             <div key={t.item.step.id} data-testid="task-row" onClick={() => onOpen(t.item.post.id)}
-              className={`mx-[18px] mb-2 flex items-center gap-3 rounded-2xl border border-line bg-surface px-3.5 py-[13px] shadow-card ${t.bucket === 'overdue' ? 'border-l-[3px] border-l-amber-500' : ''}`}>
-              <button data-testid="task-check" onClick={(e) => { e.stopPropagation(); data.toggleStep(t.item.post.id, t.item.step.id, true); }} aria-label="Mark done" className="h-6 w-6 flex-none rounded-full border-2 border-[#D9D6D1] bg-surface" />
+              className={`mx-[18px] mb-2 flex items-center gap-3 rounded-2xl border border-line bg-surface px-3.5 py-[13px] shadow-card ${t.bucket === 'overdue' ? 'border-l-[3px] border-l-danger' : ''}`}>
+              <button data-testid="task-check" onClick={(e) => { e.stopPropagation(); data.toggleStep(t.item.post.id, t.item.step.id, true); }} aria-label="Mark done" className="h-6 w-6 flex-none rounded-full border-2 border-line bg-surface" />
               <div className="min-w-0 flex-1"><div className="text-[14.5px] font-bold text-slate-700">{t.item.step.label}</div><div className="mt-0.5 flex items-center gap-1.5 overflow-hidden text-[12px] text-muted"><span className="flex-none rounded bg-coral-tint px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-[.05em] text-slate-700">{FORMAT_LABEL[t.item.post.format]}</span><span className="overflow-hidden text-ellipsis whitespace-nowrap">{postTitle(t.item.post)}</span></div></div>
               <div className={`flex-none whitespace-nowrap text-[11px] font-extrabold ${t.bucket === 'overdue' ? 'text-danger' : 'text-muted'}`}>{t.bucket === 'overdue' ? 'Late' : `${MON[fromIso(t.due).getMonth()]} ${fromIso(t.due).getDate()}`}</div>
             </div>
