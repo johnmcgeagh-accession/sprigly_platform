@@ -28,20 +28,30 @@ describe('buildIntakePayload', () => {
   });
 });
 
-describe('IntakeCapture pre-fill (FIX 1)', () => {
+describe('IntakeCapture — freeform primary flow (Prompt 2)', () => {
   const base = {
     questions: QS, prePlanning: true, busy: false, monthLabel: 'August 2026',
     durable: [{ id: 'd1', type: 'idea', content: 'lean into provenance', createdAt: '2026-07-01T00:00:00Z' }],
     onSubmit: vi.fn(), onClose: vi.fn(),
   };
 
-  it('renders the saved answer for the first question on step 1', () => {
+  it('opens on ONE freeform box, with the base questions surfaced as hints (not fields), plus a separate durable box', () => {
+    const html = renderToStaticMarkup(<IntakeCapture {...base} intake={{ answers: {}, freeNotes: '' }} />);
+    expect(html).toContain('data-testid="intake-freeform"');   // the single large box
+    expect(html).toContain('data-testid="intake-hints"');      // questions as hint lines
+    expect(html).toContain('Any key dates?');                  // a base question surfaces as a hint
+    expect(html).toContain('data-testid="intake-durable"');    // durable stays a distinct box
+    expect(html).toContain('data-testid="intake-guided-link"');// guided mode is reachable, secondary
+    expect(html).not.toContain('Step 1 of');                   // NOT the stepper by default
+  });
+
+  it('pre-fills the running brief (FIX 1 / item 5): the accumulated freeNotes show as "brief so far"', () => {
     const html = renderToStaticMarkup(
-      <IntakeCapture {...base} intake={{ answers: { 'Any key dates?': 'launch on the 25th' }, freeNotes: '' }} />,
+      <IntakeCapture {...base} intake={{ answers: {}, freeNotes: 'Launching Wren on the 25th.' }} />,
     );
-    expect(html).toContain('Any key dates?');            // question heading
-    expect(html).toContain('launch on the 25th');        // pre-filled answer value
-    expect(html).toContain('Step 1 of 5');               // 3 questions + freeNotes + durable
+    expect(html).toContain('data-testid="intake-sofar"');
+    expect(html).toContain('Launching Wren on the 25th.');
+    expect(html).toContain('Add anything new');                // the input invites adding, not re-typing
   });
 
   it('shows the post-cutoff framing when the cycle has generated', () => {

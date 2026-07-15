@@ -70,9 +70,12 @@ const config: Config = {
         // distinct from the coral accent so failures never read as brand. Not decorative.
         danger: '#B23A2E',
       },
+      // Brand type system (matched to sprigly.co.uk): Fraunces display serif + Inter body/UI
+      // sans + Plus Jakarta Sans 800 for the logo wordmark only.
       fontFamily: {
-        sans: ['var(--font-jakarta)', 'system-ui', 'sans-serif'],
-        serif: ['var(--font-dm-serif)', 'Georgia', 'serif'],
+        sans:  ['var(--font-inter)', 'system-ui', 'sans-serif'],       // body + UI chrome
+        serif: ['var(--font-fraunces)', 'Georgia', 'serif'],           // display moments
+        logo:  ['var(--font-jakarta)', 'system-ui', 'sans-serif'],     // "Sprigly" wordmark (800)
       },
       boxShadow: {
         card: '0 1px 2px rgba(51,65,85,.04), 0 6px 18px rgba(51,65,85,.06)',

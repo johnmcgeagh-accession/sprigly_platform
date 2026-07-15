@@ -355,3 +355,85 @@ export async function extractStructuredBrief(params: BriefExtractParams): Promis
   );
   return brief;
 }
+
+// ── Answer distribution (freeform brief → base-question answer slots) ─────────
+//
+// The freeform capture surface sends the whole brief as one block of text. The generator and
+// the admin IntakePanel still read intake_json.planContent.answers keyed by the base questions,
+// so this maps the free text back into those slots — WITHOUT inventing anything, and returning
+// ONLY the questions the text actually addresses. It is SUPPLEMENTARY (not the fail-loud brief
+// gate): any parse/model failure returns {} so the caller simply leaves answers empty and the
+// free text (freeNotes) — the source of truth for extraction — is never lost.
+
+const ANSWER_DISTRIBUTE_MODEL = 'haiku';   // a lighter routing task than the structured extract
+const ANSWER_DISTRIBUTE_MAX_TOKENS = 1_500;
+
+const ANSWER_DISTRIBUTE_SYSTEM = `You sort a client's free-text monthly planning brief into a FIXED list of planning questions. You are given the QUESTIONS and the client's BRIEF. Return a JSON object whose keys are the EXACT question text (copied verbatim) and whose values are the answer drawn from the brief for that question.
+
+Rules:
+- Include a question ONLY if the brief actually addresses it. Omit every question the brief does not speak to — do NOT invent, pad, or guess.
+- Each value must be grounded in what the brief says; quote or lightly paraphrase the client's own words. Never add information that is not in the brief.
+- A single sentence of the brief may answer more than one question; a question may draw from several parts of the brief.
+- Keys MUST match the provided question text character-for-character. Do not shorten or reword them.
+- Return ONE JSON object and nothing else. No prose, no markdown, no code fences. If the brief addresses none of the questions, return {}.`;
+
+export interface DistributeAnswersParams {
+  freeNotes: string;                // the client's free-text brief (planContent.freeNotes)
+  questions: string[];              // BASE_QUESTIONS + the channel's extra_questions
+  model:     ModelClient;
+  logger?:   Logger;
+  audit?:    AuditLogger;
+  clientId?: string;
+}
+
+/**
+ * Distribute a free-text brief across the base-question answer slots. Returns a map of
+ * { questionText: answer } for ONLY the questions the brief addresses (exact-key matched
+ * against `questions`). Non-fatal by contract: returns {} on empty input or any failure.
+ */
+export async function distributeBriefAnswers(params: DistributeAnswersParams): Promise<Record<string, string>> {
+  const { model, logger, audit, clientId } = params;
+  const text = (params.freeNotes ?? '').trim();
+  const questions = params.questions.filter((q) => typeof q === 'string' && q.trim().length > 0);
+  if (!text || questions.length === 0) return {};
+
+  const userMessage = [
+    'QUESTIONS:',
+    questions.map((q, i) => `${i + 1}. ${q}`).join('\n'),
+    '',
+    'BRIEF:',
+    text,
+    '',
+    'Return the JSON object mapping addressed questions to their answers. JSON only.',
+  ].join('\n');
+
+  try {
+    const result = await model.complete({
+      model:     ANSWER_DISTRIBUTE_MODEL,
+      system:    ANSWER_DISTRIBUTE_SYSTEM,
+      messages:  [{ role: 'user', content: userMessage }],
+      maxTokens: ANSWER_DISTRIBUTE_MAX_TOKENS,
+    });
+    if (audit && clientId) {
+      try {
+        await audit.logModelCall({
+          clientId, modelId: result.modelId, inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens, action: 'content-cycle:distribute-answers', metadata: {},
+        });
+      } catch (err) { logger?.warn({ err: String(err) }, 'distribute-answers: audit log failed — non-fatal'); }
+    }
+    const parsed = parseBriefResponse(result.content);
+    if (!isObj(parsed)) return {};
+    // Keep only exact-match questions with a non-empty string answer (defends key drift).
+    const allowed = new Set(questions);
+    const out: Record<string, string> = {};
+    for (const [q, a] of Object.entries(parsed)) {
+      if (allowed.has(q) && typeof a === 'string' && a.trim().length > 0) out[q] = a.trim();
+    }
+    logger?.info({ addressed: Object.keys(out).length, of: questions.length }, 'distribute-answers: distributed free text into answer slots');
+    return out;
+  } catch (err) {
+    logger?.warn({ err: String(err) }, 'distribute-answers: failed — non-fatal, answers left empty');
+    return {};
+  }
+}

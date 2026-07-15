@@ -79,6 +79,6 @@ export type { MergeField, MergeData, RenderableTemplate, RenderedEmail } from '.
 // (intake route, extract-on-submit) share one extractor.
 export {
   EMPTY_STRUCTURED_BRIEF, buildBriefExtractUserMessage, parseBriefResponse, validateStructuredBrief,
-  isEmptyBrief, extractStructuredBrief,
+  isEmptyBrief, extractStructuredBrief, distributeBriefAnswers,
 } from './brief-extract.js';
-export type { BriefExtractParams } from './brief-extract.js';
+export type { BriefExtractParams, DistributeAnswersParams } from './brief-extract.js';
