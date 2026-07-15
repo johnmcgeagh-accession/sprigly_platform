@@ -54,6 +54,7 @@ type Props = {
   monthLabel: string;
   intake: PlanIntake;
   durable: DurableItemView[];
+  cutoffLabel: string | null;   // e.g. "18 July" — the auto-run date; null → neutral confirmation
   onSubmit: (p: IntakeSubmitPayload) => Promise<IntakeResult>;
   onClose: () => void;
 };
@@ -72,7 +73,7 @@ function IntakeChrome({ wide, onClose, children }: { wide?: boolean; onClose: ()
 }
 
 export function IntakeCapture(props: Props) {
-  const { questions, prePlanning, busy, monthLabel, intake, durable, onSubmit, onClose } = props;
+  const { questions, prePlanning, busy, monthLabel, intake, durable, cutoffLabel, onSubmit, onClose } = props;
   const [mode, setMode] = useState<Mode>('workspace');
   const [text, setText] = useState('');
   const [durableText, setDurableText] = useState('');
@@ -115,6 +116,10 @@ export function IntakeCapture(props: Props) {
 
   const priorBrief = (intake.freeNotes ?? '').trim();
   const followUp = live.preview?.followUp && live.preview.followUp !== dismissedFollowUp ? live.preview.followUp : null;
+  // Post-save confirmation: a real cutoff date when the client has one, else the neutral copy.
+  const savedMsg = cutoffLabel
+    ? `Saved — your content calendar will be created on ${cutoffLabel}. Add or adjust anything until then; after that, changes go to your plan for approval.`
+    : 'Saved — we’ll build your month from this.';
 
   return (
     <IntakeChrome wide onClose={onClose}>
@@ -129,6 +134,10 @@ export function IntakeCapture(props: Props) {
           <button data-testid="intake-close" onClick={onClose} aria-label="Close" className="flex h-8 w-8 flex-none items-center justify-center rounded-full text-[16px] font-bold text-muted hover:text-slate-700">✕</button>
         </div>
       </div>
+
+      {committedOnce && prePlanning && (
+        <p data-testid="intake-saved-note" className="mb-4 rounded-xl bg-coral-100 px-3.5 py-3 text-[13.5px] leading-relaxed text-coral-800">{savedMsg}</p>
+      )}
 
       {!prePlanning && (
         <p data-testid="intake-postcutoff-note" className="mb-4 rounded-xl bg-coral-100 p-3 text-[13px] text-coral-800">
@@ -186,7 +195,7 @@ export function IntakeCapture(props: Props) {
             <span className="flex-1 text-[12px] text-faint">{committedOnce ? 'Folded into your plan. Keep typing to add more.' : 'You can always change this later.'}</span>
             <button data-testid="intake-create" disabled={busy} onClick={() => void create()}
               className="inline-flex h-11 items-center gap-2 rounded-xl bg-coral px-5 text-[15px] font-semibold text-white disabled:opacity-45">
-              {busy ? 'Creating…' : !prePlanning ? 'Send to Sprigly' : committedOnce ? 'Add to calendar' : 'Create Content Calendar'}
+              {busy ? 'Saving…' : !prePlanning ? 'Send to Sprigly' : committedOnce ? 'Add to brief' : 'Save brief'}
             </button>
           </div>
         </div>

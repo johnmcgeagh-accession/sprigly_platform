@@ -103,7 +103,7 @@ export function PlanDesktop({ data }: { data: PlanData }) {
 
           {/* pb clears the fixed FAB (bottom-[34px] + 60px tall) so the last calendar row
               never sits under it, even at 900px-height viewports. */}
-          <div className="min-h-0 flex-1 overflow-y-auto px-[34px] pb-32 pt-2" data-testid="plan-body">
+          <div className="min-h-0 flex-1 overflow-y-auto px-[34px] pb-32 pt-0" data-testid="plan-body">
             {view === 'calendar' && <CalendarView data={data} year={year} month={month} selId={selId} onSelect={select} />}
             {view === 'timeline' && <TimelineView data={data} selId={selId} onSelect={select} />}
             {view === 'tasks' && <TasksView data={data} onSelect={select} />}
@@ -214,15 +214,16 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
 
   return (
     <>
-      <div className="sticky top-0 z-[3] grid grid-cols-7 gap-3 border-b border-line/40 bg-bg px-1 pb-3 pt-1.5">
+      {/* Header + day-label row are ONE opaque sticky unit on the canvas (bg-bg), flush to the top
+          of the scroll area (plan-body pt-0) with its own top padding — so nothing scrolls through
+          the slit between the month toolbar and the day labels. mt-4 gives the divider breathing room. */}
+      <div className="sticky top-0 z-[3] grid grid-cols-7 gap-3 border-b border-line/40 bg-bg px-1 pb-3 pt-3">
         {DOW.map((d) => <span key={d} className="pl-0.5 text-[11px] font-extrabold uppercase tracking-[.18em] text-muted">{d}</span>)}
       </div>
-      <div className="grid grid-cols-7 gap-3" data-testid="calendar-grid">
-        {lead > 0 && (
-          <div className="flex items-center rounded-2xl border border-line bg-surface p-4 shadow-card" style={{ gridColumn: `span ${lead}` }} data-testid="month-summary">
-            <div className="font-serif text-[19px] text-slate-700">{data.calendarPosts.filter((p) => p.date.startsWith(`${year}-${pad(month + 1)}`)).length} posts planned</div>
-          </div>
-        )}
+      <div className="mt-4 grid grid-cols-7 gap-3" data-testid="calendar-grid">
+        {/* Leading off-calendar gap: a pure-canvas spacer (no card/border/fill) that only holds the
+            weekday offset so day 1 lands in its column — same treatment as the trailing edge. */}
+        {lead > 0 && <div aria-hidden style={{ gridColumn: `span ${lead}` }} />}
         {Array.from({ length: dim }, (_, i) => i + 1).map((day) => {
           const d = new Date(year, month, day);
           const wknd = (d.getDay() + 6) % 7 >= 5;

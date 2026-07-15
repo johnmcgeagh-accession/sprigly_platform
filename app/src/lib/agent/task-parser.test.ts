@@ -14,7 +14,7 @@ vi.mock('@sprigly/embedding-client', () => ({ createEmbeddingClientFromEnv: () =
 import { parseTasks, type ParserContext } from './task-parser';
 import type { ModelClient } from '@sprigly/model-client';
 
-const CTX: ParserContext = { today: '2026-09-01', cycleMonths: '- September 2026 (2026-09) [current, editable] — planning', weekDigest: '- id=post-9 | Thu 3 Sep | instagram/reel | Autumn layers', productIndex: '- Maebelle (Wrap Dress) — Ecru, Navy' };
+const CTX: ParserContext = { today: '2026-09-01', cycleMonths: '- September 2026 (2026-09) [current, editable] — planning', planDigest: '- id=post-9 | Thu 3 Sep | instagram/reel | Autumn layers', productIndex: '- Maebelle (Wrap Dress) — Ecru, Navy' };
 
 function fakeModel(content: string): ModelClient {
   return {
