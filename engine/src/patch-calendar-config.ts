@@ -26,12 +26,13 @@ if (!slug || !channel) {
 // ── Patch to apply ────────────────────────────────────────────────────────────
 // Edit this block when running for a different client.
 const PATCH: Record<string, unknown> = {
-  contact_name:  'Sally',
-  contact_email: 'john.mcgeagh@gmail.com',
-  extra_questions: [
-    "Any particular outfit pairings or \"Sunday Styles\" sets in mind?",
-    "Any new colourways or fabric stories, anything sustainability-led worth leading on?",
-  ],
+  // Edit per run. Keep defaults brand-AGNOSTIC — extra_questions are per-client channel prompts
+  // (a clothing client might add "Any new colourways?"; a cafe "Any specials on this month?").
+  // Do NOT ship client- or industry-specific defaults here: leave empty unless this client
+  // genuinely has channel-specific prompts to add.
+  contact_name:  '',
+  contact_email: '',
+  extra_questions: [] as string[],
 };
 // ─────────────────────────────────────────────────────────────────────────────
 

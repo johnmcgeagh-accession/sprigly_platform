@@ -272,7 +272,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
             <input
               data-testid="shape-input" value={shapeText} disabled={shaping}
               onChange={(e) => setShapeText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submitShape(shapeText); }}
-              placeholder={shapeTarget === 'hook' ? 'Punchier · shorter · reword the opening…' : shapeTarget === 'script' ? 'Punchier · tighten the middle · rework the CTA…' : 'Make it softer · shorter · warmer · more about the fabric…'}
+              placeholder={shapeTarget === 'hook' ? 'Punchier · shorter · reword the opening…' : shapeTarget === 'script' ? 'Punchier · tighten the middle · rework the CTA…' : 'Make it softer · shorter · warmer · more about the product…'}
               aria-label={`Refine the ${shapeTarget}`}
               className="flex-1 rounded-[13px] border border-line px-[15px] py-3 text-[14.5px] text-slate-700 outline-none focus:border-coral disabled:opacity-60"
             />

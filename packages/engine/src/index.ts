@@ -82,3 +82,7 @@ export {
   isEmptyBrief, extractStructuredBrief, distributeBriefAnswers,
 } from './brief-extract.js';
 export type { BriefExtractParams, DistributeAnswersParams } from './brief-extract.js';
+
+// Live planning-workspace preview (Phase 1) — cheap Haiku mirror of the in-progress brief.
+export { previewBrief, EMPTY_PREVIEW, PREVIEW_MIN_CHARS } from './brief-preview.js';
+export type { BriefPreview, PreviewItem, PreviewDate, PreviewDurable, PreviewBriefParams } from './brief-preview.js';
