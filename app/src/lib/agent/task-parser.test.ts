@@ -12,6 +12,8 @@ vi.mock('@sprigly/model-client', () => ({ createModelClientFromEnv: () => ({ com
 vi.mock('@sprigly/embedding-client', () => ({ createEmbeddingClientFromEnv: () => ({ embed: async () => [] }) }));
 
 import { parseTasks, type ParserContext } from './task-parser';
+import { resolveMoveSource } from './selectors';
+import type { PlanPost } from '../types';
 import type { ModelClient } from '@sprigly/model-client';
 
 const CTX: ParserContext = { today: '2026-09-01', cycleMonths: '- September 2026 (2026-09) [current, editable] — planning', planDigest: '- id=post-9 | Thu 3 Sep | instagram/reel | Autumn layers', productIndex: '- Maebelle (Wrap Dress) — Ecru, Navy' };
@@ -113,5 +115,36 @@ describe('validation + resilience', () => {
   it('a model error degrades to clarify (never throws)', async () => {
     const tasks = await parseTasks('x', CTX, throwingModel);
     expect(tasks[0]!.action).toBe('clarify');
+  });
+});
+
+// FIX 1 — the source resolution layer between parse and proposal. These run the RAW ask string
+// through the real parser (model canned) → resolveMoveSource, proving a date-named source resolves
+// even when the model mis-copied the id, and that multiple posts on a date come back as ambiguous.
+const P = (id: string, date: string, caption: string): PlanPost =>
+  ({ id, cycleId: 'c', clientId: 'cl', channel: 'instagram', date, format: 'reel', pillar: 'x', caption, status: 'planned', reviewState: null, steps: [] }) as PlanPost;
+
+describe('move source resolution (raw ask → parse → resolve)', () => {
+  it('resolves the date-named source even when the model copied a WRONG id', async () => {
+    const model = fakeModel(JSON.stringify({ tasks: [
+      { action: 'move_post', postId: 'not-a-real-uuid', selector: 'the post on the 1st August', fromDate: '2026-08-01', toDate: '2026-08-22', reason: 'move the post on the 1st August to the 22nd August' },
+    ] }));
+    const [task] = await parseTasks('move the post on the 1st August to the 22nd August', CTX, model);
+    expect(task!.fromDate).toBe('2026-08-01');   // parser extracted the source DATE
+    expect(task!.toDate).toBe('2026-08-22');
+    const posts = [P('p-1', '2026-08-01', 'The boxes have arrived'), P('p-2', '2026-08-15', 'Midmonth note')];
+    const ref = resolveMoveSource(task!, posts);
+    expect(ref && 'post' in ref ? ref.post.id : null).toBe('p-1');   // via fromDate, despite the bad id
+  });
+
+  it('multiple posts on the named date → ambiguous set (to be LISTED, not a blind clarify)', () => {
+    const posts = [P('p-a', '2026-08-01', 'The boxes have arrived'), P('p-b', '2026-08-01', 'Founder note')];
+    const ref = resolveMoveSource({ postId: 'bad', fromDate: '2026-08-01', selector: 'the 1st' }, posts);
+    expect(ref && 'ambiguous' in ref ? ref.ambiguous.map((p) => p.id) : null).toEqual(['p-a', 'p-b']);
+  });
+
+  it('no post on the date → null (caller acknowledges what was understood)', () => {
+    const posts = [P('p-2', '2026-08-15', 'Midmonth note')];
+    expect(resolveMoveSource({ fromDate: '2026-08-01', selector: 'the 1st', postId: 'bad' }, posts)).toBeNull();
   });
 });

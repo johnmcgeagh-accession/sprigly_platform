@@ -16,7 +16,7 @@ import { getModelClient, getEmbeddingClient } from '@/lib/agent/model';
 import { parseTasks } from '@/lib/agent/task-parser';
 import { getClientCycleMonths, getCycleMonth, resolveCycleForMonth, cycleDigest } from '@/lib/agent/cycle-state';
 import { loadProductIndex } from '@/lib/agent/catalogue';
-import { resolvePostSelector, postTitle } from '@/lib/agent/selectors';
+import { resolvePostSelector, resolveMoveSource, postTitle, parseISO } from '@/lib/agent/selectors';
 import { moveSummary, deleteSummary, rewriteSummary, addSummary, formatSummary, generateHookSummary, refineSummary } from '@/lib/agent/summaries';
 import { ensureConversation, appendMessage } from '@/lib/agent/conversation';
 import { createProposal } from '@/lib/agent/proposals';
@@ -61,6 +61,27 @@ function defaultAddDate(posts: PlanPost[], today: Date): string {
 
 const whichPost = (reason?: string | null) =>
   `I couldn’t tell which post you meant${reason ? ` for “${reason.trim()}”` : ''}. Could you name its date?`;
+
+/** 'YYYY-MM-DD' → '1 August' for human-facing agent copy. */
+const dayMonth = (iso: string): string => {
+  const d = parseISO(iso);
+  return `${d.getDate()} ${MONTH_NAMES[d.getMonth()] ?? ''}`.trim();
+};
+
+/** Clarify copy that ALWAYS acknowledges what WAS understood (the destination, the source date the
+ *  user named) — never asks for information they already gave. */
+function moveNotFound(task: ParsedTask): string {
+  const dest = task.toDate ? ` to ${dayMonth(task.toDate)}` : '';
+  const where = task.fromDate ? ` on ${dayMonth(task.fromDate)}` : '';
+  return `I understood you want to move a post${dest}, but I couldn’t find one${where}. Could you check the date, or name the post?`;
+}
+function moveAmbiguous(cands: PlanPost[], task: ParsedTask): string {
+  const on = task.fromDate ? dayMonth(task.fromDate) : cands[0] ? dayMonth(cands[0].date) : 'that date';
+  const dest = task.toDate ? ` to ${dayMonth(task.toDate)}` : '';
+  const titles = cands.map((p) => `“${postTitle(p)}”`);
+  const list = titles.length === 2 ? `${titles[0]} or ${titles[1]}` : `${titles.slice(0, -1).join(', ')}, or ${titles[titles.length - 1]}`;
+  return `There are ${cands.length} posts on ${on} — ${list}? Which one should I move${dest}?`;
+}
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -117,8 +138,10 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
   for (const task of tasks) {
     switch (task.action) {
       case 'move_post': {
-        const post = resolvePost(task, posts);
-        if (!post) { replyParts.push(whichPost(task.reason)); break; }
+        const ref = resolveMoveSource(task, posts);
+        if (!ref) { replyParts.push(moveNotFound(task)); break; }
+        if ('ambiguous' in ref) { replyParts.push(moveAmbiguous(ref.ambiguous, task)); break; }
+        const post = ref.post;
         if (!task.toDate) { replyParts.push(`Move “${post.caption?.split('\n')[0] || post.pillar}” to when?${task.reason ? ` (you asked: “${task.reason}”)` : ''}`); break; }
         if (cycleMonth && task.toDate.slice(0, 7) !== cycleMonth) {
           replyParts.push(`That would move the post into ${monthName(task.toDate)} — moving posts to a different month isn’t available yet.`);

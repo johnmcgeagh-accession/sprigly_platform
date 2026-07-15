@@ -6,6 +6,7 @@ import type { ProposalView } from '@/lib/agent/types';
 import type { NoteView } from '@/lib/agent/notes';
 import { indexForecast, type WeatherDay, type WeatherWireDay } from '@/lib/weather';
 import { resolveDayCycleId } from '@/lib/cycle-nav';
+import { planMoveGuard, shouldReconcile } from '@/lib/plan-move';
 
 export interface AgentReply { message: string; proposals: ProposalView[] }
 
@@ -48,6 +49,15 @@ export interface PlanDataInit {
 export function usePlanData(init: PlanDataInit) {
   const [posts, setPosts] = useState<PlanPost[]>(init.posts);
   const [crossMonthPosts, setCrossMonthPosts] = useState<PlanPost[]>(init.crossMonthPosts);
+  // Optimistic drag/swipe moves: a post being reschedule-synced is "pending" — the card has already
+  // moved locally while the write + reconcile run. A post stays non-draggable while pending, so a
+  // second drag on the SAME card can't race (different cards move independently). pendingRef mirrors
+  // the state for synchronous reads inside the async sync (state updates are async).
+  const [pendingMoves, setPendingMoves] = useState<Set<string>>(new Set());
+  const pendingRef = useRef<Set<string>>(new Set());
+  const setPending = useCallback((mut: (s: Set<string>) => void) => {
+    const n = new Set(pendingRef.current); mut(n); pendingRef.current = n; setPendingMoves(n);
+  }, []);
   const [beats, setBeats] = useState<PlanBeat[]>(init.beats);
   const [intake, setIntake] = useState<PlanIntake>(init.intake);
   const [durable, setDurable] = useState<DurableItemView[]>(init.durable);
@@ -189,7 +199,36 @@ export function usePlanData(init: PlanDataInit) {
     finally { setBusy(false); }
   }, [readOnly, flash, refreshPlan]);
 
-  const reschedule = useCallback((id: string, dateIso: string) => call(`/api/posts/${id}`, 'PATCH', { date: dateIso }), [call]);
+  /** Move a post's date OPTIMISTICALLY: the card moves in local state immediately, the write +
+   *  reconcile run in the background, and on failure (gate/network) the card snaps back with the
+   *  usual toast. A card is blocked from a second move while its first is still in flight (pending
+   *  state), so rapid successive drags can never double-apply or lose a move; the reconcile refetch
+   *  runs only once ALL moves have settled, so a concurrent move on another card isn't clobbered.
+   *  Cross-month moves need no special-casing: the grid buckets by date, so a card whose new date
+   *  leaves the viewed month simply drops out of the grid, and the settle-refetch surfaces it per
+   *  the date-authoritative rules (its own cycle / the "outside this month" strip). */
+  const applyLocalDate = useCallback((id: string, date: string) => {
+    setPosts((cur) => cur.map((p) => (p.id === id ? { ...p, date } : p)));
+    setCrossMonthPosts((cur) => cur.map((p) => (p.id === id ? { ...p, date } : p)));
+  }, []);
+  const reschedule = useCallback((id: string, dateIso: string) => {
+    const guard = planMoveGuard(id, dateIso, [...posts, ...crossMonthPosts], pendingRef.current, readOnly);
+    if (!guard) return;                                                       // read-only / pending / no-op
+    const { prevDate } = guard;
+    applyLocalDate(id, dateIso);                                              // optimistic: move now
+    setPending((s) => s.add(id));
+    void (async () => {
+      let ok = false;
+      try {
+        const res = await fetch(`/api/posts/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ date: dateIso }) });
+        ok = res.ok;
+        if (!ok) flash('Couldn’t move that. Please try again.');
+      } catch { flash('Network error. Please try again.'); }
+      if (!ok) applyLocalDate(id, prevDate);                                  // snap back
+      setPending((s) => s.delete(id));
+      if (shouldReconcile(ok, pendingRef.current)) await refreshPlan();       // reconcile once all settle
+    })();
+  }, [readOnly, posts, crossMonthPosts, applyLocalDate, setPending, flash, refreshPlan]);
   const saveCaption = useCallback((id: string, caption: string) => call(`/api/posts/${id}`, 'PATCH', { caption }), [call]);
   const saveHook = useCallback((id: string, hook: string) => call(`/api/posts/${id}`, 'PATCH', { hook }), [call]);
   const saveScript = useCallback((id: string, script: string) => call(`/api/posts/${id}`, 'PATCH', { script }), [call]);
@@ -486,7 +525,7 @@ export function usePlanData(init: PlanDataInit) {
 
   return {
     // data
-    posts, crossMonthPosts, calendarPosts, beats, beatsOn, cycles, proposals, notes, today: init.today, clientName: init.clientName,
+    posts, crossMonthPosts, calendarPosts, beats, beatsOn, cycles, proposals, notes, today: init.today, clientName: init.clientName, pendingMoves,
     questions: init.questions, intake, durable, intakeOpen, intakeBusy, viewedCyclePrePlanning, openIntake, closeIntake, submitIntake,
     homeCycleId: init.homeCycleId, viewedCycleId, readOnly, canEdit, todayCycleId,
     // status

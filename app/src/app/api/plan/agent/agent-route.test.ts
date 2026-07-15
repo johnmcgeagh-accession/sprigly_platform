@@ -10,20 +10,19 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { ParsedTask } from '@/lib/agent/types';
 
+const POST3 = { id: 'post-3', cycleId: 'cycle-1', clientId: 'client-1', channel: 'instagram', date: '2026-09-03', format: 'reel', pillar: 'Autumn', caption: 'Autumn layers', status: 'planned', reviewState: null };
+
 const h = vi.hoisted(() => ({
   session: { clientId: 'client-1', cycleId: 'cycle-1' } as { clientId: string; cycleId: string } | null,
   tasks: [] as ParsedTask[],
+  posts: [] as Array<Record<string, unknown>>,
   createCalls: [] as Array<Record<string, unknown>>,
   saveNote: vi.fn(),
   answerQuery: vi.fn(),
 }));
 
 vi.mock('@/lib/auth', () => ({ getSession: async () => h.session }));
-vi.mock('@/lib/plan', () => ({
-  loadPlanPosts: async () => [
-    { id: 'post-3', cycleId: 'cycle-1', clientId: 'client-1', channel: 'instagram', date: '2026-09-03', format: 'reel', pillar: 'Autumn', caption: 'Autumn layers', status: 'planned', reviewState: null },
-  ],
-}));
+vi.mock('@/lib/plan', () => ({ loadPlanPosts: async () => h.posts }));
 vi.mock('@/lib/agent/model', () => ({ getModelClient: () => ({}), getEmbeddingClient: () => ({}), AGENT_MODEL: 'haiku' }));
 vi.mock('@/lib/agent/task-parser', () => ({ parseTasks: async () => h.tasks }));
 vi.mock('@/lib/agent/catalogue', () => ({ loadProductIndex: async () => ({}) }));
@@ -51,6 +50,7 @@ const post = (body: unknown) => POST(new Request('http://x/api/plan/agent', { me
 beforeEach(() => {
   h.session = { clientId: 'client-1', cycleId: 'cycle-1' };
   h.tasks = [];
+  h.posts = [{ ...POST3 }];
   h.createCalls.length = 0;
   h.saveNote.mockReset();
   h.answerQuery.mockReset().mockResolvedValue('You need to film the reel.');
@@ -91,19 +91,29 @@ describe('single mutating task', () => {
   });
 });
 
-describe('move between two in-month dates (agent scoping fix)', () => {
-  it('a post on the source date → a move PROPOSAL, never a not-found — even off the current week', async () => {
-    // The source post (2026-09-03) is not in "this week"; with the full-cycle digest the parser
-    // resolves it, and the turn proposes the move to another in-month date rather than replying
-    // that there are no posts.
-    h.tasks = [{ action: 'move_post', postId: 'post-3', toDate: '2026-09-22', reason: 'move the post from the 3rd to the 22nd' }];
-    const res = await post({ instruction: 'move the post from the 3rd of september to the 22nd' });
+describe('move between two in-month dates (agent scoping + resolution fix)', () => {
+  it('a date-named source → a move PROPOSAL even when the model mis-copied the id (resolves via fromDate)', async () => {
+    // Simulates the real failure: the model set a WRONG postId but named the source date. Resolution
+    // falls back to fromDate → the Aug/Sep-3 post → a move proposal, not a "which post?" clarify.
+    h.tasks = [{ action: 'move_post', postId: 'garbled-uuid', selector: 'the post on the 3rd', fromDate: '2026-09-03', toDate: '2026-09-22', reason: 'move the post on the 3rd to the 22nd' }];
+    const res = await post({ instruction: 'move the post on the 3rd of september to the 22nd' });
     const body = await res.json();
     expect(body.proposals).toHaveLength(1);
     expect(h.createCalls[0]!.action).toBe('move_post');
     expect(h.createCalls[0]!.payload).toMatchObject({ kind: 'move', postId: 'post-3', toDate: '2026-09-22' });
-    expect(body.message.toLowerCase()).not.toContain('no posts');   // never a not-found
-    expect(body.message.toLowerCase()).not.toContain('this week');   // never week-scoped language
+    expect(body.message.toLowerCase()).not.toContain('couldn’t tell');   // never a blind not-found
+  });
+
+  it('multiple posts on the named date → a clarify that LISTS the candidates + acknowledges the destination', async () => {
+    h.posts = [{ ...POST3 }, { ...POST3, id: 'post-3b', caption: 'The boxes have arrived' }];   // two on 2026-09-03
+    h.tasks = [{ action: 'move_post', fromDate: '2026-09-03', selector: 'the post on the 3rd', toDate: '2026-09-22', reason: 'move the 3rd to the 22nd' }];
+    const res = await post({ instruction: 'move the post on the 3rd to the 22nd' });
+    const body = await res.json();
+    expect(body.proposals).toHaveLength(0);                          // ambiguous → no proposal
+    expect(body.message).toContain('There are 2 posts on 3 September');
+    expect(body.message).toContain('Autumn layers');                // lists candidate 1
+    expect(body.message).toContain('The boxes have arrived');       // lists candidate 2
+    expect(body.message).toContain('to 22 September');              // acknowledges the destination
   });
 });
 

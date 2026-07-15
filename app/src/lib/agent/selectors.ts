@@ -52,7 +52,7 @@ export function postTitle(p: Pick<PlanPost, 'caption' | 'pillar'>): string {
 
 /** Candidate posts a textual reference could mean: weekday, day-number, a format
  *  noun, or a pillar keyword. Returns all matches (0, 1, or many). */
-function resolveTargets(text: string, posts: PlanPost[]): PlanPost[] {
+export function resolveTargets(text: string, posts: PlanPost[]): PlanPost[] {
   const t = text.toLowerCase();
 
   for (const [name, dow] of Object.entries(WEEKDAYS)) {
@@ -108,4 +108,20 @@ function resolveTargets(text: string, posts: PlanPost[]): PlanPost[] {
 export function resolvePostSelector(selector: string, posts: PlanPost[]): string | null {
   const hits = resolveTargets(selector, posts);
   return hits.length === 1 ? hits[0]!.id : null;
+}
+
+/**
+ * Resolve a MOVE's source post from what the parser produced. Tries, in order: the model's postId
+ * (only if it actually matches a post — the model can't reliably copy 36-char ids); the parsed
+ * SOURCE DATE (`fromDate`, the reliable deterministic key); then the raw selector phrase. Returns
+ * the single post, an AMBIGUOUS set (several posts on the named date, for the caller to list), or
+ * null (genuinely not found). This is the layer that makes "move the post on the 1st" work even
+ * when the id round-trips imperfectly.
+ */
+export type MoveSource = { post: PlanPost } | { ambiguous: PlanPost[] } | null;
+export function resolveMoveSource(ref: { postId?: string | null; fromDate?: string | null; selector?: string | null }, posts: PlanPost[]): MoveSource {
+  if (ref.postId) { const p = posts.find((x) => x.id === ref.postId); if (p) return { post: p }; }
+  if (ref.fromDate) { const on = posts.filter((p) => p.date === ref.fromDate); if (on.length === 1) return { post: on[0]! }; if (on.length > 1) return { ambiguous: on }; }
+  if (ref.selector) { const hits = resolveTargets(ref.selector, posts); if (hits.length === 1) return { post: hits[0]! }; if (hits.length > 1) return { ambiguous: hits }; }
+  return null;
 }

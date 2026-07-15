@@ -61,7 +61,8 @@ Resolving product references:
 - The CATALOGUE lists this client's products (name, style, colourways). Resolve a named product ("the maebelle", "the Anna vest", "the linen dress") against it. A product that matches the catalogue is FULLY SPECIFIED — emit the add_post with the product as its instruction and let the client refine the angle at approval. NEVER ask what a named product IS, or what a post about it should focus on. A product not in the catalogue is still a valid topic — propose it anyway; do not clarify just because it's unfamiliar.
 
 Resolving post references:
-- The PLAN DIGEST lists THIS CYCLE's posts (the whole plan month, by date) with their ids. If a reference ("the post from the 1st August", "the Thursday reel", "post 3", "the linen one") matches EXACTLY ONE digest post, set "postId" to that id and omit "selector". Never say a post doesn't exist without checking the whole digest — it covers the full month, not just this week.
+- The PLAN DIGEST lists THIS CYCLE's posts (the whole plan month, by date) with their ids. If a reference ("the post from the 1st August", "the Thursday reel", "post 3", "the linen one") matches EXACTLY ONE digest post, set "postId" to that id AND ALSO keep the raw reference in "selector" (set BOTH — resolution needs the phrase as a fallback if the id is imperfect). Never say a post doesn't exist without checking the whole digest — it covers the full month, not just this week.
+- For move_post, ALSO set "fromDate" to the SOURCE post's date (ISO 'YYYY-MM-DD') whenever the source is named by a date ("the post on the 1st", "move the 1st August one to..."). This is the reliable source key — always include it for a date-named source.
 - If it matches NONE or MORE THAN ONE digest post, leave "postId" null and put the raw reference in "selector" (it may resolve against the full plan later; if not it becomes a clarify).
 - If a post reference is genuinely ambiguous and you cannot pick one, emit a "clarify" task for it — never guess which post.
 
@@ -77,8 +78,11 @@ Examples:
 Message: "move the Thursday post to Saturday and add a note about the linen restock and what do I need to film this week"
 → {"tasks":[{"action":"move_post","postId":"<thursday id if unique in digest, else null>","selector":"the Thursday post","toDate":"<saturday ISO>","reason":"move the Thursday post to Saturday"},{"action":"add_note","content":"Linen restock coming up.","reason":"add a note about the linen restock"},{"action":"query","question":"What do I need to film this week?","reason":"what do I need to film this week"}]}
 
-Message: "move the post on the 10th to the 11th and make it a carousel"  (a compound edit to ONE post → TWO tasks)
-→ {"tasks":[{"action":"move_post","selector":"the post on the 10th","toDate":"<11th ISO>","reason":"move the post on the 10th to the 11th"},{"action":"change_format","selector":"the post on the 10th","format":"carousel","reason":"make it a carousel"}]}
+Message: "move the post on the 10th to the 11th and make it a carousel"  (a compound edit to ONE post → TWO tasks; a date-named source → fromDate)
+→ {"tasks":[{"action":"move_post","selector":"the post on the 10th","fromDate":"<10th ISO>","toDate":"<11th ISO>","reason":"move the post on the 10th to the 11th"},{"action":"change_format","selector":"the post on the 10th","format":"carousel","reason":"make it a carousel"}]}
+
+Message: "move the post on the 1st August to the 22nd August"  (source named by date → set fromDate AND postId/selector)
+→ {"tasks":[{"action":"move_post","postId":"<aug-1 post id from digest>","selector":"the post on the 1st August","fromDate":"<1 Aug ISO>","toDate":"<22 Aug ISO>","reason":"move the post on the 1st August to the 22nd August"}]}
 
 Message: "make the reel warmer"  (two reels in the digest)
 → {"tasks":[{"action":"clarify","question":"You have two reels this week — which one should I rewrite: Tuesday's or Friday's?","reason":"make the reel warmer"}]}
@@ -164,9 +168,11 @@ function normalizeTask(raw: unknown): ParsedTask {
   const needsPost = () => postRef.postId != null || postRef.selector != null;
 
   switch (action) {
-    case 'move_post':
-      if (!needsPost()) return clarify('I couldn’t tell which post to move — send another message naming its date or the product.', reason);
-      return { action, ...postRef, toDate: isoDate(r.toDate), reason };
+    case 'move_post': {
+      const fromDate = isoDate(r.fromDate);
+      if (!needsPost() && !fromDate) return clarify('I couldn’t tell which post to move — send another message naming its date or the product.', reason);
+      return { action, ...postRef, fromDate, toDate: isoDate(r.toDate), reason };
+    }
     case 'delete_post':
       if (!needsPost()) return clarify('I couldn’t tell which post to remove — send another message naming its date or the product.', reason);
       return { action, ...postRef, reason };
