@@ -108,14 +108,14 @@ export function ProgressRing({ done, total, risk, size = 34 }: { done: number; t
 }
 
 /** Calendar / feed chip for a post. */
-export function PostChip({ post, selected, today, onClick, draggable, onDragStart, onDragEnd }: {
+export function PostChip({ post, selected, today, onClick, draggable, onDragStart, onDragEnd, pending }: {
   post: PlanPost; selected?: boolean; today: string; onClick?: () => void;
-  draggable?: boolean; onDragStart?: (e: React.DragEvent) => void; onDragEnd?: () => void;
+  draggable?: boolean; onDragStart?: (e: React.DragEvent) => void; onDragEnd?: () => void; pending?: boolean;
 }) {
   const risk = postAtRisk(post.steps, post.date, today);
   return (
     <div
-      data-testid="post-chip" data-post-id={post.id} title={postTitle(post)}
+      data-testid="post-chip" data-post-id={post.id} data-pending={pending ? '1' : undefined} title={postTitle(post)}
       draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd} onClick={onClick}
       role={onClick ? 'button' : undefined} tabIndex={onClick ? 0 : undefined}
       aria-label={onClick ? `Open “${postTitle(post)}”, ${FORMAT_LABEL[post.format]}` : undefined}
@@ -124,6 +124,7 @@ export function PostChip({ post, selected, today, onClick, draggable, onDragStar
         'group relative flex cursor-pointer select-none items-start gap-2 rounded-[10px] border bg-surface px-[9px] py-[7px]',
         'text-[12.5px] font-bold text-slate-700 transition hover:shadow-card',
         selected ? 'border-coral shadow-[0_0_0_3px_rgba(232,119,102,.14)]' : 'border-line hover:border-line',
+        pending ? 'opacity-70' : '',   // subtle pending state while the move reconciles
       ].join(' ')}
     >
       <span className="flex h-[22px] w-[22px] flex-none items-center justify-center rounded-[7px] bg-coral-tint text-coral">

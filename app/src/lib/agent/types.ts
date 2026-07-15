@@ -26,6 +26,7 @@ export interface ParsedTask {
   action: TaskActionType;
   postId?: string | null;
   selector?: string | null;
+  fromDate?: string | null;      // move_post SOURCE date (ISO) when the post is named by date — the reliable source key
   toDate?: string | null;        // move_post / add_post destination (ISO 'YYYY-MM-DD')
   instruction?: string | null;   // rewrite_post
   channel?: string | null;       // add_post

@@ -245,7 +245,8 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
               <div className="flex flex-col gap-1.5">
                 {dayPosts.map((p) => (
                   <PostChip key={p.id} post={p} today={data.today} selected={p.id === selId} onClick={() => onSelect(p.id)}
-                    draggable={data.canEdit(p.date)} onDragStart={() => setDragId(p.id)} onDragEnd={() => { setDragId(null); setOver(null); }} />
+                    pending={data.pendingMoves.has(p.id)}
+                    draggable={data.canEdit(p.date) && !data.pendingMoves.has(p.id)} onDragStart={() => setDragId(p.id)} onDragEnd={() => { setDragId(null); setOver(null); }} />
                 ))}
                 {/* Brief beats — read-only markers, visually secondary, distinct from posts. */}
                 {data.beatsOn(isoOf(day)).map((b, i) => (
