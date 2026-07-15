@@ -298,28 +298,28 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
         </div>
       )}
 
-      {/* delete — pinned at the very bottom, full width. Conventional destructive
-          treatment (John's pick B): white fill, danger #B23A2E border + text (5.94:1);
-          coral is never used for destructive. Two-step confirm — never a single tap. */}
+      {/* Delete — pinned to the very bottom of the editor sheet, set apart by a divider + generous
+          top space so it can't be fat-thumbed. Semantic-danger treatment from the theme (danger
+          token, tint + border + text); coral is never used for destructive. Two-step confirm. */}
       {!!editable && (
-        <div className="mt-9" data-testid="delete-section">
+        <div className="mt-10 border-t border-line pt-6" data-testid="delete-section">
           {confirmDelete ? (
             <div data-testid="delete-confirm" role="dialog" aria-label="Delete this post?"
-              className="rounded-2xl border border-line bg-line-soft p-4">
+              className="rounded-2xl border border-danger/30 bg-danger/5 p-4">
               <p className="mb-3 text-[13.5px] font-semibold text-slate-700">Delete this post? This can’t be undone.</p>
               <div className="flex gap-2.5">
                 <button data-testid="delete-confirm-yes" onClick={() => { data.removePost(post.id); onClose(); }}
-                  className="inline-flex items-center gap-2 rounded-[13px] bg-danger px-5 py-3 text-[14px] font-extrabold text-white">
+                  className="inline-flex items-center gap-2 rounded-[13px] bg-danger px-5 py-3 text-[14px] font-extrabold text-white hover:opacity-90">
                   <TrashIcon className="h-4 w-4" />Delete post
                 </button>
                 <button data-testid="delete-cancel" onClick={() => setConfirmDelete(false)}
-                  className="rounded-[13px] border border-line bg-surface px-5 py-3 text-[14px] font-bold text-slate-600 hover:border-line">Cancel</button>
+                  className="rounded-[13px] border border-line bg-surface px-5 py-3 text-[14px] font-bold text-slate-600 hover:bg-line-soft">Cancel</button>
               </div>
             </div>
           ) : (
             <button data-testid="editor-delete" onClick={() => setConfirmDelete(true)}
-              className="flex w-full items-center justify-center gap-2 rounded-[14px] border-[1.5px] border-danger bg-surface px-5 py-3.5 text-[14.5px] font-extrabold text-danger hover:bg-danger/10">
-              <TrashIcon className="h-[17px] w-[17px]" />Delete post
+              className="inline-flex items-center gap-2 rounded-[12px] border border-danger/40 bg-surface px-4 py-2.5 text-[13.5px] font-bold text-danger transition-colors hover:border-danger hover:bg-danger/5">
+              <TrashIcon className="h-4 w-4" />Delete post
             </button>
           )}
         </div>

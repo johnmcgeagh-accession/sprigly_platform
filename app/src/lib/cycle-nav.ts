@@ -23,6 +23,17 @@ export function nextMonth(cycleMonth: string): string {
   return `${year}-${String(month).padStart(2, '0')}`;
 }
 
+/** The month BEFORE a 'YYYY-MM'/'YYYY-MM-DD' → 'YYYY-MM'. The inverse of nextMonth: a cycle whose
+ *  plan (display) month is D runs its cutoff in prevMonth(D). */
+export function prevMonth(month: string): string {
+  const m = /^(\d{4})-(\d{2})/.exec(month);
+  if (!m) return month.slice(0, 7);
+  let year  = Number(m[1]);
+  let mon   = Number(m[2]) - 1;
+  if (mon < 1) { mon = 12; year -= 1; }
+  return `${year}-${String(mon).padStart(2, '0')}`;
+}
+
 /**
  * TRUE-ORPHAN posts: those whose scheduled_date falls in a month that NO cycle plans, so
  * they appear in no month grid at all (a post dated in a planned month now shows in that

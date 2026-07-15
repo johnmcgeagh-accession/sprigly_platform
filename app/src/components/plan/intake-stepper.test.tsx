@@ -30,7 +30,7 @@ describe('buildIntakePayload', () => {
 
 describe('IntakeCapture — planning workspace (Phase 1)', () => {
   const base = {
-    questions: QS, prePlanning: true, busy: false, monthLabel: 'August 2026',
+    questions: QS, prePlanning: true, busy: false, monthLabel: 'August 2026', cutoffLabel: '18 July',
     durable: [{ id: 'd1', type: 'idea', content: 'lean into provenance', createdAt: '2026-07-01T00:00:00Z' }],
     onSubmit: vi.fn(), onClose: vi.fn(),
   };
@@ -42,7 +42,7 @@ describe('IntakeCapture — planning workspace (Phase 1)', () => {
     expect(html).toContain('data-testid="intake-preview"');      // live preview panel (right column)
     expect(html).toContain('data-testid="intake-mic"');          // mic affordance
     expect(html).toContain('data-testid="intake-hints-toggle"'); // (?) — hints are behind it
-    expect(html).toContain('Create Content Calendar');           // Send renamed
+    expect(html).toContain('Save brief');                        // Send renamed (PART C)
     expect(html).not.toContain('data-testid="intake-hints"');    // hints popover closed by default
     expect(html).not.toContain('Step 1 of');                     // NOT the stepper
   });

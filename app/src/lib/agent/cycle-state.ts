@@ -69,12 +69,16 @@ export function currentWeekPosts(posts: PlanPost[], today: Date): PlanPost[] {
   return posts.filter((p) => p.date >= from && p.date < to).sort((a, b) => a.date.localeCompare(b.date));
 }
 
-/** Compact digest of this week's posts, WITH ids, so the parser can resolve
- *  references like "the Thursday reel" to a concrete id. */
-export function weekDigest(posts: PlanPost[], today: Date): string {
-  const week = currentWeekPosts(posts, today);
-  if (!week.length) return '(no posts scheduled this week)';
-  return week.map((p) => `- id=${p.id} | ${fmtDate(p.date)} | ${p.channel}/${p.format} | ${postTitle(p)}`).join('\n');
+/** Compact digest of the WHOLE cycle's posts (the viewed plan month), by date, WITH ids — the
+ *  parser resolves references like "the post from the 1st August" or "the Thursday reel" against
+ *  this. NOT week-scoped: a move between two in-month dates must see the source post even when it
+ *  falls outside the current week (the "this week" heritage caused false "no posts" replies). */
+export function cycleDigest(posts: PlanPost[]): string {
+  if (!posts.length) return '(no posts in this plan yet)';
+  return [...posts]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((p) => `- id=${p.id} | ${fmtDate(p.date)} | ${p.channel}/${p.format} | ${postTitle(p)}`)
+    .join('\n');
 }
 
 export interface CycleState {
@@ -98,12 +102,13 @@ export function bucketCycleState(posts: PlanPost[], today: Date): CycleState {
   for (const p of posts) counts[p.status] = (counts[p.status] ?? 0) + 1;
 
   const line = (p: PlanPost) => `  - ${fmtDate(p.date)} (${p.format}, ${p.pillar || 'no pillar'}): ${(p.caption || '').slice(0, 80)}`;
+  // Full plan-month listing (not week-scoped) so the query answerer sees the whole cycle and can
+  // answer any date/week question from the dates + today — never blinkered to "this week".
+  const byDate = [...posts].sort((a, b) => a.date.localeCompare(b.date));
   const summary = [
     `Plan has ${posts.length} live posts (${Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(', ') || 'none'}).`,
-    `This week:`,
-    thisWeek.length ? thisWeek.map(line).join('\n') : '  (nothing scheduled)',
-    `Next week:`,
-    nextWeek.length ? nextWeek.map(line).join('\n') : '  (nothing scheduled)',
+    byDate.length ? 'Posts (by date):' : '(no posts scheduled yet)',
+    ...byDate.map(line),
   ].join('\n');
 
   return { summary, thisWeek, nextWeek, counts };

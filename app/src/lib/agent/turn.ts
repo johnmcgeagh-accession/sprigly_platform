@@ -14,7 +14,7 @@ import { loadPlanPosts } from '@/lib/plan';
 import type { PlanPost } from '@/lib/types';
 import { getModelClient, getEmbeddingClient } from '@/lib/agent/model';
 import { parseTasks } from '@/lib/agent/task-parser';
-import { getClientCycleMonths, getCycleMonth, resolveCycleForMonth, weekDigest } from '@/lib/agent/cycle-state';
+import { getClientCycleMonths, getCycleMonth, resolveCycleForMonth, cycleDigest } from '@/lib/agent/cycle-state';
 import { loadProductIndex } from '@/lib/agent/catalogue';
 import { resolvePostSelector, postTitle } from '@/lib/agent/selectors';
 import { moveSummary, deleteSummary, rewriteSummary, addSummary, formatSummary, generateHookSummary, refineSummary } from '@/lib/agent/summaries';
@@ -92,7 +92,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
     const ctx = {
       today: todayIso(today),
       cycleMonths: await getClientCycleMonths(clientId, cycleId),
-      weekDigest: weekDigest(posts, today),
+      planDigest: cycleDigest(posts),
       productIndex: await loadProductIndex(clientId, 'instagram'),
     };
     tasks = await parseTasks(instruction, ctx, getModelClient());

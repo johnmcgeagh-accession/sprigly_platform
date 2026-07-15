@@ -16,6 +16,7 @@ interface PlanRedesignProps {
   questions: string[];           // BASE + this channel's extra_questions (intake form source)
   intake: PlanIntake;            // the landed cycle's saved intake (form pre-fill, FIX 1)
   durable: DurableItemView[];    // client's active durable items (read-only list)
+  cutoffDay?: number | null;     // auto-run cutoff day-of-month (client schedule), or null
 }
 
 /**
@@ -24,7 +25,7 @@ interface PlanRedesignProps {
  * resolves "today" once, server-side, from the tenant timezone default. Everything
  * interactive lives in <PlanRoot>, which chooses the desktop or mobile layout.
  */
-export default function PlanRedesign({ clientName, posts, crossMonthPosts, beats, cycles, homeCycleId, initialCycleId, initialReadOnly, initialIntakeOpen, questions, intake, durable }: PlanRedesignProps) {
+export default function PlanRedesign({ clientName, posts, crossMonthPosts, beats, cycles, homeCycleId, initialCycleId, initialReadOnly, initialIntakeOpen, questions, intake, durable, cutoffDay }: PlanRedesignProps) {
   return (
     <div className={`plan-redesign ${fraunces.variable} ${inter.variable} ${jakarta.variable} font-sans`}>
       <PlanRoot
@@ -40,6 +41,7 @@ export default function PlanRedesign({ clientName, posts, crossMonthPosts, beats
         questions={questions}
         intake={intake}
         durable={durable}
+        cutoffDay={cutoffDay ?? null}
         today={resolveTodayIso()}
       />
     </div>

@@ -6,6 +6,15 @@ import { PlanDesktop } from './PlanDesktop';
 import { PlanMobile } from './PlanMobile';
 import { IntakeCapture } from './IntakeCapture';
 import { Toast } from './primitives';
+import { prevMonth } from '@/lib/cycle-nav';
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+/** 'YYYY-MM' + day → '18 July' (the auto-run cutoff for a cycle whose run month is `cycleMonth`). */
+function cutoffLabelFor(cycleMonth: string, day: number): string | null {
+  const m = /^(\d{4})-(\d{2})/.exec(cycleMonth);
+  if (!m) return null;
+  return `${day} ${MONTHS[Number(m[2]) - 1] ?? ''}`.trim();
+}
 
 /**
  * The one client root: holds the shared state hook and renders <PlanDesktop> ≥1080px,
@@ -24,7 +33,11 @@ export function PlanRoot(props: PlanDataInit) {
     return () => mq.removeEventListener('change', sync);
   }, []);
 
-  const viewedMonthLabel = data.cycles.find((c) => c.cycleId === data.viewedCycleId)?.monthLabel ?? 'this month';
+  const viewedCycle = data.cycles.find((c) => c.cycleId === data.viewedCycleId);
+  const viewedMonthLabel = viewedCycle?.monthLabel ?? 'this month';
+  // The cutoff for the VIEWED cycle: its run month is prevMonth(displayMonth), the cutoff fires on
+  // the client's cutoffDay of that month. null when the client has no cutoffDay (neutral copy).
+  const cutoffLabel = props.cutoffDay && viewedCycle ? cutoffLabelFor(prevMonth(viewedCycle.displayMonth), props.cutoffDay) : null;
 
   return (
     <>
@@ -37,6 +50,7 @@ export function PlanRoot(props: PlanDataInit) {
           monthLabel={viewedMonthLabel}
           intake={data.intake}
           durable={data.durable}
+          cutoffLabel={cutoffLabel}
           onSubmit={data.submitIntake}
           onClose={data.closeIntake}
         />

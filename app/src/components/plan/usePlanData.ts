@@ -33,6 +33,9 @@ export interface PlanDataInit {
   // durable items (read-only "remembered" list).
   intake: PlanIntake;
   durable: DurableItemView[];
+  // Auto-run cutoff day-of-month (client schedule), or null when unconfigured — drives the
+  // "Save brief" confirmation copy (a real date vs the neutral message).
+  cutoffDay?: number | null;
   // Landing overrides (empty-home-cycle guard): the cycle initially rendered and
   // whether it's read-only. Default to the home cycle / editable when unset.
   initialViewedCycleId?: string | undefined;

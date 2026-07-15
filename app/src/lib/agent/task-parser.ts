@@ -19,7 +19,7 @@ const ACTIONS: readonly TaskActionType[] = [
 export interface ParserContext {
   today: string;                    // 'YYYY-MM-DD'
   cycleMonths: string;             // formatted list of the client's cycle months
-  weekDigest: string;              // formatted digest of this week's posts (with ids)
+  planDigest: string;              // formatted digest of the whole cycle's posts, by date (with ids)
   productIndex: string;            // formatted index of the client's products (name/style/colourways)
 }
 
@@ -61,7 +61,7 @@ Resolving product references:
 - The CATALOGUE lists this client's products (name, style, colourways). Resolve a named product ("the maebelle", "the Anna vest", "the linen dress") against it. A product that matches the catalogue is FULLY SPECIFIED — emit the add_post with the product as its instruction and let the client refine the angle at approval. NEVER ask what a named product IS, or what a post about it should focus on. A product not in the catalogue is still a valid topic — propose it anyway; do not clarify just because it's unfamiliar.
 
 Resolving post references:
-- The WEEK DIGEST lists this week's posts with their ids. If a reference ("the Thursday reel", "post 3", "the linen one") matches EXACTLY ONE digest post, set "postId" to that id and omit "selector".
+- The PLAN DIGEST lists THIS CYCLE's posts (the whole plan month, by date) with their ids. If a reference ("the post from the 1st August", "the Thursday reel", "post 3", "the linen one") matches EXACTLY ONE digest post, set "postId" to that id and omit "selector". Never say a post doesn't exist without checking the whole digest — it covers the full month, not just this week.
 - If it matches NONE or MORE THAN ONE digest post, leave "postId" null and put the raw reference in "selector" (it may resolve against the full plan later; if not it becomes a clarify).
 - If a post reference is genuinely ambiguous and you cannot pick one, emit a "clarify" task for it — never guess which post.
 
@@ -125,8 +125,8 @@ function buildUserMessage(text: string, ctx: ParserContext): string {
 The client's content-plan months:
 ${ctx.cycleMonths}
 
-WEEK DIGEST (this week's posts):
-${ctx.weekDigest}
+PLAN DIGEST (this cycle's posts, by date):
+${ctx.planDigest}
 
 CATALOGUE (this client's products):
 ${ctx.productIndex}

@@ -67,15 +67,17 @@ export default async function Page({ searchParams }: { searchParams: { intake?: 
     .orderBy(desc(planInputs.createdAt));
   const durable = durableRows.map((r) => ({ id: r.id, type: r.type, content: r.content, createdAt: r.createdAt.toISOString() }));
 
-  // Intake question source = BASE + this channel's extra_questions (server-assembled).
+  // Intake question source = BASE + this channel's extra_questions (server-assembled). Also read
+  // the channel's auto-run cutoff day (day-of-month the plan generates) for the "Save brief" copy.
   const [chan] = home
-    ? await db.select({ extra: clientChannels.extraQuestions })
+    ? await db.select({ extra: clientChannels.extraQuestions, schedule: clientChannels.contentCycleSchedule })
         .from(clientChannels)
         .where(and(eq(clientChannels.clientId, session.clientId), eq(clientChannels.channel, home.channel)))
         .limit(1)
     : [];
   const extraQuestions = Array.isArray(chan?.extra) ? (chan!.extra as unknown[]).filter((q): q is string => typeof q === 'string') : [];
   const questions = [...BASE_QUESTIONS, ...extraQuestions];
+  const cutoffDay = chan?.schedule?.cutoffDay ?? null;   // null → neutral confirmation (no invented date)
 
   // Render fork behind the per-tenant plan_redesign flag (default off). Flag-off tenants
   // get the existing PlanApp untouched; flag-on tenants get the redesign shell.
@@ -100,6 +102,7 @@ export default async function Page({ searchParams }: { searchParams: { intake?: 
         questions={questions}
         intake={intake}
         durable={durable}
+        cutoffDay={cutoffDay}
       />
     );
   }

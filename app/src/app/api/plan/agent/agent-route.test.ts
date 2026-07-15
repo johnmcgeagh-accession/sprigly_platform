@@ -28,7 +28,7 @@ vi.mock('@/lib/agent/model', () => ({ getModelClient: () => ({}), getEmbeddingCl
 vi.mock('@/lib/agent/task-parser', () => ({ parseTasks: async () => h.tasks }));
 vi.mock('@/lib/agent/catalogue', () => ({ loadProductIndex: async () => ({}) }));
 vi.mock('@/lib/agent/cycle-state', () => ({
-  getClientCycleMonths: async () => 'months', weekDigest: () => 'digest', resolveCycleForMonth: async () => 'cycle-x',
+  getClientCycleMonths: async () => 'months', cycleDigest: () => 'digest', resolveCycleForMonth: async () => 'cycle-x',
   getCycleMonth: async () => '2026-09',   // the seed post is 2026-09-03; same-month moves proceed
 }));
 vi.mock('@/lib/agent/conversation', () => ({
@@ -88,6 +88,22 @@ describe('single mutating task', () => {
     expect(h.createCalls[0]!.payload).toMatchObject({ kind: 'move', cycleId: 'cycle-1', postId: 'post-3', toDate: '2026-09-05' });
     // The route only proposes — no note, no apply side effects here.
     expect(h.saveNote).not.toHaveBeenCalled();
+  });
+});
+
+describe('move between two in-month dates (agent scoping fix)', () => {
+  it('a post on the source date → a move PROPOSAL, never a not-found — even off the current week', async () => {
+    // The source post (2026-09-03) is not in "this week"; with the full-cycle digest the parser
+    // resolves it, and the turn proposes the move to another in-month date rather than replying
+    // that there are no posts.
+    h.tasks = [{ action: 'move_post', postId: 'post-3', toDate: '2026-09-22', reason: 'move the post from the 3rd to the 22nd' }];
+    const res = await post({ instruction: 'move the post from the 3rd of september to the 22nd' });
+    const body = await res.json();
+    expect(body.proposals).toHaveLength(1);
+    expect(h.createCalls[0]!.action).toBe('move_post');
+    expect(h.createCalls[0]!.payload).toMatchObject({ kind: 'move', postId: 'post-3', toDate: '2026-09-22' });
+    expect(body.message.toLowerCase()).not.toContain('no posts');   // never a not-found
+    expect(body.message.toLowerCase()).not.toContain('this week');   // never week-scoped language
   });
 });
 
