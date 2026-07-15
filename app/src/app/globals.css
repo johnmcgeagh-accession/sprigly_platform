@@ -7,7 +7,7 @@ body { background: #FFFFFF; color: #23272F; font-family: 'Plus Jakarta Sans', sy
 .sprigRow:hover .sprigCard { background: #FFFFFF; }
 .chip-cal:hover { filter: brightness(0.98); }
 input::placeholder { color: #98A0AE; }
-button:focus-visible, input:focus-visible { outline: 2px solid #E8705F; outline-offset: 2px; }
+button:focus-visible, input:focus-visible { outline: 2px solid rgb(var(--t-accent-600, 232 112 95)); outline-offset: 2px; }
 .toast { animation: rise .26s ease; }
 .sheet { animation: slideUp .28s cubic-bezier(.22,.61,.36,1); }
 @keyframes rise { from { opacity:0; transform: translate(-50%,8px);} to { opacity:1; transform: translate(-50%,0);} }
@@ -35,7 +35,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid #E8705F; outline-
   :where(.plan-redesign) { color-scheme: only light; font-family: var(--font-inter), system-ui, sans-serif; }
   :where(.plan-redesign) *, :where(.plan-redesign) *::before, :where(.plan-redesign) *::after {
     box-sizing: border-box;
-    border-width: 0; border-style: solid; border-color: #8F9296;
+    border-width: 0; border-style: solid; border-color: rgb(var(--t-line, 143 146 150));
   }
   :where(.plan-redesign) :is(h1, h2, h3, h4, p) { margin: 0; }
   :where(.plan-redesign) button {
@@ -44,7 +44,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid #E8705F; outline-
     cursor: pointer; -webkit-tap-highlight-color: transparent;
   }
   :where(.plan-redesign) :is(textarea, input) { font: inherit; }
-  .plan-redesign :focus-visible { outline: 2px solid #E8705F; outline-offset: 2px; }
+  .plan-redesign :focus-visible { outline: 2px solid rgb(var(--t-accent-600, 232 112 95)); outline-offset: 2px; }
 }
 
 /* Fraunces display italic swash — matches the marketing site's hero/section <em> emphasis
@@ -55,9 +55,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid #E8705F; outline-
 @keyframes pr-item-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .pr-item-in { animation: pr-item-in .28s cubic-bezier(.22,.61,.36,1) both; }
 
-@keyframes pr-railflash { 0%,100%{ background: transparent } 50%{ background: #FADDD6 } }
+@keyframes pr-railflash { 0%,100%{ background: transparent } 50%{ background: rgb(var(--t-accent-100, 250 221 214)) } }
 .pr-flash { animation: pr-railflash .9s ease-in-out 3; }
-@keyframes pr-micpulse { 0%,100%{ box-shadow: 0 0 0 0 rgba(232,112,95,.45) } 50%{ box-shadow: 0 0 0 9px rgba(232,112,95,0) } }
+@keyframes pr-micpulse { 0%,100%{ box-shadow: 0 0 0 0 rgb(var(--t-accent-600, 232 112 95) / .45) } 50%{ box-shadow: 0 0 0 9px rgb(var(--t-accent-600, 232 112 95) / 0) } }
 .pr-pulse { animation: pr-micpulse 1.6s ease-in-out infinite; }
 
 /* Reduced motion: instant swaps — kill sheet/drawer transitions, the ring animation,

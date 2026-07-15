@@ -103,7 +103,7 @@ export function PlanDesktop({ data }: { data: PlanData }) {
 
           {/* pb clears the fixed FAB (bottom-[34px] + 60px tall) so the last calendar row
               never sits under it, even at 900px-height viewports. */}
-          <div className="min-h-0 flex-1 overflow-y-auto px-[34px] pb-28 pt-2" data-testid="plan-body">
+          <div className="min-h-0 flex-1 overflow-y-auto px-[34px] pb-32 pt-2" data-testid="plan-body">
             {view === 'calendar' && <CalendarView data={data} year={year} month={month} selId={selId} onSelect={select} />}
             {view === 'timeline' && <TimelineView data={data} selId={selId} onSelect={select} />}
             {view === 'tasks' && <TasksView data={data} onSelect={select} />}
@@ -214,8 +214,8 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
 
   return (
     <>
-      <div className="sticky top-0 z-[3] grid grid-cols-7 gap-3 bg-bg px-1 pb-3 pt-1.5">
-        {DOW.map((d) => <span key={d} className="pl-0.5 text-[11px] font-extrabold uppercase tracking-[.1em] text-muted">{d}</span>)}
+      <div className="sticky top-0 z-[3] grid grid-cols-7 gap-3 border-b border-line/40 bg-bg px-1 pb-3 pt-1.5">
+        {DOW.map((d) => <span key={d} className="pl-0.5 text-[11px] font-extrabold uppercase tracking-[.18em] text-muted">{d}</span>)}
       </div>
       <div className="grid grid-cols-7 gap-3" data-testid="calendar-grid">
         {lead > 0 && (
@@ -234,8 +234,8 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
               onDragLeave={() => setOver((o) => (o === day ? null : o))}
               onDrop={(e) => { e.preventDefault(); if (dragId && data.canEdit(isoOf(day))) data.reschedule(dragId, isoOf(day)); setOver(null); setDragId(null); }}
               className={[
-                'flex min-h-[148px] flex-col gap-[7px] rounded-2xl border p-[11px] transition',
-                isToday ? 'border-coral shadow-[0_0_0_3px_#FADDD6]' : over === day ? 'border-coral bg-coral-100 shadow-[0_0_0_3px_#FADDD6]' : 'border-line bg-surface',
+                'group flex min-h-[148px] flex-col gap-[7px] rounded-2xl border p-[11px] transition',
+                isToday ? 'border-coral ring-[3px] ring-coral-100' : over === day ? 'border-coral bg-coral-100 ring-[3px] ring-coral-100' : 'border-line bg-surface',
               ].join(' ')}>
               <div className="flex items-start justify-between gap-1">
                 <span className={`px-[3px] py-px text-[13px] font-extrabold ${isToday ? 'text-slate-700' : wknd ? 'text-muted' : 'text-slate-600'}`}>{day}</span>
@@ -253,7 +253,7 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
               </div>
               {data.canEdit(isoOf(day)) && dayPosts.length === 0 && (
                 <button data-testid="add-on-day" onClick={() => data.addPost(isoOf(day))} aria-label={`Add a post on ${isoOf(day)}`}
-                  className="mt-auto rounded-[9px] border-[1.5px] border-dashed border-line py-0.5 text-center text-[15px] font-bold text-muted hover:border-coral-600 hover:bg-coral-100 hover:text-coral">＋</button>
+                  className="mt-auto rounded-[9px] border-[1.5px] border-dashed border-line py-0.5 text-center text-[15px] font-bold text-muted opacity-0 transition-opacity duration-200 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 hover:border-coral-600 hover:bg-coral-100 hover:text-coral">＋</button>
               )}
             </div>
           );
