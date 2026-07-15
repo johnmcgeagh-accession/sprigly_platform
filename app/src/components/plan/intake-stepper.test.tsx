@@ -28,36 +28,40 @@ describe('buildIntakePayload', () => {
   });
 });
 
-describe('IntakeCapture — freeform primary flow (Prompt 2)', () => {
+describe('IntakeCapture — planning workspace (Phase 1)', () => {
   const base = {
     questions: QS, prePlanning: true, busy: false, monthLabel: 'August 2026',
     durable: [{ id: 'd1', type: 'idea', content: 'lean into provenance', createdAt: '2026-07-01T00:00:00Z' }],
     onSubmit: vi.fn(), onClose: vi.fn(),
   };
 
-  it('opens on ONE freeform box, with the base questions surfaced as hints (not fields), plus a separate durable box', () => {
+  it('opens on the two-column workspace: one conversational input + live preview panel + mic, hints behind (?)', () => {
     const html = renderToStaticMarkup(<IntakeCapture {...base} intake={{ answers: {}, freeNotes: '' }} />);
-    expect(html).toContain('data-testid="intake-freeform"');   // the single large box
-    expect(html).toContain('data-testid="intake-hints"');      // questions as hint lines
-    expect(html).toContain('Any key dates?');                  // a base question surfaces as a hint
-    expect(html).toContain('data-testid="intake-durable"');    // durable stays a distinct box
-    expect(html).toContain('data-testid="intake-guided-link"');// guided mode is reachable, secondary
-    expect(html).not.toContain('Step 1 of');                   // NOT the stepper by default
+    expect(html).toContain('Let’s plan August 2026 together');   // display-serif title
+    expect(html).toContain('data-testid="intake-input"');        // ONE conversational input
+    expect(html).toContain('data-testid="intake-preview"');      // live preview panel (right column)
+    expect(html).toContain('data-testid="intake-mic"');          // mic affordance
+    expect(html).toContain('data-testid="intake-hints-toggle"'); // (?) — hints are behind it
+    expect(html).toContain('Create Content Calendar');           // Send renamed
+    expect(html).not.toContain('data-testid="intake-hints"');    // hints popover closed by default
+    expect(html).not.toContain('Step 1 of');                     // NOT the stepper
   });
 
-  it('pre-fills the running brief (FIX 1 / item 5): the accumulated freeNotes show as "brief so far"', () => {
-    const html = renderToStaticMarkup(
-      <IntakeCapture {...base} intake={{ answers: {}, freeNotes: 'Launching Wren on the 25th.' }} />,
-    );
-    expect(html).toContain('data-testid="intake-sofar"');
-    expect(html).toContain('Launching Wren on the 25th.');
-    expect(html).toContain('Add anything new');                // the input invites adding, not re-typing
+  it('the durable input is present and renamed to the future-campaign framing', () => {
+    const html = renderToStaticMarkup(<IntakeCapture {...base} intake={{ answers: {}, freeNotes: '' }} />);
+    expect(html).toContain('data-testid="intake-durable"');
+    expect(html).toContain('Not this month?');
+    expect(html).toContain('worth remembering for a future campaign');
+  });
+
+  it('on return, the workspace notes it is continuing the month brief', () => {
+    const html = renderToStaticMarkup(<IntakeCapture {...base} intake={{ answers: {}, freeNotes: 'Launching on the 25th.' }} />);
+    expect(html).toContain('Continuing your August 2026 brief');
   });
 
   it('shows the post-cutoff framing when the cycle has generated', () => {
-    const html = renderToStaticMarkup(
-      <IntakeCapture {...base} prePlanning={false} intake={{ answers: {}, freeNotes: '' }} />,
-    );
+    const html = renderToStaticMarkup(<IntakeCapture {...base} prePlanning={false} intake={{ answers: {}, freeNotes: '' }} />);
     expect(html).toContain('This month has generated');
+    expect(html).toContain('Send to Sprigly');   // post-cutoff button label
   });
 });

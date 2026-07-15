@@ -54,7 +54,7 @@ export interface PlanIntake { answers: Record<string, string>; freeNotes: string
 /** A compact, human-readable summary of what the extractor took from a freeform brief —
  *  shown in the post-send "here's what we took" feedback moment (Prompt 2). */
 export interface ExtractedSummary {
-  launches: string[];                               // "Wren in sage (new)" / "Connie — restock"
+  launches: string[];                               // e.g. "<product> in <colourway> — new" / "<product> — restock"
   dates:    { when: string; label: string }[];      // "25 Aug" | "25–31 Aug" → beat label
   asks:     string[];                               // undated content asks
 }

@@ -1,5 +1,9 @@
 import type { Config } from 'tailwindcss';
 
+/** A themed colour token: reads a CSS var (injected from the active theme, RGB channels) with a
+ *  "Sprigly Coral" fallback, in `<alpha-value>` form so Tailwind opacity modifiers keep working. */
+const t = (cssVar: string, fallbackRgb: string): string => `rgb(var(${cssVar}, ${fallbackRgb}) / <alpha-value>)`;
+
 /**
  * Tailwind for the plan-surface redesign (Stage 2). Tokens are the mockups' :root
  * block (design/reference/*.html). Preflight is DISABLED so adding Tailwind does not
@@ -16,59 +20,41 @@ const config: Config = {
   corePlugins: { preflight: false },
   theme: {
     extend: {
+      // PLATFORM THEMING: every design token resolves to a CSS variable injected at the layout
+      // root from the ACTIVE theme (admin-managed, global). RGB-channel form + <alpha-value> so
+      // Tailwind opacity modifiers (`bg-line/40`, `text-coral-800/85`) keep working. Each var has
+      // a fallback = the "Sprigly Coral" value, so with NO injection the app renders byte-identical
+      // to the closed system. Switching the active theme in admin repaints on next load — no rebuild.
       colors: {
-        // ── ONE-ACCENT SYSTEM (design pass, supersedes the dual-coral + amber tokens) ────
-        // Sprigly coral is the ONLY saturated hue; everything else is neutral ink / white /
-        // border. Surfaces are crisp WHITE (the warm cream page bg is gone). Contrasts are
-        // stated per token below; see the design-pass report for the full maths.
+        bg:      t('--t-canvas', '242 243 245'),    // page canvas
+        surface: t('--t-surface', '255 255 255'),   // cards, modals, steppers
 
-        // Surfaces — a cool near-white CANVAS behind the grid/content; WHITE cards sit on it
-        // (depth pass: all-white read flat). Canvas is in the border grey's cool family
-        // (#8F9296 → tinted up to #F2F3F5), never the old warm cream. Modals/steppers keep
-        // `surface` white over the canvas.
-        bg: '#F2F3F5',       // page canvas (cool near-white; white cards lift off it, ~1.10:1 + border + shadow)
-        surface: '#FFFFFF',  // cards, modals, steppers
+        // Accent scale (was the coral ramp).
+        'coral-600': t('--t-accent-600', '232 112 95'),
+        'coral-700': t('--t-accent-700', '196 82 63'),
+        'coral-800': t('--t-accent-800', '138 51 35'),
+        'coral-100': t('--t-accent-100', '250 221 214'),
+        // Legacy aliases → the accent scale.
+        coral:            t('--t-accent-600', '232 112 95'),
+        'coral-strong':   t('--t-accent-600', '232 112 95'),
+        'coral-tint':     t('--t-accent-100', '250 221 214'),
+        'coral-cta':      t('--t-accent-700', '196 82 63'),
+        'coral-heading':  t('--t-accent-600', '232 112 95'),
+        'coral-on-tint':  t('--t-accent-800', '138 51 35'),
+        'amber-deep':     t('--t-accent-800', '138 51 35'),
+        'amber-tint':     t('--t-accent-100', '250 221 214'),
 
-        // The coral scale (Option A). One ramp; consumers use these directly and every legacy
-        // coral/amber alias below RE-POINTS onto it (token-level consolidation, no per-
-        // component colour freelancing).
-        'coral-600': '#E8705F',   // primary actions, brand marks, active nav, focus rings
-        'coral-700': '#C4523F',   // filled buttons w/ white text (4.54:1 AA), hover-ink, strong borders, small coral text on white (4.54:1)
-        'coral-800': '#8A3323',   // ink on coral-100 fills (6.35:1 AA)
-        'coral-100': '#FADDD6',   // tints: beat fills, badges, selected states, hovers
+        // Dark-chrome (brand slate).
+        chrome:        t('--t-chrome', '51 65 85'),
+        'chrome-deep': t('--t-chrome-deep', '30 41 59'),
+        'chrome-soft': t('--t-chrome-soft', '184 191 201'),
 
-        // Legacy aliases → the scale (so existing `coral`/`coral-tint`/… classes resolve to
-        // one ramp). White text is AA only on coral-700; coral-600 carries white for LARGE
-        // text (≥18.66px bold / ≥24px) only — see coral-cta / coral-heading.
-        coral:            '#E8705F',   // → coral-600 (brand hue, icons, borders, dots, focus)
-        'coral-strong':   '#E8705F',   // → coral-600 (the old second bright coral is gone)
-        'coral-tint':     '#FADDD6',   // → coral-100
-        'coral-cta':      '#C4523F',   // → coral-700 (filled buttons w/ white text, 4.54:1)
-        'coral-heading':  '#E8705F',   // → coral-600 (large display text ≥24px, 3.04:1 ≥3:1)
-        'coral-on-tint':  '#8A3323',   // → coral-800 (small text on coral-100, 6.35:1)
-
-        // Warm ambers RE-POINTED onto coral — no amber in a one-accent system.
-        'amber-deep': '#8A3323',   // → coral-800
-        'amber-tint': '#FADDD6',   // → coral-100
-
-        // DARK-CHROME zone = the BRAND slate (slate correction). Sampled from the landing
-        // page's "Why Sprigly" section: bg-[#334155] (= Tailwind slate-700, the exact hex the
-        // app's body text already uses). Named `chrome*` — NOT bare `slate`, which would clobber
-        // Tailwind's built-in slate scale that 91 body-text usages depend on.
-        chrome:        '#334155',  // the slate zone — rail bg + "Talk to your plan" pill (kin)
-        'chrome-deep': '#1E293B',  // active pill / hover / dividers (= Tailwind slate-800)
-        'chrome-soft': '#B8BFC9',  // secondary text/icons on slate (5.59:1 on chrome — clears AA comfortably)
-        // Primary TEXT ink stays slate-700 #334155 (the brand slate itself) — see report; the
-        // old #23272F was only the invented chrome bg and is gone. Text and chrome are now the
-        // same brand slate, so no side-by-side mismatch is possible.
-        muted:       '#5C6470',    // secondary text on WHITE (5.98:1) — unchanged
-        line:        '#8F9296',    // border token: ONE grey, 3.13:1 on white (was invisible #ECEAE6)
-        border:      '#8F9296',    // explicit alias of the border token
-        'line-soft': '#F4F5F6',    // the ONE near-white inset/well neutral (used as a FILL, not a border)
-
-        // Functional status signal — RETAINED (see report): a true error/overdue red, kept
-        // distinct from the coral accent so failures never read as brand. Not decorative.
-        danger: '#B23A2E',
+        // Neutrals.
+        muted:       t('--t-muted', '92 100 112'),
+        line:        t('--t-line', '143 146 150'),
+        border:      t('--t-line', '143 146 150'),
+        'line-soft': t('--t-line-soft', '244 245 246'),
+        danger:      t('--t-danger', '178 58 46'),
       },
       // Brand type system (matched to sprigly.co.uk): Fraunces display serif + Inter body/UI
       // sans + Plus Jakarta Sans 800 for the logo wordmark only.

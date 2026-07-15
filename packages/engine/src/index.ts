@@ -82,3 +82,11 @@ export {
   isEmptyBrief, extractStructuredBrief, distributeBriefAnswers,
 } from './brief-extract.js';
 export type { BriefExtractParams, DistributeAnswersParams } from './brief-extract.js';
+
+// Live planning-workspace preview (Phase 1) — cheap Haiku mirror of the in-progress brief.
+export { previewBrief, EMPTY_PREVIEW, PREVIEW_MIN_CHARS } from './brief-preview.js';
+export type { BriefPreview, PreviewItem, PreviewDate, PreviewDurable, PreviewBriefParams } from './brief-preview.js';
+
+// Platform theming (admin-managed, global) — contrast maths + the activation gate.
+export { luminance, contrastRatio, computeThemeContrast, themeActivatable, THEME_TOKEN_KEYS } from './contrast.js';
+export type { ThemeTokens, ThemeContrast, ContrastRow } from './contrast.js';

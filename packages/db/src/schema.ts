@@ -203,6 +203,33 @@ export type EmailTemplate    = typeof emailTemplates.$inferSelect;
 export type NewEmailTemplate = typeof emailTemplates.$inferInsert;
 export type EmailTemplateKey = 'ask' | 'nudge' | 'last_call' | 'plan_ready';
 
+// ─── themes ───────────────────────────────────────────────────────────────────
+// Platform-wide design themes (admin-managed, GLOBAL — deliberately NO client_id column, so
+// per-client theming is structurally impossible). Versioned like email_templates (an edit is a
+// new (name, version) row); exactly ONE row is active platform-wide, enforced by a PARTIAL unique
+// index on is_active WHERE is_active = true. `tokens` holds the ~15 design tokens; `contrast` holds
+// the computed WCAG table + gate verdict stored at save/activate time.
+export const themes = pgTable(
+  'themes',
+  {
+    id:        uuid('id').primaryKey().defaultRandom(),
+    name:      text('name').notNull(),
+    version:   integer('version').notNull().default(1),
+    tokens:    jsonb('tokens').$type<Record<string, string>>().notNull(),
+    contrast:  jsonb('contrast').$type<Record<string, unknown>>().notNull().default({}),
+    isActive:  boolean('is_active').notNull().default(false),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    nameVersionUniq: uniqueIndex('themes_name_version').on(t.name, t.version),
+    // Exactly one active theme platform-wide.
+    oneActive: uniqueIndex('themes_one_active').on(t.isActive).where(sql`${t.isActive} = true`),
+  }),
+);
+
+export type Theme    = typeof themes.$inferSelect;
+export type NewTheme = typeof themes.$inferInsert;
+
 // ─── incoming_events ──────────────────────────────────────────────────────────
 
 export type EventStatus =
