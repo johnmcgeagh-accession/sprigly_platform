@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PlanPost, PlanBeat, PlanIntake, DurableItemView, CycleSummary, PostStepView, ShapeResult } from '@/lib/types';
+import type { PlanPost, PlanBeat, PlanIntake, DurableItemView, CycleSummary, PostStepView, ShapeResult, ExtractedSummary, IntakeResult } from '@/lib/types';
 import type { ProposalView } from '@/lib/agent/types';
 import type { NoteView } from '@/lib/agent/notes';
 import { indexForecast, type WeatherDay, type WeatherWireDay } from '@/lib/weather';
@@ -452,32 +452,34 @@ export function usePlanData(init: PlanDataInit) {
   );
   const openIntake  = useCallback(() => setIntakeOpen(true), []);
   const closeIntake = useCallback(() => setIntakeOpen(false), []);
-  /** Submit the intake form to POST /api/plan/intake for the VIEWED cycle. The route
-   *  classifies pre/post-cutoff; we reflect the outcome and refresh the affected surface. */
+  /** Submit the intake to POST /api/plan/intake for the VIEWED cycle. The route classifies
+   *  pre/post-cutoff; we refresh the affected surface and RETURN the outcome (incl. the extracted
+   *  summary) so the capture surface can show the "here's what we took" feedback moment. The
+   *  question list rides along so the route can distribute the freeform brief into answer slots.
+   *  Does NOT close the surface — the caller decides (freeform → feedback; guided → feedback). */
   const submitIntake = useCallback(async (payload: {
     answers: Record<string, string>;
     freeNotes: string;
     durableItems: { type: 'idea' | 'next_cycle'; text: string }[];
     source?: 'web' | 'voice';
     sessionId?: string;
-  }): Promise<boolean> => {
-    if (intakeBusy) return false;
+  }): Promise<IntakeResult> => {
+    if (intakeBusy) return { ok: false };
     setIntakeBusy(true);
     try {
       const res = await fetch('/api/plan/intake', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ cycleId: viewedCycleId, source: 'web', ...payload }),
+        body: JSON.stringify({ cycleId: viewedCycleId, source: 'web', questions: init.questions, ...payload }),
       });
-      if (!res.ok) { flash('Couldn’t save that just now. Please try again.'); return false; }
-      const d = (await res.json()) as { mode?: string };
+      if (!res.ok) { flash('Couldn’t save that just now. Please try again.'); return { ok: false }; }
+      const d = (await res.json()) as { mode?: string; extracted?: ExtractedSummary; beatsReady?: boolean };
       if (d.mode === 'proposed') { flash('This month has generated — added to your plan for approval.'); void refreshProposals(); }
-      else if (d.mode === 'brief_updated') { flash('Thanks — saved for this month’s plan.'); await refreshPlan(); }
+      else if (d.mode === 'brief_updated') { await refreshPlan(); }
       else { flash('Thanks — noted for the future.'); }
-      setIntakeOpen(false);
-      return true;
-    } catch { flash('Network error. Please try again.'); return false; }
+      return { ok: true, mode: d.mode, extracted: d.extracted, beatsReady: d.beatsReady };
+    } catch { flash('Network error. Please try again.'); return { ok: false }; }
     finally { setIntakeBusy(false); }
-  }, [intakeBusy, viewedCycleId, flash, refreshProposals, refreshPlan]);
+  }, [intakeBusy, viewedCycleId, init.questions, flash, refreshProposals, refreshPlan]);
 
   return {
     // data

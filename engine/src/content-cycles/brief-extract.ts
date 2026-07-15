@@ -10,5 +10,6 @@ export {
   validateStructuredBrief,
   isEmptyBrief,
   extractStructuredBrief,
+  distributeBriefAnswers,
 } from '@sprigly/engine';
-export type { BriefExtractParams } from '@sprigly/engine';
+export type { BriefExtractParams, DistributeAnswersParams } from '@sprigly/engine';

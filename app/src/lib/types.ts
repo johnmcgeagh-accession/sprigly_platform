@@ -50,6 +50,22 @@ export interface PlanBeat {
 
 /** The viewed cycle's saved intake, for the capture form to pre-fill (FIX 1). */
 export interface PlanIntake { answers: Record<string, string>; freeNotes: string }
+
+/** A compact, human-readable summary of what the extractor took from a freeform brief —
+ *  shown in the post-send "here's what we took" feedback moment (Prompt 2). */
+export interface ExtractedSummary {
+  launches: string[];                               // "Wren in sage (new)" / "Connie — restock"
+  dates:    { when: string; label: string }[];      // "25 Aug" | "25–31 Aug" → beat label
+  asks:     string[];                               // undated content asks
+}
+
+/** The outcome of an intake submit — drives the post-send feedback moment (Prompt 2). */
+export interface IntakeResult {
+  ok:          boolean;
+  mode?:       string | undefined;               // 'brief_updated' | 'proposed' | 'noop'
+  extracted?:  ExtractedSummary | undefined;      // present pre-cutoff when a brief was extracted
+  beatsReady?: boolean | undefined;
+}
 /** A client's active durable plan_input (idea/next_cycle) — read-only "remembered" list. */
 export interface DurableItemView { id: string; type: string; content: string; createdAt: string }
 

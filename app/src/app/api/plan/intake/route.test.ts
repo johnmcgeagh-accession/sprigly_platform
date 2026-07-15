@@ -15,6 +15,8 @@ const h = vi.hoisted(() => ({
   turnCalls: [] as Array<Record<string, unknown>>,
   extractCalls: [] as unknown[],
   extractShouldFail: false,
+  distributeCalls: [] as Array<Record<string, unknown>>,
+  distributeReturn: {} as Record<string, string>,
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -32,7 +34,11 @@ vi.mock('@sprigly/db', () => ({
   clearStructuredBriefIfPrePlanning: (...a: unknown[]) => { h.clearCalls.push(a); return Promise.resolve('cleared'); },
   PRE_PLANNING_STATUSES: new Set(['scheduled', 'requested', 'reply_received', 'awaiting_confirmation', 'intake_confirmed']),
 }));
-vi.mock('@sprigly/engine', () => ({ extractStructuredBrief: (...a: unknown[]) => { h.extractCalls.push(a[0]); return h.extractShouldFail ? Promise.reject(new Error('extract failed')) : Promise.resolve({ products: [], schedule: [{ date: '2026-07-25', type: 'launch', product: null, colourway: null, note: 'launch on the 25th' }], content_asks: [], focus: [], conflicts: [], plan_window: { from: null, month: null } }); } }));
+vi.mock('@sprigly/engine', () => ({
+  BASE_QUESTIONS: ['Q1', 'Q2', 'Q3', 'Q4', 'Q5'],
+  extractStructuredBrief: (...a: unknown[]) => { h.extractCalls.push(a[0]); return h.extractShouldFail ? Promise.reject(new Error('extract failed')) : Promise.resolve({ products: [{ product: 'Wren', colourway: 'sage', status: 'new', launch_date: null, content_from: null }], schedule: [{ date: '2026-07-25', dateRange: null, type: 'launch', product: null, colourway: null, note: 'launch on the 25th' }], content_asks: [], focus: [], conflicts: [], plan_window: { from: null, month: null } }); },
+  distributeBriefAnswers: (a: Record<string, unknown>) => { h.distributeCalls.push(a); return Promise.resolve(h.distributeReturn); },
+}));
 vi.mock('@/lib/agent/model', () => ({ getModelClient: () => ({}) }));
 vi.mock('@/lib/cycle-nav', () => ({ nextMonth: (m: string) => m }));
 vi.mock('@/lib/auth', () => ({ getSession: async () => h.session }));
@@ -51,6 +57,7 @@ beforeEach(() => {
   h.cycleRow = [{ status: 'requested', intakeJson: null, cycleMonth: '2026-06' }];
   h.updateSets.length = 0; h.clearCalls.length = 0; h.durableCalls.length = 0; h.turnCalls.length = 0;
   h.extractCalls.length = 0; h.extractShouldFail = false;
+  h.distributeCalls.length = 0; h.distributeReturn = {};
 });
 
 describe('POST /api/plan/intake — classifier', () => {
@@ -93,6 +100,33 @@ describe('POST /api/plan/intake — classifier', () => {
     expect(body.beatsReady).toBe(false);
     expect(h.updateSets.some((u) => 'intakeJson' in u)).toBe(true);        // intake WAS saved
     expect(h.updateSets.some((u) => 'structuredBrief' in u)).toBe(false);  // brief NOT persisted
+  });
+
+  it('FREEFORM (Prompt 2): distributes the brief into EMPTY answer slots + returns an extracted summary', async () => {
+    h.distributeReturn = { 'Any key dates next month?': 'Launching Wren on the 25th', q1: 'kept' };
+    h.cycleRow = [{ status: 'requested', cycleMonth: '2026-06', intakeJson: { planContent: { answers: { q1: 'kept' }, freeNotes: '' }, businessContext: [], otherChannel: {}, source: 'manual', capturedAt: 'x' } }];
+    const res = await call({ cycleId: CYCLE, answers: {}, freeNotes: 'Launching Wren on the 25th, and a warehouse sale.', questions: ['Any key dates next month?'], source: 'web' });
+    const body = await res.json();
+    expect(body.mode).toBe('brief_updated');
+    // distribution ran on the merged free text, keyed by the client-sent questions
+    expect(h.distributeCalls).toHaveLength(1);
+    expect(h.distributeCalls[0]!.questions).toEqual(['Any key dates next month?']);
+    const set = h.updateSets[0]!.intakeJson as { planContent: { answers: Record<string, string> } };
+    expect(set.planContent.answers['Any key dates next month?']).toBe('Launching Wren on the 25th');  // empty slot filled
+    expect(set.planContent.answers.q1).toBe('kept');                                                   // existing answer never clobbered
+    // the feedback summary reflects the extracted brief (a launch product + a dated beat)
+    expect(body.extracted.launches).toContain('Wren in sage — new');
+    expect(body.extracted.dates).toEqual([{ when: '25 Jul', label: 'launch' }]);
+  });
+
+  it('FREEFORM: nothing-extractable text still saves the note (distribution {} ; free text is never lost)', async () => {
+    h.distributeReturn = {};
+    h.cycleRow = [{ status: 'requested', cycleMonth: '2026-06', intakeJson: null }];
+    const res = await call({ cycleId: CYCLE, answers: {}, freeNotes: 'just thinking out loud', source: 'web' });
+    const body = await res.json();
+    expect(body.mode).toBe('brief_updated');
+    const set = h.updateSets.find((u) => 'intakeJson' in u)!.intakeJson as { planContent: { freeNotes: string } };
+    expect(set.planContent.freeNotes).toBe('just thinking out loud');   // saved as freeNotes regardless
   });
 
   it('PRE-cutoff with only durable items: no intake write, no brief clear, durable persists', async () => {

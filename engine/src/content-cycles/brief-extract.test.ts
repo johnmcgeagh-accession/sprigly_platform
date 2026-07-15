@@ -4,7 +4,7 @@
  * extracts (no longer short-circuited to empty).
  */
 import { describe, it, expect, vi } from 'vitest';
-import { buildBriefExtractUserMessage, extractStructuredBrief, validateStructuredBrief, EMPTY_STRUCTURED_BRIEF } from './brief-extract.js';
+import { buildBriefExtractUserMessage, extractStructuredBrief, validateStructuredBrief, distributeBriefAnswers, EMPTY_STRUCTURED_BRIEF } from './brief-extract.js';
 import type { ModelClient } from '@sprigly/model-client';
 
 /** A structurally-valid brief with one supplied schedule beat — for gate tests. */
@@ -101,5 +101,37 @@ describe('validateStructuredBrief — schedule beats: single vs range (fail-loud
   it('REJECTS a range with a non-ISO endpoint', () => {
     expect(() => validateStructuredBrief(briefWithBeat({ date: null, dateRange: { start: '2026-08-25', end: 'soon' }, type: 't', product: null, colourway: null, note: 'n' })))
       .toThrow(/must be an ISO date/);
+  });
+});
+
+// Prompt 2 — the freeform brief is distributed back into the base-question answer slots.
+describe('distributeBriefAnswers', () => {
+  const QS = ['Any key dates next month?', 'Anything new to feature?', 'Any looks or themes?'];
+
+  function answerModel(json: string) {
+    const complete = vi.fn(async () => ({ content: json, inputTokens: 1, outputTokens: 1, modelId: 'm', stopReason: 'end_turn' }));
+    return { model: { complete } as unknown as ModelClient, complete };
+  }
+
+  it('keeps only exact-key questions the brief addresses (drops unknown keys + empties)', async () => {
+    const { model } = answerModel(JSON.stringify({
+      'Any key dates next month?': 'Launching Wren on the 25th',
+      'Anything new to feature?': '   ',                 // empty → dropped
+      'Some question we never asked': 'ignored',          // unknown key → dropped
+    }));
+    const out = await distributeBriefAnswers({ freeNotes: 'Launching Wren on the 25th.', questions: QS, model });
+    expect(out).toEqual({ 'Any key dates next month?': 'Launching Wren on the 25th' });
+  });
+
+  it('returns {} with NO model call for empty text or no questions', async () => {
+    const { model, complete } = answerModel('{}');
+    expect(await distributeBriefAnswers({ freeNotes: '   ', questions: QS, model })).toEqual({});
+    expect(await distributeBriefAnswers({ freeNotes: 'x', questions: [], model })).toEqual({});
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it('is non-fatal — a model/parse failure yields {} (free text is never lost upstream)', async () => {
+    const model = { complete: vi.fn(async () => { throw new Error('boom'); }) } as unknown as ModelClient;
+    expect(await distributeBriefAnswers({ freeNotes: 'anything', questions: QS, model })).toEqual({});
   });
 });
