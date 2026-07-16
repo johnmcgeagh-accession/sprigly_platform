@@ -18,7 +18,7 @@
 
 import { eq, and } from 'drizzle-orm';
 import { db as _db, clients, clientChannels, contentCycles, type EmailTemplateKey } from '@sprigly/db';
-import { BASE_QUESTIONS, deriveTouchSchedule, dueTouchForDay, type Touch, type MergeData } from '@sprigly/engine';
+import { questionsForChannel, deriveTouchSchedule, dueTouchForDay, type Touch, type MergeData } from '@sprigly/engine';
 import type { Queue } from 'bullmq';
 import type { Logger } from 'pino';
 import { IG_TRAWL_JOB_OPTIONS, igTrawlJobId, PLANNING_JOB_OPTIONS, planningJobId } from './job-options.js';
@@ -283,9 +283,12 @@ function planMonthLabel(cycleMonth: string): string {
 function formatCutoffDate(year: number, month: number, day: number): string {
   return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' });
 }
-/** Numbered base + extra questions for the Ask email. */
-function buildQuestionsBlock(extraQuestions: string[] | null): string {
-  return [...BASE_QUESTIONS, ...(extraQuestions ?? [])].map((q, i) => `${i + 1}. ${q}`).join('\n');
+/** Numbered base + extra questions for the Ask email — via the shared derivation, so it matches
+ *  the request email / card / panel exactly. NOTE: questionsForChannel string-filters the extras,
+ *  which the prior inline spread did not; verified output-identical for all current
+ *  client_channels.extra_questions rows (none hold a non-string). */
+function buildQuestionsBlock(extraQuestions: readonly unknown[] | null): string {
+  return questionsForChannel({ extraQuestions }).map((q, i) => `${i + 1}. ${q}`).join('\n');
 }
 
 /**

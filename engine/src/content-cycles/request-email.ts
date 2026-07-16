@@ -26,7 +26,7 @@ import type { AuditLogger } from '@sprigly/audit';
 import type { Logger } from 'pino';
 import { buildLeanLine, type PromptResolver } from '../lean-line.js';
 import { transitionCycle } from './machine.js';
-import { BASE_QUESTIONS } from '@sprigly/engine';
+import { BASE_QUESTIONS, questionsForChannel } from '@sprigly/engine';
 
 export { BASE_QUESTIONS };
 
@@ -164,9 +164,9 @@ export async function runRequestEmail(
   }
 
   const contactName    = channelRow.contactName ?? null;
-  const extraQuestions = Array.isArray(channelRow.extraQuestions)
-    ? (channelRow.extraQuestions as unknown[]).filter((q): q is string => typeof q === 'string')
-    : [];
+  // Shared derivation (base + this channel's extras, string-filtered) — same list the Ask email,
+  // card, and intake panel use. Byte-identical to the prior local combine (filter + order match).
+  const allQuestions   = questionsForChannel(channelRow);
 
   // ── 5. Lean line — uses dataMonth for data lookups ────────────────────────
   const leanLine = await buildLeanLine({
@@ -178,7 +178,6 @@ export async function runRequestEmail(
   const targetMonth = addOneMonth(dataMonth);
   const monthLabel  = buildMonthLabel(targetMonth);
   const greeting    = contactName ? `Hi ${contactName},` : 'Hi there,';
-  const allQuestions = [...BASE_QUESTIONS, ...extraQuestions];
   const body = buildBody({ greeting, leanLine, questions: allQuestions });
 
   // ── 7. Create Gmail draft — never send ───────────────────────────────────
