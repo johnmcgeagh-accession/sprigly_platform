@@ -11,7 +11,8 @@ import { workflowMeta, type WorkflowMeta } from '@sprigly/workflows';
 import { customisePrompt, approveQaDraft } from './actions';
 import { StepModelForm } from './StepModelForm';
 import { ContentCycleSettingsForm } from './ContentCycleSettingsForm';
-import { ContentCycleOpsPanel } from './ContentCycleOpsPanel';
+import { CycleConfig } from './CycleConfig';
+import { CycleInputs } from './CycleInputs';
 import { IntakePanel } from './IntakePanel';
 import { CycleCard } from './CycleCard';
 import { questionsForChannel, isAutoRunEnabled, AUTO_RUN_ENABLED_ENV, hasPlannableInput } from '@sprigly/engine';
@@ -431,8 +432,12 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                 )}
                 <CycleCard
                   clientId={params.id}
+                  clientName={client.name}
                   channel={ch.channel}
                   dataMonthForAction={cohortMonth}
+                  opsDataMonth={dataMonth}
+                  opsCycleStatus={cyclesByChannel.get(ch.channel)?.status ?? null}
+                  intakePresent={plannableByChannel.get(ch.channel) ?? false}
                   planMonthLabel={planMonthLabelOf(cohortMonth)}
                   dataMonthLabel={dataMonthLabelOf(cohortMonth)}
                   cycleMonth={cohortMonth}
@@ -459,101 +464,71 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
         </div>
       )}
 
+      {/* Settings — per-channel config, COLLAPSED by default. Contacts + schedule + extras + enable
+          live in ContentCycleSettingsForm; delivery/limits/posts-per-week/competitors in CycleConfig. */}
       <section className="bg-white rounded-lg border border-gray-200 px-6 py-5">
-        <h2 className="text-base font-semibold text-gray-900 mb-4">Config</h2>
-        {config ? (
-          <dl className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <dt className="text-gray-500">Author</dt>
-              <dd className="text-gray-900 mt-0.5">{config.authorName ?? '—'}</dd>
+        <details>
+          <summary className="cursor-pointer list-none flex items-center justify-between gap-4">
+            <span>
+              <span className="text-base font-semibold text-gray-900">Settings</span>
+              <span className="ml-2 text-xs text-gray-400">per-channel config — contacts, schedule, extra questions, enable, delivery, limits, competitors</span>
+            </span>
+            <span className="text-xs text-gray-400 shrink-0">▼</span>
+          </summary>
+          {channels.length === 0 ? (
+            <p className="mt-4 text-sm text-gray-400">No channel rows configured — add a client_channels record to enable.</p>
+          ) : (
+            <div className="mt-5 space-y-8">
+              {channels.map((ch) => (
+                <div key={ch.channel}>
+                  {channels.length > 1 && (
+                    <p className="text-xs font-mono text-gray-500 mb-3">{ch.channel}</p>
+                  )}
+                  <ContentCycleSettingsForm
+                    key={`${ch.channel}-${String(client.contentCycleEnabled)}`}
+                    clientId={params.id}
+                    clientName={client.name}
+                    channel={ch.channel}
+                    instagramHandle={ch.instagramHandle ?? null}
+                    contactEmail={ch.contactEmail ?? null}
+                    contactName={ch.contactName ?? null}
+                    contentCycleSchedule={ch.contentCycleSchedule ?? null}
+                    extraQuestions={ch.extraQuestions ?? null}
+                    contentCycleEnabled={client.contentCycleEnabled}
+                  />
+                  <CycleConfig
+                    clientId={params.id}
+                    channel={ch.channel}
+                    dataMonth={dataMonth}
+                    deliverySurface={(ch.deliverySurface as 'app' | 'sheet' | 'both') ?? 'both'}
+                    aiChangeLimit={ch.aiChangeLimit ?? 30}
+                    aiChangeLimitOverrideUntil={ch.aiChangeLimitOverrideUntil ? ch.aiChangeLimitOverrideUntil.toISOString() : null}
+                    postsPerWeek={ch.postsPerWeek ?? null}
+                    competitors={competitorsByChannel.get(ch.channel) ?? []}
+                  />
+                </div>
+              ))}
             </div>
-            <div>
-              <dt className="text-gray-500">Signature</dt>
-              <dd className="text-gray-900 mt-0.5">{config.signature ?? '—'}</dd>
-            </div>
-            <div className="col-span-2">
-              <dt className="text-gray-500">Brand voice</dt>
-              <dd className="text-gray-900 mt-0.5 whitespace-pre-wrap">{config.brandVoice ?? '—'}</dd>
-            </div>
-          </dl>
-        ) : (
-          <p className="text-sm text-gray-400">No config record.</p>
-        )}
+          )}
+        </details>
       </section>
 
-      {/* Content Cycle Settings */}
-      <section className="bg-white rounded-lg border border-gray-200 px-6 py-5">
-        <h2 className="text-base font-semibold text-gray-900 mb-1">Content Cycle Settings</h2>
-        <p className="text-xs text-gray-400 mb-4">
-          Per-channel config for the monthly content-request email pipeline.
-          Fields save automatically on blur.
-        </p>
-        {channels.length === 0 ? (
-          <p className="text-sm text-gray-400">No channel rows configured — add a client_channels record to enable.</p>
-        ) : (
+      {/* Inputs — manual sales / IG uploads (fallbacks for a month the automated fetch didn't cover) */}
+      {channels.length > 0 && (
+        <section className="bg-white rounded-lg border border-gray-200 px-6 py-5">
+          <h2 className="text-base font-semibold text-gray-900 mb-1">Inputs</h2>
+          <p className="text-xs text-gray-400 mb-4">
+            Manual input uploads for the plan. The card&apos;s Grounding row shows what the automated trawl found.
+          </p>
           <div className="space-y-8">
             {channels.map((ch) => (
               <div key={ch.channel}>
                 {channels.length > 1 && (
                   <p className="text-xs font-mono text-gray-500 mb-3">{ch.channel}</p>
                 )}
-                <ContentCycleSettingsForm
-                  key={`${ch.channel}-${String(client.contentCycleEnabled)}`}
-                  clientId={params.id}
-                  clientName={client.name}
-                  channel={ch.channel}
-                  instagramHandle={ch.instagramHandle ?? null}
-                  contactEmail={ch.contactEmail ?? null}
-                  contactName={ch.contactName ?? null}
-                  contentCycleSchedule={ch.contentCycleSchedule ?? null}
-                  extraQuestions={ch.extraQuestions ?? null}
-                  contentCycleEnabled={client.contentCycleEnabled}
-                />
+                <CycleInputs clientId={params.id} channel={ch.channel} dataMonth={dataMonth} />
               </div>
             ))}
-          </div>
-        )}
-      </section>
-
-      {/* Content Cycle Operations */}
-      {channels.length > 0 && (
-        <section className="bg-white rounded-lg border border-gray-200 px-6 py-5">
-          <h2 className="text-base font-semibold text-gray-900 mb-1">Content Cycle Operations</h2>
-          <p className="text-xs text-gray-400 mb-5">
-            Readiness checks, Drive folder view, and manual triggers for the monthly content-request email pipeline.
-          </p>
-          <div className="space-y-10">
-            {channels.map((ch) => {
-              const cycle = cyclesByChannel.get(ch.channel) ?? null;
-              // QUESTION B (hasPlannableInput) — precomputed above; now durable-aware, so a
-              // durable-only cycle enables "Run planning now" (matching what auto-run/the generator do).
-              const intakePresent = plannableByChannel.get(ch.channel) ?? false;
-              return (
-                <div key={ch.channel}>
-                  {channels.length > 1 && (
-                    <p className="text-xs font-mono text-gray-500 mb-4">{ch.channel}</p>
-                  )}
-                  <ContentCycleOpsPanel
-                    clientId={params.id}
-                    clientName={client.name}
-                    channel={ch.channel}
-                    dataMonth={dataMonth}
-                    instagramHandle={ch.instagramHandle ?? null}
-                    contactEmail={ch.contactEmail ?? null}
-                    contentCycleEnabled={client.contentCycleEnabled}
-                    cycle={cycle}
-                    deliverySurface={(ch.deliverySurface as 'app' | 'sheet' | 'both') ?? 'both'}
-                    aiChangeLimit={ch.aiChangeLimit ?? 30}
-                    aiChangeLimitOverrideUntil={ch.aiChangeLimitOverrideUntil ? ch.aiChangeLimitOverrideUntil.toISOString() : null}
-                    postsPerWeek={ch.postsPerWeek ?? null}
-                    competitors={competitorsByChannel.get(ch.channel) ?? []}
-                    igInputStatus={cycle?.igInputStatus ?? null}
-                    igInputDetail={cycle?.igInputDetail ?? null}
-                    intakePresent={intakePresent}
-                  />
-                </div>
-              );
-            })}
           </div>
         </section>
       )}
@@ -806,6 +781,29 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
           </table>
         ) : (
           <p className="text-sm text-gray-400">No events yet.</p>
+        )}
+      </section>
+
+      {/* Config — page-level client config (moved below the cycle-scoped sections in the reorg). */}
+      <section className="bg-white rounded-lg border border-gray-200 px-6 py-5">
+        <h2 className="text-base font-semibold text-gray-900 mb-4">Config</h2>
+        {config ? (
+          <dl className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <dt className="text-gray-500">Author</dt>
+              <dd className="text-gray-900 mt-0.5">{config.authorName ?? '—'}</dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">Signature</dt>
+              <dd className="text-gray-900 mt-0.5">{config.signature ?? '—'}</dd>
+            </div>
+            <div className="col-span-2">
+              <dt className="text-gray-500">Brand voice</dt>
+              <dd className="text-gray-900 mt-0.5 whitespace-pre-wrap">{config.brandVoice ?? '—'}</dd>
+            </div>
+          </dl>
+        ) : (
+          <p className="text-sm text-gray-400">No config record.</p>
         )}
       </section>
     </div>
