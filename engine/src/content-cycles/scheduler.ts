@@ -23,7 +23,7 @@ import type { Queue } from 'bullmq';
 import type { Logger } from 'pino';
 import { IG_TRAWL_JOB_OPTIONS, igTrawlJobId, PLANNING_JOB_OPTIONS, planningJobId } from './job-options.js';
 import { transitionCycle } from './machine.js';
-import { hasAnyIntakeInput } from './intake-input.js';
+import { hasSuppressibleInput } from '@sprigly/engine';
 
 type Db = typeof _db;
 
@@ -219,7 +219,7 @@ export async function evaluateAutoRunForClient(params: {
   if (!AUTO_RUN_PRESTART_STATUSES.includes(cycle.status)) return 'skipped';  // confirmed or beyond
 
   const transitions    = planAutoRunTransitions(cycle.status);
-  const hasIntakeInput = await hasAnyIntakeInput(db, { clientId: cycle.clientId, createdAt: cycle.createdAt, intakeJson: cycle.intakeJson });
+  const hasIntakeInput = await hasSuppressibleInput(db, { clientId: cycle.clientId, createdAt: cycle.createdAt, intakeJson: cycle.intakeJson });
   const monthLabel     = planMonthLabel(dataMonth);   // dataMonth === this cycle's cycleMonth
 
   if (!AUTO_RUN_ENABLED) {
@@ -334,7 +334,7 @@ export async function evaluateThreeTouchForClient(params: {
 
     // Suppression: any input landed → skip, do NOT stamp *_sent_at (a later tick re-checks). Record
     // the reason so a NULL *_sent_at is legible as "suppressed" rather than "never attempted".
-    if (await hasAnyIntakeInput(db, { clientId, createdAt: cycle.createdAt, intakeJson: cycle.intakeJson })) {
+    if (await hasSuppressibleInput(db, { clientId, createdAt: cycle.createdAt, intakeJson: cycle.intakeJson })) {
       logger.info(logCtx, '[touch:skipped reason=has_input]');
       await stampBeatSkip(db, cycle.id, touch, 'has_input');
       return 'skipped';

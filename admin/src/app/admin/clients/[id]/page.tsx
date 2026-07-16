@@ -5,7 +5,7 @@ import { formatDateTimeShort } from '@/lib/format-date';
 
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { db, clients, clientConfigs, clientChannels, oauthConnections, incomingEvents, routingRules, promptTemplates, workflowRuns, contentCycles, clientPlanningConfig, planInputs, voiceSnapshots, clientProductCatalogue } from '@sprigly/db';
+import { db, clients, clientConfigs, clientChannels, oauthConnections, incomingEvents, routingRules, promptTemplates, workflowRuns, contentCycles, clientPlanningConfig, voiceSnapshots, clientProductCatalogue } from '@sprigly/db';
 import { eq, desc, and, isNull, sql, inArray } from 'drizzle-orm';
 import { workflowMeta, type WorkflowMeta } from '@sprigly/workflows';
 import { getTokens, storeTokens, createEncryptionProvider } from '@sprigly/oauth-tokens';
@@ -16,7 +16,7 @@ import { ContentCycleSettingsForm } from './ContentCycleSettingsForm';
 import { ContentCycleOpsPanel } from './ContentCycleOpsPanel';
 import { IntakePanel } from './IntakePanel';
 import { CycleCard } from './CycleCard';
-import { questionsForChannel, isAutoRunEnabled, AUTO_RUN_ENABLED_ENV } from '@sprigly/engine';
+import { questionsForChannel, isAutoRunEnabled, AUTO_RUN_ENABLED_ENV, hasSuppressibleInput, hasPlannableInput } from '@sprigly/engine';
 import type { IntakeJson } from '@sprigly/engine';
 
 type PromptRow = { id: string; clientId: string | null; workflowId: string; stepName: string; version: number };
@@ -133,15 +133,8 @@ type CycleInfo = {
   askSkipReason:      string | null;
   nudgeSkipReason:    string | null;
   lastCallSkipReason: string | null;
-  inputLanded:     boolean;
+  inputLanded:     boolean;   // QUESTION A (hasSuppressibleInput) — MUST match the sender's suppression
 };
-
-/** Mirror of the sender's hasIntakeContent (worker) — any non-empty answer or free notes. */
-function hasIntakeContent(intake: IntakeJson | null): boolean {
-  const answers = intake?.planContent?.answers ?? {};
-  const freeNotes = (intake?.planContent?.freeNotes ?? '').trim();
-  return freeNotes.length > 0 || Object.values(answers).some((v) => (v ?? '').trim().length > 0);
-}
 
 async function getCompetitorsByChannel(
   clientId: string,
@@ -225,17 +218,9 @@ async function getCyclesByChannel(
         inArray(contentCycles.channel, channelNames),
       ),
     );
-  // Durable inputs (active idea|next_cycle) for the client — for the "input landed" flag we
-  // count those created at/after the cycle (mirrors the sender's hasAnyIntakeInput recency bound).
-  const durable = await db
-    .select({ createdAt: planInputs.createdAt })
-    .from(planInputs)
-    .where(and(
-      eq(planInputs.clientId, clientId),
-      inArray(planInputs.type, ['idea', 'next_cycle']),
-      eq(planInputs.status, 'active'),
-    ));
-  return new Map(rows.map(r => [r.channel, {
+  // inputLanded = QUESTION A (hasSuppressibleInput) — the SHARED suppression predicate, so the
+  // display can't diverge from what the sender actually suppresses on (durable window = createdAt).
+  return new Map(await Promise.all(rows.map(async r => [r.channel, {
     id:            r.id,
     status:        r.status,
     requestSentAt: r.requestSentAt ? r.requestSentAt.toISOString() : null,
@@ -253,8 +238,8 @@ async function getCyclesByChannel(
     askSkipReason:      r.askSkipReason ?? null,
     nudgeSkipReason:    r.nudgeSkipReason ?? null,
     lastCallSkipReason: r.lastCallSkipReason ?? null,
-    inputLanded:     hasIntakeContent((r.intakeJson as IntakeJson | null) ?? null) || durable.some((d) => d.createdAt >= r.createdAt),
-  }]));
+    inputLanded:     await hasSuppressibleInput(db, { clientId, createdAt: r.createdAt, intakeJson: r.intakeJson }),
+  }] as const)));
 }
 
 async function getDriveFilesByChannel(
@@ -453,6 +438,19 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
   const autoRunEnabled = isAutoRunEnabled();
   const todayLondon = getLondonToday();
 
+  // QUESTION B (hasPlannableInput) per channel — gates "Run planning now". Precomputed here (async)
+  // because the gate is read synchronously in the ops-panel render below. Uses the durable-by-
+  // RELEVANCE window, so the gate tracks exactly what the generator would consume.
+  const plannableByChannel = new Map<string, boolean>(
+    await Promise.all(channels.map(async (ch): Promise<[string, boolean]> => {
+      const cyc = cyclesByChannel.get(ch.channel) ?? null;
+      const plannable = cyc
+        ? await hasPlannableInput(db, { clientId: params.id, cycleMonth: dataMonth, intakeJson: cyc.intakeJson })
+        : false;
+      return [ch.channel, plannable];
+    })),
+  );
+
   return (
     <div className="space-y-8">
       <div>
@@ -586,11 +584,9 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
             {channels.map((ch) => {
               const cycle = cyclesByChannel.get(ch.channel) ?? null;
               const driveResult = driveByChannel.get(ch.channel) ?? { files: null, error: false };
-              const pc = cycle?.intakeJson?.planContent;
-              const intakePresent = !!pc && (
-                (pc.freeNotes ?? '').trim().length > 0 ||
-                Object.values(pc.answers ?? {}).some((v) => (v ?? '').trim().length > 0)
-              );
+              // QUESTION B (hasPlannableInput) — precomputed above; now durable-aware, so a
+              // durable-only cycle enables "Run planning now" (matching what auto-run/the generator do).
+              const intakePresent = plannableByChannel.get(ch.channel) ?? false;
               return (
                 <div key={ch.channel}>
                   {channels.length > 1 && (

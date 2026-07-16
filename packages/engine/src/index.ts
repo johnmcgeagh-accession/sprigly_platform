@@ -3,6 +3,11 @@ export type { BaseQuestion } from './base-questions.js';
 
 export { AUTO_RUN_ENABLED_ENV, isAutoRunEnabled } from './auto-run-flag.js';
 
+// The three intake "has input?" questions (A suppression, B plannable) + C (form completeness).
+export { hasIntakeContent, hasSuppressibleInput, hasPlannableInput, DURABLE_INPUT_TYPES } from './intake-signals.js';
+export type { SuppressibleCycle, PlannableCycle } from './intake-signals.js';
+export { intakeCompleteness } from './intake-completeness.js';
+
 export type {
   IncomingEventDraft,
   IncomingEvent,
@@ -81,7 +86,7 @@ export type { MergeField, MergeData, RenderableTemplate, RenderedEmail } from '.
 // (intake route, extract-on-submit) share one extractor.
 export {
   EMPTY_STRUCTURED_BRIEF, buildBriefExtractUserMessage, parseBriefResponse, validateStructuredBrief,
-  isEmptyBrief, extractStructuredBrief, distributeBriefAnswers,
+  isEmptyBrief, isPlannableBrief, extractStructuredBrief, distributeBriefAnswers,
 } from './brief-extract.js';
 export type { BriefExtractParams, DistributeAnswersParams } from './brief-extract.js';
 

@@ -8,6 +8,7 @@
 
 import { useState, useTransition } from 'react';
 import { deriveTouchSchedule } from '@sprigly/engine/touch-schedule';
+import { intakeCompleteness } from '@sprigly/engine/intake-completeness';
 import { triggerCycle, type ActionResult } from './actions';
 import { fraunces, inter } from './card-fonts';
 
@@ -200,8 +201,9 @@ export function CycleCard(props: CycleCardProps) {
   }
 
   // ── Intake summary ────────────────────────────────────────────────────────────
-  // `questions` is the shared derivation (base + channel extras); the card only COUNTS it.
-  const answered = questions.filter((q) => (answers[q] ?? '').trim().length > 0);
+  // QUESTION C (intakeCompleteness) — form progress against the CURRENT question list. Distinct
+  // from the has-input questions (suppression/plannable); an orphaned answer does not count here.
+  const { answered, total } = intakeCompleteness(answers, questions);
   const freeNotesYes = freeNotes.trim().length > 0;
 
   // ── Grounding ───────────────────────────────────────────────────────────────
@@ -264,7 +266,7 @@ export function CycleCard(props: CycleCardProps) {
           <div>
             <div className="text-[11px] font-semibold uppercase tracking-wide mb-2" style={{ color: BORDER }}>Intake</div>
             <p className="text-sm" style={{ color: '#374151' }}>
-              <span className="font-semibold" style={{ color: CORAL_800 }}>{answered.length}</span> of {questions.length} questions answered
+              <span className="font-semibold" style={{ color: CORAL_800 }}>{answered.length}</span> of {total} questions answered
               {' · '}free notes {freeNotesYes ? 'yes' : 'no'}
             </p>
             {answered.length > 0 ? (

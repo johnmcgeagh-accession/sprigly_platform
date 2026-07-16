@@ -296,6 +296,17 @@ export function isEmptyBrief(planContent: PlanContentAnswers | null | undefined)
   return !anyAnswer && !notes;
 }
 
+/**
+ * QUESTION B (pure form) — "is there enough to generate a real plan?" given durable text that is
+ * ALREADY in hand: the brief has content OR there is at least one non-empty durable line. Used on
+ * the generator's extract path (where loadDurableContext has already loaded durable by relevance);
+ * hasPlannableInput (intake-signals.ts) is the DB-querying twin for callers that must load durable
+ * by relevance first. Both are the same question — the planning gate now tracks the generator.
+ */
+export function isPlannableBrief(planContent: PlanContentAnswers | null | undefined, durableContext: readonly string[]): boolean {
+  return !isEmptyBrief(planContent) || durableContext.some((s) => s.trim().length > 0);
+}
+
 export interface BriefExtractParams {
   planContent:     PlanContentAnswers;
   planMonth:       string;          // YYYY-MM the plan is for — date-resolution context
@@ -317,8 +328,8 @@ export interface BriefExtractParams {
 export async function extractStructuredBrief(params: BriefExtractParams): Promise<StructuredBrief> {
   const { planContent, planMonth, model, logger, audit, clientId, durableContext } = params;
 
-  // Nothing to extract only when BOTH the brief and durable context are empty.
-  if (isEmptyBrief(planContent) && !(durableContext ?? []).some((s) => s.trim().length > 0)) {
+  // Nothing to extract only when NOT plannable (question B): no brief content and no durable line.
+  if (!isPlannableBrief(planContent, durableContext ?? [])) {
     logger?.info({ planMonth }, 'brief-extract: empty brief + no durable context — returning empty structure (no model call)');
     return EMPTY_STRUCTURED_BRIEF;
   }

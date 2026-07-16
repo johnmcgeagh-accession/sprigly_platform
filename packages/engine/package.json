@@ -21,6 +21,10 @@
     "./base-questions": {
       "import": "./dist/base-questions.js",
       "types": "./dist/base-questions.d.ts"
+    },
+    "./intake-completeness": {
+      "import": "./dist/intake-completeness.js",
+      "types": "./dist/intake-completeness.d.ts"
     }
   },
   "scripts": {
