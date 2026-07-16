@@ -2,14 +2,16 @@
 
 // Cycle card — the at-a-glance top-of-page summary of one channel's current cycle: plan month,
 // status, the four-beat auto-run timeline (three reminders + the plan run), intake progress,
-// grounding readiness, and the primary generate action. ADDITIVE — it supersedes ScheduleReadout
-// visually but both render this build (2b removes the readout). No engine behaviour is touched:
-// the auto-run flag is READ (passed from the server via isAutoRunEnabled), never written.
+// grounding readiness, and the primary generate action. It is the top of the reorganised client
+// page and the sole beat/schedule surface. The primary "Generate <month> plan" (triggerCycle)
+// lives here; the other cycle-scoped manual triggers live in the "More actions" disclosure
+// (CardActions). No engine behaviour is touched: the auto-run flag is READ, never written.
 
 import { useState, useTransition } from 'react';
 import { deriveTouchSchedule } from '@sprigly/engine/touch-schedule';
 import { intakeCompleteness } from '@sprigly/engine/intake-completeness';
 import { triggerCycle, type ActionResult } from './actions';
+import { CardActions } from './CardActions';
 import { fraunces, inter } from './card-fonts';
 
 // ── brand tokens (spec) — inline so no Tailwind config / global restyle is needed ────────────
@@ -27,8 +29,15 @@ export interface BeatState {
 
 export interface CycleCardProps {
   clientId:           string;
+  clientName:         string;
   channel:            string;   // raw, e.g. 'instagram'
   dataMonthForAction: string;   // the cohort cycle_month → passed to triggerCycle (same handler as Run cycle now)
+
+  // "More actions" disclosure (CardActions) — bound to the page-anchored dataMonth cycle, exactly
+  // as the old ContentCycleOpsPanel was (NOT the cohort month used by the primary above).
+  opsDataMonth:   string;
+  opsCycleStatus: string | null;
+  intakePresent:  boolean;      // QUESTION B (plannable) — gates "Run planning now" inside the disclosure
 
   // Header — all three labels derived upstream from cycle_month, passed in once.
   planMonthLabel: string;       // "August 2026"  (cycle_month + 1)
@@ -58,6 +67,9 @@ export interface CycleCardProps {
   igCheckedAt: string | null;   // content_cycles.ig_input_checked_at (ISO) — the trawl time
   voice:       { present: boolean; sourceMonth: string | null };       // voice_snapshots (is_current)
   catalogue:   { present: boolean; sourceMonth: string | null };       // client_product_catalogue
+  // App-plan write health (content_cycles.posts_sync_status). Display only — nothing here writes it.
+  // status: 'synced' | 'out_of_sync' | 'unknown' | null; syncedAt present ⇒ a VERIFIED synced (0061).
+  postsSync:   { status: string | null; syncedAt: string | null };
 }
 
 // ── deterministic, hydration-safe date formatters (pinned Europe/London, explicit parts) ─────
@@ -148,30 +160,38 @@ function BeatColumn({ cell }: { cell: BeatCell }) {
   );
 }
 
-function GroundLine({ ok, neutral, label, detail }: { ok: boolean; neutral?: boolean; label: string; detail: string }) {
-  const mark = ok ? '✓' : (neutral ? '·' : '○');
-  const markColor = ok ? '#16A34A' : BORDER;
+// `tone`, when given, overrides the ok/neutral mark — for signals that have more than a
+// present/absent state (e.g. the app-plan health row: good / warn / bad).
+type GroundTone = 'good' | 'warn' | 'bad' | 'neutral';
+function GroundLine({ ok, neutral, tone, label, detail }: { ok: boolean; neutral?: boolean; tone?: GroundTone; label: string; detail: string }) {
+  const t: GroundTone | 'off' = tone ?? (ok ? 'good' : neutral ? 'neutral' : 'off');
+  const mark = t === 'good' ? '✓' : t === 'bad' ? '⚠' : t === 'warn' ? '!' : t === 'neutral' ? '·' : '○';
+  const markColor = t === 'good' ? '#16A34A' : t === 'bad' ? CORAL_700 : t === 'warn' ? '#B45309' : BORDER;
+  const detailColor = t === 'bad' ? CORAL_800 : t === 'warn' ? '#B45309' : BORDER;
+  const detailWeight = t === 'bad' || t === 'warn' ? 500 : 400;
   return (
     <div className="flex items-center gap-2 text-sm">
       <span className="font-bold" style={{ color: markColor }}>{mark}</span>
       <span style={{ color: '#374151' }}>{label}</span>
-      <span className="text-xs" style={{ color: BORDER }}>· {detail}</span>
+      <span className="text-xs" style={{ color: detailColor, fontWeight: detailWeight }}>· {detail}</span>
     </div>
   );
 }
 
 export function CycleCard(props: CycleCardProps) {
   const {
-    clientId, channel, dataMonthForAction,
+    clientId, clientName, channel, dataMonthForAction,
+    opsDataMonth, opsCycleStatus, intakePresent,
     planMonthLabel, dataMonthLabel, cycleMonth, status,
     reminderDay, cutoffDay, today, ask, nudge, lastCall,
     autoRunEnabled, autoRunEnvName,
     answers, questions, freeNotes,
-    igStatus, igCheckedAt, voice, catalogue,
+    igStatus, igCheckedAt, voice, catalogue, postsSync,
   } = props;
 
   const [isPending, startTransition] = useTransition();
   const [actionError, setActionError] = useState<string | null>(null);
+  const [showMore, setShowMore] = useState(false);
 
   function generate() {
     setActionError(null);
@@ -214,6 +234,18 @@ export function CycleCard(props: CycleCardProps) {
       ? (igCheckedAt ? `trawled ${fmtInstant(igCheckedAt)}` : 'trawled')
       : (igCheckedAt ? `${igStatus} · ${fmtInstant(igCheckedAt)}` : igStatus);
 
+  // App-plan write health (content_cycles.posts_sync_status). Only the bad states carry weight; a
+  // healthy synced cycle stays quiet. `out_of_sync` also raises a header banner (below) so a stale
+  // client-facing plan isn't buried fourth in the list.
+  const appPlanOutOfSync = postsSync.status === 'out_of_sync';
+  const appPlan: { tone: GroundTone; detail: string } =
+      postsSync.status === 'synced'      ? (postsSync.syncedAt
+                                              ? { tone: 'good', detail: `synced ${fmtInstant(postsSync.syncedAt)}` }
+                                              : { tone: 'warn', detail: 'synced (unverified)' })
+    : postsSync.status === 'out_of_sync' ? { tone: 'bad',     detail: 'out of sync — client is on a stale plan' }
+    : postsSync.status === 'unknown'     ? { tone: 'warn',    detail: 'unverified — last regen didn’t confirm a write' }
+    :                                      { tone: 'neutral', detail: 'not written yet' };
+
   return (
     <div
       className={inter.className}
@@ -243,6 +275,19 @@ export function CycleCard(props: CycleCardProps) {
             </p>
             <p className="mt-1 text-xs" style={{ color: CORAL_700 }}>
               Read from <span className="font-mono">{autoRunEnvName}</span> in admin&apos;s environment. Admin and the worker read <span className="font-medium">separate</span> environments, so the worker — not admin — is the process that actually decides whether auto-run fires.
+            </p>
+          </div>
+        )}
+
+        {/* App-plan out-of-sync — escalated to the header (not buried in Grounding) because it means
+            the CLIENT is currently viewing a stale plan. Coral weight: a "look at this", not an alarm. */}
+        {appPlanOutOfSync && (
+          <div className="mx-6 mb-4 rounded-lg px-4 py-3" style={{ background: CORAL_100, border: `1px solid ${CORAL_700}` }}>
+            <p className="text-sm font-medium" style={{ color: CORAL_800 }}>
+              ⚠ App plan is out of sync — the posts-write failed, so the client is viewing a stale plan.
+            </p>
+            <p className="mt-1 text-xs" style={{ color: CORAL_700 }}>
+              Re-run planning (More actions → Run planning now) to rewrite the app-facing plan.
             </p>
           </div>
         )}
@@ -290,6 +335,7 @@ export function CycleCard(props: CycleCardProps) {
               <GroundLine ok={igOk} label="IG posts" detail={igDetail} />
               <GroundLine ok={voice.present} label="Voice profile" detail={voice.present ? (voice.sourceMonth ?? 'set') : 'none'} />
               <GroundLine ok={catalogue.present} neutral={!catalogue.present} label="Catalogue" detail={catalogue.present ? (catalogue.sourceMonth ?? 'set') : 'none'} />
+              <GroundLine ok={false} tone={appPlan.tone} label="App plan" detail={appPlan.detail} />
             </div>
           </div>
         </div>
@@ -312,14 +358,28 @@ export function CycleCard(props: CycleCardProps) {
 
           <button
             type="button"
-            disabled
-            title="More actions — wired when the panels move (build 2b)."
-            style={{ color: BORDER, borderColor: '#E5E7EB' }}
-            className="ml-auto px-3 py-1.5 text-xs font-medium rounded-lg border cursor-not-allowed"
+            onClick={() => setShowMore((v) => !v)}
+            aria-expanded={showMore}
+            style={{ color: CORAL_700, borderColor: BORDER }}
+            className="ml-auto px-3 py-1.5 text-xs font-medium rounded-lg border hover:bg-black/[0.02]"
           >
-            More actions
+            {showMore ? 'Hide actions ▲' : 'More actions ▼'}
           </button>
         </div>
+
+        {/* More actions disclosure — the cycle-scoped manual triggers (moved from the ops panel). */}
+        {showMore && (
+          <div className="px-6 py-4" style={{ borderTop: `1px solid #E5E7EB`, background: CANVAS }}>
+            <CardActions
+              clientId={clientId}
+              clientName={clientName}
+              channel={channel}
+              dataMonth={opsDataMonth}
+              cycleStatus={opsCycleStatus}
+              intakePresent={intakePresent}
+            />
+          </div>
+        )}
 
         {actionError && (
           <div className="mx-6 mb-4 flex items-start gap-2 text-sm rounded-lg px-3 py-2.5" style={{ color: '#B91C1C', background: '#FEF2F2', border: '1px solid #FECACA' }}>
