@@ -67,6 +67,9 @@ export interface CycleCardProps {
   igCheckedAt: string | null;   // content_cycles.ig_input_checked_at (ISO) — the trawl time
   voice:       { present: boolean; sourceMonth: string | null };       // voice_snapshots (is_current)
   catalogue:   { present: boolean; sourceMonth: string | null };       // client_product_catalogue
+  // App-plan write health (content_cycles.posts_sync_status). Display only — nothing here writes it.
+  // status: 'synced' | 'out_of_sync' | 'unknown' | null; syncedAt present ⇒ a VERIFIED synced (0061).
+  postsSync:   { status: string | null; syncedAt: string | null };
 }
 
 // ── deterministic, hydration-safe date formatters (pinned Europe/London, explicit parts) ─────
@@ -157,14 +160,20 @@ function BeatColumn({ cell }: { cell: BeatCell }) {
   );
 }
 
-function GroundLine({ ok, neutral, label, detail }: { ok: boolean; neutral?: boolean; label: string; detail: string }) {
-  const mark = ok ? '✓' : (neutral ? '·' : '○');
-  const markColor = ok ? '#16A34A' : BORDER;
+// `tone`, when given, overrides the ok/neutral mark — for signals that have more than a
+// present/absent state (e.g. the app-plan health row: good / warn / bad).
+type GroundTone = 'good' | 'warn' | 'bad' | 'neutral';
+function GroundLine({ ok, neutral, tone, label, detail }: { ok: boolean; neutral?: boolean; tone?: GroundTone; label: string; detail: string }) {
+  const t: GroundTone | 'off' = tone ?? (ok ? 'good' : neutral ? 'neutral' : 'off');
+  const mark = t === 'good' ? '✓' : t === 'bad' ? '⚠' : t === 'warn' ? '!' : t === 'neutral' ? '·' : '○';
+  const markColor = t === 'good' ? '#16A34A' : t === 'bad' ? CORAL_700 : t === 'warn' ? '#B45309' : BORDER;
+  const detailColor = t === 'bad' ? CORAL_800 : t === 'warn' ? '#B45309' : BORDER;
+  const detailWeight = t === 'bad' || t === 'warn' ? 500 : 400;
   return (
     <div className="flex items-center gap-2 text-sm">
       <span className="font-bold" style={{ color: markColor }}>{mark}</span>
       <span style={{ color: '#374151' }}>{label}</span>
-      <span className="text-xs" style={{ color: BORDER }}>· {detail}</span>
+      <span className="text-xs" style={{ color: detailColor, fontWeight: detailWeight }}>· {detail}</span>
     </div>
   );
 }
@@ -177,7 +186,7 @@ export function CycleCard(props: CycleCardProps) {
     reminderDay, cutoffDay, today, ask, nudge, lastCall,
     autoRunEnabled, autoRunEnvName,
     answers, questions, freeNotes,
-    igStatus, igCheckedAt, voice, catalogue,
+    igStatus, igCheckedAt, voice, catalogue, postsSync,
   } = props;
 
   const [isPending, startTransition] = useTransition();
@@ -225,6 +234,18 @@ export function CycleCard(props: CycleCardProps) {
       ? (igCheckedAt ? `trawled ${fmtInstant(igCheckedAt)}` : 'trawled')
       : (igCheckedAt ? `${igStatus} · ${fmtInstant(igCheckedAt)}` : igStatus);
 
+  // App-plan write health (content_cycles.posts_sync_status). Only the bad states carry weight; a
+  // healthy synced cycle stays quiet. `out_of_sync` also raises a header banner (below) so a stale
+  // client-facing plan isn't buried fourth in the list.
+  const appPlanOutOfSync = postsSync.status === 'out_of_sync';
+  const appPlan: { tone: GroundTone; detail: string } =
+      postsSync.status === 'synced'      ? (postsSync.syncedAt
+                                              ? { tone: 'good', detail: `synced ${fmtInstant(postsSync.syncedAt)}` }
+                                              : { tone: 'warn', detail: 'synced (unverified)' })
+    : postsSync.status === 'out_of_sync' ? { tone: 'bad',     detail: 'out of sync — client is on a stale plan' }
+    : postsSync.status === 'unknown'     ? { tone: 'warn',    detail: 'unverified — last regen didn’t confirm a write' }
+    :                                      { tone: 'neutral', detail: 'not written yet' };
+
   return (
     <div
       className={inter.className}
@@ -254,6 +275,19 @@ export function CycleCard(props: CycleCardProps) {
             </p>
             <p className="mt-1 text-xs" style={{ color: CORAL_700 }}>
               Read from <span className="font-mono">{autoRunEnvName}</span> in admin&apos;s environment. Admin and the worker read <span className="font-medium">separate</span> environments, so the worker — not admin — is the process that actually decides whether auto-run fires.
+            </p>
+          </div>
+        )}
+
+        {/* App-plan out-of-sync — escalated to the header (not buried in Grounding) because it means
+            the CLIENT is currently viewing a stale plan. Coral weight: a "look at this", not an alarm. */}
+        {appPlanOutOfSync && (
+          <div className="mx-6 mb-4 rounded-lg px-4 py-3" style={{ background: CORAL_100, border: `1px solid ${CORAL_700}` }}>
+            <p className="text-sm font-medium" style={{ color: CORAL_800 }}>
+              ⚠ App plan is out of sync — the posts-write failed, so the client is viewing a stale plan.
+            </p>
+            <p className="mt-1 text-xs" style={{ color: CORAL_700 }}>
+              Re-run planning (More actions → Run planning now) to rewrite the app-facing plan.
             </p>
           </div>
         )}
@@ -301,6 +335,7 @@ export function CycleCard(props: CycleCardProps) {
               <GroundLine ok={igOk} label="IG posts" detail={igDetail} />
               <GroundLine ok={voice.present} label="Voice profile" detail={voice.present ? (voice.sourceMonth ?? 'set') : 'none'} />
               <GroundLine ok={catalogue.present} neutral={!catalogue.present} label="Catalogue" detail={catalogue.present ? (catalogue.sourceMonth ?? 'set') : 'none'} />
+              <GroundLine ok={false} tone={appPlan.tone} label="App plan" detail={appPlan.detail} />
             </div>
           </div>
         </div>

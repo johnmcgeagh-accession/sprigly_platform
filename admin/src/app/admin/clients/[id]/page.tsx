@@ -457,6 +457,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                   igCheckedAt={c?.igInputCheckedAt ?? null}
                   voice={{ present: voice != null, sourceMonth: voice?.sourceMonth ?? null }}
                   catalogue={{ present: cat != null, sourceMonth: cat?.sourceMonth ?? null }}
+                  postsSync={{ status: c?.postsSyncStatus ?? null, syncedAt: c?.postsSyncedAt ?? null }}
                 />
               </div>
             );
