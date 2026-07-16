@@ -118,6 +118,11 @@ type CycleInfo = {
   askSentAt:       string | null;
   nudgeSentAt:     string | null;
   lastCallSentAt:  string | null;
+  // Per-beat skip reason (0080) — WHY a NULL *_sent_at happened. 'has_input'|'send_failed'|
+  // 'no_sender_wired'|'error'|null (null = unknown / predates the column).
+  askSkipReason:      string | null;
+  nudgeSkipReason:    string | null;
+  lastCallSkipReason: string | null;
   inputLanded:     boolean;
 };
 
@@ -161,6 +166,9 @@ async function getCyclesByChannel(
       askSentAt:       contentCycles.askSentAt,
       nudgeSentAt:     contentCycles.nudgeSentAt,
       lastCallSentAt:  contentCycles.lastCallSentAt,
+      askSkipReason:      contentCycles.askSkipReason,
+      nudgeSkipReason:    contentCycles.nudgeSkipReason,
+      lastCallSkipReason: contentCycles.lastCallSkipReason,
       createdAt:       contentCycles.createdAt,
     })
     .from(contentCycles)
@@ -194,6 +202,10 @@ async function getCyclesByChannel(
     askSentAt:       r.askSentAt ? r.askSentAt.toISOString() : null,
     nudgeSentAt:     r.nudgeSentAt ? r.nudgeSentAt.toISOString() : null,
     lastCallSentAt:  r.lastCallSentAt ? r.lastCallSentAt.toISOString() : null,
+    // Plain text columns (not Dates) — pass through as-is.
+    askSkipReason:      r.askSkipReason ?? null,
+    nudgeSkipReason:    r.nudgeSkipReason ?? null,
+    lastCallSkipReason: r.lastCallSkipReason ?? null,
     inputLanded:     hasIntakeContent((r.intakeJson as IntakeJson | null) ?? null) || durable.some((d) => d.createdAt >= r.createdAt),
   }]));
 }
@@ -451,7 +463,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                     const cohortMonth = intakeCohort ? currentMonth : dataMonth;
                     const c = (intakeCohort ? cyclesByChannelCurrent : cyclesByChannel).get(ch.channel);
                     if (!c) return null;
-                    return { monthLabel: planMonthLabelOf(cohortMonth), askSentAt: c.askSentAt, nudgeSentAt: c.nudgeSentAt, lastCallSentAt: c.lastCallSentAt, inputLanded: c.inputLanded };
+                    return { monthLabel: planMonthLabelOf(cohortMonth), askSentAt: c.askSentAt, nudgeSentAt: c.nudgeSentAt, lastCallSentAt: c.lastCallSentAt, askSkipReason: c.askSkipReason, nudgeSkipReason: c.nudgeSkipReason, lastCallSkipReason: c.lastCallSkipReason, inputLanded: c.inputLanded };
                   })()}
                 />
               </div>
