@@ -27,18 +27,17 @@ interface Props {
   cycleStatus:    string;
   clientId:       string;
   channel:        string;
-  baseQuestions:  readonly string[];
-  extraQuestions: string[];
+  questions:      readonly string[];   // derived once via questionsForChannel — base + channel extras
   existingIntake: IntakeJson | null;
 }
 
 export function IntakePanel({
   cycleId, cycleMonth, cycleStatus, clientId, channel,
-  baseQuestions, extraQuestions, existingIntake,
+  questions, existingIntake,
 }: Props) {
   // Normalise to a fully-formed object so all downstream accesses are non-optional.
   const intake     = existingIntake ?? defaultIntake();
-  const allQuestions = [...baseQuestions, ...extraQuestions];
+  const allQuestions = questions;
 
   const [answers, setAnswers] = useState<Record<string, string>>(
     intake.planContent.answers,

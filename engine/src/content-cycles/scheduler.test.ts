@@ -19,13 +19,24 @@ vi.mock('drizzle-orm', () => ({
   inArray: vi.fn(() => 'inArray'),
 }));
 
-// scheduler.ts imports BASE_QUESTIONS + the shared touch derivation from @sprigly/engine. Keep
-// the real derivation (importOriginal) so the sender + shared logic can't diverge in the test;
-// only override BASE_QUESTIONS so the questions-block assertion stays stable.
-vi.mock('@sprigly/engine', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@sprigly/engine')>()),
-  BASE_QUESTIONS: ['Q1 dates?', 'Q2 new?'],
-}));
+// scheduler.ts imports questionsForChannel + the shared touch derivation from @sprigly/engine.
+// Keep the real touch derivation (importOriginal) so the sender + shared logic can't diverge;
+// override the question list at its consumption point — buildQuestionsBlock now goes through
+// questionsForChannel (not BASE_QUESTIONS directly), so we stub that with a stable base + the same
+// string-filter/order the real helper applies, keeping the questions-block assertion stable.
+vi.mock('@sprigly/engine', async (importOriginal) => {
+  const BASE = ['Q1 dates?', 'Q2 new?'];
+  return {
+    ...(await importOriginal<typeof import('@sprigly/engine')>()),
+    BASE_QUESTIONS: BASE,
+    questionsForChannel: (channel: { extraQuestions?: readonly unknown[] | null }) => {
+      const extra = Array.isArray(channel.extraQuestions)
+        ? channel.extraQuestions.filter((q): q is string => typeof q === 'string')
+        : [];
+      return [...BASE, ...extra];
+    },
+  };
+});
 
 // consumer.ts imports needed by transitive dependencies
 vi.mock('./extract.js',       () => ({ extractVoiceDeltasForCycle: vi.fn() }));

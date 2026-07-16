@@ -155,7 +155,16 @@ export function ContentCycleOpsPanel({
   const hasSalesFile = driveFiles?.some(f => f.name.toLowerCase() === salesFile.toLowerCase()) ?? false;
   const hasPostsFile = driveFiles?.some(f => f.name.toLowerCase() === postsFile.toLowerCase()) ?? false;
 
-  const cycleIsActive    = cycle !== null && cycle.status !== 'scheduled';
+  // WIDENED (legacy-request-email gating): was `cycle !== null && cycle.status !== 'scheduled'`
+  // ("a cycle exists AND is past the seed state"). cutoffDay clients now sit at 'scheduled'
+  // permanently (they ask via the three-touch Ask, not the request email), so the old predicate
+  // would dark out "Copy client link" and "Run weekly session" forever. It now means simply
+  // "a cycle row exists for this month" — those two actions stay available at 'scheduled'.
+  // Consequence to note: the "Run cycle now" confirm dialog (line ~401) and the "Cycle is already
+  // <status>" note (line ~687) now also fire for 'scheduled' cycles. `cycleIsRequested` (the
+  // draft-specific hints) is unchanged, so the "a draft was created" wording still only shows at
+  // 'requested' — accurate, since a gated cutoffDay cycle never produces a draft.
+  const cycleIsActive    = cycle !== null;
   const cycleIsRequested = cycle?.status === 'requested';
 
   // "Start & prepare" inputs check: the picked plan month's DATA month is planMonth−1;

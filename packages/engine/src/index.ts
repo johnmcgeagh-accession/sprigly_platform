@@ -1,5 +1,7 @@
-export { BASE_QUESTIONS } from './base-questions.js';
+export { BASE_QUESTIONS, questionsForChannel } from './base-questions.js';
 export type { BaseQuestion } from './base-questions.js';
+
+export { AUTO_RUN_ENABLED_ENV, isAutoRunEnabled } from './auto-run-flag.js';
 
 export type {
   IncomingEventDraft,
