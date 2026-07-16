@@ -509,11 +509,14 @@ describe('evaluateThreeTouchForClient', () => {
   const clientRow = { name: 'Ivy T' };
   const chanRow   = { contactName: 'Sally', extraQuestions: null };
 
-  // Ordered results for each select().…​.limit() call.
+  // Ordered results for each select().…​.limit() call. `setCalls` captures every .set(patch)
+  // payload so a test can tell a timestamp stamp (askSentAt) from a skip-reason stamp.
   function makeSenderDb(limitResults: unknown[][]) {
     let i = 0;
+    const setCalls: Record<string, unknown>[] = [];
     const updateWhere = vi.fn().mockResolvedValue(undefined);
-    const update = vi.fn().mockReturnValue({ set: vi.fn().mockReturnValue({ where: updateWhere }) });
+    const set = vi.fn().mockImplementation((patch: Record<string, unknown>) => { setCalls.push(patch); return { where: updateWhere }; });
+    const update = vi.fn().mockReturnValue({ set });
     const db = {
       select: vi.fn().mockReturnValue({
         from:  vi.fn().mockReturnThis(),
@@ -523,7 +526,7 @@ describe('evaluateThreeTouchForClient', () => {
       update,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any;
-    return { db, update };
+    return { db, update, setCalls };
   }
   const base = (db: unknown, over: Partial<Parameters<typeof evaluateThreeTouchForClient>[0]> = {}) => ({
     db: db as never, clientId: 'c1', channel: 'instagram', dataMonth: '2026-06',
@@ -533,8 +536,8 @@ describe('evaluateThreeTouchForClient', () => {
     ...over,
   });
 
-  it('Ask fires on the reminder day, sends key=ask with a full merge, and stamps ask_sent_at', async () => {
-    const { db, update } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
+  it('Ask fires on the reminder day, sends key=ask with a full merge, and stamps ask_sent_at (no skip reason)', async () => {
+    const { db, update, setCalls } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
     const args = base(db);
     const res = await evaluateThreeTouchForClient(args);
     expect(res).toBe('sent');
@@ -546,32 +549,62 @@ describe('evaluateThreeTouchForClient', () => {
         questionsBlock: expect.stringContaining('1. Q1 dates?'),
       }),
     }));
-    expect(update).toHaveBeenCalledTimes(1);   // stamp
+    expect(update).toHaveBeenCalledTimes(1);   // the timestamp stamp only
+    expect(setCalls).toEqual([{ askSentAt: expect.any(Date) }]);   // NOT a skip reason
+    expect(setCalls[0]).not.toHaveProperty('askSkipReason');
   });
 
-  it('is at-most-once: a set ask_sent_at → skip, no send, no stamp', async () => {
+  it('is at-most-once: a set ask_sent_at → skip, no send, no stamp (reason untouched)', async () => {
     const { db, update } = makeSenderDb([[{ ...emptyCycle, askSentAt: new Date() }]]);
     const args = base(db);
     expect(await evaluateThreeTouchForClient(args)).toBe('skipped');
     expect(args.sendEmail).not.toHaveBeenCalled();
-    expect(update).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();   // already_sent writes nothing — timestamp is the state
   });
 
-  it('is suppressed when intake input already exists → skip, no send, no stamp', async () => {
+  it('is suppressed when intake input already exists → skip, no send, stamps ask_skip_reason=has_input', async () => {
     const withInput = { ...emptyCycle, intakeJson: { planContent: { answers: { q1: 'launch' }, freeNotes: '' } } };
-    const { db, update } = makeSenderDb([[withInput]]);
+    const { db, update, setCalls } = makeSenderDb([[withInput]]);
     const args = base(db);
     expect(await evaluateThreeTouchForClient(args)).toBe('skipped');
     expect(args.sendEmail).not.toHaveBeenCalled();
-    expect(update).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(setCalls).toEqual([{ askSkipReason: 'has_input' }]);   // reason stamped, NOT ask_sent_at
   });
 
-  it('a send FAILURE is non-fatal and does NOT stamp', async () => {
-    const { db, update } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
+  it('a send FAILURE is non-fatal, does NOT stamp ask_sent_at, but stamps ask_skip_reason=send_failed', async () => {
+    const { db, update, setCalls } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
     const args = base(db, { sendEmail: vi.fn().mockResolvedValue(false) });
     expect(await evaluateThreeTouchForClient(args)).toBe('skipped');
     expect(args.sendEmail).toHaveBeenCalledTimes(1);
-    expect(update).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(setCalls).toEqual([{ askSkipReason: 'send_failed' }]);
+  });
+
+  it('no sender wired → skip, no send, stamps ask_skip_reason=no_sender_wired', async () => {
+    const { db, update, setCalls } = makeSenderDb([[emptyCycle], []]);   // cycle, then empty durable-inputs
+    const args = base(db, { sendEmail: undefined });
+    expect(await evaluateThreeTouchForClient(args)).toBe('skipped');
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(setCalls).toEqual([{ askSkipReason: 'no_sender_wired' }]);
+  });
+
+  it('an error mid-flight stamps ask_skip_reason=error AND re-throws the original error', async () => {
+    const { db, update, setCalls } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
+    const boom = new Error('boom');
+    const args = base(db, { sendEmail: vi.fn().mockRejectedValue(boom) });
+    await expect(evaluateThreeTouchForClient(args)).rejects.toThrow('boom');
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(setCalls).toEqual([{ askSkipReason: 'error' }]);
+  });
+
+  it('a FAILING error-stamp does not swallow the original error', async () => {
+    const { db } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
+    const boom = new Error('boom');
+    // sendEmail throws 'boom'; the catch tries to stamp 'error' but the UPDATE itself throws.
+    db.update = vi.fn(() => { throw new Error('db-down'); });
+    const args = base(db, { sendEmail: vi.fn().mockRejectedValue(boom) });
+    await expect(evaluateThreeTouchForClient(args)).rejects.toThrow('boom');   // NOT 'db-down'
   });
 
   it('Last Call fires on cutoffDay − 1 with key=last_call', async () => {

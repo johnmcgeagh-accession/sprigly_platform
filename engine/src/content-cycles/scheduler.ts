@@ -307,65 +307,108 @@ export async function evaluateThreeTouchForClient(params: {
 }): Promise<'sent' | 'skipped'> {
   const { db, clientId, channel, dataMonth, schedule, today, logger, sendEmail, resolveAppLink } = params;
   const touch = dueTouch(schedule, today.day);
-  if (!touch) return 'skipped';   // no touch due today (covers no-cutoffDay clients)
+  if (!touch) return 'skipped';   // no touch due today (covers no-cutoffDay clients) — SILENT, no
+                                  // stamp: this fires on every non-beat day and must not write.
   const logCtx = { clientId, channel, dataMonth, touch };
 
-  const [cycle] = await db
-    .select({
-      id: contentCycles.id, status: contentCycles.status, intakeJson: contentCycles.intakeJson,
-      createdAt: contentCycles.createdAt, cycleMonth: contentCycles.cycleMonth,
-      askSentAt: contentCycles.askSentAt, nudgeSentAt: contentCycles.nudgeSentAt, lastCallSentAt: contentCycles.lastCallSentAt,
-    })
-    .from(contentCycles)
-    .where(and(eq(contentCycles.clientId, clientId), eq(contentCycles.channel, channel), eq(contentCycles.cycleMonth, dataMonth)))
-    .limit(1);
-  if (!cycle) { logger.info(logCtx, '[touch:skipped reason=no_cycle]'); return 'skipped'; }
+  // cycleId is hoisted so the catch can attribute an 'error' skip reason to the row (when known).
+  let cycleId: string | null = null;
+  try {
+    const [cycle] = await db
+      .select({
+        id: contentCycles.id, status: contentCycles.status, intakeJson: contentCycles.intakeJson,
+        createdAt: contentCycles.createdAt, cycleMonth: contentCycles.cycleMonth,
+        askSentAt: contentCycles.askSentAt, nudgeSentAt: contentCycles.nudgeSentAt, lastCallSentAt: contentCycles.lastCallSentAt,
+      })
+      .from(contentCycles)
+      .where(and(eq(contentCycles.clientId, clientId), eq(contentCycles.channel, channel), eq(contentCycles.cycleMonth, dataMonth)))
+      .limit(1);
+    if (!cycle) { logger.info(logCtx, '[touch:skipped reason=no_cycle]'); return 'skipped'; }  // no row to stamp
+    cycleId = cycle.id;
 
-  const alreadySent = touch === 'ask' ? cycle.askSentAt : touch === 'nudge' ? cycle.nudgeSentAt : cycle.lastCallSentAt;
-  if (alreadySent != null) { logger.info(logCtx, '[touch:skipped reason=already_sent]'); return 'skipped'; }
+    const alreadySent = touch === 'ask' ? cycle.askSentAt : touch === 'nudge' ? cycle.nudgeSentAt : cycle.lastCallSentAt;
+    if (alreadySent != null) { logger.info(logCtx, '[touch:skipped reason=already_sent]'); return 'skipped'; }  // the timestamp IS the state
 
-  // Suppression: any input landed → skip, do NOT stamp (a later tick re-checks).
-  if (await hasAnyIntakeInput(db, { clientId, createdAt: cycle.createdAt, intakeJson: cycle.intakeJson })) {
-    logger.info(logCtx, '[touch:skipped reason=has_input]');
-    return 'skipped';
+    // Suppression: any input landed → skip, do NOT stamp *_sent_at (a later tick re-checks). Record
+    // the reason so a NULL *_sent_at is legible as "suppressed" rather than "never attempted".
+    if (await hasAnyIntakeInput(db, { clientId, createdAt: cycle.createdAt, intakeJson: cycle.intakeJson })) {
+      logger.info(logCtx, '[touch:skipped reason=has_input]');
+      await stampBeatSkip(db, cycle.id, touch, 'has_input');
+      return 'skipped';
+    }
+
+    if (!sendEmail) {
+      logger.warn(logCtx, '[touch:skipped reason=no_sender_wired]');
+      await stampBeatSkip(db, cycle.id, touch, 'no_sender_wired');
+      return 'skipped';
+    }
+
+    const [client] = await db.select({ name: clients.name }).from(clients).where(eq(clients.id, clientId)).limit(1);
+    const [chan] = await db
+      .select({ contactName: clientChannels.contactName, extraQuestions: clientChannels.extraQuestions })
+      .from(clientChannels)
+      .where(and(eq(clientChannels.clientId, clientId), eq(clientChannels.channel, channel)))
+      .limit(1);
+
+    const appLink   = resolveAppLink ? (await resolveAppLink(clientId, cycle.id)) ?? '' : '';
+    const cutoffDay = schedule.cutoffDay ?? 0;
+    const merge: MergeData = {
+      contactName:    chan?.contactName ?? 'there',
+      clientName:     client?.name ?? 'there',
+      monthLabel:     planMonthLabel(cycle.cycleMonth),
+      cutoffDate:     formatCutoffDate(today.year, today.month, cutoffDay),
+      daysToCutoff:   String(Math.max(0, cutoffDay - today.day)),
+      intakeLink:     appLink ? `${appLink}?intake=1` : '',   // lands with the intake surface open
+      appLink,
+      questionsBlock: touch === 'ask' ? buildQuestionsBlock(chan?.extraQuestions ?? null) : '',
+      // leanLine + beatsSummary render blank in this build (their sources wire in later builds).
+    };
+
+    const ok = await sendEmail({ key: TOUCH_KEY[touch], clientId, merge });
+    if (!ok) {
+      logger.warn(logCtx, '[touch:skipped reason=send_failed]');
+      await stampBeatSkip(db, cycle.id, touch, 'send_failed');
+      return 'skipped';
+    }
+
+    // Stamp at-most-once AFTER a confirmed send. Timestamp only — the skip-reason column is left
+    // NULL on the sent path (the timestamp is the "sent" signal; a reason would be noise).
+    const patch = touch === 'ask' ? { askSentAt: new Date() } : touch === 'nudge' ? { nudgeSentAt: new Date() } : { lastCallSentAt: new Date() };
+    await db.update(contentCycles).set(patch).where(eq(contentCycles.id, cycle.id));
+    logger.info({ ...logCtx, to: APP_DELIVERY_PIN_LABEL }, '[touch:sent]');
+    return 'sent';
+  } catch (err) {
+    // Record 'error' as the beat's skip reason (best-effort; only when we know the row), then
+    // RE-THROW the ORIGINAL error so the tick loop's handler still logs + continues. The stamp is
+    // itself guarded: if the DB is what's failing, a failed stamp must not mask the real cause.
+    if (cycleId != null) {
+      try { await stampBeatSkip(db, cycleId, touch, 'error'); }
+      catch (stampErr) { logger.warn({ ...logCtx, stampErr: String(stampErr) }, '[touch:skip-reason stamp failed]'); }
+    }
+    throw err;
   }
-
-  if (!sendEmail) { logger.warn(logCtx, '[touch:skipped reason=no_sender_wired]'); return 'skipped'; }
-
-  const [client] = await db.select({ name: clients.name }).from(clients).where(eq(clients.id, clientId)).limit(1);
-  const [chan] = await db
-    .select({ contactName: clientChannels.contactName, extraQuestions: clientChannels.extraQuestions })
-    .from(clientChannels)
-    .where(and(eq(clientChannels.clientId, clientId), eq(clientChannels.channel, channel)))
-    .limit(1);
-
-  const appLink   = resolveAppLink ? (await resolveAppLink(clientId, cycle.id)) ?? '' : '';
-  const cutoffDay = schedule.cutoffDay ?? 0;
-  const merge: MergeData = {
-    contactName:    chan?.contactName ?? 'there',
-    clientName:     client?.name ?? 'there',
-    monthLabel:     planMonthLabel(cycle.cycleMonth),
-    cutoffDate:     formatCutoffDate(today.year, today.month, cutoffDay),
-    daysToCutoff:   String(Math.max(0, cutoffDay - today.day)),
-    intakeLink:     appLink ? `${appLink}?intake=1` : '',   // lands with the intake surface open
-    appLink,
-    questionsBlock: touch === 'ask' ? buildQuestionsBlock(chan?.extraQuestions ?? null) : '',
-    // leanLine + beatsSummary render blank in this build (their sources wire in later builds).
-  };
-
-  const ok = await sendEmail({ key: TOUCH_KEY[touch], clientId, merge });
-  if (!ok) { logger.warn(logCtx, '[touch:skipped reason=send_failed]'); return 'skipped'; }
-
-  // Stamp at-most-once AFTER a confirmed send.
-  const patch = touch === 'ask' ? { askSentAt: new Date() } : touch === 'nudge' ? { nudgeSentAt: new Date() } : { lastCallSentAt: new Date() };
-  await db.update(contentCycles).set(patch).where(eq(contentCycles.id, cycle.id));
-  logger.info({ ...logCtx, to: APP_DELIVERY_PIN_LABEL }, '[touch:sent]');
-  return 'sent';
 }
 
 // Log-only label (the real pinned address lives in email-send.ts; the scheduler never sends
 // directly — it delegates to the injected sendEmail).
 const APP_DELIVERY_PIN_LABEL = 'pinned-test-inbox';
+
+// Why a beat left its *_sent_at NULL. Mirrors the send log; recoverable from the DB alone.
+// NULL (no row value) = unknown / predates the column. See content_cycles schema + migration 0080.
+export type BeatSkipReason = 'has_input' | 'send_failed' | 'no_sender_wired' | 'error';
+
+/**
+ * Stamp the per-beat skip reason for `touch`. Mirrors the success-path timestamp stamp
+ * (three explicit column branches) but writes the reason column and NEVER touches *_sent_at,
+ * so the at-most-once guard (which keys off *_sent_at) is unchanged. This is a NEW write on
+ * branches that were previously read-only — it records diagnosis only, never gates sending.
+ */
+async function stampBeatSkip(db: Db, cycleId: string, touch: Touch, reason: BeatSkipReason): Promise<void> {
+  const patch = touch === 'ask'   ? { askSkipReason: reason }
+              : touch === 'nudge' ? { nudgeSkipReason: reason }
+              :                     { lastCallSkipReason: reason };
+  await db.update(contentCycles).set(patch).where(eq(contentCycles.id, cycleId));
+}
 
 export async function runContentCycleTick(params: {
   db:     Db;

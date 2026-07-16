@@ -723,6 +723,15 @@ export const contentCycles = pgTable(
     askSentAt:         timestamp('ask_sent_at'),
     nudgeSentAt:       timestamp('nudge_sent_at'),
     lastCallSentAt:    timestamp('last_call_sent_at'),
+    // Per-beat skip reason (migration 0080): WHY a touch left its *_sent_at NULL, so the state is
+    // recoverable from the DB alone — a NULL *_sent_at can't distinguish a suppressed beat (input
+    // landed) from an attempted-but-unsent one. Mirrors the send log above; NEVER gates sending
+    // (the at-most-once guard keys off *_sent_at). Values (cf. ig_input_status house style):
+    // has_input | send_failed | no_sender_wired | error. NULL = unknown / predates the column
+    // (not backfillable).
+    askSkipReason:      text('ask_skip_reason'),
+    nudgeSkipReason:    text('nudge_skip_reason'),
+    lastCallSkipReason: text('last_call_skip_reason'),
     replyReceivedAt:   timestamp('reply_received_at'),
     deliveredAt:       timestamp('delivered_at'),
     finalisedAt:       timestamp('finalised_at'),

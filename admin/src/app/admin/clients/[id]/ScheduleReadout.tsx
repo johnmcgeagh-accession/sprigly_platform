@@ -11,8 +11,20 @@ export interface CurrentCycleStatus {
   askSentAt:      string | null;  // ISO or null
   nudgeSentAt:    string | null;
   lastCallSentAt: string | null;
+  // Per-beat skip reason (0080) — WHY a NULL *_sent_at happened. null = unknown / predates.
+  askSkipReason:      string | null;  // 'has_input'|'send_failed'|'no_sender_wired'|'error'|null
+  nudgeSkipReason:    string | null;
+  lastCallSkipReason: string | null;
   inputLanded:    boolean;        // hasAnyIntakeInput for this cycle
 }
+
+/** Human labels for the skip-reason domain (migration 0080). */
+const SKIP_REASON_LABEL: Record<string, string> = {
+  has_input:       'Suppressed — input landed',
+  send_failed:     'Send failed',
+  no_sender_wired: 'No sender configured',
+  error:           'Errored',
+};
 
 function ord(n: number): string {
   const v = n % 100;
@@ -54,7 +66,15 @@ export function ScheduleReadout({ reminderDay, cutoffDay, currentCycle }: {
     `Plan runs: ${ord(s.planRunDay!)}`,
   ].filter(Boolean);
 
-  const status = (label: string, at: string | null) => (at ? `${label} sent ${shortDate(at)}` : `${label} pending`);
+  // Three display states (0080), replacing the old NULL→"pending" lie:
+  //   sent (timestamp)  → "Ask: Sent 13 Jul"
+  //   NULL + reason     → "Ask: Suppressed — input landed" (etc.)
+  //   NULL + no reason  → "Ask: No reminder sent"  (unknown / predates the column)
+  const status = (label: string, at: string | null, reason: string | null) => {
+    if (at) return `${label}: Sent ${shortDate(at)}`;
+    if (reason) return `${label}: ${SKIP_REASON_LABEL[reason] ?? reason}`;
+    return `${label}: No reminder sent`;
+  };
 
   return (
     <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-gray-700">
@@ -66,9 +86,9 @@ export function ScheduleReadout({ reminderDay, cutoffDay, currentCycle }: {
         <div className="mt-2 border-t border-blue-100 pt-2 text-gray-600">
           <div className="font-medium text-gray-700">This month ({currentCycle.monthLabel}):</div>
           <div>
-            {status('Ask', currentCycle.askSentAt)}
-            {s.nudgeDay != null ? ` · ${status('Nudge', currentCycle.nudgeSentAt)}` : ''}
-            {` · ${status('Last Call', currentCycle.lastCallSentAt)}`}
+            {status('Ask', currentCycle.askSentAt, currentCycle.askSkipReason)}
+            {s.nudgeDay != null ? ` · ${status('Nudge', currentCycle.nudgeSentAt, currentCycle.nudgeSkipReason)}` : ''}
+            {` · ${status('Last Call', currentCycle.lastCallSentAt, currentCycle.lastCallSkipReason)}`}
           </div>
           <div>Input landed: {currentCycle.inputLanded ? 'yes — reminders now suppressed' : 'not yet'}</div>
         </div>
