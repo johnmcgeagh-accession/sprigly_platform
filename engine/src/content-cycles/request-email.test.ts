@@ -75,6 +75,7 @@ function makeDefaultDb(overrides: {
   contactEmail?:   string | null;
   contactName?:    string | null;
   extraQuestions?: string[] | null;
+  contentCycleSchedule?: { day?: number; hour?: number; cutoffDay?: number | null } | null;
 } = {}) {
   const {
     cycleStatus    = 'scheduled',
@@ -82,11 +83,12 @@ function makeDefaultDb(overrides: {
     contactEmail   = 'john.mcgeagh@gmail.com',
     contactName    = 'Sally',
     extraQuestions = null,
+    contentCycleSchedule = null,   // null ⇒ no cutoffDay ⇒ legacy path (gate falls through)
   } = overrides;
   return makeDb([
     [{ ...BASE_CYCLE, cycleMonth, status: cycleStatus }],        // 1. cycle check
     [{ name: 'Ivy T' }],                                          // 2. client name
-    [{ driveFolderId: FOLDER_ID, contactEmail, contactName, extraQuestions }], // 3. channel row
+    [{ driveFolderId: FOLDER_ID, contactEmail, contactName, extraQuestions, contentCycleSchedule }], // 3. channel row
   ]);
 }
 
@@ -110,12 +112,14 @@ function makeDeps(overrides: {
   extraQuestions?:    string[] | null;
   gmailDraftService?: RequestEmailDeps['gmailDraftService'];
   cycleMonth?:        string;
+  contentCycleSchedule?: { day?: number; hour?: number; cutoffDay?: number | null } | null;
 } = {}): RequestEmailDeps {
   const dbOverrides: Parameters<typeof makeDefaultDb>[0] = {};
   if (overrides.cycleMonth     !== undefined) dbOverrides.cycleMonth     = overrides.cycleMonth;
   if (overrides.contactEmail   !== undefined) dbOverrides.contactEmail   = overrides.contactEmail;
   if (overrides.contactName    !== undefined) dbOverrides.contactName    = overrides.contactName;
   if (overrides.extraQuestions !== undefined) dbOverrides.extraQuestions = overrides.extraQuestions;
+  if (overrides.contentCycleSchedule !== undefined) dbOverrides.contentCycleSchedule = overrides.contentCycleSchedule;
   return {
     db: overrides.db ?? makeDefaultDb(dbOverrides),
     drive:             makeDrive(),
@@ -214,6 +218,29 @@ describe('runRequestEmail', () => {
     );
     expect(gmail.createDraft).not.toHaveBeenCalled();
     expect(transitionCycleMock).not.toHaveBeenCalled();
+  });
+
+  // ── cohort gate: cutoffDay clients ask via the three-touch Ask, not the request email ────────
+  it('returns early — no draft, no transition — for a cutoffDay client', async () => {
+    const gmail = makeGmail();
+    await runRequestEmail(
+      CLIENT_ID, 'instagram', '2026-05',
+      makeDeps({ db: makeDefaultDb({ contentCycleSchedule: { day: 10, hour: 6, cutoffDay: 16 } }), gmailDraftService: gmail }),
+    );
+    expect(gmail.createDraft).not.toHaveBeenCalled();      // no send
+    expect(transitionCycleMock).not.toHaveBeenCalled();    // 'requested' transition skipped
+  });
+
+  it('still drafts AND transitions to requested for a NON-cutoffDay client', async () => {
+    const gmail = makeGmail();
+    await runRequestEmail(
+      CLIENT_ID, 'instagram', '2026-05',
+      makeDeps({ db: makeDefaultDb({ contentCycleSchedule: { day: 1, hour: 6 } }), gmailDraftService: gmail }),
+    );
+    expect(gmail.createDraft).toHaveBeenCalledTimes(1);     // send happens
+    expect(transitionCycleMock).toHaveBeenCalledWith(
+      expect.anything(), expect.any(String), 'requested', expect.objectContaining({ requestSentAt: expect.any(Date) }), expect.anything(),
+    );
   });
 
   // ── subject: targetMonth label ───────────────────────────────────────────────

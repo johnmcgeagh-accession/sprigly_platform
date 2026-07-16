@@ -623,10 +623,12 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
         </section>
       )}
 
-      {/* Content Cycle Intake — visible once cycle reaches requested state */}
+      {/* Content Cycle Intake — visible from the seed state onward. 'scheduled' is included because
+          cutoffDay clients no longer pass through 'requested' (the legacy request email is gated
+          off for them), so they sit at 'scheduled' with intake still open. */}
       {channels.length > 0 && channels.some((ch) => {
         const s = cyclesByChannel.get(ch.channel)?.status;
-        return s === 'requested' || s === 'reply_received' || s === 'awaiting_confirmation' || s === 'intake_confirmed';
+        return s === 'scheduled' || s === 'requested' || s === 'reply_received' || s === 'awaiting_confirmation' || s === 'intake_confirmed';
       }) && (
         <section className="bg-white rounded-lg border border-gray-200 px-6 py-5">
           <h2 className="text-base font-semibold text-gray-900 mb-1">Content Cycle Intake</h2>
@@ -637,7 +639,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
           <div className="space-y-10">
             {channels.map((ch) => {
               const cycle = cyclesByChannel.get(ch.channel);
-              const intakeStatuses = ['requested', 'reply_received', 'awaiting_confirmation', 'intake_confirmed'];
+              const intakeStatuses = ['scheduled', 'requested', 'reply_received', 'awaiting_confirmation', 'intake_confirmed'];
               if (!cycle || !intakeStatuses.includes(cycle.status)) return null;
               return (
                 <div key={ch.channel}>

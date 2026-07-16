@@ -138,10 +138,11 @@ export async function runRequestEmail(
   // ── 3. Channel row: Drive folder + contact config ────────────────────────
   const channelRows = await db
     .select({
-      driveFolderId:  clientChannels.driveFolderId,
-      contactEmail:   clientChannels.contactEmail,
-      contactName:    clientChannels.contactName,
-      extraQuestions: clientChannels.extraQuestions,
+      driveFolderId:        clientChannels.driveFolderId,
+      contactEmail:         clientChannels.contactEmail,
+      contactName:          clientChannels.contactName,
+      extraQuestions:       clientChannels.extraQuestions,
+      contentCycleSchedule: clientChannels.contentCycleSchedule,
     })
     .from(clientChannels)
     .where(and(
@@ -151,6 +152,20 @@ export async function runRequestEmail(
     .limit(1);
 
   const channelRow = channelRows[0];
+
+  // ── Cohort gate: cutoffDay clients ask via the three-touch Ask (#4), not this legacy request
+  // email. Return before assembling, sending, or transitioning — so 'requested' is left as a
+  // transit-only status for them (auto-run drives scheduled → requested → intake_confirmed). The
+  // discriminator is cutoffDay != null, the same signal as scheduler.ts:195/:393. Non-cutoffDay
+  // channels fall through and keep the legacy request-email path unchanged.
+  if (channelRow?.contentCycleSchedule?.cutoffDay != null) {
+    logger.info(
+      { ...logCtx, cycleId: cycle.id, cutoffDay: channelRow.contentCycleSchedule.cutoffDay },
+      'request-email: skipped — cutoffDay client asks via the three-touch Ask (legacy request email gated off for this cohort)',
+    );
+    return;
+  }
+
   const driveFolderId = channelRow?.driveFolderId;
   if (!driveFolderId) {
     throw new Error(`request-email: no driveFolderId for client=${clientId} channel=${channel}`);

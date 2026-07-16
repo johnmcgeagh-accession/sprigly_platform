@@ -8,8 +8,10 @@ import { enqueuePlanning } from './planning-enqueue';
 
 export type IntakeActionResult = { ok: boolean; message?: string };
 
-// Statuses from which a manual intake confirmation is allowed.
-const INTAKE_CONFIRMABLE = new Set(['requested', 'reply_received', 'awaiting_confirmation']);
+// Statuses from which a manual intake confirmation is allowed. 'scheduled' is included because
+// cutoffDay clients no longer pass through 'requested' (the legacy request email is gated off for
+// them) — they sit at the seed state with intake open and must still be confirmable.
+const INTAKE_CONFIRMABLE = new Set(['scheduled', 'requested', 'reply_received', 'awaiting_confirmation']);
 
 export async function saveIntake(formData: FormData): Promise<IntakeActionResult> {
   const cycleId  = formData.get('cycleId')  as string;
