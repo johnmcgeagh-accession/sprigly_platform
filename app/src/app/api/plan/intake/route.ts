@@ -17,9 +17,9 @@
  * (same transport; destination is intake/brief, not proposals, pre-cutoff).
  */
 import { NextResponse } from 'next/server';
-import { and, eq, gte, inArray, isNull, lte, or } from 'drizzle-orm';
-import { db, contentCycles, planInputs, clearStructuredBriefIfPrePlanning, PRE_PLANNING_STATUSES } from '@sprigly/db';
-import { extractStructuredBrief, distributeBriefAnswers, BASE_QUESTIONS, type IntakeJson, type StructuredBrief } from '@sprigly/engine';
+import { and, eq } from 'drizzle-orm';
+import { db, contentCycles, clearStructuredBriefIfPrePlanning, PRE_PLANNING_STATUSES } from '@sprigly/db';
+import { extractStructuredBrief, distributeBriefAnswers, loadDurableInputs, BASE_QUESTIONS, type IntakeJson, type StructuredBrief } from '@sprigly/engine';
 import type { ExtractedSummary } from '@/lib/types';
 import { getSession } from '@/lib/auth';
 import { allowRequest } from '@/lib/rate-limit';
@@ -32,19 +32,12 @@ import { nextMonth } from '@/lib/cycle-nav';
  *  saved and the brief is left null for the lazy planning-path retry. */
 const EXTRACT_TIMEOUT_MS = 25_000;
 
-/** Live durable cross-cycle context for the plan month (mirrors the worker's loadDurableContext). */
+/** Live durable cross-cycle context for the plan month — the SHARED @sprigly/engine
+ *  loadDurableInputs (one query construction, the same the planning gate and worker generator
+ *  call). Best-effort posture unchanged: any failure yields []. */
 async function loadDurableContext(clientId: string, planMonth: string): Promise<string[]> {
   try {
-    const rows = await db
-      .select({ type: planInputs.type, content: planInputs.content })
-      .from(planInputs)
-      .where(and(
-        eq(planInputs.clientId, clientId),
-        inArray(planInputs.type, ['idea', 'next_cycle']),
-        eq(planInputs.status, 'active'),
-        or(isNull(planInputs.relevantFrom), lte(planInputs.relevantFrom, `${planMonth}-31`)),
-        or(isNull(planInputs.relevantTo),   gte(planInputs.relevantTo,   `${planMonth}-01`)),
-      ));
+    const rows = await loadDurableInputs(db, clientId, planMonth);
     return rows.map((r) => `[${r.type}] ${r.content}`);
   } catch { return []; }
 }

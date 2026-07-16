@@ -13,18 +13,19 @@
  * Durable-window difference (DELIBERATE — the asymmetry is a feature, not a bug):
  *   A counts durable notes by CAPTURE time   (created_at >= cycle.created_at): anything the client
  *     left during this cycle's window suppresses the reminder, relevant to the plan month or not.
- *   B counts durable notes by RELEVANCE to the plan month (relevant_from <= monthEnd AND
- *     relevant_to >= monthStart, plan month = cycle_month + 1) — the SAME window the generator's
- *     loadDurableContext (worker planning.ts) reads, so B is plannable iff generation actually has
- *     something to work with. A note captured this window but NOT relevant to the plan month
- *     therefore suppresses (A) yet is not plannable (B).
+ *   B counts durable notes by RELEVANCE to the plan month (relevance overlap, plan month =
+ *     cycle_month + 1) via the SHARED loadDurableInputs — the SAME query the generator's
+ *     loadDurableContext (worker planning.ts) now calls, so B is plannable iff generation actually
+ *     has something to work with (not "should mirror" — one query, two callers). A note captured
+ *     this window but NOT relevant to the plan month therefore suppresses (A) yet is not
+ *     plannable (B).
  *
  * Orphaned answers: hasIntakeContent counts Object.values(answers) with no reference to the
  * question list (an answer to a since-removed extra still counts). That is intentional here —
  * keying to the list would silently change suppression. The form-completeness question (C) is the
  * one that keys to the list.
  */
-import { and, eq, gte, inArray, lte, or, isNull } from 'drizzle-orm';
+import { and, eq, gte, inArray, lt, or, isNull } from 'drizzle-orm';
 import { db as _db, planInputs } from '@sprigly/db';
 import type { IntakeJson } from './types.js';
 import { isEmptyBrief } from './brief-extract.js';
@@ -73,25 +74,55 @@ function planMonthOf(cycleMonth: string): string {
 }
 
 /**
- * QUESTION B — plannable. See the file header. Durable window: relevance overlap with the plan
- * month (mirrors worker planning.ts loadDurableContext, so B tracks what generation consumes).
- * Short-circuits on intake content (no DB read).
+ * "YYYY-MM" → the FIRST day of the FOLLOWING month, "YYYY-MM-01". This is the strict upper bound
+ * for a plan-month relevance window: `relevant_from < firstOfMonthAfter(planMonth)` selects every
+ * date in (and before) the plan month with NO invalid-date literal — no `-31`/`-30`, no February
+ * special case, no last-day arithmetic. The old `${planMonth}-31` lexical bound threw
+ * `date/time field value out of range` against the DATE columns for every <31-day plan month
+ * (Sep/Apr/Jun/Nov → -31 invalid, Feb → -31 invalid).
+ */
+function firstOfMonthAfter(planMonth: string): string {
+  const [y, m] = planMonth.split('-').map(Number);
+  const d = new Date(Date.UTC(y!, m!, 1));   // m 1-based → index m == the month AFTER planMonth; year rolls
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`;
+}
+
+export interface DurableInputRow { type: string; content: string; }
+
+/**
+ * THE one durable relevance-window query — active plan_inputs of type idea|next_cycle whose
+ * relevance window overlaps `planMonth` (null bounds are open):
+ *   relevant_from <  first-of-month-after(planMonth)   — starts on/before the plan month
+ *   relevant_to   >= first-of(planMonth)               — ends   on/after  the plan month
+ * SHARED verbatim by the planning GATE (hasPlannableInput — "is there anything?") and the
+ * generator's loadDurableContext (worker planning.ts — "give me the rows"), so the two can never
+ * diverge on the window again. Returns the rows; each caller decides existence vs content and
+ * keeps its OWN error posture (the generator wraps this best-effort → []; the gate lets errors
+ * propagate). The window is identical to the prior two inline copies except the fixed upper bound.
+ */
+export async function loadDurableInputs(db: Db, clientId: string, planMonth: string): Promise<DurableInputRow[]> {
+  const monthStart     = `${planMonth}-01`;
+  const nextMonthStart = firstOfMonthAfter(planMonth);
+  const rows = await db
+    .select({ type: planInputs.type, content: planInputs.content })
+    .from(planInputs)
+    .where(and(
+      eq(planInputs.clientId, clientId),
+      inArray(planInputs.type, DURABLE_INPUT_TYPES),
+      eq(planInputs.status, 'active'),
+      or(isNull(planInputs.relevantFrom), lt(planInputs.relevantFrom, nextMonthStart)),
+      or(isNull(planInputs.relevantTo),   gte(planInputs.relevantTo,   monthStart)),
+    ));
+  return rows.map((r) => ({ type: r.type, content: r.content }));
+}
+
+/**
+ * QUESTION B — plannable. See the file header. Durable window: the SHARED loadDurableInputs (the
+ * SAME query the generator consumes), so B is plannable iff generation actually has something to
+ * work with. Short-circuits on intake content (no DB read).
  */
 export async function hasPlannableInput(db: Db, cycle: PlannableCycle): Promise<boolean> {
   if (hasIntakeContent(cycle.intakeJson as IntakeJson | null)) return true;
-  const planMonth  = planMonthOf(cycle.cycleMonth);
-  const monthStart = `${planMonth}-01`;
-  const monthEnd   = `${planMonth}-31`;   // lexical upper bound for the month
-  const rows = await db
-    .select({ id: planInputs.id })
-    .from(planInputs)
-    .where(and(
-      eq(planInputs.clientId, cycle.clientId),
-      inArray(planInputs.type, DURABLE_INPUT_TYPES),
-      eq(planInputs.status, 'active'),
-      or(isNull(planInputs.relevantFrom), lte(planInputs.relevantFrom, monthEnd)),
-      or(isNull(planInputs.relevantTo),   gte(planInputs.relevantTo,   monthStart)),
-    ))
-    .limit(1);
+  const rows = await loadDurableInputs(db, cycle.clientId, planMonthOf(cycle.cycleMonth));
   return rows.length > 0;
 }

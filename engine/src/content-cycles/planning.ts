@@ -47,7 +47,6 @@ import {
   clientProductCatalogue,
   contentCyclePosts,
   postEdits,
-  planInputs,
   stampPostsSyncStatus,
 } from '@sprigly/db';
 import type { NewContentCyclePostRow } from '@sprigly/db';
@@ -62,6 +61,7 @@ import type { ModelClient } from '@sprigly/model-client';
 import type { AuditLogger } from '@sprigly/audit';
 import type { DbPromptResolver } from '@sprigly/prompts';
 import type { IntakeJson, CompetitorGatherData, StructuredBrief } from '@sprigly/engine';
+import { loadDurableInputs } from '@sprigly/engine';
 import { deliverTemplatedEmail } from './email-send.js';
 import type { Logger } from 'pino';
 import { transitionCycle } from './machine.js';
@@ -669,19 +669,10 @@ async function sendAppReadyNotification(
  * time so the latest standing notes are always current. Best-effort — a failure yields [].
  */
 async function loadDurableContext(db: Db, clientId: string, planMonth: string): Promise<string[]> {
-  const monthStart = `${planMonth}-01`;
-  const monthEnd   = `${planMonth}-31`;   // lexical upper bound for the month
+  // ONE query construction, shared with the planning gate (hasPlannableInput) — see
+  // @sprigly/engine loadDurableInputs. Best-effort posture unchanged: any failure yields [].
   try {
-    const rows = await db
-      .select({ type: planInputs.type, content: planInputs.content })
-      .from(planInputs)
-      .where(and(
-        eq(planInputs.clientId, clientId),
-        inArray(planInputs.type, ['idea', 'next_cycle']),
-        eq(planInputs.status, 'active'),
-        or(isNull(planInputs.relevantFrom), lte(planInputs.relevantFrom, monthEnd)),
-        or(isNull(planInputs.relevantTo),   gte(planInputs.relevantTo,   monthStart)),
-      ));
+    const rows = await loadDurableInputs(db, clientId, planMonth);
     return rows.map((r) => `[${r.type}] ${r.content}`);
   } catch {
     return [];

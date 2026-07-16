@@ -4,8 +4,8 @@ export type { BaseQuestion } from './base-questions.js';
 export { AUTO_RUN_ENABLED_ENV, isAutoRunEnabled } from './auto-run-flag.js';
 
 // The three intake "has input?" questions (A suppression, B plannable) + C (form completeness).
-export { hasIntakeContent, hasSuppressibleInput, hasPlannableInput, DURABLE_INPUT_TYPES } from './intake-signals.js';
-export type { SuppressibleCycle, PlannableCycle } from './intake-signals.js';
+export { hasIntakeContent, hasSuppressibleInput, hasPlannableInput, loadDurableInputs, DURABLE_INPUT_TYPES } from './intake-signals.js';
+export type { SuppressibleCycle, PlannableCycle, DurableInputRow } from './intake-signals.js';
 export { intakeCompleteness } from './intake-completeness.js';
 
 export type {
