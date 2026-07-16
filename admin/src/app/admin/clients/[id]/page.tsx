@@ -411,13 +411,13 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
         </p>
       </div>
 
-      {/* ── Cycle card (build 2a) — one per channel, at the very top. Additive: it supersedes the
-          ScheduleReadout visually but both render this build (ScheduleReadout removed in 2b). ── */}
+      {/* ── Cycle card — one per channel, at the very top. It is now the sole beat/schedule
+          surface (the old ScheduleReadout mirror has been removed). ── */}
       {channels.length > 0 && (
         <div className="space-y-6">
           {channels.map((ch) => {
             // Cohort: a client WITH a cutoffDay runs on the CURRENT-month cycle; legacy on the
-            // data-month cycle (mirrors ScheduleReadout + the ContentCycleSettingsForm binding).
+            // data-month cycle (mirrors the ContentCycleSettingsForm binding).
             const intakeCohort = ch.contentCycleSchedule?.cutoffDay != null;
             const cohortMonth  = intakeCohort ? currentMonth : dataMonth;
             const c            = (intakeCohort ? cyclesByChannelCurrent : cyclesByChannel).get(ch.channel) ?? null;
