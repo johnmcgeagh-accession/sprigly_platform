@@ -11,3 +11,18 @@ export const BASE_QUESTIONS = [
 ] as const;
 
 export type BaseQuestion = typeof BASE_QUESTIONS[number];
+
+/**
+ * The ONE ordered planning-question list for a channel: BASE_QUESTIONS followed by the channel's
+ * own extra_questions (client_channels.extra_questions), with the string filter both surfaces
+ * already applied. Shared so the card (which counts) and the intake panel (which edits) can never
+ * disagree on the set or its order. Returns questions ONLY — it knows nothing about answers,
+ * counts, or state. The `extra_questions` column is jsonb, so the value is treated as unknown and
+ * non-string entries are dropped (identical to the prior inline guards).
+ */
+export function questionsForChannel(channel: { extraQuestions?: readonly unknown[] | null }): string[] {
+  const extra = Array.isArray(channel.extraQuestions)
+    ? channel.extraQuestions.filter((q): q is string => typeof q === 'string')
+    : [];
+  return [...BASE_QUESTIONS, ...extra];
+}

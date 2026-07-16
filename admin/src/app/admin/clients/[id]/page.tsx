@@ -547,12 +547,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                     cycleStatus={cycle.status}
                     clientId={params.id}
                     channel={ch.channel}
-                    baseQuestions={BASE_QUESTIONS}
-                    extraQuestions={
-                      Array.isArray(ch.extraQuestions)
-                        ? (ch.extraQuestions as unknown[]).filter((q): q is string => typeof q === 'string')
-                        : []
-                    }
+                    questions={questionsForChannel(ch)}
                     existingIntake={cycle.intakeJson}
                   />
                 </div>

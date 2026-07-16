@@ -1,4 +1,4 @@
-export { BASE_QUESTIONS } from './base-questions.js';
+export { BASE_QUESTIONS, questionsForChannel } from './base-questions.js';
 export type { BaseQuestion } from './base-questions.js';
 
 export type {
