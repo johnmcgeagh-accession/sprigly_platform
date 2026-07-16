@@ -2,7 +2,6 @@
 
 import { useRef, useState } from 'react';
 import { updateContentCycleSettings, updateContentCycleEnabled } from './actions';
-import { ScheduleReadout, type CurrentCycleStatus } from './ScheduleReadout';
 
 interface Props {
   clientId:             string;
@@ -14,8 +13,6 @@ interface Props {
   contentCycleSchedule: { day: number; hour: number; cutoffDay?: number | null } | null;
   extraQuestions:       string[] | null;
   contentCycleEnabled:  boolean;
-  // The current cycle's send-log stamps + input-landed flag for the "where are we" readout.
-  currentCycle:         CurrentCycleStatus | null;
 }
 
 export function ContentCycleSettingsForm({
@@ -28,7 +25,6 @@ export function ContentCycleSettingsForm({
   contentCycleSchedule,
   extraQuestions,
   contentCycleEnabled,
-  currentCycle,
 }: Props) {
   const settingsFormRef  = useRef<HTMLFormElement>(null);
   const enableFormRef    = useRef<HTMLFormElement>(null);
@@ -187,11 +183,6 @@ export function ContentCycleSettingsForm({
               />
               <span className="text-xs text-gray-400">must be after the reminder day</span>
             </div>
-          </div>
-
-          {/* "what fires when" readout — derived from the two dates (shared derivation) */}
-          <div className="col-span-2">
-            <ScheduleReadout reminderDay={reminderDay} cutoffDay={cutoffDay} currentCycle={currentCycle} />
           </div>
 
           {/* extra_questions */}

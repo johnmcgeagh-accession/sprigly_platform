@@ -8,15 +8,13 @@ import Link from 'next/link';
 import { db, clients, clientConfigs, clientChannels, oauthConnections, incomingEvents, routingRules, promptTemplates, workflowRuns, contentCycles, clientPlanningConfig, voiceSnapshots, clientProductCatalogue } from '@sprigly/db';
 import { eq, desc, and, isNull, sql, inArray } from 'drizzle-orm';
 import { workflowMeta, type WorkflowMeta } from '@sprigly/workflows';
-import { getTokens, storeTokens, createEncryptionProvider } from '@sprigly/oauth-tokens';
-import { DriveApiClient, type DriveFileMeta } from '@sprigly/sources';
 import { customisePrompt, approveQaDraft } from './actions';
 import { StepModelForm } from './StepModelForm';
 import { ContentCycleSettingsForm } from './ContentCycleSettingsForm';
 import { ContentCycleOpsPanel } from './ContentCycleOpsPanel';
 import { IntakePanel } from './IntakePanel';
 import { CycleCard } from './CycleCard';
-import { questionsForChannel, isAutoRunEnabled, AUTO_RUN_ENABLED_ENV, hasSuppressibleInput, hasPlannableInput } from '@sprigly/engine';
+import { questionsForChannel, isAutoRunEnabled, AUTO_RUN_ENABLED_ENV, hasPlannableInput } from '@sprigly/engine';
 import type { IntakeJson } from '@sprigly/engine';
 
 type PromptRow = { id: string; clientId: string | null; workflowId: string; stepName: string; version: number };
@@ -133,7 +131,6 @@ type CycleInfo = {
   askSkipReason:      string | null;
   nudgeSkipReason:    string | null;
   lastCallSkipReason: string | null;
-  inputLanded:     boolean;   // QUESTION A (hasSuppressibleInput) — MUST match the sender's suppression
 };
 
 async function getCompetitorsByChannel(
@@ -218,9 +215,7 @@ async function getCyclesByChannel(
         inArray(contentCycles.channel, channelNames),
       ),
     );
-  // inputLanded = QUESTION A (hasSuppressibleInput) — the SHARED suppression predicate, so the
-  // display can't diverge from what the sender actually suppresses on (durable window = createdAt).
-  return new Map(await Promise.all(rows.map(async r => [r.channel, {
+  return new Map(rows.map(r => [r.channel, {
     id:            r.id,
     status:        r.status,
     requestSentAt: r.requestSentAt ? r.requestSentAt.toISOString() : null,
@@ -238,50 +233,7 @@ async function getCyclesByChannel(
     askSkipReason:      r.askSkipReason ?? null,
     nudgeSkipReason:    r.nudgeSkipReason ?? null,
     lastCallSkipReason: r.lastCallSkipReason ?? null,
-    inputLanded:     await hasSuppressibleInput(db, { clientId, createdAt: r.createdAt, intakeJson: r.intakeJson }),
-  }] as const)));
-}
-
-async function getDriveFilesByChannel(
-  clientId: string,
-  channelFolders: { channel: string; driveFolderId: string | null }[],
-): Promise<Map<string, { files: DriveFileMeta[] | null; error: boolean }>> {
-  const result = new Map<string, { files: DriveFileMeta[] | null; error: boolean }>();
-  const foldersToFetch = channelFolders.filter(c => c.driveFolderId);
-  if (foldersToFetch.length === 0) {
-    channelFolders.forEach(c => result.set(c.channel, { files: null, error: false }));
-    return result;
-  }
-  try {
-    const encProvider = createEncryptionProvider();
-    const tokens = await getTokens(db, encProvider, clientId, 'drive');
-    if (!tokens) {
-      channelFolders.forEach(c => result.set(c.channel, { files: null, error: false }));
-      return result;
-    }
-    const drive = new DriveApiClient(
-      process.env.GOOGLE_CLIENT_ID  ?? '',
-      process.env.GOOGLE_CLIENT_SECRET ?? '',
-      tokens,
-      async (t) => {
-        try { await storeTokens(db, encProvider, clientId, 'drive', t); } catch { /* best-effort */ }
-      },
-    );
-    await Promise.all(
-      channelFolders.map(async ({ channel, driveFolderId }) => {
-        if (!driveFolderId) { result.set(channel, { files: null, error: false }); return; }
-        try {
-          const files = await drive.listFiles(driveFolderId);
-          result.set(channel, { files, error: false });
-        } catch {
-          result.set(channel, { files: null, error: true });
-        }
-      }),
-    );
-  } catch {
-    channelFolders.forEach(c => result.set(c.channel, { files: null, error: true }));
-  }
-  return result;
+  }]));
 }
 
 async function getOAuthConnections(clientId: string) {
@@ -422,11 +374,10 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
 
   const channelNames = channels.map(c => c.channel);
   const currentMonth = getCurrentMonth();   // intake cohort's cycle month (FIX 3)
-  const [promptCoverage, cyclesByChannel, cyclesByChannelCurrent, driveByChannel, competitorsByChannel, voiceByChannel, catalogueByChannel] = await Promise.all([
+  const [promptCoverage, cyclesByChannel, cyclesByChannelCurrent, competitorsByChannel, voiceByChannel, catalogueByChannel] = await Promise.all([
     getPromptCoverage(params.id, clientRules.map((r) => r.workflowId)),
     getCyclesByChannel(params.id, channelNames, dataMonth),
     getCyclesByChannel(params.id, channelNames, currentMonth),   // for the intake-cohort readout
-    getDriveFilesByChannel(params.id, channels.map(c => ({ channel: c.channel, driveFolderId: c.driveFolderId ?? null }))),
     getCompetitorsByChannel(params.id, channelNames),
     getVoiceByChannel(params.id, channelNames),
     getCatalogueByChannel(params.id, channelNames),
@@ -460,13 +411,13 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
         </p>
       </div>
 
-      {/* ── Cycle card (build 2a) — one per channel, at the very top. Additive: it supersedes the
-          ScheduleReadout visually but both render this build (ScheduleReadout removed in 2b). ── */}
+      {/* ── Cycle card — one per channel, at the very top. It is now the sole beat/schedule
+          surface (the old ScheduleReadout mirror has been removed). ── */}
       {channels.length > 0 && (
         <div className="space-y-6">
           {channels.map((ch) => {
             // Cohort: a client WITH a cutoffDay runs on the CURRENT-month cycle; legacy on the
-            // data-month cycle (mirrors ScheduleReadout + the ContentCycleSettingsForm binding).
+            // data-month cycle (mirrors the ContentCycleSettingsForm binding).
             const intakeCohort = ch.contentCycleSchedule?.cutoffDay != null;
             const cohortMonth  = intakeCohort ? currentMonth : dataMonth;
             const c            = (intakeCohort ? cyclesByChannelCurrent : cyclesByChannel).get(ch.channel) ?? null;
@@ -557,15 +508,6 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                   contentCycleSchedule={ch.contentCycleSchedule ?? null}
                   extraQuestions={ch.extraQuestions ?? null}
                   contentCycleEnabled={client.contentCycleEnabled}
-                  currentCycle={(() => {
-                    // FIX 3 cohort: a client WITH a cutoffDay runs on the CURRENT-month cycle; a
-                    // legacy client (no cutoffDay) on the data-month cycle. Read the right one.
-                    const intakeCohort = ch.contentCycleSchedule?.cutoffDay != null;
-                    const cohortMonth = intakeCohort ? currentMonth : dataMonth;
-                    const c = (intakeCohort ? cyclesByChannelCurrent : cyclesByChannel).get(ch.channel);
-                    if (!c) return null;
-                    return { monthLabel: planMonthLabelOf(cohortMonth), askSentAt: c.askSentAt, nudgeSentAt: c.nudgeSentAt, lastCallSentAt: c.lastCallSentAt, askSkipReason: c.askSkipReason, nudgeSkipReason: c.nudgeSkipReason, lastCallSkipReason: c.lastCallSkipReason, inputLanded: c.inputLanded };
-                  })()}
                 />
               </div>
             ))}
@@ -583,7 +525,6 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
           <div className="space-y-10">
             {channels.map((ch) => {
               const cycle = cyclesByChannel.get(ch.channel) ?? null;
-              const driveResult = driveByChannel.get(ch.channel) ?? { files: null, error: false };
               // QUESTION B (hasPlannableInput) — precomputed above; now durable-aware, so a
               // durable-only cycle enables "Run planning now" (matching what auto-run/the generator do).
               const intakePresent = plannableByChannel.get(ch.channel) ?? false;
@@ -609,8 +550,6 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                     igInputStatus={cycle?.igInputStatus ?? null}
                     igInputDetail={cycle?.igInputDetail ?? null}
                     intakePresent={intakePresent}
-                    driveFiles={driveResult.files}
-                    driveError={driveResult.error}
                   />
                 </div>
               );

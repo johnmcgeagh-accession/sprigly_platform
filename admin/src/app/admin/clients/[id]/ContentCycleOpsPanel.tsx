@@ -18,14 +18,7 @@ import {
   type ActionResult,
 } from './actions';
 import { uploadSales, uploadIgPosts, addCompetitor, removeCompetitor, type InputActionResult } from './input-actions';
-import { formatDateTime, formatDateTimeShort } from '@/lib/format-date';
-
-interface DriveFileMeta {
-  id:           string;
-  name:         string;
-  mimeType:     string;
-  modifiedTime: string;
-}
+import { formatDateTime } from '@/lib/format-date';
 
 interface CycleInfo {
   status:          string;
@@ -52,23 +45,12 @@ interface Props {
   igInputStatus:       string | null;  // last ig-trawl outcome for this month
   igInputDetail:       string | null;
   intakePresent:       boolean;  // planContent answers/freeNotes present → planning can run
-  driveFiles:          DriveFileMeta[] | null;  // null = fetch failed / no tokens
-  driveError:          boolean;
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-// Deterministic, hydration-safe formatters (see @/lib/format-date).
+// Deterministic, hydration-safe formatter (see @/lib/format-date).
 const fmtDate = formatDateTime;
-const fmtModified = formatDateTimeShort;
-
-// "YYYY-MM" → previous month "YYYY-MM" (the data month behind a plan month).
-// Deterministic in its input (no `new Date()` now), so hydration-safe.
-function prevMonthUI(yyyymm: string): string {
-  const [y, m] = yyyymm.split('-').map(Number);
-  const d = new Date(Date.UTC(y!, m! - 2, 1));
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-}
 
 function StatusBadge({ status }: { status: string }) {
   const colours: Record<string, string> = {
@@ -105,8 +87,6 @@ export function ContentCycleOpsPanel({
   igInputStatus,
   igInputDetail,
   intakePresent,
-  driveFiles,
-  driveError,
 }: Props) {
   const [showResetConfirm,   setShowResetConfirm]   = useState(false);
   const [showTriggerConfirm, setShowTriggerConfirm] = useState(false);
@@ -149,12 +129,6 @@ export function ContentCycleOpsPanel({
     });
   }
 
-  const salesFile = `sales-${dataMonth}.csv`;
-  const postsFile = `instagram-posts-${dataMonth}.json`;
-
-  const hasSalesFile = driveFiles?.some(f => f.name.toLowerCase() === salesFile.toLowerCase()) ?? false;
-  const hasPostsFile = driveFiles?.some(f => f.name.toLowerCase() === postsFile.toLowerCase()) ?? false;
-
   // WIDENED (legacy-request-email gating): was `cycle !== null && cycle.status !== 'scheduled'`
   // ("a cycle exists AND is past the seed state"). cutoffDay clients now sit at 'scheduled'
   // permanently (they ask via the three-touch Ask, not the request email), so the old predicate
@@ -167,16 +141,7 @@ export function ContentCycleOpsPanel({
   const cycleIsActive    = cycle !== null;
   const cycleIsRequested = cycle?.status === 'requested';
 
-  // "Start & prepare" inputs check: the picked plan month's DATA month is planMonth−1;
-  // ig-trawl/sales fetch for that data month, so check Drive for those files.
   const startMonthValid = /^\d{4}-(0[1-9]|1[0-2])$/.test(startMonth);
-  const startDataMonth  = startMonthValid ? prevMonthUI(startMonth) : null;
-  const startHasPosts = startDataMonth
-    ? (driveFiles?.some(f => f.name.toLowerCase() === `instagram-posts-${startDataMonth}.json`.toLowerCase()) ?? false)
-    : false;
-  const startHasSales = startDataMonth
-    ? (driveFiles?.some(f => f.name.toLowerCase() === `sales-${startDataMonth}.csv`.toLowerCase()) ?? false)
-    : false;
 
   function callTrigger(
     action: (fd: FormData) => Promise<ActionResult>,
@@ -328,73 +293,6 @@ export function ContentCycleOpsPanel({
         </div>
       </div>
 
-      {/* ── Block B: Drive contents ─────────────────────────────────── */}
-      <div>
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-          Drive folder contents
-        </h3>
-        <p className="text-xs text-gray-400 mb-3">
-          Showing files visible to the app (drive.file scope) — files added via the Drive web UI won&apos;t appear.
-        </p>
-
-        {/* Pipeline-file presence indicators */}
-        <div className="flex gap-4 mb-3">
-          <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${
-            hasSalesFile ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'
-          }`}>
-            {hasSalesFile ? '✓' : '○'} {salesFile}
-          </span>
-          <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${
-            hasPostsFile ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'
-          }`}>
-            {hasPostsFile ? '✓' : '○'} {postsFile}
-          </span>
-        </div>
-
-        {deliverySurface === 'app' ? (
-          <p className="text-sm text-gray-400">No Drive folder (app-surface client).</p>
-        ) : driveError || driveFiles === null ? (
-          <p className="text-sm text-gray-400 italic">
-            Unable to list Drive files — check Drive OAuth connection.
-          </p>
-        ) : driveFiles.length === 0 ? (
-          <p className="text-sm text-gray-400">No app-visible files in this folder.</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100 text-left text-gray-400 text-xs">
-                <th className="py-1.5 pr-4 font-medium">Name</th>
-                <th className="py-1.5 pr-4 font-medium">Type</th>
-                <th className="py-1.5 font-medium">Modified</th>
-              </tr>
-            </thead>
-            <tbody>
-              {driveFiles.map((f) => {
-                const isPipeline =
-                  f.name.toLowerCase() === salesFile.toLowerCase() ||
-                  f.name.toLowerCase() === postsFile.toLowerCase();
-                return (
-                  <tr key={f.id} className={`border-b border-gray-50 ${isPipeline ? 'bg-green-50/50' : ''}`}>
-                    <td className="py-1.5 pr-4 font-mono text-xs text-gray-800">
-                      {f.name}
-                      {isPipeline && (
-                        <span className="ml-1.5 text-green-600 font-sans font-medium text-xs">✓</span>
-                      )}
-                    </td>
-                    <td className="py-1.5 pr-4 text-gray-400 text-xs">
-                      {f.mimeType.split('/').pop()}
-                    </td>
-                    <td className="py-1.5 text-gray-400 text-xs">
-                      {fmtModified(f.modifiedTime)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
-
       {/* ── Block C: Actions ────────────────────────────────────────── */}
       <div className="pt-5 border-t border-gray-100">
         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">
@@ -427,7 +325,6 @@ export function ContentCycleOpsPanel({
             </button>
 
             <TriggerEmailButton
-              hasPostsFile={hasPostsFile}
               isPending={isPending}
               onTrigger={() => callTrigger(triggerEmail)}
             />
@@ -616,39 +513,8 @@ export function ContentCycleOpsPanel({
           </div>
           <p className="mt-1.5 text-xs text-gray-400">
             Pick the month you want posts <em>for</em> (e.g. <span className="font-mono">2026-07</span> → July posts, data month <span className="font-mono">2026-06</span>).
-            Runs the IG trawl + request, <strong>stops before planning</strong>, and shows what inputs were found so you can fill gaps first.
+            Runs the IG trawl + request and <strong>stops before planning</strong>.
           </p>
-
-          {/* Inputs found for the picked month's data month — prominent, so gaps are obvious before planning */}
-          {startMonthValid && startDataMonth && (
-            <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                Inputs found — data month <span className="font-mono normal-case">{startDataMonth}</span>
-              </div>
-              <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
-                <span className="inline-flex items-center gap-2">
-                  <span className={startHasPosts ? 'text-green-600 font-bold' : 'text-red-500 font-bold'}>{startHasPosts ? '✓' : '✗'}</span>
-                  <span className={startHasPosts ? 'text-gray-700' : 'text-red-600 font-medium'}>
-                    IG posts <span className="font-mono text-xs text-gray-400">instagram-posts-{startDataMonth}.json</span>
-                  </span>
-                </span>
-                <span className="inline-flex items-center gap-2">
-                  <span className={startHasSales ? 'text-green-600 font-bold' : 'text-red-500 font-bold'}>{startHasSales ? '✓' : '✗'}</span>
-                  <span className={startHasSales ? 'text-gray-700' : 'text-red-600 font-medium'}>
-                    Sales data <span className="font-mono text-xs text-gray-400">sales-{startDataMonth}.csv</span>
-                  </span>
-                </span>
-              </div>
-              {(!startHasPosts || !startHasSales) && (
-                <p className="mt-2 text-xs text-amber-600">
-                  Missing inputs won&apos;t block planning, but the plan will be thinner. Prepare fetches IG automatically; drop <span className="font-mono">sales-{startDataMonth}.csv</span> into Drive if absent, then run planning.
-                </p>
-              )}
-              {driveFiles === null && deliverySurface !== 'app' && (
-                <p className="mt-2 text-xs text-gray-400 italic">Drive file list unavailable — can&apos;t confirm inputs (check Drive OAuth).</p>
-              )}
-            </div>
-          )}
 
           {startNote && (
             <div className="mt-3 flex items-start gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2.5">
@@ -777,56 +643,19 @@ export function ContentCycleOpsPanel({
   );
 }
 
-// ── TriggerEmailButton (inline warning state) ─────────────────────────────────
+// ── TriggerEmailButton ─────────────────────────────────────────────────────────
+// The Drive-derived "no IG posts file → email will be sales-only" pre-warning was removed with
+// the Drive folder listing (its source, driveFiles, is gone). The button itself is retained per
+// the build scope — note that "Run email only" enqueues request-email, which early-returns for
+// cutoffDay clients (every currently-enabled client), so it is a no-op for them.
 
 function TriggerEmailButton({
-  hasPostsFile,
   isPending,
   onTrigger,
 }: {
-  hasPostsFile: boolean;
-  isPending:    boolean;
-  onTrigger:    () => void;
+  isPending: boolean;
+  onTrigger: () => void;
 }) {
-  const [showWarn, setShowWarn] = useState(false);
-
-  if (!hasPostsFile && !showWarn) {
-    return (
-      <button
-        type="button"
-        disabled={isPending}
-        onClick={() => setShowWarn(true)}
-        className="text-xs text-gray-500 underline hover:text-gray-700 disabled:opacity-50"
-      >
-        Run email only
-      </button>
-    );
-  }
-
-  if (!hasPostsFile && showWarn) {
-    return (
-      <span className="text-xs text-gray-500">
-        No IG data — email will be sales-only.{' '}
-        <button
-          type="button"
-          disabled={isPending}
-          onClick={() => { setShowWarn(false); onTrigger(); }}
-          className="underline hover:text-gray-700 disabled:opacity-50"
-        >
-          Proceed
-        </button>
-        {' '}/{' '}
-        <button
-          type="button"
-          onClick={() => setShowWarn(false)}
-          className="underline hover:text-gray-700"
-        >
-          Cancel
-        </button>
-      </span>
-    );
-  }
-
   return (
     <button
       type="button"
