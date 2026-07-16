@@ -5,7 +5,7 @@ import { formatDateTimeShort } from '@/lib/format-date';
 
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { db, clients, clientConfigs, clientChannels, oauthConnections, incomingEvents, routingRules, promptTemplates, workflowRuns, contentCycles, clientPlanningConfig, planInputs } from '@sprigly/db';
+import { db, clients, clientConfigs, clientChannels, oauthConnections, incomingEvents, routingRules, promptTemplates, workflowRuns, contentCycles, clientPlanningConfig, planInputs, voiceSnapshots, clientProductCatalogue } from '@sprigly/db';
 import { eq, desc, and, isNull, sql, inArray } from 'drizzle-orm';
 import { workflowMeta, type WorkflowMeta } from '@sprigly/workflows';
 import { getTokens, storeTokens, createEncryptionProvider } from '@sprigly/oauth-tokens';
@@ -15,7 +15,8 @@ import { StepModelForm } from './StepModelForm';
 import { ContentCycleSettingsForm } from './ContentCycleSettingsForm';
 import { ContentCycleOpsPanel } from './ContentCycleOpsPanel';
 import { IntakePanel } from './IntakePanel';
-import { BASE_QUESTIONS } from '@sprigly/engine';
+import { CycleCard } from './CycleCard';
+import { questionsForChannel, isAutoRunEnabled, AUTO_RUN_ENABLED_ENV } from '@sprigly/engine';
 import type { IntakeJson } from '@sprigly/engine';
 
 type PromptRow = { id: string; clientId: string | null; workflowId: string; stepName: string; version: number };
@@ -45,6 +46,8 @@ async function getClientConfig(clientId: string) {
 }
 
 // ── dataMonth helpers (Europe/London, last completed month) ──────────────────
+// Mirrors the engine's getLondonToday (scheduler.ts:98-109) — same Europe/London resolution the
+// beats/auto-run compare against. `day` added for the card's future-vs-unrecorded beat distinction.
 function getLondonToday() {
   const fmt = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -53,6 +56,7 @@ function getLondonToday() {
   return {
     year:  parseInt(parts.find(p => p.type === 'year')?.value  ?? '2000', 10),
     month: parseInt(parts.find(p => p.type === 'month')?.value ?? '1',    10),
+    day:   parseInt(parts.find(p => p.type === 'day')?.value   ?? '1',    10),
   };
 }
 function getDataMonth(): string {
@@ -70,6 +74,11 @@ function getCurrentMonth(): string {
 function planMonthLabelOf(cycleMonth: string): string {
   const [y, m] = cycleMonth.split('-').map(Number);
   return new Date(Date.UTC(y!, m!, 1)).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+}
+/** Data-month label ("July 2026") — the cycle_month itself (the month the plan draws data from). */
+function dataMonthLabelOf(cycleMonth: string): string {
+  const [y, m] = cycleMonth.split('-').map(Number);
+  return new Date(Date.UTC(y!, m! - 1, 1)).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 }
 
 /** The client's most-recent cycle month (cycle_month is 'YYYY-MM', so lexical desc =
@@ -111,6 +120,7 @@ type CycleInfo = {
   intakeJson:    IntakeJson | null;
   igInputStatus: string | null;
   igInputDetail: string | null;
+  igInputCheckedAt: string | null;  // ISO; the trawl time (0056) — surfaced by the cycle card
   postsSyncStatus: string | null;
   postsSyncedAt:   string | null;  // ISO; provenance for a verified 'synced' (0061)
   postsSyncedRunId: string | null;
@@ -145,6 +155,41 @@ async function getCompetitorsByChannel(
   return new Map(rows.map((r) => [r.channel, (r.competitors ?? []) as string[]]));
 }
 
+// Grounding: voice profile presence — the SAME source of truth the generator reads
+// (voice_snapshots WHERE is_current, planning.ts:518-532). Map channel → {sourceMonth} | null.
+async function getVoiceByChannel(
+  clientId: string,
+  channelNames: string[],
+): Promise<Map<string, { sourceMonth: string | null }>> {
+  if (channelNames.length === 0) return new Map();
+  const rows = await db
+    .select({ channel: voiceSnapshots.channel, sourceMonth: voiceSnapshots.sourceMonth })
+    .from(voiceSnapshots)
+    .where(and(
+      eq(voiceSnapshots.clientId, clientId),
+      eq(voiceSnapshots.isCurrent, true),
+      inArray(voiceSnapshots.channel, channelNames),
+    ));
+  return new Map(rows.map((r) => [r.channel, { sourceMonth: r.sourceMonth ?? null }]));
+}
+
+// Grounding: catalogue presence — the SAME table the generator reads
+// (client_product_catalogue, planning.ts:456-471). Absent ⇒ neutral "none". Map channel → {sourceMonth} | null.
+async function getCatalogueByChannel(
+  clientId: string,
+  channelNames: string[],
+): Promise<Map<string, { sourceMonth: string | null }>> {
+  if (channelNames.length === 0) return new Map();
+  const rows = await db
+    .select({ channel: clientProductCatalogue.channel, sourceMonth: clientProductCatalogue.sourceMonth })
+    .from(clientProductCatalogue)
+    .where(and(
+      eq(clientProductCatalogue.clientId, clientId),
+      inArray(clientProductCatalogue.channel, channelNames),
+    ));
+  return new Map(rows.map((r) => [r.channel, { sourceMonth: r.sourceMonth ?? null }]));
+}
+
 async function getCyclesByChannel(
   clientId: string,
   channelNames: string[],
@@ -160,6 +205,7 @@ async function getCyclesByChannel(
       intakeJson:    contentCycles.intakeJson,
       igInputStatus: contentCycles.igInputStatus,
       igInputDetail: contentCycles.igInputDetail,
+      igInputCheckedAt: contentCycles.igInputCheckedAt,
       postsSyncStatus: contentCycles.postsSyncStatus,
       postsSyncedAt:   contentCycles.postsSyncedAt,
       postsSyncedRunId: contentCycles.postsSyncedRunId,
@@ -196,6 +242,7 @@ async function getCyclesByChannel(
     intakeJson:    (r.intakeJson as IntakeJson | null) ?? null,
     igInputStatus: r.igInputStatus ?? null,
     igInputDetail: r.igInputDetail ?? null,
+    igInputCheckedAt: r.igInputCheckedAt ? r.igInputCheckedAt.toISOString() : null,
     postsSyncStatus: r.postsSyncStatus ?? null,
     postsSyncedAt:   r.postsSyncedAt ? r.postsSyncedAt.toISOString() : null,
     postsSyncedRunId: r.postsSyncedRunId ?? null,
@@ -390,13 +437,21 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
 
   const channelNames = channels.map(c => c.channel);
   const currentMonth = getCurrentMonth();   // intake cohort's cycle month (FIX 3)
-  const [promptCoverage, cyclesByChannel, cyclesByChannelCurrent, driveByChannel, competitorsByChannel] = await Promise.all([
+  const [promptCoverage, cyclesByChannel, cyclesByChannelCurrent, driveByChannel, competitorsByChannel, voiceByChannel, catalogueByChannel] = await Promise.all([
     getPromptCoverage(params.id, clientRules.map((r) => r.workflowId)),
     getCyclesByChannel(params.id, channelNames, dataMonth),
     getCyclesByChannel(params.id, channelNames, currentMonth),   // for the intake-cohort readout
     getDriveFilesByChannel(params.id, channels.map(c => ({ channel: c.channel, driveFolderId: c.driveFolderId ?? null }))),
     getCompetitorsByChannel(params.id, channelNames),
+    getVoiceByChannel(params.id, channelNames),
+    getCatalogueByChannel(params.id, channelNames),
   ]);
+
+  // The actual auto-run master switch (read via the shared engine helper — NOT a duplicated
+  // env read or the schedule). Off ⇒ the card renders its banner; when the env flips to 'true'
+  // the banner vanishes with no code change.
+  const autoRunEnabled = isAutoRunEnabled();
+  const todayLondon = getLondonToday();
 
   return (
     <div className="space-y-8">
@@ -406,6 +461,54 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
           slug: <span className="font-mono">{client.slug}</span> · status: {client.status}
         </p>
       </div>
+
+      {/* ── Cycle card (build 2a) — one per channel, at the very top. Additive: it supersedes the
+          ScheduleReadout visually but both render this build (ScheduleReadout removed in 2b). ── */}
+      {channels.length > 0 && (
+        <div className="space-y-6">
+          {channels.map((ch) => {
+            // Cohort: a client WITH a cutoffDay runs on the CURRENT-month cycle; legacy on the
+            // data-month cycle (mirrors ScheduleReadout + the ContentCycleSettingsForm binding).
+            const intakeCohort = ch.contentCycleSchedule?.cutoffDay != null;
+            const cohortMonth  = intakeCohort ? currentMonth : dataMonth;
+            const c            = (intakeCohort ? cyclesByChannelCurrent : cyclesByChannel).get(ch.channel) ?? null;
+            const questions = questionsForChannel(ch);   // shared derivation — same list the panel edits
+            const voice = voiceByChannel.get(ch.channel) ?? null;
+            const cat   = catalogueByChannel.get(ch.channel) ?? null;
+            return (
+              <div key={ch.channel}>
+                {channels.length > 1 && (
+                  <p className="text-xs font-mono text-gray-500 mb-2">{ch.channel}</p>
+                )}
+                <CycleCard
+                  clientId={params.id}
+                  channel={ch.channel}
+                  dataMonthForAction={cohortMonth}
+                  planMonthLabel={planMonthLabelOf(cohortMonth)}
+                  dataMonthLabel={dataMonthLabelOf(cohortMonth)}
+                  cycleMonth={cohortMonth}
+                  status={c?.status ?? null}
+                  reminderDay={ch.contentCycleSchedule?.day ?? null}
+                  cutoffDay={ch.contentCycleSchedule?.cutoffDay ?? null}
+                  today={todayLondon}
+                  ask={{ sentAt: c?.askSentAt ?? null, skipReason: c?.askSkipReason ?? null }}
+                  nudge={{ sentAt: c?.nudgeSentAt ?? null, skipReason: c?.nudgeSkipReason ?? null }}
+                  lastCall={{ sentAt: c?.lastCallSentAt ?? null, skipReason: c?.lastCallSkipReason ?? null }}
+                  autoRunEnabled={autoRunEnabled}
+                  autoRunEnvName={AUTO_RUN_ENABLED_ENV}
+                  answers={c?.intakeJson?.planContent?.answers ?? {}}
+                  questions={questions}
+                  freeNotes={c?.intakeJson?.planContent?.freeNotes ?? ''}
+                  igStatus={c?.igInputStatus ?? null}
+                  igCheckedAt={c?.igInputCheckedAt ?? null}
+                  voice={{ present: voice != null, sourceMonth: voice?.sourceMonth ?? null }}
+                  catalogue={{ present: cat != null, sourceMonth: cat?.sourceMonth ?? null }}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <section className="bg-white rounded-lg border border-gray-200 px-6 py-5">
         <h2 className="text-base font-semibold text-gray-900 mb-4">Config</h2>
