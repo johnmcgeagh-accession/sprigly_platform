@@ -9,7 +9,7 @@ import { createModelClientFromEnv } from '@sprigly/model-client';
 import { createEmbeddingClientFromEnv } from '@sprigly/embedding-client';
 import { ingestSource } from '@sprigly/knowledge';
 import { Queue } from 'bullmq';
-import type { IntakeJson } from '@sprigly/engine';
+import { hasPlannableInput } from '@sprigly/engine';
 import { enqueuePlanning } from './planning-enqueue';
 import { enqueueWeeklySession, londonWeekStart } from './weekly-session-enqueue';
 
@@ -348,13 +348,12 @@ export async function triggerPlanning(formData: FormData): Promise<ActionResult>
     const cycle = rows[0];
     if (!cycle) return { ok: false, message: `No cycle for ${dataMonth} yet — run the cycle or enter intake first.` };
 
-    // Intake precondition: planning needs this month's planContent answers.
-    const intake    = cycle.intakeJson as IntakeJson | null;
-    const answers   = intake?.planContent?.answers ?? {};
-    const freeNotes = (intake?.planContent?.freeNotes ?? '').trim();
-    const hasIntake = freeNotes.length > 0 || Object.values(answers).some((v) => v.trim().length > 0);
-    if (!hasIntake) {
-      return { ok: false, message: 'Enter intake first — planning needs this month\'s answers.' };
+    // Intake precondition: QUESTION B (hasPlannableInput) — this month's answers/notes OR a durable
+    // note relevant to the plan month. Durable now counts, so this matches what the generator (and
+    // auto-run) would plan on rather than blocking a durable-only cycle the generator can handle.
+    const plannable = await hasPlannableInput(db, { clientId, cycleMonth: dataMonth, intakeJson: cycle.intakeJson });
+    if (!plannable) {
+      return { ok: false, message: 'Enter intake first — planning needs this month\'s answers or a relevant durable note.' };
     }
 
     // Normalise to intake_confirmed (the worker's planning entry state) ONLY once

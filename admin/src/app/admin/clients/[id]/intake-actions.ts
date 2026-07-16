@@ -4,6 +4,7 @@ import { db, contentCycles, clearStructuredBriefIfPrePlanning } from '@sprigly/d
 import { eq } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import type { IntakeJson } from '@sprigly/engine';
+import { hasPlannableInput } from '@sprigly/engine';
 import { enqueuePlanning } from './planning-enqueue';
 
 export type IntakeActionResult = { ok: boolean; message?: string };
@@ -56,7 +57,7 @@ export async function confirmIntake(formData: FormData): Promise<IntakeActionRes
 
   try {
     const rows = await db
-      .select({ status: contentCycles.status, intakeJson: contentCycles.intakeJson })
+      .select({ status: contentCycles.status, intakeJson: contentCycles.intakeJson, clientId: contentCycles.clientId, cycleMonth: contentCycles.cycleMonth })
       .from(contentCycles)
       .where(eq(contentCycles.id, cycleId))
       .limit(1);
@@ -71,17 +72,13 @@ export async function confirmIntake(formData: FormData): Promise<IntakeActionRes
       return { ok: false, message: `Cannot confirm intake from status "${cycle.status}".` };
     }
 
-    // Guard: must have at least one non-empty answer or free notes
-    const intake = cycle.intakeJson as IntakeJson | null;
-    const answers   = intake?.planContent?.answers ?? {};
-    const freeNotes = (intake?.planContent?.freeNotes ?? '').trim();
-    const hasContent = freeNotes.length > 0 ||
-      Object.values(answers).some((v) => v.trim().length > 0);
-
-    if (!hasContent) {
+    // Guard: QUESTION B (hasPlannableInput) — this month's answers/free notes OR a durable note
+    // relevant to the plan month. Durable now counts, matching what the generator consumes.
+    const plannable = await hasPlannableInput(db, { clientId: cycle.clientId, cycleMonth: cycle.cycleMonth, intakeJson: cycle.intakeJson });
+    if (!plannable) {
       return {
         ok:      false,
-        message: 'Please fill in at least one answer or free notes before confirming intake.',
+        message: 'Add at least one answer, a free note, or a relevant durable note before confirming intake.',
       };
     }
 
