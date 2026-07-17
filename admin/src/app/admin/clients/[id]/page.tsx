@@ -5,7 +5,7 @@ import { formatDateTimeShort } from '@/lib/format-date';
 
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { db, clients, clientConfigs, clientChannels, oauthConnections, incomingEvents, routingRules, promptTemplates, workflowRuns, contentCycles, clientPlanningConfig, voiceSnapshots, clientProductCatalogue } from '@sprigly/db';
+import { db, clients, clientConfigs, clientChannels, oauthConnections, incomingEvents, routingRules, promptTemplates, workflowRuns, contentCycles, clientPlanningConfig, voiceSnapshots, clientProductCatalogue, igPosts } from '@sprigly/db';
 import { eq, desc, and, isNull, sql, inArray } from 'drizzle-orm';
 import { workflowMeta, type WorkflowMeta } from '@sprigly/workflows';
 import { customisePrompt, approveQaDraft } from './actions';
@@ -413,6 +413,22 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
     })),
   );
 
+  // "Posts landed" signal for the card's state-dependent primary — an ig_posts row exists for the
+  // cohort month. Complements ig_input_status='ok' (which the trawl sets on success): a MANUAL
+  // ig_posts upload writes the row but never sets ig_input_status, so the row check is what catches
+  // the upload escape hatch. Keyed (client, channel, cohortMonth) — the same month the card acts on.
+  const igPostsPresentByChannel = new Map<string, boolean>(
+    await Promise.all(channels.map(async (ch): Promise<[string, boolean]> => {
+      const { cohortMonth } = cohortFor(ch);
+      const rows = await db
+        .select({ id: igPosts.id })
+        .from(igPosts)
+        .where(and(eq(igPosts.clientId, params.id), eq(igPosts.channel, ch.channel), eq(igPosts.month, cohortMonth)))
+        .limit(1);
+      return [ch.channel, rows.length > 0];
+    })),
+  );
+
   return (
     <div className="space-y-8">
       <div>
@@ -443,6 +459,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                   channel={ch.channel}
                   dataMonthForAction={cohortMonth}
                   intakePresent={plannableByChannel.get(ch.channel) ?? false}
+                  igPostsPresent={igPostsPresentByChannel.get(ch.channel) ?? false}
                   planMonthLabel={planMonthLabelOf(cohortMonth)}
                   dataMonthLabel={dataMonthLabelOf(cohortMonth)}
                   cycleMonth={cohortMonth}

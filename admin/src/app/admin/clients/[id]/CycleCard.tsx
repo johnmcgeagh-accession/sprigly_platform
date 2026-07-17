@@ -2,16 +2,18 @@
 
 // Cycle card — the at-a-glance top-of-page summary of one channel's current cycle: plan month,
 // status, the four-beat auto-run timeline (three reminders + the plan run), intake progress,
-// grounding readiness, and the primary start action. It is the top of the reorganised client
-// page and the sole beat/schedule surface. ONE MONTH PER CARD: the header, beats, intake,
-// grounding, the primary "Start cycle & fetch inputs" (triggerCycle) AND every "More actions"
-// control (CardActions) all bind to this card's single cohort month (dataMonthForAction) and act
-// on that one cycle. No engine behaviour is touched: the auto-run flag is READ, never written.
+// grounding readiness, and the primary NEXT-STEP action. It is the top of the reorganised client
+// page and the sole beat/schedule surface. The primary is state-dependent — it shows the cycle's
+// next step in the fetch→plan sequence: "Start cycle & fetch inputs" (triggerCycle) until posts
+// land, then "Run planning now" (triggerPlanning, same gate as the disclosure), then nothing once
+// planned. ONE MONTH PER CARD: the header, beats, intake, grounding, the primary AND every "More
+// actions" control (CardActions) all bind to this card's single cohort month (dataMonthForAction)
+// and act on that one cycle. No engine behaviour is touched: the auto-run flag is READ, never written.
 
 import { useState, useTransition } from 'react';
 import { deriveTouchSchedule } from '@sprigly/engine/touch-schedule';
 import { intakeCompleteness } from '@sprigly/engine/intake-completeness';
-import { triggerCycle, type ActionResult } from './actions';
+import { triggerCycle, triggerPlanning, type ActionResult } from './actions';
 import { CardActions } from './CardActions';
 import { fraunces, inter } from './card-fonts';
 
@@ -37,6 +39,7 @@ export interface CycleCardProps {
   // "More actions" disclosure (CardActions) now binds to the SAME cohort month as the primary and
   // header (dataMonthForAction) — one card, one cycle. `intakePresent` gates "Run planning now".
   intakePresent:  boolean;      // QUESTION B (plannable) — computed for the COHORT cycle upstream
+  igPostsPresent: boolean;      // an ig_posts row exists for the cohort month (trawl 'ok' OR manual upload)
 
   // Header — all three labels derived upstream from cycle_month, passed in once.
   planMonthLabel: string;       // "August 2026"  (cycle_month + 1)
@@ -180,7 +183,7 @@ function GroundLine({ ok, neutral, tone, label, detail }: { ok: boolean; neutral
 export function CycleCard(props: CycleCardProps) {
   const {
     clientId, clientName, channel, dataMonthForAction,
-    intakePresent,
+    intakePresent, igPostsPresent,
     planMonthLabel, dataMonthLabel, cycleMonth, status,
     reminderDay, cutoffDay, today, ask, nudge, lastCall,
     autoRunEnabled, autoRunEnvName,
@@ -203,6 +206,41 @@ export function CycleCard(props: CycleCardProps) {
       if (!r.ok) setActionError(r.message ?? 'Could not start the cycle.');
     });
   }
+
+  // "Run planning now" as the primary — SAME handler + SAME gate (intakePresent) as the More-actions
+  // control. No new action; no gate change. The disclosure keeps its own copy too (escape hatch).
+  function runPlanning() {
+    setActionError(null);
+    startTransition(async () => {
+      const fd = new FormData();
+      fd.set('clientId', clientId);
+      fd.set('channel', channel);
+      fd.set('dataMonth', dataMonthForAction);
+      const r: ActionResult = await triggerPlanning(fd);
+      if (!r.ok) setActionError(r.message ?? 'Could not start planning.');
+    });
+  }
+
+  // ── State-dependent primary: the NEXT step in the fetch→plan sequence ─────────────────────────
+  // Pre-plan statuses (the same grouping the intake section uses) OR no cycle row: the next step is
+  // to fetch inputs, then plan. Everything from 'planning' onward — plus 'failed' — has no clean
+  // next-step primary (in-flight, done, or an error to recover via Reset), so the card shows none.
+  // "Posts landed" = the trawl wrote them (ig_input_status='ok') OR they were uploaded (row exists).
+  const PRE_PLAN_STATUSES = new Set([
+    'scheduled', 'requested', 'reply_received', 'awaiting_confirmation', 'intake_confirmed',
+  ]);
+  const isPrePlan   = status == null || PRE_PLAN_STATUSES.has(status);
+  const postsLanded = igStatus === 'ok' || igPostsPresent;
+  const primaryStep: 'start' | 'plan' | null = !isPrePlan ? null : (postsLanded ? 'plan' : 'start');
+  const primaryDisabled = isPending || (primaryStep === 'plan' && !intakePresent);
+  const primaryLabel = primaryStep === 'start'
+    ? (isPending ? 'Starting…' : 'Start cycle & fetch inputs')
+    : (isPending ? 'Planning…'  : 'Run planning now');
+  const primaryNote = primaryStep === 'start'
+    ? 'Fetches this month’s IG posts. Planning is the next step.'
+    : (intakePresent
+        ? 'Generates the plan from the gathered inputs.'
+        : 'Enter intake first — planning needs this month’s answers or a relevant durable note.');
 
   // ── Beat timeline model ──────────────────────────────────────────────────────
   const configured = reminderDay != null && cutoffDay != null;
@@ -339,22 +377,23 @@ export function CycleCard(props: CycleCardProps) {
           </div>
         </div>
 
-        {/* Actions */}
+        {/* Actions — the primary is the cycle's NEXT step (state-dependent); null once planned or
+            in an in-flight/error state, where the header pill and More actions carry it. */}
         <div className="px-6 py-4 flex flex-wrap items-center gap-x-4 gap-y-2" style={{ borderTop: `1px solid #E5E7EB` }}>
-          <button
-            type="button"
-            disabled={isPending}
-            onClick={generate}
-            style={{ background: CORAL_600, color: '#FFFFFF', fontSize: 14, fontWeight: 500 }}
-            className="px-4 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-95"
-          >
-            {isPending ? 'Starting…' : 'Start cycle & fetch inputs'}
-          </button>
-
-          <span className="text-xs" style={{ color: BORDER }}>
-            Schedules the {planMonthLabel} cycle and runs the IG trawl to fetch inputs. Planning is a
-            separate step — run it from More actions. Re-running re-fetches; reset first to start clean.
-          </span>
+          {primaryStep && (
+            <>
+              <button
+                type="button"
+                disabled={primaryDisabled}
+                onClick={primaryStep === 'start' ? generate : runPlanning}
+                style={{ background: CORAL_600, color: '#FFFFFF', fontSize: 14, fontWeight: 500 }}
+                className="px-4 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-95"
+              >
+                {primaryLabel}
+              </button>
+              <span className="text-xs" style={{ color: BORDER }}>{primaryNote}</span>
+            </>
+          )}
 
           <button
             type="button"
