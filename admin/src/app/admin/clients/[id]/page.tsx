@@ -390,14 +390,24 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
   const autoRunEnabled = isAutoRunEnabled();
   const todayLondon = getLondonToday();
 
+  // ONE MONTH PER CARD — cohort selection, computed once and reused by both the plannable gate and
+  // the card render. A client WITH a cutoffDay runs on the CURRENT-month cycle; legacy on the
+  // data-month cycle (mirrors the ContentCycleSettingsForm binding).
+  const cohortFor = (ch: (typeof channels)[number]) => {
+    const intakeCohort = ch.contentCycleSchedule?.cutoffDay != null;
+    const cohortMonth  = intakeCohort ? currentMonth : dataMonth;
+    const cycle        = (intakeCohort ? cyclesByChannelCurrent : cyclesByChannel).get(ch.channel) ?? null;
+    return { intakeCohort, cohortMonth, cycle };
+  };
+
   // QUESTION B (hasPlannableInput) per channel — gates "Run planning now". Precomputed here (async)
-  // because the gate is read synchronously in the ops-panel render below. Uses the durable-by-
-  // RELEVANCE window, so the gate tracks exactly what the generator would consume.
+  // because the gate is read synchronously in the card render below. Computed for the COHORT cycle
+  // (the one the card acts on), so the gate tracks exactly what "Run planning now" would consume.
   const plannableByChannel = new Map<string, boolean>(
     await Promise.all(channels.map(async (ch): Promise<[string, boolean]> => {
-      const cyc = cyclesByChannel.get(ch.channel) ?? null;
-      const plannable = cyc
-        ? await hasPlannableInput(db, { clientId: params.id, cycleMonth: dataMonth, intakeJson: cyc.intakeJson })
+      const { cohortMonth, cycle } = cohortFor(ch);
+      const plannable = cycle
+        ? await hasPlannableInput(db, { clientId: params.id, cycleMonth: cohortMonth, intakeJson: cycle.intakeJson })
         : false;
       return [ch.channel, plannable];
     })),
@@ -417,11 +427,8 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
       {channels.length > 0 && (
         <div className="space-y-6">
           {channels.map((ch) => {
-            // Cohort: a client WITH a cutoffDay runs on the CURRENT-month cycle; legacy on the
-            // data-month cycle (mirrors the ContentCycleSettingsForm binding).
-            const intakeCohort = ch.contentCycleSchedule?.cutoffDay != null;
-            const cohortMonth  = intakeCohort ? currentMonth : dataMonth;
-            const c            = (intakeCohort ? cyclesByChannelCurrent : cyclesByChannel).get(ch.channel) ?? null;
+            // ONE MONTH PER CARD — the card binds to a single cohort cycle (see cohortFor above).
+            const { cohortMonth, cycle: c } = cohortFor(ch);
             const questions = questionsForChannel(ch);   // shared derivation — same list the panel edits
             const voice = voiceByChannel.get(ch.channel) ?? null;
             const cat   = catalogueByChannel.get(ch.channel) ?? null;
@@ -435,8 +442,6 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                   clientName={client.name}
                   channel={ch.channel}
                   dataMonthForAction={cohortMonth}
-                  opsDataMonth={dataMonth}
-                  opsCycleStatus={cyclesByChannel.get(ch.channel)?.status ?? null}
                   intakePresent={plannableByChannel.get(ch.channel) ?? false}
                   planMonthLabel={planMonthLabelOf(cohortMonth)}
                   dataMonthLabel={dataMonthLabelOf(cohortMonth)}

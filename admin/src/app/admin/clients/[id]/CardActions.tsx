@@ -1,13 +1,15 @@
 'use client';
 
 // CardActions — the cycle-scoped manual triggers that live inside the cycle card's "More actions"
-// disclosure. MOVED verbatim from ContentCycleOpsPanel (Block C): each control keeps its exact
-// handler, gate, and confirm dialog. Reset is a visually-separated destructive group. The card's
-// primary "Generate <month> plan" (triggerCycle) stays on the card itself, outside this disclosure.
+// disclosure. Each control keeps its exact handler, gate, and confirm dialog. Reset is a
+// visually-separated destructive group. The card's primary "Start cycle & fetch inputs"
+// (triggerCycle) stays on the card itself, outside this disclosure.
 //
-// NOTE (unchanged from the old ops panel): these actions bind to the page-anchored dataMonth
-// cycle — the same binding they had before the reorg — not the card's cohort month. `cycleStatus`
-// is that cycle's status, so `cycleIsActive`/`cycleIsRequested` are computed exactly as before.
+// ONE MONTH PER CARD: `dataMonth` is the card's cohort month (the same month the header and
+// primary use), NOT the page-anchored mostRecentCycleMonth it bound to before this change.
+// `cycleStatus` is that cohort cycle's status, so `cycleIsActive`/`cycleIsRequested` describe the
+// cycle the card actually displays. Every control here acts on that one cycle. Start & prepare is
+// the sole exception: it deliberately targets an operator-typed month (its own free-text input).
 
 import { useState, useTransition } from 'react';
 import {
@@ -154,10 +156,11 @@ export function CardActions({ clientId, clientName, channel, dataMonth, cycleSta
         </div>
       )}
 
-      {/* Start & prepare — run the input-fetch trace for an arbitrary month, stop before planning */}
+      {/* Start cycle for another month — the SAME start action as the card's primary (triggerCycle),
+          but targeting an operator-typed month instead of the card's cohort month. Stops before planning. */}
       <div className="pt-3 border-t border-gray-100">
         <div className="flex items-center gap-2 flex-wrap text-sm">
-          <span className="font-medium text-gray-600">Start &amp; prepare:</span>
+          <span className="font-medium text-gray-600">Start cycle for month:</span>
           <input
             type="month"
             value={startMonth}
@@ -170,15 +173,15 @@ export function CardActions({ clientId, clientName, channel, dataMonth, cycleSta
             type="button"
             disabled={isPending || !startMonthValid}
             onClick={runStartMonth}
-            title={`Create/reuse the ${channel} cycle for the chosen plan month and run the input trace (IG trawl → request-email) for its data month. STOPS before planning. No client is emailed; the John-pinned delivery is untouched.`}
+            title={`Create/reuse the ${channel} cycle for the chosen plan month and run the IG trawl for its data month — the same start action as the card's primary, for a month you pick. STOPS before planning. No client is emailed; the John-pinned delivery is untouched.`}
             className="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isPending ? 'Preparing…' : 'Start & prepare'}
+            {isPending ? 'Starting…' : 'Start cycle'}
           </button>
         </div>
         <p className="mt-1.5 text-xs text-gray-400">
           Pick the month you want posts <em>for</em> (e.g. <span className="font-mono">2026-07</span> → July posts, data month <span className="font-mono">2026-06</span>).
-          Runs the IG trawl + request and <strong>stops before planning</strong>.
+          Runs the IG trawl and <strong>stops before planning</strong> — same as the card&apos;s primary, but for the month you choose.
         </p>
         {startNote && (
           <div className="mt-3 flex items-start gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2.5">

@@ -2,10 +2,11 @@
 
 // Cycle card — the at-a-glance top-of-page summary of one channel's current cycle: plan month,
 // status, the four-beat auto-run timeline (three reminders + the plan run), intake progress,
-// grounding readiness, and the primary generate action. It is the top of the reorganised client
-// page and the sole beat/schedule surface. The primary "Generate <month> plan" (triggerCycle)
-// lives here; the other cycle-scoped manual triggers live in the "More actions" disclosure
-// (CardActions). No engine behaviour is touched: the auto-run flag is READ, never written.
+// grounding readiness, and the primary start action. It is the top of the reorganised client
+// page and the sole beat/schedule surface. ONE MONTH PER CARD: the header, beats, intake,
+// grounding, the primary "Start cycle & fetch inputs" (triggerCycle) AND every "More actions"
+// control (CardActions) all bind to this card's single cohort month (dataMonthForAction) and act
+// on that one cycle. No engine behaviour is touched: the auto-run flag is READ, never written.
 
 import { useState, useTransition } from 'react';
 import { deriveTouchSchedule } from '@sprigly/engine/touch-schedule';
@@ -31,13 +32,11 @@ export interface CycleCardProps {
   clientId:           string;
   clientName:         string;
   channel:            string;   // raw, e.g. 'instagram'
-  dataMonthForAction: string;   // the cohort cycle_month → passed to triggerCycle (same handler as Run cycle now)
+  dataMonthForAction: string;   // the card's SINGLE cohort cycle_month — every control binds here
 
-  // "More actions" disclosure (CardActions) — bound to the page-anchored dataMonth cycle, exactly
-  // as the old ContentCycleOpsPanel was (NOT the cohort month used by the primary above).
-  opsDataMonth:   string;
-  opsCycleStatus: string | null;
-  intakePresent:  boolean;      // QUESTION B (plannable) — gates "Run planning now" inside the disclosure
+  // "More actions" disclosure (CardActions) now binds to the SAME cohort month as the primary and
+  // header (dataMonthForAction) — one card, one cycle. `intakePresent` gates "Run planning now".
+  intakePresent:  boolean;      // QUESTION B (plannable) — computed for the COHORT cycle upstream
 
   // Header — all three labels derived upstream from cycle_month, passed in once.
   planMonthLabel: string;       // "August 2026"  (cycle_month + 1)
@@ -181,7 +180,7 @@ function GroundLine({ ok, neutral, tone, label, detail }: { ok: boolean; neutral
 export function CycleCard(props: CycleCardProps) {
   const {
     clientId, clientName, channel, dataMonthForAction,
-    opsDataMonth, opsCycleStatus, intakePresent,
+    intakePresent,
     planMonthLabel, dataMonthLabel, cycleMonth, status,
     reminderDay, cutoffDay, today, ask, nudge, lastCall,
     autoRunEnabled, autoRunEnvName,
@@ -349,11 +348,12 @@ export function CycleCard(props: CycleCardProps) {
             style={{ background: CORAL_600, color: '#FFFFFF', fontSize: 14, fontWeight: 500 }}
             className="px-4 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-95"
           >
-            {isPending ? 'Generating…' : `Generate ${planMonthLabel} plan`}
+            {isPending ? 'Starting…' : 'Start cycle & fetch inputs'}
           </button>
 
           <span className="text-xs" style={{ color: BORDER }}>
-            Re-running regenerates the cycle; reset it first to start clean.
+            Schedules the {planMonthLabel} cycle and runs the IG trawl to fetch inputs. Planning is a
+            separate step — run it from More actions. Re-running re-fetches; reset first to start clean.
           </span>
 
           <button
@@ -374,8 +374,8 @@ export function CycleCard(props: CycleCardProps) {
               clientId={clientId}
               clientName={clientName}
               channel={channel}
-              dataMonth={opsDataMonth}
-              cycleStatus={opsCycleStatus}
+              dataMonth={dataMonthForAction}
+              cycleStatus={status}
               intakePresent={intakePresent}
             />
           </div>
