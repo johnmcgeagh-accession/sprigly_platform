@@ -505,7 +505,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                   <CycleConfig
                     clientId={params.id}
                     channel={ch.channel}
-                    dataMonth={dataMonth}
+                    dataMonth={cohortFor(ch).cohortMonth}
                     deliverySurface={(ch.deliverySurface as 'app' | 'sheet' | 'both') ?? 'both'}
                     aiChangeLimit={ch.aiChangeLimit ?? 30}
                     aiChangeLimitOverrideUntil={ch.aiChangeLimitOverrideUntil ? ch.aiChangeLimitOverrideUntil.toISOString() : null}
@@ -532,7 +532,8 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                 {channels.length > 1 && (
                   <p className="text-xs font-mono text-gray-500 mb-3">{ch.channel}</p>
                 )}
-                <CycleInputs clientId={params.id} channel={ch.channel} dataMonth={dataMonth} />
+                {/* Upload data month defaults to the card's cohort data month (editable field). */}
+                <CycleInputs clientId={params.id} channel={ch.channel} dataMonth={cohortFor(ch).cohortMonth} />
               </div>
             ))}
           </div>
@@ -543,7 +544,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
           cutoffDay clients no longer pass through 'requested' (the legacy request email is gated
           off for them), so they sit at 'scheduled' with intake still open. */}
       {channels.length > 0 && channels.some((ch) => {
-        const s = cyclesByChannel.get(ch.channel)?.status;
+        const s = cohortFor(ch).cycle?.status;
         return s === 'scheduled' || s === 'requested' || s === 'reply_received' || s === 'awaiting_confirmation' || s === 'intake_confirmed';
       }) && (
         <section className="bg-white rounded-lg border border-gray-200 px-6 py-5">
@@ -554,7 +555,8 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
           </p>
           <div className="space-y-10">
             {channels.map((ch) => {
-              const cycle = cyclesByChannel.get(ch.channel);
+              // ONE MONTH PER PAGE — the intake panel edits the SAME cohort cycle the card summarises.
+              const { cohortMonth, cycle } = cohortFor(ch);
               const intakeStatuses = ['scheduled', 'requested', 'reply_received', 'awaiting_confirmation', 'intake_confirmed'];
               if (!cycle || !intakeStatuses.includes(cycle.status)) return null;
               return (
@@ -564,7 +566,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                   )}
                   <IntakePanel
                     cycleId={cycle.id}
-                    cycleMonth={dataMonth}
+                    cycleMonth={cohortMonth}
                     cycleStatus={cycle.status}
                     clientId={params.id}
                     channel={ch.channel}
