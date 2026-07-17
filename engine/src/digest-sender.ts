@@ -8,6 +8,7 @@ import {
   incomingEvents,
   oauthConnections,
   processedExternalIds,
+  routingRules,
 } from '@sprigly/db';
 import { eq, and, isNull, gt } from 'drizzle-orm';
 import { getTokens, storeTokens } from '@sprigly/oauth-tokens';
@@ -16,6 +17,13 @@ import { composeDigestEmail } from '@sprigly/destinations';
 import type { Logger } from 'pino';
 
 type Db = typeof _db;
+
+// The triage digest is one leg of the inbox-triage PROCESS; the routing rule is the other. The
+// process is "on" only while at least one sprigly-inbox-triage routing rule is enabled — the same
+// flag classification reads in event-router.ts. When every such rule is disabled (or none exists),
+// the process is off and the digest must stop too, otherwise "disabled" only silences new
+// classification while the nagging continues. See sendDigestsForAllClients for the gate.
+const TRIAGE_WORKFLOW_ID = 'sprigly-inbox-triage';
 
 // ── Cadence helpers ────────────────────────────────────────────────────────────
 
@@ -190,11 +198,33 @@ export async function sendDigestsForAllClients(
       ),
     );
 
+  // Triage-process gate (computed with the client set, not deep in the send path): the set of
+  // clients whose inbox-triage process is ON — i.e. that have at least one ENABLED
+  // sprigly-inbox-triage routing rule. A client not in this set has every such rule disabled, or
+  // none at all, and is skipped below. This reads the SAME enabled flag as classification; it
+  // never touches triage_capture_log, so pending items are retained and resume on re-enable.
+  const enabledTriageRules = await db
+    .select({ clientId: routingRules.clientId })
+    .from(routingRules)
+    .where(and(eq(routingRules.workflowId, TRIAGE_WORKFLOW_ID), eq(routingRules.enabled, true)));
+  const triageEnabledClientIds = new Set(enabledTriageRules.map((r) => r.clientId));
+
   for (const config of configs) {
     const cadence = (config.digestCadence ?? 'end_of_day') as
       'twice_daily' | 'end_of_day' | 'end_of_week';
 
     if (!shouldSendDigest(cadence, config.lastDigestSentAt, now)) continue;
+
+    // Process disabled: a digest was due, but no enabled inbox-triage rule means the process is
+    // off — skip WITHOUT stamping last_digest_sent_at and WITHOUT touching the pending queue. Log
+    // the reason: a silent skip is indistinguishable from a broken sender.
+    if (!triageEnabledClientIds.has(config.clientId)) {
+      logger.info(
+        { clientId: config.clientId },
+        'digest: inbox-triage process disabled (no enabled sprigly-inbox-triage routing rule) — skipping; last_digest_sent_at unchanged, pending items retained',
+      );
+      continue;
+    }
 
     try {
       // Pending items: decision IS NULL, joined to incoming_events for subject/from.
