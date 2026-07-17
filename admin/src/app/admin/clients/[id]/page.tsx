@@ -390,14 +390,24 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
   const autoRunEnabled = isAutoRunEnabled();
   const todayLondon = getLondonToday();
 
+  // ONE MONTH PER CARD — cohort selection, computed once and reused by both the plannable gate and
+  // the card render. A client WITH a cutoffDay runs on the CURRENT-month cycle; legacy on the
+  // data-month cycle (mirrors the ContentCycleSettingsForm binding).
+  const cohortFor = (ch: (typeof channels)[number]) => {
+    const intakeCohort = ch.contentCycleSchedule?.cutoffDay != null;
+    const cohortMonth  = intakeCohort ? currentMonth : dataMonth;
+    const cycle        = (intakeCohort ? cyclesByChannelCurrent : cyclesByChannel).get(ch.channel) ?? null;
+    return { intakeCohort, cohortMonth, cycle };
+  };
+
   // QUESTION B (hasPlannableInput) per channel — gates "Run planning now". Precomputed here (async)
-  // because the gate is read synchronously in the ops-panel render below. Uses the durable-by-
-  // RELEVANCE window, so the gate tracks exactly what the generator would consume.
+  // because the gate is read synchronously in the card render below. Computed for the COHORT cycle
+  // (the one the card acts on), so the gate tracks exactly what "Run planning now" would consume.
   const plannableByChannel = new Map<string, boolean>(
     await Promise.all(channels.map(async (ch): Promise<[string, boolean]> => {
-      const cyc = cyclesByChannel.get(ch.channel) ?? null;
-      const plannable = cyc
-        ? await hasPlannableInput(db, { clientId: params.id, cycleMonth: dataMonth, intakeJson: cyc.intakeJson })
+      const { cohortMonth, cycle } = cohortFor(ch);
+      const plannable = cycle
+        ? await hasPlannableInput(db, { clientId: params.id, cycleMonth: cohortMonth, intakeJson: cycle.intakeJson })
         : false;
       return [ch.channel, plannable];
     })),
@@ -417,11 +427,8 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
       {channels.length > 0 && (
         <div className="space-y-6">
           {channels.map((ch) => {
-            // Cohort: a client WITH a cutoffDay runs on the CURRENT-month cycle; legacy on the
-            // data-month cycle (mirrors the ContentCycleSettingsForm binding).
-            const intakeCohort = ch.contentCycleSchedule?.cutoffDay != null;
-            const cohortMonth  = intakeCohort ? currentMonth : dataMonth;
-            const c            = (intakeCohort ? cyclesByChannelCurrent : cyclesByChannel).get(ch.channel) ?? null;
+            // ONE MONTH PER CARD — the card binds to a single cohort cycle (see cohortFor above).
+            const { cohortMonth, cycle: c } = cohortFor(ch);
             const questions = questionsForChannel(ch);   // shared derivation — same list the panel edits
             const voice = voiceByChannel.get(ch.channel) ?? null;
             const cat   = catalogueByChannel.get(ch.channel) ?? null;
@@ -435,8 +442,6 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                   clientName={client.name}
                   channel={ch.channel}
                   dataMonthForAction={cohortMonth}
-                  opsDataMonth={dataMonth}
-                  opsCycleStatus={cyclesByChannel.get(ch.channel)?.status ?? null}
                   intakePresent={plannableByChannel.get(ch.channel) ?? false}
                   planMonthLabel={planMonthLabelOf(cohortMonth)}
                   dataMonthLabel={dataMonthLabelOf(cohortMonth)}
@@ -500,7 +505,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                   <CycleConfig
                     clientId={params.id}
                     channel={ch.channel}
-                    dataMonth={dataMonth}
+                    dataMonth={cohortFor(ch).cohortMonth}
                     deliverySurface={(ch.deliverySurface as 'app' | 'sheet' | 'both') ?? 'both'}
                     aiChangeLimit={ch.aiChangeLimit ?? 30}
                     aiChangeLimitOverrideUntil={ch.aiChangeLimitOverrideUntil ? ch.aiChangeLimitOverrideUntil.toISOString() : null}
@@ -527,7 +532,8 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                 {channels.length > 1 && (
                   <p className="text-xs font-mono text-gray-500 mb-3">{ch.channel}</p>
                 )}
-                <CycleInputs clientId={params.id} channel={ch.channel} dataMonth={dataMonth} />
+                {/* Upload data month defaults to the card's cohort data month (editable field). */}
+                <CycleInputs clientId={params.id} channel={ch.channel} dataMonth={cohortFor(ch).cohortMonth} />
               </div>
             ))}
           </div>
@@ -538,7 +544,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
           cutoffDay clients no longer pass through 'requested' (the legacy request email is gated
           off for them), so they sit at 'scheduled' with intake still open. */}
       {channels.length > 0 && channels.some((ch) => {
-        const s = cyclesByChannel.get(ch.channel)?.status;
+        const s = cohortFor(ch).cycle?.status;
         return s === 'scheduled' || s === 'requested' || s === 'reply_received' || s === 'awaiting_confirmation' || s === 'intake_confirmed';
       }) && (
         <section className="bg-white rounded-lg border border-gray-200 px-6 py-5">
@@ -549,7 +555,8 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
           </p>
           <div className="space-y-10">
             {channels.map((ch) => {
-              const cycle = cyclesByChannel.get(ch.channel);
+              // ONE MONTH PER PAGE — the intake panel edits the SAME cohort cycle the card summarises.
+              const { cohortMonth, cycle } = cohortFor(ch);
               const intakeStatuses = ['scheduled', 'requested', 'reply_received', 'awaiting_confirmation', 'intake_confirmed'];
               if (!cycle || !intakeStatuses.includes(cycle.status)) return null;
               return (
@@ -559,7 +566,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                   )}
                   <IntakePanel
                     cycleId={cycle.id}
-                    cycleMonth={dataMonth}
+                    cycleMonth={cohortMonth}
                     cycleStatus={cycle.status}
                     clientId={params.id}
                     channel={ch.channel}

@@ -438,7 +438,7 @@ export async function startCycleForMonth(formData: FormData): Promise<ActionResu
     revalidatePath(`/admin/clients/${clientId}`);
     return {
       ok: true,
-      message: `Preparing ${planMonth} (data month ${dataMonth}) — running IG trawl → request-email. Stops before planning; check the inputs found below, then run planning.`,
+      message: `Starting ${planMonth} (data month ${dataMonth}) — running the IG trawl. Stops before planning; run planning separately when the inputs are ready.`,
     };
   } catch (err) {
     console.error('[startCycleForMonth]', err);
