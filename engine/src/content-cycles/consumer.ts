@@ -131,7 +131,11 @@ export function createContentCycleConsumer(
           }
           logger.info({ ...logCtx, cycleId: data.cycleId, postId: data.targetPostId, scope: data.scope }, 'content-cycles: starting shape job');
           // Return the result so BullMQ sets job.returnvalue (read by GET /api/jobs/:id).
-          return await runShapeForCycle(data, shapeDeps);
+          // isFinalAttempt: generation_failed is client-visible, so it is stamped only when
+          // BullMQ has nothing left to retry. attemptsMade is the count BEFORE this run.
+          const maxAttempts = job.opts?.attempts ?? 1;
+          const isFinalAttempt = (job.attemptsMade ?? 0) + 1 >= maxAttempts;
+          return await runShapeForCycle(data, shapeDeps, isFinalAttempt);
         }
 
         case 'hook':
