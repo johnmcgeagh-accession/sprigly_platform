@@ -952,8 +952,10 @@ export interface BeatRationaleEvidence {
   formatEngagement?: { format: string; avgEngagement: number; posts: number };
   /** This pillar's share of the client's configured pillar weights, 0–1. */
   pillarShare?:      number;
-  /** The cadence figure the slot count came from, and what it was measured over. */
-  cadenceBasis?:     { postsPerWeek: number; source: 'observed' | 'config'; months: number };
+  /** The cadence figure the slot count came from, and what it was measured over.
+   *  REQUIRED: every beat has a slot count basis, on the observed and template paths
+   *  alike — a beat that cannot say why it exists at all should not exist. */
+  cadenceBasis:      { postsPerWeek: number; source: 'observed' | 'config'; months: number };
   /** For an experiment slot: how the candidate ranked, and against what. */
   candidateRank?:    { rank: number; of: number; origin: 'client' | 'competitor' };
 }
