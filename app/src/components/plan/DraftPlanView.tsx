@@ -61,9 +61,11 @@ export interface DraftPlanViewProps {
   receipts?:  DraftReceipt[];
   /** False once the cycle passes its cutoff — the draft stays readable, just not editable. */
   editable?:  boolean;
+  /** Approves the month and starts generation. Absent → no approval affordance at all. */
+  onApprove?: () => Promise<{ ok: boolean; message?: string }>;
 }
 
-export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars, onMutate, onSay, receipts = [], editable = true }: DraftPlanViewProps) {
+export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars, onMutate, onSay, onApprove, receipts = [], editable = true }: DraftPlanViewProps) {
   const [beats, setBeats] = useState<DraftBeatView[]>(initial);
   const [receipt, setReceipt] = useState<DraftReceipt | null>(receipts[0] ?? null);
   const [saying, setSaying] = useState(false);
@@ -79,6 +81,11 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
   // which is the last action only. Anything deeper is a job for the agent in Build C.
   const undo = useRef<{ label: string; op: Record<string, unknown> } | null>(null);
   const [undoLabel, setUndoLabel] = useState<string | null>(null);
+  // Approval is two taps, never one. The second tap states the consequence in numbers —
+  // this is the point at which we start spending the client's money and writing content
+  // they will be asked to publish, and a single mis-tap should not reach it.
+  const [confirming, setConfirming] = useState(false);
+  const [approving, setApproving] = useState(false);
 
   // The month's assumptions are identical across beats (the assembler attaches the same
   // list to each), so surface them ONCE at the top rather than repeating them on 10 cards.
@@ -118,6 +125,20 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
     if (res.beats) setBeats(res.beats);
     if (res.application) { setReceipt(res.application); setChangedIds(res.application.changedIds); }
   }
+
+  async function approve() {
+    if (!onApprove) return;
+    setApproving(true); setError(null);
+    const res = await onApprove();
+    setApproving(false);
+    if (!res.ok) { setError(res.message ?? 'We couldn’t start that. Try again?'); return; }
+    // The surface re-renders out of draft mode on the next load: the cycle now has
+    // committed posts, so resolveSurfaceKind stops returning 'draft'.
+    window.location.reload();
+  }
+
+  const reelCount = useMemo(() => beats.filter((b) => b.format === 'reel').length, [beats]);
+  const hookCount = useMemo(() => beats.filter((b) => b.format === 'reel' || b.format === 'carousel').length, [beats]);
 
   const byDate = useMemo(() => [...beats].sort((a, b) => a.date.localeCompare(b.date) || a.position - b.position), [beats]);
 
@@ -299,6 +320,47 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
           <p style={{ fontSize: 14.5, color: C.muted, textAlign: 'center', padding: '32px 0' }}>
             Nothing in this draft yet.
           </p>
+        )}
+
+        {editable && onApprove && beats.length > 0 && (
+          <section aria-label="Approve this month" style={{ marginTop: 22, background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, padding: 15 }}>
+            {!confirming ? (
+              <>
+                <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 6px' }}>Happy with it?</h2>
+                <p style={{ fontSize: 14, lineHeight: 1.5, color: C.muted, margin: '0 0 12px' }}>
+                  We’ll write the captions and get everything ready. You can still change things afterwards.
+                </p>
+                <button type="button" onClick={() => setConfirming(true)}
+                  style={{ width: '100%', minHeight: 50, font: 'inherit', fontSize: 15.5, fontWeight: 700, color: '#fff', background: C.coral, border: 0, borderRadius: 11, cursor: 'pointer' }}>
+                  Looks good — generate my plan
+                </button>
+              </>
+            ) : (
+              <>
+                <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 8px' }}>Ready to go?</h2>
+                {/* The consequence, in numbers, before the money is spent. */}
+                <p style={{ fontSize: 14, lineHeight: 1.55, margin: '0 0 12px' }}>
+                  We’ll write captions for all <strong>{beats.length}</strong> posts
+                  {hookCount > 0 ? <>, opening hooks for the <strong>{hookCount}</strong> reels and carousels</> : null}
+                  {reelCount > 0 ? <>, and a script for {reelCount === 1 ? 'the' : 'each of the'} <strong>{reelCount}</strong> {reelCount === 1 ? 'reel' : 'reels'}</> : null}
+                  . This takes a few minutes.
+                </p>
+                <p style={{ fontSize: 13, color: C.muted, margin: '0 0 12px' }}>
+                  After this the dates and formats are set for the month, so have a last look if you want to move anything.
+                </p>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" onClick={approve} disabled={approving}
+                    style={{ flex: 1, minHeight: 48, font: 'inherit', fontSize: 15, fontWeight: 700, color: '#fff', background: C.coral, border: 0, borderRadius: 10, cursor: 'pointer', opacity: approving ? 0.6 : 1 }}>
+                    {approving ? 'Starting…' : 'Yes, generate it'}
+                  </button>
+                  <button type="button" onClick={() => setConfirming(false)} disabled={approving}
+                    style={{ minHeight: 48, padding: '0 16px', font: 'inherit', fontSize: 15, color: C.muted, background: '#fff', border: `1px solid ${C.line}`, borderRadius: 10, cursor: 'pointer' }}>
+                    Not yet
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
         )}
 
         {editable && (

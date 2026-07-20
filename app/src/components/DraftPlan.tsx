@@ -64,6 +64,17 @@ export function DraftPlan(props: DraftPlanProps) {
     }
   }
 
+  async function onApprove() {
+    try {
+      const res = await fetch('/api/plan/draft/approve', { method: 'POST' });
+      const json = (await res.json()) as { ok?: boolean; message?: string };
+      if (!res.ok || !json.ok) return { ok: false, message: json.message ?? 'We couldn’t start that. Try again?' };
+      return { ok: true };
+    } catch {
+      return { ok: false, message: 'We couldn’t reach the server. Check your connection and try again.' };
+    }
+  }
+
   return (
     <DraftPlanView
       beats={props.beats}
@@ -74,6 +85,7 @@ export function DraftPlan(props: DraftPlanProps) {
       receipts={props.receipts}
       onMutate={onMutate}
       onSay={onSay}
+      onApprove={onApprove}
     />
   );
 }
