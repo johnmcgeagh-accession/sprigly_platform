@@ -75,6 +75,20 @@ export type {
 } from './catalogue/parse-catalogue.js';
 
 // Intake-capture shared pure logic (Build 4) — sender + admin source these so they can't drift.
+export { resolvePillarWeights, spreadPillars } from './pillar-weights.js';
+export type { PillarWeight, PillarWeights } from './pillar-weights.js';
+
+// ── Draft-plan assembly (Build A) ────────────────────────────────────────────
+export { observeHistory, observeCadence, observeFormats } from './draft-history.js';
+export type { HistoryPost, HistoryObservation, CadenceObservation, FormatObservation } from './draft-history.js';
+export { buildSkeleton, spreadDates, spreadFormats, slotCountFor, DRAFT_MIN_POSTS } from './draft-skeleton.js';
+export type { Skeleton, SkeletonSlot, BuildSkeletonParams } from './draft-skeleton.js';
+export { allocateSlots, rankCandidates } from './draft-allocator.js';
+export type { ExperimentCandidate, AllocatedSlot } from './draft-allocator.js';
+export { assembleDraft, detectAssumptions, deterministicTitle, experimentTitle, STALE_TRAWL_DAYS } from './draft-assembly.js';
+export type { DraftBeat, DraftPlan, AssembleDraftParams } from './draft-assembly.js';
+export { phraseDraftTitles, applyPhrasing, parsePhrasing, validatePhrasing, PHRASING_SYSTEM } from './draft-phrasing.js';
+export type { PhrasingModel, PhrasingResult } from './draft-phrasing.js';
 export { AUTO_RUN_MIN_WINDOW, deriveTouchSchedule, dueTouchForDay } from './touch-schedule.js';
 export type { Touch, TouchSchedule } from './touch-schedule.js';
 export {
