@@ -565,6 +565,60 @@ describe('evaluateThreeTouchForClient', () => {
     expect(setCalls[0]).not.toHaveProperty('askSkipReason');
   });
 
+  // ── Draft plan on the Ask touch (Build A) ──────────────────────────────────
+  // The touch schedule is a commitment to the client; the draft is an enhancement to it.
+  // These tests exist to make sure the enhancement can never cost them the touch.
+
+  it('assembles a draft on the Ask touch and sends the ask_drafted variant carrying it', async () => {
+    const { db, setCalls } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
+    const assembleDraft = vi.fn().mockResolvedValue({ summary: '17 posts — 9 singles, 8 carousels.' });
+    const args = base(db, { assembleDraft });
+    expect(await evaluateThreeTouchForClient(args)).toBe('sent');
+    expect(assembleDraft).toHaveBeenCalledWith('c1', 'cyc-1');
+    expect(args.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+      key: 'ask_drafted',
+      merge: expect.objectContaining({ beatsSummary: '17 posts — 9 singles, 8 carousels.' }),
+    }));
+    expect(setCalls).toEqual([{ askSentAt: expect.any(Date) }]);
+  });
+
+  it('FAILURE ISOLATION: assembly throwing still sends the ordinary Ask email and stamps the touch', async () => {
+    const { db, update, setCalls } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
+    const assembleDraft = vi.fn().mockRejectedValue(new Error('bedrock exploded'));
+    const args = base(db, { assembleDraft });
+    expect(await evaluateThreeTouchForClient(args)).toBe('sent');   // the touch still happens
+    expect(args.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+      key: 'ask',                                                    // NOT ask_drafted
+      merge: expect.objectContaining({ beatsSummary: '' }),
+    }));
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(setCalls).toEqual([{ askSentAt: expect.any(Date) }]);
+  });
+
+  it('never promises a draft it does not have: an empty summary keeps the plain ask template', async () => {
+    const { db } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
+    const args = base(db, { assembleDraft: vi.fn().mockResolvedValue({ summary: '' }) });
+    expect(await evaluateThreeTouchForClient(args)).toBe('sent');
+    expect(args.sendEmail).toHaveBeenCalledWith(expect.objectContaining({ key: 'ask' }));
+  });
+
+  it('does NOT assemble a draft on the Nudge or Last Call touches', async () => {
+    for (const day of [17, 19]) {   // nudge = cutoff-3, last call = cutoff-1
+      const { db } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
+      const assembleDraft = vi.fn().mockResolvedValue({ summary: 'x' });
+      const args = base(db, { assembleDraft, today: { ...TODAY, day } });
+      await evaluateThreeTouchForClient(args);
+      expect(assembleDraft).not.toHaveBeenCalled();
+    }
+  });
+
+  it('sends the ordinary Ask when no assembler is wired at all', async () => {
+    const { db } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
+    const args = base(db, { assembleDraft: undefined });
+    expect(await evaluateThreeTouchForClient(args)).toBe('sent');
+    expect(args.sendEmail).toHaveBeenCalledWith(expect.objectContaining({ key: 'ask' }));
+  });
+
   it('is at-most-once: a set ask_sent_at → skip, no send, no stamp (reason untouched)', async () => {
     const { db, update } = makeSenderDb([[{ ...emptyCycle, askSentAt: new Date() }]]);
     const args = base(db);

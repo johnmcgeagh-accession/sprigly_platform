@@ -30,6 +30,16 @@ type Db = typeof _db;
 /** Injected send capability (constructed in the consumer with real Gmail deps): resolve +
  *  render + deliver a templated email to the pinned inbox. Returns true on a confirmed send. */
 export type SendTemplatedEmailFn = (input: { key: EmailTemplateKey; clientId: string; merge: MergeData }) => Promise<boolean>;
+
+/**
+ * Assemble + persist a draft plan for a cycle, returning a one-line summary for the Ask
+ * email. INJECTED rather than imported so the scheduler keeps no dependency on the model
+ * client, and so the failure-isolation branch below is directly testable.
+ *
+ * May throw. The Ask touch treats a throw as "no draft this month" and sends the ordinary
+ * Ask email — a draft is an enhancement to the touch, never a precondition for it.
+ */
+export type AssembleDraftFn = (clientId: string, cycleId: string) => Promise<{ summary: string }>;
 /** Injected app-link resolver (planning.ensureAppLink), so the scheduler stays free of the
  *  heavy planning module. Returns the /p/<token> URL for the cycle, or null. */
 export type ResolveAppLinkFn = (clientId: string, cycleId: string) => Promise<string | null>;
@@ -307,8 +317,9 @@ export async function evaluateThreeTouchForClient(params: {
   logger:    Logger;
   sendEmail?:      SendTemplatedEmailFn | undefined;
   resolveAppLink?: ResolveAppLinkFn | undefined;
+  assembleDraft?:  AssembleDraftFn | undefined;
 }): Promise<'sent' | 'skipped'> {
-  const { db, clientId, channel, dataMonth, schedule, today, logger, sendEmail, resolveAppLink } = params;
+  const { db, clientId, channel, dataMonth, schedule, today, logger, sendEmail, resolveAppLink, assembleDraft } = params;
   const touch = dueTouch(schedule, today.day);
   if (!touch) return 'skipped';   // no touch due today (covers no-cutoffDay clients) — SILENT, no
                                   // stamp: this fires on every non-beat day and must not write.
@@ -355,6 +366,29 @@ export async function evaluateThreeTouchForClient(params: {
 
     const appLink   = resolveAppLink ? (await resolveAppLink(clientId, cycle.id)) ?? '' : '';
     const cutoffDay = schedule.cutoffDay ?? 0;
+
+    // ── Draft plan (Build A, D2) ──────────────────────────────────────────────────
+    // On the ASK touch only, assemble + persist a draft so the email can carry it. The
+    // client then reacts to a month rather than composing one from a blank form.
+    //
+    // FAILURE ISOLATION IS THE POINT: assembly does model work and several reads, any of
+    // which can fail. If it does, we log and fall through to the ORDINARY Ask email,
+    // unchanged. The touch schedule is a commitment to the client; a draft is an
+    // enhancement to it. Never let the enhancement cost them the touch.
+    let beatsSummary = '';
+    if (touch === 'ask' && assembleDraft) {
+      try {
+        beatsSummary = (await assembleDraft(clientId, cycle.id)).summary;
+        logger.info({ ...logCtx, beatsSummary }, '[touch:draft-assembled]');
+      } catch (err) {
+        beatsSummary = '';
+        logger.warn({ ...logCtx, err: String(err) }, '[touch:draft-failed] sending the ordinary Ask email');
+      }
+    }
+    // The variant is chosen by whether we ACTUALLY have a draft to describe, not by
+    // whether we tried — so a failed assembly can never send an email promising a draft
+    // that is not there.
+    const templateKey: EmailTemplateKey = touch === 'ask' && beatsSummary ? 'ask_drafted' : TOUCH_KEY[touch];
     const merge: MergeData = {
       contactName:    chan?.contactName ?? 'there',
       clientName:     client?.name ?? 'there',
@@ -364,10 +398,11 @@ export async function evaluateThreeTouchForClient(params: {
       intakeLink:     appLink ? `${appLink}?intake=1` : '',   // lands with the intake surface open
       appLink,
       questionsBlock: touch === 'ask' ? buildQuestionsBlock(chan?.extraQuestions ?? null) : '',
-      // leanLine + beatsSummary render blank in this build (their sources wire in later builds).
+      beatsSummary,
+      // leanLine renders blank in this build (its source wires in a later build).
     };
 
-    const ok = await sendEmail({ key: TOUCH_KEY[touch], clientId, merge });
+    const ok = await sendEmail({ key: templateKey, clientId, merge });
     if (!ok) {
       logger.warn(logCtx, '[touch:skipped reason=send_failed]');
       await stampBeatSkip(db, cycle.id, touch, 'send_failed');
@@ -426,6 +461,9 @@ export async function runContentCycleTick(params: {
   // Gmail/planning deps exist). Absent ⇒ the sender pass logs and sends nothing.
   sendEmail?:      SendTemplatedEmailFn;
   resolveAppLink?: ResolveAppLinkFn;
+  // Draft-plan assembly for the Ask touch (Build A). Injected so the scheduler keeps no
+  // model dependency; a throw degrades to the ordinary Ask email (see the touch sender).
+  assembleDraft?: AssembleDraftFn;
 }): Promise<void> {
   const { db, queue, logger } = params;
   const now = params.now ?? new Date();
@@ -514,6 +552,7 @@ export async function runContentCycleTick(params: {
       const outcome = await evaluateThreeTouchForClient({
         db, clientId: row.clientId, channel: row.channel, dataMonth: cohortMonth(schedule), schedule, today, logger,
         sendEmail: params.sendEmail, resolveAppLink: params.resolveAppLink,
+        assembleDraft: params.assembleDraft,
       });
       if (outcome === 'sent') touchSent++;
     } catch (err) {

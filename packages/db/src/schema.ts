@@ -201,7 +201,11 @@ export const emailTemplates = pgTable(
 
 export type EmailTemplate    = typeof emailTemplates.$inferSelect;
 export type NewEmailTemplate = typeof emailTemplates.$inferInsert;
-export type EmailTemplateKey = 'ask' | 'nudge' | 'last_call' | 'plan_ready';
+// 'ask_drafted' is the Ask touch when a draft plan exists for the cycle (Build A). It is a
+// SEPARATE key rather than a new version of 'ask' because the resolver picks the highest
+// published version per key — two variants under one key could not be chosen between.
+// Cycles without a draft keep rendering 'ask' exactly as before.
+export type EmailTemplateKey = 'ask' | 'ask_drafted' | 'nudge' | 'last_call' | 'plan_ready';
 
 // ─── themes ───────────────────────────────────────────────────────────────────
 // Platform-wide design themes (admin-managed, GLOBAL — deliberately NO client_id column, so
