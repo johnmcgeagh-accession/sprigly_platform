@@ -2,12 +2,15 @@ import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db, clients, clientConfigs, contentCycles, clientChannels, planInputs } from '@sprigly/db';
 import { BASE_QUESTIONS, type IntakeJson } from '@sprigly/engine';
 import { getSession } from '@/lib/auth';
-import { loadPlanPosts, loadCrossMonthPosts, loadCycleList, beatsInMonth } from '@/lib/plan';
+import { loadPlanPosts, loadCrossMonthPosts, loadCycleList, beatsInMonth, loadDraftBeats } from '@/lib/plan';
+import { cycleIsPreCutoff } from '@/lib/draft-mutations';
 import { editScopeToday } from '@/lib/edit-scope';
 import { resolveDayCycleId } from '@/lib/cycle-nav';
 import { readPlanRedesignFlag } from '@/lib/flags';
 import PlanApp from '@/components/PlanApp';
 import PlanRedesign from '@/components/PlanRedesign';
+import { DraftPlan } from '@/components/DraftPlan';
+import { clientPlanningConfig } from '@sprigly/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,6 +53,42 @@ export default async function Page({ searchParams }: { searchParams: { intake?: 
   const crossMonthPosts = home && initialMonth
     ? await loadCrossMonthPosts(session.clientId, home.channel, initialMonth, initialCycleId)
     : [];
+
+  // ── DRAFT MODE (Build B) ────────────────────────────────────────────────────
+  // The client sees their draft ONLY when the cycle has no committed posts. A cycle
+  // holding BOTH (the known interim state from Build A: a whole-plan regen on a cycle
+  // that still has drafts) renders the ordinary plan — committed posts win the surface
+  // and the drafts stay invisible, exactly as they are to every other reader.
+  //
+  // Gating on `posts.length === 0` rather than on "are any rows drafts?" is what makes
+  // that true: posts is already draft-fenced, so a non-empty posts list IS the presence
+  // of committed work, and no separate mixed-state check can drift out of sync with it.
+  if (posts.length === 0) {
+    const draftBeats = await loadDraftBeats(session.clientId, initialCycleId);
+    if (draftBeats.length > 0) {
+      const [planCfg] = home
+        ? await db.select({ pillars: clientPlanningConfig.pillars })
+            .from(clientPlanningConfig)
+            .where(and(eq(clientPlanningConfig.clientId, session.clientId), eq(clientPlanningConfig.channel, home.channel)))
+            .limit(1)
+        : [];
+      const pillarNames = (planCfg?.pillars ?? [])
+        .map((p) => (p as { name?: unknown }).name)
+        .filter((n): n is string => typeof n === 'string' && n.trim().length > 0);
+
+      return (
+        <DraftPlan
+          beats={draftBeats}
+          monthLabel={cycles.find((c) => c.cycleId === initialCycleId)?.monthLabel ?? 'next month'}
+          clientName={client?.name ?? 'you'}
+          pillars={pillarNames}
+          // Past cutoff the draft stays READABLE but not editable — viewing and editing
+          // are different rights (see cycleHasReviewableDraft).
+          editable={await cycleIsPreCutoff(initialCycleId)}
+        />
+      );
+    }
+  }
 
   // Beats + saved intake (FIX 1) for the landed cycle.
   const [landed] = await db
