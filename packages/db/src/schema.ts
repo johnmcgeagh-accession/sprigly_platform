@@ -1064,6 +1064,32 @@ export type NewContentCyclePostRow = typeof contentCyclePosts.$inferInsert;
 // is labelled honestly rather than silently relabelled 'planned'.
 export const POST_STATUS_DRAFT = 'draft' as const;
 
+/**
+ * The caption the app writes into an added-but-unfilled post, and the exact string the
+ * regen merge tests for to classify that post as a disposable placeholder.
+ *
+ * ONE constant because there were two, and they could never match. `plan-merge.ts` looked
+ * for 'Draft idea — tell Sprigly' (em dash, lowercase "tell") while `mutations.ts` wrote
+ * 'Draft idea. Tell Sprigly …' (full stop, capital T), so the startsWith check was dead
+ * code: unfilled placeholders were never classified disposable and survived a re-merge,
+ * contrary to the documented intent.
+ *
+ * The canonical form is the one the DATABASE carries, not the one that reads better. Dev
+ * rows: 4 in the mutations form (2026-07-09 → 07-17, still being written) against 1 in the
+ * em-dash form (2026-07-06, and no code writes it any more). The full-stop form won on
+ * evidence.
+ *
+ * Home is @sprigly/db because both consumers already depend on it — app/ and the worker —
+ * so this adds no cross-package edge, and because POST_STATUS_DRAFT above is the same kind
+ * of thing: a magic value about content_cycle_posts that several packages must agree on.
+ */
+export const DRAFT_PLACEHOLDER_CAPTION =
+  'Draft idea. Tell Sprigly what this post should be about and it\'ll write the caption.';
+
+/** The prefix the merge classifier matches on. Deliberately a PREFIX of the full caption
+ *  above, so the two can never drift into disagreeing about what a placeholder looks like. */
+export const DRAFT_PLACEHOLDER_PREFIX = 'Draft idea. Tell Sprigly';
+
 /** Drizzle condition: exclude unapproved draft beats from a plan read.
  *  Use in EVERY query that answers "what is the plan?" — client surfaces, the
  *  agent's plan context, cycle counts, the regen classifier, the weekly audit. */

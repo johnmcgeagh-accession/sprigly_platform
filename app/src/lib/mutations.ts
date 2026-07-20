@@ -7,7 +7,7 @@
  * The `pending` (regen) branch is Phase 3 — not here.
  */
 import { and, eq, isNull, desc } from 'drizzle-orm';
-import { db, contentCyclePosts } from '@sprigly/db';
+import { db, contentCyclePosts, DRAFT_PLACEHOLDER_CAPTION } from '@sprigly/db';
 import type { ContentCyclePostRow } from '@sprigly/db';
 import { loadPlanPosts } from '@/lib/plan';
 import { resolveRevert } from '@/lib/revert';
@@ -16,7 +16,7 @@ import { isEditableDate, canAddPost, editScopeToday } from '@/lib/edit-scope';
 import type { ShapeResult, PostFormat } from '@/lib/types';
 
 const FORMATS = new Set<PostFormat>(['reel', 'carousel', 'single', 'email']);
-const DRAFT_PLACEHOLDER = 'Draft idea. Tell Sprigly what this post should be about and it\'ll write the caption.';
+
 
 /**
  * The (id, clientId, cycleId) scope every write must carry. The preceding
@@ -129,7 +129,7 @@ export async function addDraft(clientId: string, cycleId: string, channel: strin
         scheduledDate: date,
         format:        fmt,
         pillar:        'New idea',
-        caption:       DRAFT_PLACEHOLDER,
+        caption:       DRAFT_PLACEHOLDER_CAPTION,
         status:        'new',
         position,
         sourceMeta:    {},   // no original → revert removes it
