@@ -32,6 +32,7 @@
     "patch-calendar-config": "sh -c 'set -a && . ../.env.local && set +a && tsx src/patch-calendar-config.ts \"$@\"' --",
     "send-request-email": "sh -c 'set -a && . ../.env.local && set +a && tsx src/send-request-email.ts \"$@\"' --",
     "reset-cycle": "sh -c 'set -a && . ../.env.local && set +a && tsx src/reset-cycle.ts \"$@\"' --",
+    "cycle-reset": "sh -c 'set -a && . ../.env.local && set +a && tsx src/content-cycles/cycle-reset-cli.ts \"$@\"' --",
     "extract-voice-cycle": "sh -c 'set -a && . ../.env.local && set +a && tsx src/extract-voice-cycle.ts \"$@\"' --",
     "approve-voice-cycle": "sh -c 'set -a && . ../.env.local && set +a && tsx src/approve-voice-cycle.ts \"$@\"' --",
     "backfill-emails": "tsx --env-file ../.env.local src/backfill-connection-emails.ts",
