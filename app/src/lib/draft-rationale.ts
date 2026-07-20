@@ -37,6 +37,13 @@ export function rationaleFor(evidence: BeatEvidence, pillar: string): string {
     case 'client_added':
       return 'You added this one.';
 
+    case 'emphasis_reweight':
+      // Deliberately cites the client's own words and NOTHING about the old pillar. The
+      // metrics that used to justify this beat described a pillar it no longer has.
+      return evidence.reason
+        ? `Leaned this way because you said: \u201C${evidence.reason}\u201D.`
+        : 'You asked us to lean the month this way.';
+
     case 'template':
       // Deliberately names the gap. The client should know when we are working from a
       // starting shape rather than from their own numbers.

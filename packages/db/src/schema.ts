@@ -951,8 +951,10 @@ export interface BeatRationaleEvidence {
    *  'observed'     = derived from this client's own ig_posts history
    *  'template'     = the thin-data neutral skeleton (history below the floor)
    *  'client_added' = the client added this beat themselves (Build B)
-   *  'client_input' = created by something the client WROTE, quoted in `reason` (Build C) */
-  basis:            'observed' | 'template' | 'client_added' | 'client_input';
+   *  'client_input' = created by something the client WROTE, quoted in `reason` (Build C)
+   *  'emphasis_reweight' = moved by a client emphasis; the old pillar's metrics were
+   *                        DROPPED rather than carried, since they no longer describe it */
+  basis:            'observed' | 'template' | 'client_added' | 'client_input' | 'emphasis_reweight';
   /** Set only when basis='template' — why the observed path was unavailable. */
   reason?:          string;
   /** Engagement for THIS beat's format, as measured (likes+comments per post). */

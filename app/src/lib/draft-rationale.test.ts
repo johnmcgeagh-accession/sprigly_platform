@@ -82,6 +82,19 @@ describe('rationaleFor — client_added', () => {
   });
 });
 
+describe('rationaleFor — emphasis_reweight', () => {
+  it('cites the client’s words and NEVER the old pillar’s share', () => {
+    const out = rationaleFor({ basis: 'emphasis_reweight', reason: 'more product this month' }, 'Product & Fragrance');
+    expect(out).toBe('Leaned this way because you said: \u201Cmore product this month\u201D.');
+    // The whole point of the correction: no percentage, no engagement, no old pillar.
+    expect(out).not.toMatch(/%|average|likes|Everyday Ritual/);
+  });
+
+  it('degrades gracefully when the source text is missing', () => {
+    expect(rationaleFor({ basis: 'emphasis_reweight' }, 'x')).toBe('You asked us to lean the month this way.');
+  });
+});
+
 describe('slotLabel', () => {
   it('labels an experiment so a bet is distinguishable from a safe pick', () => {
     expect(slotLabel('experiment')).toBe('Something new');

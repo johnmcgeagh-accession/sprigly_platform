@@ -206,6 +206,17 @@ describe('applyEmphasis', () => {
     expect(res.ops[0]).toMatchObject({ op: 'update', changes: { format: 'reel' } });
   });
 
+  it('REPLACES a re-pillared beat’s evidence — stale metrics must not survive the move', () => {
+    // The beat cited "Everyday Ritual is 20% of what you post". It is now under Product &
+    // Fragrance. Carrying the old share over would be misleading, so the evidence is
+    // replaced with the honest one: the client asked for this.
+    const op = applyEmphasis(emphasis, month, TODAY).ops[0] as { beatMeta: BeatMeta };
+    expect(op.beatMeta.rationaleEvidence.basis).toBe('emphasis_reweight');
+    expect(op.beatMeta.rationaleEvidence.reason).toBe('more product this month');
+    expect(op.beatMeta.rationaleEvidence.pillarShare).toBeUndefined();
+    expect(op.beatMeta.rationaleEvidence.formatEngagement).toBeUndefined();
+  });
+
   it('says so when there is nothing eligible left', () => {
     const res = applyEmphasis(emphasis, [beat('touched', '2026-09-15', clientTouched())], TODAY);
     expect(res.ops).toEqual([]);

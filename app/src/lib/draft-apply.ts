@@ -105,6 +105,10 @@ async function writeOps(clientId: string, cycleId: string, channel: string, ops:
         if (op.changes.date   !== undefined) set['scheduledDate'] = op.changes.date;
         if (op.changes.format !== undefined) set['format'] = op.changes.format;
         if (op.changes.pillar !== undefined) set['pillar'] = op.changes.pillar;
+        // A transform that rewrote the beat's evidence (an emphasis re-pillar) must have
+        // that written too — otherwise the row keeps citing metrics for a pillar it no
+        // longer has.
+        if (op.beatMeta !== undefined) set['beatMeta'] = op.beatMeta;
         if (Object.keys(set).length > 0) {
           await tx.update(contentCyclePosts).set(set).where(and(eq(contentCyclePosts.id, op.id), scope));
         }

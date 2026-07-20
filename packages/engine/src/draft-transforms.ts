@@ -39,7 +39,7 @@ export interface TransformBeat {
 export type BeatOp =
   | { op: 'add';    date: string; format: string; pillar: string; title: string; beatMeta: BeatMeta }
   | { op: 'remove'; id: string }
-  | { op: 'update'; id: string; changes: { date?: string; format?: string; pillar?: string; title?: string } };
+  | { op: 'update'; id: string; changes: { date?: string; format?: string; pillar?: string; title?: string }; beatMeta?: BeatMeta };
 
 export interface TransformResult {
   ops: BeatOp[];
@@ -108,6 +108,28 @@ function clientInputMeta(sourceText: string, slotType: 'proven' | 'experiment' =
     // 'client_input' is distinct from 'client_added' (Build B's manual add): this beat came
     // from something the client WROTE, and the receipt quotes it back.
     rationaleEvidence: { basis: 'client_input', reason: sourceText } as BeatMeta['rationaleEvidence'],
+  };
+}
+
+/**
+ * Evidence for a beat an emphasis moved.
+ *
+ * REPLACES rather than merges. A re-pillared beat that kept its observed evidence would
+ * render "Everyday Ritual is about 20% of what you post" while sitting under a different
+ * pillar entirely — stale rather than false, but misleading, and a client who catches one
+ * wrong rationale has no reason to trust the others. The honest evidence for a beat the
+ * client asked us to lean is that the client asked us to lean it.
+ *
+ * The upgrade, when it is worth the work: recompute the beat's real evidence via the
+ * assembler primitives under the adjusted weights, so it can cite the NEW pillar's share.
+ * Recorded as a backlog item rather than done here — it needs the assembler's inputs
+ * threaded into the transform, which is a bigger change than this correction.
+ */
+function reweighted(beat: TransformBeat, sourceText: string): BeatMeta {
+  const base: BeatMeta = beat.beatMeta ?? { slotType: 'proven', rationaleEvidence: { basis: 'template' } };
+  return {
+    ...base,
+    rationaleEvidence: { basis: 'emphasis_reweight', reason: sourceText } as BeatMeta['rationaleEvidence'],
   };
 }
 
@@ -218,11 +240,19 @@ export function applyEmphasis(
   }
 
   const convert = Math.max(1, Math.floor(eligible.length / 3));
-  const ops: BeatOp[] = eligible.slice(0, convert).map((b) => ({
-    op: 'update' as const,
-    id: b.id,
-    changes: asFormat ? { format: asFormat } : { pillar: target },
-  }));
+  const ops: BeatOp[] = eligible.slice(0, convert).map((b) => (
+    asFormat
+      // A format swap leaves the beat's PILLAR evidence true — the pillar share it cites
+      // is still the pillar it has — so the evidence stands. Only formatEngagement would
+      // now be stale, and it is dropped with the rest of the observed evidence below only
+      // when the pillar itself changes.
+      ? { op: 'update' as const, id: b.id, changes: { format: asFormat }, beatMeta: reweighted(b, intent.sourceText) }
+      // A RE-PILLAR invalidates the evidence outright: the beat would otherwise keep
+      // citing "Everyday Ritual is 20% of what you post" while sitting under Product &
+      // Fragrance. Stale metrics from the old pillar must never survive the move, so the
+      // evidence is REPLACED with the honest one: you asked for this.
+      : { op: 'update' as const, id: b.id, changes: { pillar: target }, beatMeta: reweighted(b, intent.sourceText) }
+  ));
   return { ops, note: `Leaned ${convert} post${convert === 1 ? '' : 's'} toward ${target}.` };
 }
 

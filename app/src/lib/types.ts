@@ -106,7 +106,7 @@ export interface PlanPost {
 /** Structured evidence a beat was chosen on. Mirrors BeatRationaleEvidence in
  *  @sprigly/db — restated here so the client bundle does not import the db package. */
 export interface BeatEvidence {
-  basis:             'observed' | 'template' | 'client_added';
+  basis:             'observed' | 'template' | 'client_added' | 'client_input' | 'emphasis_reweight';
   reason?:           string;
   formatEngagement?: { format: string; avgEngagement: number; posts: number };
   pillarShare?:      number;
