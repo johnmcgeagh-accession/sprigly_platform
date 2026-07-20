@@ -23,7 +23,14 @@ import type { Catalogue } from '../catalogue/parse-catalogue.js';
 import { indexCatalogue, buildCatalogueGroundingBlock, type CatalogueIndex } from '../catalogue/validate-catalogue.js';
 import { extractStructuredBrief, EMPTY_STRUCTURED_BRIEF } from './brief-extract.js';
 
-const cycleId = process.argv[2] ?? 'd502f22d-983b-442c-880a-db4f86861ecb';
+// Required, no fallback: this used to default to a real production cycle, so a bare
+// invocation silently reported on someone else's month.
+const cycleId = process.argv[2];
+if (!cycleId) {
+  console.error('brief-persist-check: missing required argument <cycleId>.');
+  console.error('usage: pnpm exec tsx src/content-cycles/brief-persist-check.ts <cycleId>');
+  process.exit(1);
+}
 
 const [cycle] = await db
   .select({ intakeJson: contentCycles.intakeJson, clientId: contentCycles.clientId, channel: contentCycles.channel })
