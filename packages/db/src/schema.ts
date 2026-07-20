@@ -770,6 +770,12 @@ export const contentCycles = pgTable(
     // this" when they did not would be a small lie with a long tail.
     approvedAt:        timestamp('approved_at'),
     approvedBy:        text('approved_by'),
+    // At-most-once stamp for the plan-ready email (migration 0089). NULL = never sent.
+    // This column IS the concurrency control: the send is claimed with
+    // `SET plan_ready_sent_at = now() WHERE id = $1 AND plan_ready_sent_at IS NULL`, so
+    // two workers settling the same cycle at once contend on one row and exactly one wins.
+    // Cleared by a cycle reset — it is run state, not history.
+    planReadySentAt:   timestamp('plan_ready_sent_at', { withTimezone: true }),
   },
   (t) => ({
     uniqClientChannelMonth: uniqueIndex('content_cycles_unique').on(

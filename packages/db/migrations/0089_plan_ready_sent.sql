@@ -1,0 +1,33 @@
+-- 0089_plan_ready_sent — the at-most-once stamp for the plan-ready email.
+--
+-- Until now nothing recorded that a plan-ready email had gone out, and it showed in two
+-- ways. The baseline path re-sent on every completed planning run (investigation §6.5,
+-- docs/reports/cycle-reset-investigation.md), because the send was unconditional. And the
+-- approval arc — client or auto — sent nothing at all, because its only send site sits in
+-- the planning worker that the approval branch deliberately returns before reaching
+-- (scheduler.ts:283-293). Adding the send without a stamp would have converted the second
+-- problem into the first, several times over: the settlement check runs after EVERY
+-- per-post generation job, so an unguarded send would email the client once per post.
+--
+-- The column IS the concurrency control, not just a record. The claim is
+--   UPDATE content_cycles SET plan_ready_sent_at = now()
+--    WHERE id = $1 AND plan_ready_sent_at IS NULL RETURNING id
+-- so two workers settling the same cycle at the same moment contend on one row: exactly
+-- one UPDATE matches, exactly one email is sent. A read-then-write check would not do
+-- this — with concurrency 2 on the worker, two jobs finishing together is the ordinary
+-- case, not the rare one.
+--
+-- timestamptz, unlike the older timestamp columns on this table, because the value is
+-- compared against wall-clock send decisions rather than to a cycle month, and an
+-- ambiguous hour at a DST boundary would be a real (if brief) double-send window.
+--
+-- Additive and non-destructive: one nullable column, no backfill, no default, no data
+-- touched. Existing rows keep NULL, which reads as "never sent" — deliberately, since a
+-- cycle that already had its email under the old unguarded behaviour will send once more
+-- and then stop, which is the safe direction to be wrong in.
+--
+-- APPLY-BEFORE-DEPLOY — content_cycles is read with select() in several places, so the
+-- mapped column must exist before the schema change deploys. Apply manually:
+--   psql "<DATABASE_URL>" -f 0089_plan_ready_sent.sql
+
+ALTER TABLE "content_cycles" ADD COLUMN IF NOT EXISTS "plan_ready_sent_at" timestamptz;
