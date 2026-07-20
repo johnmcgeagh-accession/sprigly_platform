@@ -82,6 +82,11 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (!focus.current.script && !scriptAuto.dirty) setScript(post.script ?? ''); }, [post.script]);
 
+  // Quiet inline autosave hint for the caption (there's no Save button): in-flight while a
+  // save runs, settled after it lands, and hidden before the first save or once the client
+  // starts a fresh edit (dirty) — so "Saved" never lingers over unsaved text.
+  const captionSaveHint = capAuto.status === 'saving' ? 'Saving…' : capAuto.status === 'saved' && !capAuto.dirty ? 'Saved' : null;
+
   const ring = ringOf(post.steps);
   const shaping = data.shapingIds.has(post.id);
   const isEmail = post.format === 'email';
@@ -189,8 +194,14 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
         </div>
       )}
 
-      {/* caption — autosaves on blur + idle (no Save button) */}
-      <span className="mb-[9px] block text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">Caption</span>
+      {/* caption — autosaves on blur + idle (no Save button); a quiet inline hint stands in
+          for the missing button so the client sees the save land. */}
+      <div className="mb-[9px] flex items-center justify-between">
+        <span className="text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">Caption</span>
+        {captionSaveHint && (
+          <span data-testid="caption-save-hint" aria-live="polite" className="text-[11.5px] font-semibold text-faint">{captionSaveHint}</span>
+        )}
+      </div>
       <textarea
         data-testid="editor-caption" value={caption} onChange={(e) => setCaption(e.target.value)}
         onFocus={() => { focus.current.caption = true; }} onBlur={() => { focus.current.caption = false; capAuto.flush(); }}
