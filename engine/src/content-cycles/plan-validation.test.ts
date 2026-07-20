@@ -4,6 +4,7 @@ import type { ModelClient, ModelCompleteParams } from '@sprigly/model-client';
 import type { AuditLogger } from '@sprigly/audit';
 import {
   codeGateCheck, selectHistoricExamples, parseCriticVerdict, normaliseDashes, resolveRegister,
+  extractHashtags, editDistance, checkHashtags,
   regeneratePost, mergeStructuralFields, STRUCTURAL_FIELDS, applyCodeGate, applyCritic,
   type PlanPostRow, type CodeGateVocab, type HistoricPost, type RegisterMap,
   type PlanRepairContext, type CriticContext,
@@ -12,6 +13,8 @@ import {
 const VOCAB: CodeGateVocab = {
   categories: ['Styling', 'Brand', 'Product launch or offer related', 'No Post/Sally'],
   pillars:    ['Stable Foundations', 'Ethical Without Compromise', 'Personal Relationships'],
+  // Real tags from earl-of-east's own ig_posts, which is where the gate sources them.
+  knownHashtags: ['ritualoverroutine', 'earlofeast', 'greenhouse', 'homefragrance', 'incense', 'soho'],
 };
 
 const base: PlanPostRow = {
@@ -457,5 +460,96 @@ describe('applyCodeGate / applyCritic — slot count and order invariance (f)', 
     expect(res.rows.map((r) => r.title)).toEqual(inputTitles);
     expect(res.checked).toBe(clean.length);
     expect(res.acceptedWithWarning.map((w) => w.index)).toEqual([1]);   // P2, still at its own index
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// CORRUPTED HASHTAGS — the Build D dogfood run published-adjacent bug.
+// A generated caption carried "#ritualovertoutine" for the client's real
+// "#ritualoverroutine". The gate never looked at tags.
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('editDistance', () => {
+  it('measures substitutions, insertions and deletions', () => {
+    expect(editDistance('abc', 'abc')).toBe(0);
+    expect(editDistance('abc', 'abd')).toBe(1);
+    expect(editDistance('abc', 'ab')).toBe(1);
+    expect(editDistance('abc', 'abcd')).toBe(1);
+    expect(editDistance('kitten', 'sitting')).toBe(3);
+  });
+
+  it('bails out early rather than computing a distance nobody needs', () => {
+    expect(editDistance('short', 'a-very-much-longer-string', 2)).toBeGreaterThan(2);
+  });
+});
+
+describe('extractHashtags', () => {
+  it('pulls tags out lowercased, without the hash', () => {
+    expect(extractHashtags('Lovely day #EarlOfEast #ritualOverRoutine!')).toEqual(['earlofeast', 'ritualoverroutine']);
+  });
+  it('returns nothing for a caption with no tags', () => {
+    expect(extractHashtags('No tags here at all.')).toEqual([]);
+  });
+});
+
+describe('checkHashtags — catch mangled brand tags, allow novel ones', () => {
+  const known = VOCAB.knownHashtags!;
+
+  it('THE BUG: catches #ritualovertoutine as a mistyped #ritualoverroutine', () => {
+    // The exact string that reached a generated caption in the Build D dogfood run.
+    expect(checkHashtags('a caption // #earlofeast #ritualovertoutine', known))
+      .toEqual([['ritualovertoutine', 'ritualoverroutine']]);
+  });
+
+  it('passes a hashtag the client actually uses', () => {
+    expect(checkHashtags('#ritualoverroutine #earlofeast #greenhouse', known)).toEqual([]);
+  });
+
+  it('passes a GENUINELY NOVEL hashtag — the model may invent tags', () => {
+    // Blocking new tags would make captions worse. Only mangled KNOWN tags are wrong.
+    expect(checkHashtags('#autumnlight #slowmornings #octoberathome', known)).toEqual([]);
+  });
+
+  it('does not flag a short word that merely resembles a known tag', () => {
+    // "#solo" vs known "#soho" is one edit, but 1/4 = 0.25 > the 0.2 ratio: two ordinary
+    // distinct words, not a typo. A bare distance threshold would wrongly block this.
+    expect(checkHashtags('#solo', known)).toEqual([]);
+  });
+
+  it('catches a two-edit corruption of a long tag', () => {
+    expect(checkHashtags('#homefragrence', ['homefragrance'])).toEqual([['homefragrence', 'homefragrance']]);
+  });
+
+  it('is disabled entirely when the client has no scraped history', () => {
+    // No basis to judge → do not second-guess.
+    expect(checkHashtags('#anythingatall #ritualovertoutine', [])).toEqual([]);
+  });
+
+  it('reports the CLOSEST known tag when several are near', () => {
+    expect(checkHashtags('#earlofeastt', ['earlofeast', 'earlofeastsoho'])).toEqual([['earlofeastt', 'earlofeast']]);
+  });
+});
+
+describe('codeGateCheck — corrupted-hashtag issue', () => {
+  it('flags the corrupted tag and names the correction', () => {
+    const post = { ...base, draftCaption: 'A clean caption about candles. // #earlofeast #ritualovertoutine' };
+    const issues = codeGateCheck(post, VOCAB);
+    expect(issues.map((i) => i.code)).toContain('corrupted-hashtag');
+    const issue = issues.find((i) => i.code === 'corrupted-hashtag')!;
+    expect(issue.detail).toContain('#ritualovertoutine');
+    expect(issue.detail).toContain('#ritualoverroutine');
+  });
+
+  it('a caption with correct tags passes the whole gate', () => {
+    expect(codeGateCheck({ ...base, draftCaption: 'A clean caption. // #earlofeast #ritualoverroutine' }, VOCAB)).toEqual([]);
+  });
+
+  it('a caption with a novel tag passes the whole gate', () => {
+    expect(codeGateCheck({ ...base, draftCaption: 'A clean caption. // #autumnlight' }, VOCAB)).toEqual([]);
+  });
+
+  it('does not fire when the vocab carries no hashtags at all', () => {
+    const noTags: CodeGateVocab = { categories: VOCAB.categories, pillars: VOCAB.pillars };
+    expect(codeGateCheck({ ...base, draftCaption: 'A clean caption. // #ritualovertoutine' }, noTags)).toEqual([]);
   });
 });

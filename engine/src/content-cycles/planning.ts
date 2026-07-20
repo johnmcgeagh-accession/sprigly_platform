@@ -321,6 +321,40 @@ function buildPlanningUserMessage(inp: PlanningInputs): string {
 
 // ── Critic reference loaders (per-client, both optional → degrade gracefully) ──
 
+/**
+ * Every hashtag this client has used, lowercased, from their own ig_posts captions.
+ *
+ * The ONLY authoritative source: there is no hashtag column or config list anywhere in the
+ * schema (verified against information_schema — zero columns matching 'hashtag', and no '#'
+ * in any client_planning_config row). Derived rather than curated, so it cannot go stale
+ * relative to what the client actually posts.
+ *
+ * Never throws: no history → [] → the hashtag gate disables itself, and a client with no
+ * scraped feed is never second-guessed about tags we have no basis to judge.
+ */
+async function loadKnownHashtags(
+  db: Db, clientId: string, channel: string, logger: Logger, logCtx: Record<string, unknown>,
+): Promise<string[]> {
+  try {
+    const rows = await db
+      .select({ posts: igPosts.posts })
+      .from(igPosts)
+      .where(and(eq(igPosts.clientId, clientId), eq(igPosts.channel, channel)));
+    const tags = new Set<string>();
+    for (const row of rows) {
+      for (const post of row.posts ?? []) {
+        const caption = (post as { caption?: unknown }).caption;
+        if (typeof caption !== 'string') continue;
+        for (const m of caption.matchAll(/#([A-Za-z0-9_]+)/g)) tags.add(m[1]!.toLowerCase());
+      }
+    }
+    return [...tags];
+  } catch (err) {
+    logger.warn({ ...logCtx, err: String(err) }, 'planning: could not load known hashtags — hashtag gate disabled for this run');
+    return [];
+  }
+}
+
 /** Load this client's historic published posts (IG scrape) from the ig_posts DB
  *  table (re-homed off Drive) as the critic's voice reference: the two most-recent
  *  months by month key. No rows → []. Never throws. */
@@ -574,6 +608,11 @@ export async function assembleShapeContext(
     pillars:    (planConfigRow?.pillars ?? [])
       .map((p) => (p as { name?: unknown }).name)
       .filter((n): n is string => typeof n === 'string' && n.length > 0),
+    // Hashtags this client has ACTUALLY used, for the corrupted-hashtag gate. Loaded over
+    // EVERY stored month, not just the critic's two: a bigger known set means more exact
+    // matches pass untouched, and the near-miss rule only ever fires against a tag we can
+    // prove they use. A thin set would be the dangerous direction.
+    knownHashtags: await loadKnownHashtags(db, clientId, channel, logger, logCtx),
   };
 
   // ── Critic context (client voice / register / historic posts) ─────────────
