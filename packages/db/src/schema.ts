@@ -1193,13 +1193,28 @@ export const planInputs = pgTable(
     relevantFrom:     date('relevant_from', { mode: 'string' }),
     relevantTo:       date('relevant_to', { mode: 'string' }),
     status:           text('status').notNull().default('active'),
-    source:           text('source').notNull().default('web'),         // 'web' | 'voice'
+    source:           text('source').notNull().default('web'),         // 'web' | 'voice' — TRANSPORT
+    // ── Backlog columns (migration 0086, Build C) ─────────────────────────────
+    // Where the IDEA came from. Distinct from `source`, which records the transport it
+    // arrived by ('web' | 'voice'). Two different questions, two columns.
+    origin:           text('origin').notNull().default('client'),      // 'client' | 'competitor'
+    // MATURITY, orthogonal to `status`'s AVAILABILITY. A 'proven' idea is still 'active',
+    // so these cannot be merged without losing information — and keeping them apart is
+    // what lets the nine readers hardcoding status='active' keep working untouched.
+    // 'candidate' → 'used' → 'measured' → 'proven', plus 'declined' | 'stale'.
+    lifecycle:        text('lifecycle').notNull().default('candidate'),
+    // WHICH cycle consumed this input. cycle_id is the CAPTURE cycle (deliberately NULL
+    // for durable items) and consumed_by_proposal_id points at a proposal, so neither
+    // answers this. Without it a durable input is re-read by every overlapping month
+    // forever, with no record it was ever acted on.
+    usedInCycleId:    uuid('used_in_cycle_id').references(() => contentCycles.id),
     consumedByProposalId: uuid('consumed_by_proposal_id').references(() => agentProposals.id),
     sourceProposalId: uuid('source_proposal_id').references(() => agentProposals.id),
     createdAt:        timestamp('created_at').notNull().defaultNow(),
   },
   (t) => ({
     clientTypeIdx: index('plan_inputs_client_type_idx').on(t.clientId, t.type),
+    clientLifecycleIdx: index('plan_inputs_client_lifecycle_idx').on(t.clientId, t.lifecycle),
     // Idempotency backstop: at most one plan_inputs row per source proposal, so a
     // double-approve can never double-insert. (NULLs are distinct, so proposal-less
     // seed rows are still allowed.)
