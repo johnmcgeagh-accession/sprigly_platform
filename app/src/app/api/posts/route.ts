@@ -10,7 +10,7 @@ import { and, eq } from 'drizzle-orm';
 import { db, contentCycles } from '@sprigly/db';
 import { getSession } from '@/lib/auth';
 import { addDraft } from '@/lib/mutations';
-import { editScopeToday, isEditableDate } from '@/lib/edit-scope';
+import { editScopeToday, canAddPost } from '@/lib/edit-scope';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,7 +29,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'bad_date' }, { status: 400 });
   }
   const today = editScopeToday();
-  if (!isEditableDate(date, today)) {
+  if (!canAddPost(date, today)) {
     return NextResponse.json({ error: 'read_only' }, { status: 403 });
   }
 

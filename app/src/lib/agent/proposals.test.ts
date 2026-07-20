@@ -80,6 +80,7 @@ vi.mock('../usage', () => ({
 vi.mock('../edit-scope', () => ({
   editScopeToday: () => '2026-07-11',
   isEditableDate: (d: string, t = '2026-07-11') => d >= t,
+  canAddPost: (d: string | undefined, t = '2026-07-11') => !!d && d >= t,
   resolvePostForEdit: (...a: unknown[]) => h.resolvePost(...(a as [])),
 }));
 

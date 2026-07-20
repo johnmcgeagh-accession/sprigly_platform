@@ -12,7 +12,7 @@ import type { ContentCyclePostRow } from '@sprigly/db';
 import { loadPlanPosts } from '@/lib/plan';
 import { resolveRevert } from '@/lib/revert';
 import { recordActivity, USER_ACTOR, type ActivityActor, type ActivityAction } from '@/lib/activity';
-import { isEditableDate, editScopeToday } from '@/lib/edit-scope';
+import { isEditableDate, canAddPost, editScopeToday } from '@/lib/edit-scope';
 import type { ShapeResult, PostFormat } from '@/lib/types';
 
 const FORMATS = new Set<PostFormat>(['reel', 'carousel', 'single', 'email']);
@@ -109,7 +109,7 @@ export async function patchPost(clientId: string, cycleId: string, postId: strin
  *  post's format (reel/carousel/single; default single — email is not creatable). Records
  *  a post_created ledger row atomically. */
 export async function addDraft(clientId: string, cycleId: string, channel: string, date: string, actor: ActivityActor = USER_ACTOR, format = 'single', today: string = editScopeToday()): Promise<ShapeResult | null> {
-  if (!isEditableDate(date, today)) return null;   // DATE POLICY: create only for today-onward
+  if (!canAddPost(date, today)) return null;   // ADD POLICY: see canAddPost
   const fmt: PostFormat = FORMATS.has(format as PostFormat) && format !== 'email' ? (format as PostFormat) : 'single';
   // place it last
   const [maxRow] = await db
@@ -149,7 +149,7 @@ export async function addGeneratedPost(
   spec: { channel: string; date: string; format: string; pillar: string; caption: string },
   actor: ActivityActor = USER_ACTOR, today: string = editScopeToday(),
 ): Promise<ShapeResult | null> {
-  if (!isEditableDate(spec.date, today)) return null;   // DATE POLICY: create only for today-onward
+  if (!canAddPost(spec.date, today)) return null;   // ADD POLICY: see canAddPost
   const [maxRow] = await db
     .select({ position: contentCyclePosts.position })
     .from(contentCyclePosts)
@@ -184,7 +184,7 @@ export async function addGeneratingPost(
   spec: { channel: string; date: string; instruction: string; format?: string | null },
   actor: ActivityActor = USER_ACTOR, today: string = editScopeToday(),
 ): Promise<{ postId: string } | null> {
-  if (!isEditableDate(spec.date, today)) return null;   // DATE POLICY: create only for today-onward
+  if (!canAddPost(spec.date, today)) return null;   // ADD POLICY: see canAddPost
   const fmt: PostFormat = spec.format && FORMATS.has(spec.format as PostFormat) && spec.format !== 'email' ? (spec.format as PostFormat) : 'single';
   const [maxRow] = await db
     .select({ position: contentCyclePosts.position })

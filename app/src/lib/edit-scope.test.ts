@@ -4,7 +4,7 @@
  * the route/mutation integration tests.
  */
 import { describe, it, expect } from 'vitest';
-import { isEditableDate, editScopeToday } from './edit-scope';
+import { isEditableDate, editScopeToday, canAddPost } from './edit-scope';
 
 describe('isEditableDate — the rule (today-onward is editable)', () => {
   const TODAY = '2026-07-11';
@@ -41,5 +41,48 @@ describe('editScopeToday — London midnight, server-computed', () => {
   });
   it('today is always editable against itself', () => {
     expect(isEditableDate(editScopeToday())).toBe(true);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// canAddPost — the ONE add predicate.
+// Previously derived in eleven places that disagreed: the UI enforced one post
+// per day, the server did not, and neither said so anywhere.
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('canAddPost', () => {
+  const TODAY = '2026-07-20';
+
+  it('allows today itself — the boundary is inclusive', () => {
+    expect(canAddPost(TODAY, TODAY)).toBe(true);
+  });
+
+  it('allows any future date', () => {
+    expect(canAddPost('2026-07-21', TODAY)).toBe(true);
+    expect(canAddPost('2026-08-31', TODAY)).toBe(true);
+  });
+
+  it('refuses a past date', () => {
+    expect(canAddPost('2026-07-19', TODAY)).toBe(false);
+    expect(canAddPost('2025-12-31', TODAY)).toBe(false);
+  });
+
+  it('refuses a missing date rather than throwing', () => {
+    expect(canAddPost(undefined, TODAY)).toBe(false);
+    expect(canAddPost('', TODAY)).toBe(false);
+  });
+
+  it('agrees with isEditableDate on every real date — one policy, two names', () => {
+    for (const d of ['2026-07-19', '2026-07-20', '2026-07-21', '2026-08-14']) {
+      expect(canAddPost(d, TODAY)).toBe(isEditableDate(d, TODAY));
+    }
+  });
+
+  it('does NOT consider occupancy — a day may hold multiple posts', () => {
+    // The one-post-per-day cap was a UI condition, never a policy. The planner itself
+    // writes two posts onto one date and the planning prompt permits it explicitly.
+    // The predicate takes no post list precisely so it cannot express that cap.
+    expect(canAddPost.length).toBe(2);            // (dateIso, today) — nothing else
+    expect(canAddPost('2026-08-14', TODAY)).toBe(true);
   });
 });

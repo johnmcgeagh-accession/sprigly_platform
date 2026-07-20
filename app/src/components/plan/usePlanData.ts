@@ -1,5 +1,6 @@
 'use client';
 
+import { canAddPost } from '@/lib/add-policy';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PlanPost, PlanBeat, PlanIntake, DurableItemView, CycleSummary, PostStepView, ShapeResult, ExtractedSummary, IntakeResult } from '@/lib/types';
 import type { ProposalView } from '@/lib/agent/types';
@@ -71,7 +72,7 @@ export function usePlanData(init: PlanDataInit) {
   // `canEdit` gate decides each affordance. `today` is server-computed (init.today,
   // London) — the client clock is never trusted for the gate.
   const readOnly = false;
-  const canEdit = useCallback((dateIso: string | undefined) => !!dateIso && dateIso >= init.today, [init.today]);
+  const canEdit = useCallback((dateIso: string | undefined) => canAddPost(dateIso, init.today), [init.today]);
   // The cycle that represents "today" — the SAME rule the server landing uses
   // (resolveDayCycleId), so the Today button and the initial landing never diverge.
   const todayCycleId = useMemo(() => resolveDayCycleId(cycles, init.today), [cycles, init.today]);

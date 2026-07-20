@@ -16,7 +16,7 @@ import type { ActivityActor } from '../activity';
 import { enqueueShape, enqueueHookJob } from '../queue';
 import { getUsageForCycle, isRewriteBlocked } from '../usage';
 import { startPostGeneration } from '../post-generation';
-import { resolvePostForEdit, isEditableDate, editScopeToday } from '../edit-scope';
+import { resolvePostForEdit, isEditableDate, canAddPost, editScopeToday } from '../edit-scope';
 import { markNoteIntegrated } from './notes';
 import type { MutatingAction, ProposalPayload, ProposalView } from './types';
 
@@ -230,7 +230,7 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
       if (!(await agentPostEditable(row.clientId, payload.postId, today))) return readOnlyFail();
       await patchPost(row.clientId, payload.cycleId, payload.postId, { format: payload.format }, agentActor, today);
     } else if (payload.kind === 'add') {
-      if (!isEditableDate(payload.date, today)) return readOnlyFail();   // create only today-onward
+      if (!canAddPost(payload.date, today)) return readOnlyFail();   // ADD POLICY: see canAddPost
       const channel = payload.channel ?? await cycleChannel(row.clientId, payload.cycleId);
       const format = payload.format ?? 'single';   // the inferred (or defaulted) format
       const instruction = payload.instruction?.trim();
@@ -296,7 +296,7 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
       await patchPost(row.clientId, payload.cycleId, payload.postId, { caption: payload.caption }, agentActor, today);
       if (payload.noteId) await markNoteIntegrated(row.clientId, payload.noteId, id);
     } else if (payload.kind === 'add_generated') {
-      if (!isEditableDate(payload.date, today)) return readOnlyFail();   // create only today-onward
+      if (!canAddPost(payload.date, today)) return readOnlyFail();   // ADD POLICY: see canAddPost
       await addGeneratedPost(row.clientId, payload.cycleId, { channel: payload.channel, date: payload.date, format: payload.format, pillar: payload.pillar, caption: payload.caption }, agentActor, today);
     }
     await setStatus(clientId, id, 'applied', null, true);
