@@ -42,6 +42,32 @@ export type EnqueueResult =
 /** Enqueue a shape job. Clears a stale completed/failed slot first; if one is
  *  already active/waiting, returns `{ busy: true, jobId }` WITHOUT enqueuing —
  *  the caller decides how to tell the user. */
+/**
+ * Retry policy for the per-post GENERATION jobs (caption / hook / script).
+ *
+ * These carried `attempts: 1` — no retry at all — on the reasoning that a failed generation
+ * is usually a bad response rather than a flaky connection. The Build D dogfood run
+ * disproved the premise: 1 post in 10 failed on a Bedrock 180s TIMEOUT, which is exactly
+ * the transient case retrying fixes, and with no retry the client had to notice and press
+ * regenerate themselves.
+ *
+ * Pattern taken from IG_TRAWL_JOB_OPTIONS (engine/.../job-options.ts:3-6) — the platform's
+ * existing answer to a network-flaky external call — with a smaller attempt count because
+ * each attempt here is a paid Bedrock call, not a scrape. 3 attempts = 1 try + 2 retries,
+ * exponential from 5s, so a transient timeout self-heals without three identical bills for
+ * a response that was never going to parse.
+ *
+ * generation_failed remains the backstop: it is stamped only once retries are exhausted
+ * (see runShapeForCycle's isFinalAttempt), so a post that recovers on attempt 2 never shows
+ * the client a failure that did not stick.
+ */
+export const GENERATION_JOB_OPTIONS = {
+  attempts: 3,
+  backoff:  { type: 'exponential' as const, delay: 5_000 },
+  removeOnComplete: { age: 3600, count: 1000 },
+  removeOnFail:     { age: 3600 },
+};
+
 export async function enqueueShape(payload: ShapePayload): Promise<EnqueueResult> {
   if (e2eFakeEnabled()) {
     // e2e: no Redis/Bedrock. Write the canned text for the TARGET field straight onto the
@@ -84,9 +110,7 @@ export async function enqueueShape(payload: ShapePayload): Promise<EnqueueResult
     }
     await queue.add('shape', payload, {
       jobId,
-      attempts: 1,
-      removeOnComplete: { age: 3600, count: 1000 },
-      removeOnFail:     { age: 3600 },
+      ...GENERATION_JOB_OPTIONS,
     });
     return { jobId };
   } catch (err) {
@@ -127,7 +151,7 @@ export async function enqueueHookJob(payload: HookPayload): Promise<EnqueueResul
         return { busy: true, jobId };
       }
     }
-    await queue.add('hook', payload, { jobId, attempts: 1, removeOnComplete: { age: 3600, count: 1000 }, removeOnFail: { age: 3600 } });
+    await queue.add('hook', payload, { jobId, ...GENERATION_JOB_OPTIONS });
     return { jobId };
   } catch (err) {
     return { error: String(err) };
@@ -185,7 +209,7 @@ export async function enqueueScriptJob(payload: ScriptPayload): Promise<EnqueueR
         return { busy: true, jobId };
       }
     }
-    await queue.add('script', payload, { jobId, attempts: 1, removeOnComplete: { age: 3600, count: 1000 }, removeOnFail: { age: 3600 } });
+    await queue.add('script', payload, { jobId, ...GENERATION_JOB_OPTIONS });
     return { jobId };
   } catch (err) {
     return { error: String(err) };

@@ -170,9 +170,12 @@ describe('parsePillarsResponse + toConfigPillars', () => {
     const fenced = '```json\n{"pillars":[{"name":"Styling","description":"How to wear","sharePct":30}]}\n```';
     expect(parsePillarsResponse(fenced)[0]!.name).toBe('Styling');
   });
-  it('maps to the config Pillar shape (share dropped from config)', () => {
+  it('maps to the config Pillar shape, PERSISTING the share', () => {
+    // This assertion used to require sharePct to be DROPPED — it encoded the behaviour
+    // that left no pillar weight anywhere in the database. The draft assembler is
+    // deterministic and needs the stored number, so the share is now carried through.
     const cfg = toConfigPillars([{ name: 'Education', description: 'Fabric facts', sharePct: 20 }]);
-    expect(cfg[0]).toEqual({ name: 'Education', tagline: 'Fabric facts', keyMessages: [], contentIdeas: [] });
+    expect(cfg[0]).toEqual({ name: 'Education', tagline: 'Fabric facts', keyMessages: [], contentIdeas: [], sharePct: 20 });
   });
 });
 

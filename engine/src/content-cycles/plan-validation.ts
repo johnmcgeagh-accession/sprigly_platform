@@ -55,6 +55,11 @@ export interface PostIssue { code: string; detail: string; }
 export interface CodeGateVocab {
   categories: string[];
   pillars:    string[];   // pillar NAMES
+  /** Hashtags the client has ACTUALLY used, lowercased, without the '#'. Derived from
+   *  their own ig_posts captions — the only authoritative source that exists (there is no
+   *  hashtag column or config list anywhere in the schema; verified). Empty disables the
+   *  hashtag check entirely, so a client with no scraped history is never second-guessed. */
+  knownHashtags?: string[];
 }
 
 export const MAX_PLAN_RETRIES = 3;
@@ -121,6 +126,83 @@ export function normaliseDashes(text: string): string {
     .replace(/^\s*,\s*/, '');
 }
 
+// ── Hashtag corruption detection ────────────────────────────────────────────────
+// A generated caption reached the Build D dogfood run carrying "#ritualovertoutine" — a
+// one-character corruption of the client's real "#ritualoverroutine". The gate checked
+// captions for instruction leaks, dashes, emptiness and vocab, but never looked at tags, so
+// a mangled brand hashtag would have gone out publicly.
+//
+// The rule is deliberately narrow. The model is ALLOWED to invent hashtags: a novel tag is
+// a legitimate creative choice and blocking it would make captions worse. What it may not
+// do is MANGLE a tag the client actually uses. So the check flags only NEAR-MISSES of known
+// tags, and passes everything else.
+
+/** Every hashtag in a caption, lowercased, '#' stripped. */
+export function extractHashtags(caption: string): string[] {
+  return [...caption.matchAll(/#([A-Za-z0-9_]+)/g)].map((m) => m[1]!.toLowerCase());
+}
+
+/** Levenshtein distance, capped: stops early once it exceeds `max`, since every use here
+ *  only cares whether the distance is small. Chosen over a phonetic or prefix measure
+ *  because the failure mode is a TYPO — a substituted, dropped or transposed character —
+ *  which is exactly what edit distance measures and what soundalike measures do not. */
+export function editDistance(a: string, b: string, max = 3): number {
+  if (a === b) return 0;
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    let best = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      row[j] = Math.min(row[j - 1]! + 1, prev[j]! + 1, prev[j - 1]! + cost);
+      best = Math.min(best, row[j]!);
+    }
+    if (best > max) return max + 1;     // whole row already too far — bail
+    prev = row;
+  }
+  return prev[b.length]!;
+}
+
+/**
+ * The near-miss rule: flag an unknown tag only when it is 1-2 edits from a known one AND
+ * those edits are a small FRACTION of its length (≤ 0.2).
+ *
+ * The ratio is what makes this safe. A bare distance threshold would flag "#solo" against a
+ * known "#soho" — two perfectly ordinary distinct words one edit apart — and the model
+ * would be forced to abandon a legitimate tag. Requiring ≤20% divergence means distance 1
+ * needs ≥5 characters and distance 2 needs ≥10, so only long tags (which is what brand
+ * hashtags are) can trip it. "#ritualovertoutine" vs "#ritualoverroutine" is 1 edit over 17
+ * characters = 0.059, comfortably caught; short coincidences are not.
+ */
+const NEAR_MISS_MAX_DISTANCE = 2;
+const NEAR_MISS_MAX_RATIO    = 0.2;
+
+export function findNearMiss(tag: string, known: readonly string[]): string | null {
+  let best: { tag: string; d: number } | null = null;
+  for (const k of known) {
+    const d = editDistance(tag, k, NEAR_MISS_MAX_DISTANCE);
+    if (d === 0) return null;                                    // exact match — known, fine
+    if (d > NEAR_MISS_MAX_DISTANCE) continue;
+    if (d / Math.max(tag.length, k.length) > NEAR_MISS_MAX_RATIO) continue;
+    if (!best || d < best.d) best = { tag: k, d };
+  }
+  return best?.tag ?? null;
+}
+
+/** Corrupted hashtags in a caption: [written, whatItProbablyMeant]. */
+export function checkHashtags(caption: string, known: readonly string[]): Array<[string, string]> {
+  if (known.length === 0) return [];        // nothing authoritative to compare against
+  const knownSet = new Set(known);
+  const out: Array<[string, string]> = [];
+  for (const tag of extractHashtags(caption)) {
+    if (knownSet.has(tag)) continue;        // the client uses this one
+    const near = findNearMiss(tag, known);
+    if (near) out.push([tag, near]);        // close but not equal — almost certainly a typo
+  }
+  return out;
+}
+
 /** Pure, deterministic per-post check. No LLM, no client-specific voice rules. */
 export function codeGateCheck(post: PlanPostRow, vocab: CodeGateVocab): PostIssue[] {
   const issues: PostIssue[] = [];
@@ -155,6 +237,13 @@ export function codeGateCheck(post: PlanPostRow, vocab: CodeGateVocab): PostIssu
     issues.push({ code: 'invalid-pillar', detail: `pillar "${pillar}" is not in this client's pillar list. Use one of: ${vocab.pillars.join(' | ')}` });
   }
 
+  for (const [written, meant] of checkHashtags(caption, vocab.knownHashtags ?? [])) {
+    issues.push({
+      code:   'corrupted-hashtag',
+      detail: `caption contains "#${written}", which is almost certainly a mistyped "#${meant}" — this client uses "#${meant}". Write it exactly, or drop the tag. A brand hashtag published with a typo is public and permanent.`,
+    });
+  }
+
   return issues;
 }
 
@@ -171,6 +260,73 @@ export interface PlanRepairContext {
   logger:       Logger;
   logMeta:      Record<string, unknown>;  // channel, cycleMonth, cycleId for logs/audit
   tracer?:      PlanningTracer;            // optional diagnostic trace (never affects behaviour)
+}
+
+// ── Structural fields (slot identity) ──────────────────────────────────────────
+// A regeneration exists to change a post's CONTENT. It must never change the post's
+// SLOT — the plan's structure is decided by the planning run (or, from the draft-plan
+// arc, by the client's approval) and is not the repair loop's to renegotiate. Before
+// this merge, structure survived regeneration only because the repair prompt ASKED the
+// model to keep it (see the fixMessage below); nothing enforced it and nothing checked
+// it — codeGateCheck validates captions and vocab, never dates or formats.
+//
+// NOT structural (deliberately): draftCaption, title, notes, competitorInsight,
+// whoPosts, category. Those are what regeneration is FOR.
+//
+// `position` / slot ordering needs no field here: it is not on PlanPostRow. It is
+// assigned by array index (planning.ts `position: i`) and preserved by applyCodeGate /
+// applyCritic pushing exactly once per input index. That 1:1 invariant is asserted in
+// plan-validation.test.ts so it fails loudly if either loop is ever restructured.
+export const STRUCTURAL_FIELDS = ['date', 'day', 'format', 'pillar'] as const;
+export type StructuralField = (typeof STRUCTURAL_FIELDS)[number];
+
+/** True when `pillar` is worth pinning: present, and either the client has no configured
+ *  pillar vocab (nothing to violate) or it is in that vocab. Mirrors codeGateCheck's
+ *  invalid-pillar semantics, so "pinnable" and "gate-clean" can never disagree. */
+function isPinnablePillar(pillar: string | undefined, vocab: CodeGateVocab): boolean {
+  const p = (pillar ?? '').trim();
+  if (p.length === 0) return false;                    // nothing structural to preserve
+  if (vocab.pillars.length === 0) return true;         // unconfigured client — gate checks nothing
+  return vocab.pillars.includes(p);
+}
+
+/**
+ * Merge the input post's STRUCTURAL fields over a regenerated one, so a repair can
+ * only ever change content. Pure.
+ *
+ * `pillar` is CONDITIONAL and must stay that way. Two live paths deliberately hand
+ * regeneratePost an out-of-vocabulary SENTINEL pillar and rely on the repair loop
+ * replacing it with a real one:
+ *   - 'New idea' — app/src/lib/mutations.ts addGeneratingPost (client adds a post),
+ *                  passed through by shape.ts
+ *   - 'Weather'  — weekly-session.ts weather_opportunity skeleton
+ * Pinning pillar unconditionally would make codeGateCheck's invalid-pillar issue
+ * UNREPAIRABLE: the gate would burn all MAX_PLAN_RETRIES attempts (three billable model
+ * calls) and then accept-with-warning, silently leaving the sentinel in place. So:
+ * a valid input pillar wins; an invalid one yields to the model's replacement.
+ * Do NOT "simplify" this to an unconditional pin.
+ */
+export function mergeStructuralFields(
+  input:  PlanPostRow,
+  output: PlanPostRow,
+  vocab:  CodeGateVocab,
+): PlanPostRow {
+  const merged: PlanPostRow = { ...output };
+  // Absence is mirrored as faithfully as presence: if the input carried no date, the
+  // model may not invent one. Otherwise "no structure" would be the one gap through
+  // which regeneration could still write structure.
+  const pin = (field: StructuralField, value: string | undefined): void => {
+    if (value === undefined) delete merged[field];
+    else merged[field] = value;
+  };
+  for (const field of STRUCTURAL_FIELDS) {
+    if (field === 'pillar') continue;   // conditional — handled below
+    pin(field, input[field]);
+  }
+  // Valid input pillar → pin it. Invalid (incl. the sentinels above) → keep the model's,
+  // whether or not it is itself valid; if it is not, the gate flags it as it does today.
+  pin('pillar', isPinnablePillar(input.pillar, vocab) ? input.pillar : output.pillar);
+  return merged;
 }
 
 /** Extract a single post object from a model response (fence/prose tolerant). */
@@ -210,7 +366,7 @@ export async function regeneratePost(
     'PROBLEMS TO FIX:',
     feedback,
     '',
-    'Return the corrected post as a SINGLE JSON object with the same field names. Keep date, day, title, format, postingTime and whoPosts unchanged unless a problem requires changing them (an invalid category or pillar must be replaced with a valid one from this client\'s config above). Output JSON only, one object, no commentary.',
+    'Return the corrected post as a SINGLE JSON object with the same field names. Keep date, day, title, format, postingTime and whoPosts unchanged unless a problem requires changing them (an invalid category or pillar must be replaced with a valid one from this client\'s config above). If a hashtag is flagged as mistyped, write it EXACTLY as the correction gives it or remove that tag — do not invent a third spelling. Output JSON only, one object, no commentary.',
   ].join('\n');
 
   const result = await ctx.model.complete({
@@ -233,7 +389,11 @@ export async function regeneratePost(
     ctx.logger.warn({ ...ctx.logMeta, err: String(auditErr) }, 'code-gate: repair audit log failed — non-fatal');
   }
 
-  const after = parseSinglePost(result.content);
+  // STRUCTURE IS NOT REGENERABLE. The fixMessage above ASKS the model to hold the
+  // slot fields; this merge ENFORCES it, at the one boundary every caller flows
+  // through (applyCodeGate, applyCritic, shape.ts, weekly-session.ts). See
+  // mergeStructuralFields for why `pillar` is conditional rather than pinned.
+  const after = mergeStructuralFields(post, parseSinglePost(result.content), ctx.vocab);
 
   // Deterministic em-dash strip BEFORE the caller re-gates. The trace showed repairs
   // re-introduce dashes (a critic fix that adds a "—" then fails the em-dash gate and

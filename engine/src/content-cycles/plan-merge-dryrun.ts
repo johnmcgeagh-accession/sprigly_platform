@@ -33,6 +33,7 @@ const rows = await db
     id: contentCyclePosts.id, scheduledDate: contentCyclePosts.scheduledDate,
     status: contentCyclePosts.status, caption: contentCyclePosts.caption,
     sourceMeta: contentCyclePosts.sourceMeta, position: contentCyclePosts.position,
+    hook: contentCyclePosts.hook, script: contentCyclePosts.script,
   })
   .from(contentCyclePosts)
   .where(and(eq(contentCyclePosts.cycleId, cycleId), eq(contentCyclePosts.clientId, cyc.clientId)))
@@ -68,6 +69,8 @@ const existing: ExistingPost[] = rows.map((r) => ({
   caption: r.caption,
   title: ((r.sourceMeta as Record<string, unknown> | null)?.['title'] as string) ?? '',
   hasPostEdit: editedIds.has(r.id),
+  hasHook: !!(r.hook && r.hook.trim()),
+  hasScript: !!(r.script && r.script.trim()),
 }));
 
 const dec = mergePlan({ existing, briefedProducts, catalogueNames });

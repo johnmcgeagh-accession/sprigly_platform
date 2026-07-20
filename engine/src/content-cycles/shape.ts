@@ -49,7 +49,23 @@ function isoToLabel(iso: string): string {
 
 /** Run an instructed caption rewrite for one post. Returns the changed-post ids for
  *  job.returnvalue; throws on a validation failure that couldn't be repaired. */
-export async function runShapeForCycle(job: ShapeJob, deps: PlanningDeps): Promise<ShapeResultData> {
+export async function runShapeForCycle(
+  job: ShapeJob,
+  deps: PlanningDeps,
+  /**
+   * Is this the LAST attempt BullMQ will make? (Build D hardening.)
+   *
+   * Generation jobs now retry twice (GENERATION_JOB_OPTIONS), and generation_failed is a
+   * state the CLIENT sees. Stamping it on attempt 1 would show them a failure that is
+   * about to be retried and may never stick — and worse, the retry would then read the row
+   * as 'generation_failed' rather than 'generating' and resolve a successful caption to
+   * 'edited' instead of 'new'. So the failed state is stamped only when there is genuinely
+   * nothing left to try.
+   *
+   * Defaults TRUE so every existing caller keeps its current behaviour exactly.
+   */
+  isFinalAttempt = true,
+): Promise<ShapeResultData> {
   const { db, logger } = deps;
   const logCtx = { cycleId: job.cycleId, postId: job.targetPostId, scope: job.scope };
 
@@ -108,7 +124,11 @@ export async function runShapeForCycle(job: ShapeJob, deps: PlanningDeps): Promi
   const before = post.caption ?? '';
   // A post inserted by an async add-post-with-instruction carries status
   // 'generating'; a direct rewrite of an existing post does not.
-  const isGenerating = post.status === 'generating';
+  // 'generation_failed' counts as generating too: a retry — BullMQ's or the client's — is
+  // still finishing that ORIGINAL generation, so its success must resolve to 'new', not
+  // 'edited'. Without this, a post that recovered on attempt 2 would be mislabelled as a
+  // client edit it never received.
+  const isGenerating = post.status === 'generating' || post.status === 'generation_failed';
 
   try {
     // 1. Instructed rewrite — frame the client's instruction as the change to make.
@@ -169,8 +189,10 @@ export async function runShapeForCycle(job: ShapeJob, deps: PlanningDeps): Promi
     return { changedPostIds: [post.id], summary: 'Updated the caption.' };
   } catch (err) {
     // A failed async generation must not linger as 'generating' or fall back to a
-    // placeholder — surface an explicit failed state, instruction preserved.
-    if (isGenerating) {
+    // placeholder — surface an explicit failed state, instruction preserved. Only once
+    // the retries are exhausted, though: a failure the queue is about to retry is not a
+    // failure the client should be looking at.
+    if (isGenerating && isFinalAttempt) {
       await db.update(contentCyclePosts)
         .set({ status: 'generation_failed', sourceMeta: { ...sm, generationError: err instanceof Error ? err.message : String(err) } })
         .where(and(

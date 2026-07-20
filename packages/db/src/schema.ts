@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { ne, sql } from 'drizzle-orm';
 import {
   pgTable,
   uuid,
@@ -201,7 +201,16 @@ export const emailTemplates = pgTable(
 
 export type EmailTemplate    = typeof emailTemplates.$inferSelect;
 export type NewEmailTemplate = typeof emailTemplates.$inferInsert;
-export type EmailTemplateKey = 'ask' | 'nudge' | 'last_call' | 'plan_ready';
+// 'ask_drafted' is the Ask touch when a draft plan exists for the cycle (Build A). It is a
+// SEPARATE key rather than a new version of 'ask' because the resolver picks the highest
+// published version per key — two variants under one key could not be chosen between.
+// Cycles without a draft keep rendering 'ask' exactly as before.
+// 'plan_ready_auto' is the plan-ready email for a month that went ahead WITHOUT the
+// client approving (D3). Separate key for the same reason as ask_drafted — the
+// resolver picks the highest published version per key. Telling a client their plan
+// is ready as though they asked for it, when they simply did not answer, is the kind
+// of small dishonesty that makes them distrust the rest of the message.
+export type EmailTemplateKey = 'ask' | 'ask_drafted' | 'nudge' | 'last_call' | 'plan_ready' | 'plan_ready_auto';
 
 // ─── themes ───────────────────────────────────────────────────────────────────
 // Platform-wide design themes (admin-managed, GLOBAL — deliberately NO client_id column, so
@@ -755,6 +764,12 @@ export const contentCycles = pgTable(
     // and cleared to null on out_of_sync/unknown. REQUIRES migration 0061.
     postsSyncedAt:     timestamp('posts_synced_at'),
     postsSyncedRunId:  text('posts_synced_run_id'),
+    // Draft approval (migration 0087, Build D). NULL = never approved. approved_by is
+    // 'client' (they pressed the button) or 'auto' (D3: the cutoff arrived and we went
+    // ahead). The distinction drives the plan-ready copy — telling a client "you approved
+    // this" when they did not would be a small lie with a long tail.
+    approvedAt:        timestamp('approved_at'),
+    approvedBy:        text('approved_by'),
   },
   (t) => ({
     uniqClientChannelMonth: uniqueIndex('content_cycles_unique').on(
@@ -930,6 +945,62 @@ export const planningTrace = pgTable(
 export type PlanningTraceRow    = typeof planningTrace.$inferSelect;
 export type NewPlanningTraceRow = typeof planningTrace.$inferInsert;
 
+// ─── beat_meta (draft beats) ──────────────────────────────────────────────────
+// Why a draft beat exists, in a form that can be recomputed and audited.
+//
+// rationaleEvidence is STRUCTURED METRIC REFS, never a sentence. Two reasons:
+// the phrasing pass (Build A Part 4) takes this as input and may only restate it,
+// so prose here would make its output indistinguishable from its input; and the
+// graduation loop later needs to compare a beat's stated basis against what the
+// post actually did, which requires numbers, not adjectives.
+//
+// When history is too thin to ground a beat, the evidence says so —
+// {basis: 'template', reason: 'insufficient history'} — rather than carrying
+// invented metrics. Honest absence over fabricated confidence.
+export interface BeatRationaleEvidence {
+  /** Where the beat's shape came from.
+   *  'observed'     = derived from this client's own ig_posts history
+   *  'template'     = the thin-data neutral skeleton (history below the floor)
+   *  'client_added' = the client added this beat themselves (Build B)
+   *  'client_input' = created by something the client WROTE, quoted in `reason` (Build C)
+   *  'emphasis_reweight' = moved by a client emphasis; the old pillar's metrics were
+   *                        DROPPED rather than carried, since they no longer describe it */
+  basis:            'observed' | 'template' | 'client_added' | 'client_input' | 'emphasis_reweight';
+  /** Set only when basis='template' — why the observed path was unavailable. */
+  reason?:          string;
+  /** Engagement for THIS beat's format, as measured (likes+comments per post). */
+  formatEngagement?: { format: string; avgEngagement: number; posts: number };
+  /** This pillar's share of the client's configured pillar weights, 0–1. */
+  pillarShare?:      number;
+  /** The cadence figure the slot count came from, and what it was measured over.
+   *  Present on every ASSEMBLED beat (observed and template paths alike). Absent on a
+   *  client_added beat, which has no slot-count basis at all — it exists because the
+   *  client asked for it. Build A made this required, correctly for the cases that then
+   *  existed; Build B introduced one where the only honest value is no value, and a
+   *  fabricated {postsPerWeek: 0} would be exactly the invention this contract exists to
+   *  prevent. */
+  cadenceBasis?:     { postsPerWeek: number; source: 'observed' | 'config'; months: number };
+  /** For an experiment slot: how the candidate ranked, and against what. */
+  candidateRank?:    { rank: number; of: number; origin: 'client' | 'competitor' };
+}
+
+export interface BeatMeta {
+  /** 'proven' = drawn from what this client's history says works. 'experiment' =
+   *  drawn from the ideas backlog under the temperature dial. */
+  slotType:          'proven' | 'experiment';
+  rationaleEvidence: BeatRationaleEvidence;
+  /** plan_inputs.id the experiment came from. Absent on proven slots. */
+  sourceRef?:        string;
+  /** Gaps the assembler detected (no launch info, no catalogue, thin month).
+   *  These become the intake prompts the Ask email asks the client to fill. */
+  assumptions?:      string[];
+  /** Set by the Build B structural mutations the moment the client edits a beat. Build C's
+   *  transforms never auto-replace a touched beat: the client's hand outranks the
+   *  algorithm, and silently evicting something they just placed is the fastest way to
+   *  lose their trust in the whole surface. */
+  clientTouched?:    boolean;
+}
+
 // ─── content_cycle_posts ──────────────────────────────────────────────────────
 // Structured, per-post representation of a generated plan — the backbone the
 // client app (app.sprigly.co.uk / @sprigly/app) reads and (from Phase 2) edits.
@@ -965,6 +1036,10 @@ export const contentCyclePosts = pgTable(
     // plan), null (pre-existing / not yet classified). REQUIRES migration 0059 before
     // deploy — select().from(content_cycle_posts) emits every mapped column.
     reviewState:   text('review_state'),
+    // Draft-beat provenance (migration 0084) — non-null ONLY on rows the draft
+    // assembler created. See BeatMeta below for the shape and why the evidence is
+    // structured rather than prose. NULL = an ordinary plan post.
+    beatMeta:      jsonb('beat_meta').$type<BeatMeta>(),
   },
   (t) => ({
     cycleDateIdx: index('content_cycle_posts_cycle_date_idx').on(t.cycleId, t.scheduledDate),
@@ -973,6 +1048,52 @@ export const contentCyclePosts = pgTable(
 
 export type ContentCyclePostRow    = typeof contentCyclePosts.$inferSelect;
 export type NewContentCyclePostRow = typeof contentCyclePosts.$inferInsert;
+
+// ─── draft beats: the one definition of "not yet part of the plan" ────────────
+// A draft beat is a proposed slot the client has NOT approved. It lives in this
+// table (D1 — no separate table) so the whole per-post machinery works on it, but
+// it is NOT the plan and must never be read as one.
+//
+// Every plan reader filters with excludeDraftPosts(). The predicate is defined
+// ONCE, here, because the readers span three packages (app/, admin/, engine/) and
+// a hand-written `ne(status, 'draft')` at ~15 call sites would drift. The audit
+// behind this lives in docs/reports/build-a-draft-assembly.md §Part 0.
+//
+// Belt AND braces: `'draft'` is also a member of the app's PostStatus union and
+// its STATUSES coercion set, so a draft row that ever DOES reach the row mapper
+// is labelled honestly rather than silently relabelled 'planned'.
+export const POST_STATUS_DRAFT = 'draft' as const;
+
+/**
+ * The caption the app writes into an added-but-unfilled post, and the exact string the
+ * regen merge tests for to classify that post as a disposable placeholder.
+ *
+ * ONE constant because there were two, and they could never match. `plan-merge.ts` looked
+ * for 'Draft idea — tell Sprigly' (em dash, lowercase "tell") while `mutations.ts` wrote
+ * 'Draft idea. Tell Sprigly …' (full stop, capital T), so the startsWith check was dead
+ * code: unfilled placeholders were never classified disposable and survived a re-merge,
+ * contrary to the documented intent.
+ *
+ * The canonical form is the one the DATABASE carries, not the one that reads better. Dev
+ * rows: 4 in the mutations form (2026-07-09 → 07-17, still being written) against 1 in the
+ * em-dash form (2026-07-06, and no code writes it any more). The full-stop form won on
+ * evidence.
+ *
+ * Home is @sprigly/db because both consumers already depend on it — app/ and the worker —
+ * so this adds no cross-package edge, and because POST_STATUS_DRAFT above is the same kind
+ * of thing: a magic value about content_cycle_posts that several packages must agree on.
+ */
+export const DRAFT_PLACEHOLDER_CAPTION =
+  'Draft idea. Tell Sprigly what this post should be about and it\'ll write the caption.';
+
+/** The prefix the merge classifier matches on. Deliberately a PREFIX of the full caption
+ *  above, so the two can never drift into disagreeing about what a placeholder looks like. */
+export const DRAFT_PLACEHOLDER_PREFIX = 'Draft idea. Tell Sprigly';
+
+/** Drizzle condition: exclude unapproved draft beats from a plan read.
+ *  Use in EVERY query that answers "what is the plan?" — client surfaces, the
+ *  agent's plan context, cycle counts, the regen classifier, the weekly audit. */
+export const excludeDraftPosts = () => ne(contentCyclePosts.status, POST_STATUS_DRAFT);
 
 // ─── app_magic_link_tokens ────────────────────────────────────────────────────
 // Password-less client access to app/. Modelled on triage_digest_tokens but
@@ -1117,13 +1238,28 @@ export const planInputs = pgTable(
     relevantFrom:     date('relevant_from', { mode: 'string' }),
     relevantTo:       date('relevant_to', { mode: 'string' }),
     status:           text('status').notNull().default('active'),
-    source:           text('source').notNull().default('web'),         // 'web' | 'voice'
+    source:           text('source').notNull().default('web'),         // 'web' | 'voice' — TRANSPORT
+    // ── Backlog columns (migration 0086, Build C) ─────────────────────────────
+    // Where the IDEA came from. Distinct from `source`, which records the transport it
+    // arrived by ('web' | 'voice'). Two different questions, two columns.
+    origin:           text('origin').notNull().default('client'),      // 'client' | 'competitor'
+    // MATURITY, orthogonal to `status`'s AVAILABILITY. A 'proven' idea is still 'active',
+    // so these cannot be merged without losing information — and keeping them apart is
+    // what lets the nine readers hardcoding status='active' keep working untouched.
+    // 'candidate' → 'used' → 'measured' → 'proven', plus 'declined' | 'stale'.
+    lifecycle:        text('lifecycle').notNull().default('candidate'),
+    // WHICH cycle consumed this input. cycle_id is the CAPTURE cycle (deliberately NULL
+    // for durable items) and consumed_by_proposal_id points at a proposal, so neither
+    // answers this. Without it a durable input is re-read by every overlapping month
+    // forever, with no record it was ever acted on.
+    usedInCycleId:    uuid('used_in_cycle_id').references(() => contentCycles.id),
     consumedByProposalId: uuid('consumed_by_proposal_id').references(() => agentProposals.id),
     sourceProposalId: uuid('source_proposal_id').references(() => agentProposals.id),
     createdAt:        timestamp('created_at').notNull().defaultNow(),
   },
   (t) => ({
     clientTypeIdx: index('plan_inputs_client_type_idx').on(t.clientId, t.type),
+    clientLifecycleIdx: index('plan_inputs_client_lifecycle_idx').on(t.clientId, t.lifecycle),
     // Idempotency backstop: at most one plan_inputs row per source proposal, so a
     // double-approve can never double-insert. (NULLs are distinct, so proposal-less
     // seed rows are still allowed.)

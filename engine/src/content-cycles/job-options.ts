@@ -31,3 +31,20 @@ export function requestEmailJobId(clientId: string, channel: string, dataMonth: 
 export function planningJobId(cycleId: string): string {
   return `planning_${cycleId}`;
 }
+
+/**
+ * Per-post GENERATION jobs (caption / hook / script), worker side.
+ *
+ * Mirrors app/src/lib/queue.ts GENERATION_JOB_OPTIONS — the app enqueues these when a
+ * client approves, the worker when the cutoff auto-approves, and both must retry the same
+ * way. Pattern from IG_TRAWL_JOB_OPTIONS above (a network-flaky external call), with a
+ * smaller attempt count because each attempt here is a paid Bedrock call.
+ *
+ * Build D measured 1 post in 10 failing on a Bedrock timeout with no retry at all.
+ */
+export const GENERATION_JOB_OPTIONS: JobsOptions = {
+  attempts: 3,
+  backoff:  { type: 'exponential', delay: 5_000 },
+  removeOnComplete: { age: 3600, count: 1000 },
+  removeOnFail:     { age: 3600 },
+};

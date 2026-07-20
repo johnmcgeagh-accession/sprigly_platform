@@ -29,7 +29,25 @@ type Db = typeof _db;
 
 /** Injected send capability (constructed in the consumer with real Gmail deps): resolve +
  *  render + deliver a templated email to the pinned inbox. Returns true on a confirmed send. */
+/** D3: how the scheduler auto-approves a draft at cutoff. Injected, never imported. */
+export interface AutoApproveFns {
+  /** Live, unapproved draft beats on this cycle. 0 → the baseline path applies. */
+  countDrafts: (cycleId: string) => Promise<number>;
+  /** Approve (auto) + fan out phase 2. */
+  approveAndGenerate: (clientId: string, cycleId: string) => Promise<{ approved: number; captionsQueued: number }>;
+}
+
 export type SendTemplatedEmailFn = (input: { key: EmailTemplateKey; clientId: string; merge: MergeData }) => Promise<boolean>;
+
+/**
+ * Assemble + persist a draft plan for a cycle, returning a one-line summary for the Ask
+ * email. INJECTED rather than imported so the scheduler keeps no dependency on the model
+ * client, and so the failure-isolation branch below is directly testable.
+ *
+ * May throw. The Ask touch treats a throw as "no draft this month" and sends the ordinary
+ * Ask email — a draft is an enhancement to the touch, never a precondition for it.
+ */
+export type AssembleDraftFn = (clientId: string, cycleId: string) => Promise<{ summary: string }>;
 /** Injected app-link resolver (planning.ensureAppLink), so the scheduler stays free of the
  *  heavy planning module. Returns the /p/<token> URL for the cycle, or null. */
 export type ResolveAppLinkFn = (clientId: string, cycleId: string) => Promise<string | null>;
@@ -187,8 +205,11 @@ export async function evaluateAutoRunForClient(params: {
   today:     { day: number };
   logger:    Logger;
   notify?:   ((info: AutoRunNotifyInfo) => Promise<void>) | undefined;
+  /** D3 auto-approve capability. INJECTED so the scheduler keeps no dependency on the app's
+   *  approval/generation modules, and so the branch is directly testable. */
+  autoApprove?: AutoApproveFns | undefined;
 }): Promise<'dry' | 'ran' | 'skipped'> {
-  const { db, queue, clientId, channel, dataMonth, schedule, today, logger, notify } = params;
+  const { db, queue, clientId, channel, dataMonth, schedule, today, logger, notify, autoApprove } = params;
   const logCtx = { clientId, channel, dataMonth };
 
   const cutoffDay = schedule.cutoffDay ?? null;
@@ -222,7 +243,29 @@ export async function evaluateAutoRunForClient(params: {
   const hasIntakeInput = await hasSuppressibleInput(db, { clientId: cycle.clientId, createdAt: cycle.createdAt, intakeJson: cycle.intakeJson });
   const monthLabel     = planMonthLabel(dataMonth);   // dataMonth === this cycle's cycleMonth
 
+  // ── D3: auto-approve a draft instead of a baseline run ───────────────────────
+  // When the cutoff arrives with an UNAPPROVED draft on the cycle, that draft is what the
+  // client was shown and reacted to — it is a far better basis for the month than a
+  // baseline whole-plan generation from an empty intake. So we go ahead with it, stamped
+  // approved_by='auto' so the plan-ready email can say so rather than implying they chose.
+  //
+  // This also RETIRES the Build A interim state at its source: a cycle holding drafts can
+  // no longer reach the baseline path, so a regen can no longer run alongside surviving
+  // invisible draft rows. The baseline remains the path only for cycles with NO draft —
+  // flag off, or assembly failed at the Ask touch.
+  //
+  // AUTO_RUN_ENABLED composition: this branch sits INSIDE the same gate as the baseline
+  // enqueue and above the dry-run return, so the flag governs both paths identically.
+  // Flag false → we log what we WOULD auto-approve and change nothing. Flag true → we
+  // auto-approve and fan out. The flag's value is not read or changed here beyond that.
+  const draftCount = autoApprove ? await autoApprove.countDrafts(cycle.id) : 0;
+
   if (!AUTO_RUN_ENABLED) {
+    if (draftCount > 0) {
+      logger.info({ ...logCtx, cycleId: cycle.id, draftCount },
+        `${AUTO_RUN_DRY_PREFIX} would AUTO-APPROVE ${draftCount} draft beats for cycle ${cycle.id} and fan out phase 2 — NOT the baseline planning run.`);
+      return 'dry';
+    }
     logger.info({
       ...logCtx,
       cycleId:         cycle.id,
@@ -237,7 +280,19 @@ export async function evaluateAutoRunForClient(params: {
     return 'dry';
   }
 
-  // ── LIVE (AUTO_RUN_ENABLED=true) — NOT exercised in this build ────────────────
+  // ── LIVE: draft present → auto-approve, and DO NOT run the baseline ──────────
+  if (draftCount > 0 && autoApprove) {
+    const outcome = await autoApprove.approveAndGenerate(cycle.clientId, cycle.id);
+    logger.info({ ...logCtx, cycleId: cycle.id, monthLabel, ...outcome },
+      `[auto-run:auto-approved] approved ${outcome.approved} draft beats and started phase 2 for ${monthLabel} — baseline run skipped`);
+    if (notify) {
+      try { await notify({ clientId, channel, cycleId: cycle.id, dataMonth, monthLabel, intakePresent: hasIntakeInput }); }
+      catch (err) { logger.warn({ ...logCtx, cycleId: cycle.id, err: String(err) }, 'content-cycle-scheduler: auto-run operator notify failed (non-fatal)'); }
+    }
+    return 'ran';
+  }
+
+  // ── LIVE (AUTO_RUN_ENABLED=true) — the BASELINE path, for cycles with no draft ─
   // Uses only existing machine edges + the engine planning enqueue primitive; changes
   // NOTHING in runPlanningForCycle, confirmIntake, or the transition map.
   for (const edge of transitions) {
@@ -307,8 +362,9 @@ export async function evaluateThreeTouchForClient(params: {
   logger:    Logger;
   sendEmail?:      SendTemplatedEmailFn | undefined;
   resolveAppLink?: ResolveAppLinkFn | undefined;
+  assembleDraft?:  AssembleDraftFn | undefined;
 }): Promise<'sent' | 'skipped'> {
-  const { db, clientId, channel, dataMonth, schedule, today, logger, sendEmail, resolveAppLink } = params;
+  const { db, clientId, channel, dataMonth, schedule, today, logger, sendEmail, resolveAppLink, assembleDraft } = params;
   const touch = dueTouch(schedule, today.day);
   if (!touch) return 'skipped';   // no touch due today (covers no-cutoffDay clients) — SILENT, no
                                   // stamp: this fires on every non-beat day and must not write.
@@ -355,6 +411,29 @@ export async function evaluateThreeTouchForClient(params: {
 
     const appLink   = resolveAppLink ? (await resolveAppLink(clientId, cycle.id)) ?? '' : '';
     const cutoffDay = schedule.cutoffDay ?? 0;
+
+    // ── Draft plan (Build A, D2) ──────────────────────────────────────────────────
+    // On the ASK touch only, assemble + persist a draft so the email can carry it. The
+    // client then reacts to a month rather than composing one from a blank form.
+    //
+    // FAILURE ISOLATION IS THE POINT: assembly does model work and several reads, any of
+    // which can fail. If it does, we log and fall through to the ORDINARY Ask email,
+    // unchanged. The touch schedule is a commitment to the client; a draft is an
+    // enhancement to it. Never let the enhancement cost them the touch.
+    let beatsSummary = '';
+    if (touch === 'ask' && assembleDraft) {
+      try {
+        beatsSummary = (await assembleDraft(clientId, cycle.id)).summary;
+        logger.info({ ...logCtx, beatsSummary }, '[touch:draft-assembled]');
+      } catch (err) {
+        beatsSummary = '';
+        logger.warn({ ...logCtx, err: String(err) }, '[touch:draft-failed] sending the ordinary Ask email');
+      }
+    }
+    // The variant is chosen by whether we ACTUALLY have a draft to describe, not by
+    // whether we tried — so a failed assembly can never send an email promising a draft
+    // that is not there.
+    const templateKey: EmailTemplateKey = touch === 'ask' && beatsSummary ? 'ask_drafted' : TOUCH_KEY[touch];
     const merge: MergeData = {
       contactName:    chan?.contactName ?? 'there',
       clientName:     client?.name ?? 'there',
@@ -364,10 +443,11 @@ export async function evaluateThreeTouchForClient(params: {
       intakeLink:     appLink ? `${appLink}?intake=1` : '',   // lands with the intake surface open
       appLink,
       questionsBlock: touch === 'ask' ? buildQuestionsBlock(chan?.extraQuestions ?? null) : '',
-      // leanLine + beatsSummary render blank in this build (their sources wire in later builds).
+      beatsSummary,
+      // leanLine renders blank in this build (its source wires in a later build).
     };
 
-    const ok = await sendEmail({ key: TOUCH_KEY[touch], clientId, merge });
+    const ok = await sendEmail({ key: templateKey, clientId, merge });
     if (!ok) {
       logger.warn(logCtx, '[touch:skipped reason=send_failed]');
       await stampBeatSkip(db, cycle.id, touch, 'send_failed');
@@ -426,6 +506,12 @@ export async function runContentCycleTick(params: {
   // Gmail/planning deps exist). Absent ⇒ the sender pass logs and sends nothing.
   sendEmail?:      SendTemplatedEmailFn;
   resolveAppLink?: ResolveAppLinkFn;
+  // Draft-plan assembly for the Ask touch (Build A). Injected so the scheduler keeps no
+  // model dependency; a throw degrades to the ordinary Ask email (see the touch sender).
+  assembleDraft?: AssembleDraftFn;
+  // D3 auto-approve at cutoff. Absent → the baseline path applies to every cycle, exactly
+  // as before this build.
+  autoApprove?: AutoApproveFns;
 }): Promise<void> {
   const { db, queue, logger } = params;
   const now = params.now ?? new Date();
@@ -496,6 +582,7 @@ export async function runContentCycleTick(params: {
       const outcome = await evaluateAutoRunForClient({
         db, queue, clientId: row.clientId, channel: row.channel, dataMonth: cohortMonth(schedule), schedule, today, logger,
         notify: params.autoRunNotify,
+        autoApprove: params.autoApprove,
       });
       if (outcome === 'dry') autoRunDry++;
     } catch (err) {
@@ -514,6 +601,7 @@ export async function runContentCycleTick(params: {
       const outcome = await evaluateThreeTouchForClient({
         db, clientId: row.clientId, channel: row.channel, dataMonth: cohortMonth(schedule), schedule, today, logger,
         sendEmail: params.sendEmail, resolveAppLink: params.resolveAppLink,
+        assembleDraft: params.assembleDraft,
       });
       if (outcome === 'sent') touchSent++;
     } catch (err) {

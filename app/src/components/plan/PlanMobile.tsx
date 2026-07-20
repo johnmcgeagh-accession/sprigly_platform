@@ -209,9 +209,12 @@ export function PlanMobile({ data }: { data: PlanData }) {
                   <span className="text-[12px] font-semibold text-muted">{postsOn(iso).length ? `${postsOn(iso).length} post${postsOn(iso).length > 1 ? 's' : ''}` : 'Nothing planned'}</span>
                   <WeatherHeaderBadge day={data.weather.get(iso)} />
                 </div>
-                {postsOn(iso).length
-                  ? postsOn(iso).map((p) => <SwipeCard key={p.id} post={p} data={data} onEdit={() => setEditId(p.id)} onMove={() => setMoveId(p.id)} />)
-                  : data.canEdit(iso) && <button onClick={() => data.addPost(iso)} data-testid="add-on-day" className="mb-3 w-full rounded-[18px] border border-dashed border-line bg-surface p-4 text-[13px] font-semibold text-muted">＋ Plan a post for this day</button>}
+                {/* Cards AND add — not either/or. The ternary used to make the add
+                    affordance the ELSE branch of "has posts", which is the same
+                    one-post-per-day cap the desktop grid enforced: nothing server-side
+                    agrees with it. Add now renders under whatever cards the day holds. */}
+                {postsOn(iso).map((p) => <SwipeCard key={p.id} post={p} data={data} onEdit={() => setEditId(p.id)} onMove={() => setMoveId(p.id)} />)}
+                {data.canEdit(iso) && <button onClick={() => data.addPost(iso)} data-testid="add-on-day" className="mb-3 w-full rounded-[18px] border border-dashed border-line bg-surface p-4 text-[13px] font-semibold text-muted">＋ Plan a post for this day</button>}
                 {/* Brief beats — read-only markers, distinct from posts. */}
                 {data.beatsOn(iso).length > 0 && (
                   <div className="mb-3 flex flex-col gap-1">

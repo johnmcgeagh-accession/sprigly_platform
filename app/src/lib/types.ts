@@ -10,7 +10,12 @@ export type PostFormat  = 'reel' | 'carousel' | 'single' | 'email';
 // the post occupies its slot immediately while a shape job writes the caption
 // (generating) or after that job failed (generation_failed, instruction preserved
 // for retry). Both are transient — they resolve to 'new' on success.
-export type PostStatus  = 'planned' | 'edited' | 'new' | 'generating' | 'generation_failed';
+// 'draft' is an UNAPPROVED draft beat (Build A): a proposed slot the client has not
+// accepted, not part of the plan. Every plan reader filters it out via
+// excludeDraftPosts(), so it should never reach this union in practice — it is a
+// member precisely so that if one ever does, the row mapper labels it honestly
+// instead of coercing it to 'planned' (see STATUSES in plan.ts).
+export type PostStatus  = 'planned' | 'edited' | 'new' | 'generating' | 'generation_failed' | 'draft';
 
 // Regen-merge provenance (migration 0059), orthogonal to `status`. Carried on the
 // post so the future orphan accept/remove affordance and the switcher's per-month
@@ -89,6 +94,38 @@ export interface PlanPost {
   // generates/regenerates this post, and the last generation error (if failed).
   pendingInstruction?: string | null;
   generationError?:    string | null;
+}
+
+// ── Draft beats (Build B) ─────────────────────────────────────────────────────
+// A draft beat is a PROPOSAL: a slot the assembler suggested and the client has not
+// accepted. It is NOT a PlanPost and is deliberately a separate type — a beat has no
+// caption, no hook, no script, no checklist, because none of those exist until the
+// draft is approved and generation runs (Build D). Modelling it as a PlanPost with
+// empty strings would invite exactly the confusion the draft fence exists to prevent.
+
+/** Structured evidence a beat was chosen on. Mirrors BeatRationaleEvidence in
+ *  @sprigly/db — restated here so the client bundle does not import the db package. */
+export interface BeatEvidence {
+  basis:             'observed' | 'template' | 'client_added' | 'client_input' | 'emphasis_reweight';
+  reason?:           string;
+  formatEngagement?: { format: string; avgEngagement: number; posts: number };
+  pillarShare?:      number;
+  cadenceBasis?:     { postsPerWeek: number; source: 'observed' | 'config'; months: number };
+  candidateRank?:    { rank: number; of: number; origin: 'client' | 'competitor' };
+}
+
+export interface DraftBeatView {
+  id:       string;
+  cycleId:  string;
+  date:     string;              // ISO 'YYYY-MM-DD'
+  format:   PostFormat;
+  pillar:   string;
+  title:    string;              // Build A's phrasing, or its deterministic fallback
+  position: number;
+  slotType: 'proven' | 'experiment';
+  evidence: BeatEvidence;
+  /** Gaps the assembler flagged. DISPLAY ONLY in Build B — answering them is Build C. */
+  assumptions: string[];
 }
 
 // ── Month switcher (slice 1) ──────────────────────────────────────────────────

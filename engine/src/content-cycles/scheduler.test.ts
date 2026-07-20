@@ -460,6 +460,66 @@ describe('runContentCycleTick — auto-run DARK (AUTO_RUN_ENABLED unset ⇒ fals
     );
   });
 
+  it('D3: a cycle WITH drafts reports the AUTO-APPROVE plan, never the baseline run', async () => {
+    // The interim state from Build A is retired here: a cycle holding drafts can no longer
+    // reach the baseline whole-plan path, so a regen can never run alongside surviving
+    // invisible draft rows.
+    const { db, update, insert } = makeAutoRunDb({
+      id: 'cyc-draft', status: 'scheduled',
+      intakeJson: { planContent: { answers: {}, freeNotes: '' } }, createdAt: new Date('2026-05-01T00:00:00Z'),
+    });
+    const { queue, add } = makeQueue();
+    const approveAndGenerate = vi.fn();
+    const autoApprove = { countDrafts: vi.fn().mockResolvedValue(10), approveAndGenerate };
+
+    await runContentCycleTick({ db, queue, logger: LOGGER as never, now: DAY_25_JUN_2026, autoApprove });
+
+    // Still dark, so still zero mutation — but the plan it announces is the auto-approve.
+    expect(add).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    expect(approveAndGenerate).not.toHaveBeenCalled();
+    expect(LOGGER.info).toHaveBeenCalledWith(
+      expect.objectContaining({ cycleId: 'cyc-draft', draftCount: 10 }),
+      expect.stringContaining('would AUTO-APPROVE'),
+    );
+    // And crucially NOT the baseline line.
+    expect(LOGGER.info).not.toHaveBeenCalledWith(
+      expect.objectContaining({ wouldEnqueue: 'planning:cyc-draft' }),
+      expect.anything(),
+    );
+  });
+
+  it('a cycle with NO drafts still reports the baseline run', async () => {
+    // Flag off, or assembly failed at the Ask touch — the baseline remains the path.
+    const { db } = makeAutoRunDb({
+      id: 'cyc-nodraft', status: 'scheduled',
+      intakeJson: { planContent: { answers: {}, freeNotes: '' } }, createdAt: new Date('2026-05-01T00:00:00Z'),
+    });
+    const { queue } = makeQueue();
+    const autoApprove = { countDrafts: vi.fn().mockResolvedValue(0), approveAndGenerate: vi.fn() };
+
+    await runContentCycleTick({ db, queue, logger: LOGGER as never, now: DAY_25_JUN_2026, autoApprove });
+
+    expect(LOGGER.info).toHaveBeenCalledWith(
+      expect.objectContaining({ wouldEnqueue: 'planning:cyc-nodraft' }),
+      expect.stringContaining('[auto-run:dry]'),
+    );
+  });
+
+  it('with NO autoApprove injected at all, behaviour is exactly as before this build', async () => {
+    const { db } = makeAutoRunDb({
+      id: 'cyc-legacy', status: 'scheduled',
+      intakeJson: { planContent: { answers: {}, freeNotes: '' } }, createdAt: new Date('2026-05-01T00:00:00Z'),
+    });
+    const { queue } = makeQueue();
+    await runContentCycleTick({ db, queue, logger: LOGGER as never, now: DAY_25_JUN_2026 });
+    expect(LOGGER.info).toHaveBeenCalledWith(
+      expect.objectContaining({ wouldEnqueue: 'planning:cyc-legacy' }),
+      expect.stringContaining('[auto-run:dry]'),
+    );
+  });
+
   it('reports hasIntakeInput:true when the cycle already has intake content', async () => {
     const { db, update } = makeAutoRunDb({
       id: 'cyc-2', status: 'requested',
@@ -563,6 +623,77 @@ describe('evaluateThreeTouchForClient', () => {
     expect(update).toHaveBeenCalledTimes(1);   // the timestamp stamp only
     expect(setCalls).toEqual([{ askSentAt: expect.any(Date) }]);   // NOT a skip reason
     expect(setCalls[0]).not.toHaveProperty('askSkipReason');
+  });
+
+  // ── Draft plan on the Ask touch (Build A) ──────────────────────────────────
+  // The touch schedule is a commitment to the client; the draft is an enhancement to it.
+  // These tests exist to make sure the enhancement can never cost them the touch.
+
+  it('assembles a draft on the Ask touch and sends the ask_drafted variant carrying it', async () => {
+    const { db, setCalls } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
+    const assembleDraft = vi.fn().mockResolvedValue({ summary: '17 posts — 9 singles, 8 carousels.' });
+    const args = base(db, { assembleDraft });
+    expect(await evaluateThreeTouchForClient(args)).toBe('sent');
+    expect(assembleDraft).toHaveBeenCalledWith('c1', 'cyc-1');
+    expect(args.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+      key: 'ask_drafted',
+      merge: expect.objectContaining({ beatsSummary: '17 posts — 9 singles, 8 carousels.' }),
+    }));
+    expect(setCalls).toEqual([{ askSentAt: expect.any(Date) }]);
+  });
+
+  it('FAILURE ISOLATION: assembly throwing still sends the ordinary Ask email and stamps the touch', async () => {
+    const { db, update, setCalls } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
+    const assembleDraft = vi.fn().mockRejectedValue(new Error('bedrock exploded'));
+    const args = base(db, { assembleDraft });
+    expect(await evaluateThreeTouchForClient(args)).toBe('sent');   // the touch still happens
+    expect(args.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+      key: 'ask',                                                    // NOT ask_drafted
+      merge: expect.objectContaining({ beatsSummary: '' }),
+    }));
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(setCalls).toEqual([{ askSentAt: expect.any(Date) }]);
+  });
+
+  it('never promises a draft it does not have: an empty summary keeps the plain ask template', async () => {
+    const { db } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
+    const args = base(db, { assembleDraft: vi.fn().mockResolvedValue({ summary: '' }) });
+    expect(await evaluateThreeTouchForClient(args)).toBe('sent');
+    expect(args.sendEmail).toHaveBeenCalledWith(expect.objectContaining({ key: 'ask' }));
+  });
+
+  it('does NOT assemble a draft on the Nudge or Last Call touches', async () => {
+    for (const day of [17, 19]) {   // nudge = cutoff-3, last call = cutoff-1
+      const { db } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
+      const assembleDraft = vi.fn().mockResolvedValue({ summary: 'x' });
+      const args = base(db, { assembleDraft, today: { ...TODAY, day } });
+      await evaluateThreeTouchForClient(args);
+      expect(assembleDraft).not.toHaveBeenCalled();
+    }
+  });
+
+  it('FLAG OFF: the Ask touch is byte-identical to its pre-arc behaviour', async () => {
+    // The gate lives in the injected assembler (consumer.ts), which returns an empty
+    // summary without doing any work when draft_flow_enabled is off. From the scheduler's
+    // side that is indistinguishable from the pre-arc world: plain 'ask' template, empty
+    // beatsSummary, touch stamped.
+    const { db, update, setCalls } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
+    const assembleDraft = vi.fn().mockResolvedValue({ summary: '' });   // what the gate returns
+    const args = base(db, { assembleDraft });
+    expect(await evaluateThreeTouchForClient(args)).toBe('sent');
+    expect(args.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+      key: 'ask',
+      merge: expect.objectContaining({ beatsSummary: '' }),
+    }));
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(setCalls).toEqual([{ askSentAt: expect.any(Date) }]);
+  });
+
+  it('sends the ordinary Ask when no assembler is wired at all', async () => {
+    const { db } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
+    const args = base(db, { assembleDraft: undefined });
+    expect(await evaluateThreeTouchForClient(args)).toBe('sent');
+    expect(args.sendEmail).toHaveBeenCalledWith(expect.objectContaining({ key: 'ask' }));
   });
 
   it('is at-most-once: a set ask_sent_at → skip, no send, no stamp (reason untouched)', async () => {

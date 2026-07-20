@@ -28,7 +28,7 @@
  */
 
 import { Worker, type Queue } from 'bullmq';
-import { db as _db } from '@sprigly/db';
+import { db as _db, type EmailTemplateKey } from '@sprigly/db';
 import type { EncryptionProvider } from '@sprigly/oauth-tokens';
 import { DbPromptResolver } from '@sprigly/prompts';
 import type { ModelClient } from '@sprigly/model-client';
@@ -46,6 +46,7 @@ import { runWeeklySessionTick } from './weekly-cron.js';
 import { runIgTrawlJob } from '../ig-producer.js';
 import { requestEmailStub } from './stubs.js';
 import { runContentCycleTick } from './scheduler.js';
+import { assembleAndPersistDraft, summariseDraft, draftFlowEnabled, countDraftBeats, autoApproveAndGenerate } from './draft-plan.js';
 import {
   IG_TRAWL_JOB_OPTIONS,
   REQUEST_EMAIL_JOB_OPTIONS,
@@ -130,7 +131,11 @@ export function createContentCycleConsumer(
           }
           logger.info({ ...logCtx, cycleId: data.cycleId, postId: data.targetPostId, scope: data.scope }, 'content-cycles: starting shape job');
           // Return the result so BullMQ sets job.returnvalue (read by GET /api/jobs/:id).
-          return await runShapeForCycle(data, shapeDeps);
+          // isFinalAttempt: generation_failed is client-visible, so it is stamped only when
+          // BullMQ has nothing left to retry. attemptsMade is the count BEFORE this run.
+          const maxAttempts = job.opts?.attempts ?? 1;
+          const isFinalAttempt = (job.attemptsMade ?? 0) + 1 >= maxAttempts;
+          return await runShapeForCycle(data, shapeDeps, isFinalAttempt);
         }
 
         case 'hook':
@@ -196,11 +201,35 @@ export function createContentCycleConsumer(
           // deliberately NOT wired: on a real auto-run the trigger-time signal is the log-only
           // [auto-run:kicked] line, and the completion-path plan_ready email is the observation.
           const emailDeps = { db, encProvider, googleClientId, googleClientSecret, logger };
-          const sendEmail = (input: { key: 'ask' | 'nudge' | 'last_call' | 'plan_ready'; clientId: string; merge: Record<string, string> }) =>
+          const planningDepsForTick = { db, encProvider, googleClientId, googleClientSecret, model, prompts, audit, logger };
+          const sendEmail = (input: { key: EmailTemplateKey; clientId: string; merge: Record<string, string> }) =>
             deliverTemplatedEmail(emailDeps, input);
           const resolveAppLink = (clientId: string, cycleId: string) =>
             ensureAppLink(db, clientId, cycleId, process.env['APP_BASE_URL'] ?? '', logger);
-          await runContentCycleTick({ db, queue, logger, sendEmail, resolveAppLink });
+          // Draft assembly for the Ask touch (Build A). Needs the model, which the
+          // scheduler deliberately does not depend on — hence injection. A throw here is
+          // caught by the scheduler and degrades to the ordinary Ask email.
+          const assembleDraft = async (clientId: string, cycleId: string) => {
+            const planningDeps = { db, encProvider, googleClientId, googleClientSecret, model, prompts, audit, logger };
+            // FLAG GATE (Build D). Checked first, so a flag-off client's Ask touch does no
+            // reads, makes no model call, writes no rows — exactly its pre-arc behaviour.
+            // An empty summary makes the scheduler send the plain Ask template.
+            if (!(await draftFlowEnabled(planningDeps, clientId))) {
+              logger.info({ clientId, cycleId }, 'draft-plan: draft_flow_enabled is off — plain Ask touch');
+              return { summary: '' };
+            }
+            const { draft } = await assembleAndPersistDraft({ clientId, cycleId }, planningDeps);
+            return { summary: summariseDraft(draft) };
+          };
+          // D3: at cutoff, a cycle holding an unapproved draft is auto-approved and fanned
+          // out INSTEAD of a baseline whole-plan run. Injected so the scheduler keeps no
+          // dependency on the approval/generation modules.
+          const autoApprove = {
+            countDrafts: (cycleId: string) => countDraftBeats(planningDepsForTick, cycleId),
+            approveAndGenerate: (clientId: string, cycleId: string) =>
+              autoApproveAndGenerate(planningDepsForTick, queue, clientId, cycleId),
+          };
+          await runContentCycleTick({ db, queue, logger, sendEmail, resolveAppLink, assembleDraft, autoApprove });
           break;
         }
 

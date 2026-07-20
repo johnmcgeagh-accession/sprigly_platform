@@ -2,12 +2,17 @@ import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db, clients, clientConfigs, contentCycles, clientChannels, planInputs } from '@sprigly/db';
 import { BASE_QUESTIONS, type IntakeJson } from '@sprigly/engine';
 import { getSession } from '@/lib/auth';
-import { loadPlanPosts, loadCrossMonthPosts, loadCycleList, beatsInMonth } from '@/lib/plan';
+import { loadPlanPosts, loadCrossMonthPosts, loadCycleList, beatsInMonth, loadDraftBeats } from '@/lib/plan';
+import { cycleIsPreCutoff } from '@/lib/draft-mutations';
+import { loadReceipts } from '@/lib/draft-apply';
 import { editScopeToday } from '@/lib/edit-scope';
 import { resolveDayCycleId } from '@/lib/cycle-nav';
 import { readPlanRedesignFlag } from '@/lib/flags';
+import { resolveSurfaceKind, mayHaveDraftSurface, type SurfaceKind } from '@/lib/surface-state';
 import PlanApp from '@/components/PlanApp';
 import PlanRedesign from '@/components/PlanRedesign';
+import { DraftPlan } from '@/components/DraftPlan';
+import { clientPlanningConfig } from '@sprigly/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -87,36 +92,80 @@ export default async function Page({ searchParams }: { searchParams: { intake?: 
     .where(eq(clientConfigs.clientId, session.clientId))
     .limit(1);
 
-  if (readPlanRedesignFlag(cfg?.settings)) {
-    return (
-      <PlanRedesign
-        clientName={client?.name ?? 'your'}
-        posts={posts}
-        crossMonthPosts={crossMonthPosts}
-        beats={beats}
-        cycles={cycles}
-        homeCycleId={session.cycleId}
-        initialCycleId={initialCycleId}
-        initialReadOnly={initialReadOnly}
-        initialIntakeOpen={initialIntakeOpen}
-        questions={questions}
-        intake={intake}
-        durable={durable}
-        cutoffDay={cutoffDay}
-      />
-    );
-  }
+  // ── ONE surface decision ────────────────────────────────────────────────────
+  // Every branch below is a case of the same union, derived once. Build C and D add
+  // states to SurfaceKind — they do not add early returns here.
+  const draftBeats = mayHaveDraftSurface({ hasSession: true, committedPostCount: posts.length })
+    ? await loadDraftBeats(session.clientId, initialCycleId)
+    : [];
 
-  return (
-    <PlanApp
-      clientName={client?.name ?? 'your'}
-      posts={posts}
-      cycles={cycles}
-      homeCycleId={session.cycleId}
-      initialCycleId={initialCycleId}
-      initialReadOnly={initialReadOnly}
-    />
-  );
+  const surface: SurfaceKind = resolveSurfaceKind({
+    hasSession:         true,                     // the no-session case returned <Gate/> above
+    committedPostCount: posts.length,             // already draft-fenced by loadPlanPosts
+    draftBeatCount:     draftBeats.length,
+    planRedesign:       readPlanRedesignFlag(cfg?.settings),
+  });
+
+  switch (surface) {
+    case 'draft': {
+      const [planCfg] = home
+        ? await db.select({ pillars: clientPlanningConfig.pillars })
+            .from(clientPlanningConfig)
+            .where(and(eq(clientPlanningConfig.clientId, session.clientId), eq(clientPlanningConfig.channel, home.channel)))
+            .limit(1)
+        : [];
+      const pillarNames = (planCfg?.pillars ?? [])
+        .map((p) => (p as { name?: unknown }).name)
+        .filter((n): n is string => typeof n === 'string' && n.trim().length > 0);
+
+      return (
+        <DraftPlan
+          beats={draftBeats}
+          monthLabel={cycles.find((c) => c.cycleId === initialCycleId)?.monthLabel ?? 'next month'}
+          clientName={client?.name ?? 'you'}
+          pillars={pillarNames}
+          // Past cutoff the draft stays READABLE but not editable — viewing and editing
+          // are different rights (see cycleHasReviewableDraft).
+          editable={await cycleIsPreCutoff(initialCycleId)}
+          // Receipts are persisted on the cycle's intake record, so "what changed" survives
+          // a reload rather than living only in the tab that caused it.
+          receipts={await loadReceipts(initialCycleId)}
+        />
+      );
+    }
+
+    case 'committed-redesign':
+      return (
+        <PlanRedesign
+          clientName={client?.name ?? 'your'}
+          posts={posts}
+          crossMonthPosts={crossMonthPosts}
+          beats={beats}
+          cycles={cycles}
+          homeCycleId={session.cycleId}
+          initialCycleId={initialCycleId}
+          initialReadOnly={initialReadOnly}
+          initialIntakeOpen={initialIntakeOpen}
+          questions={questions}
+          intake={intake}
+          durable={durable}
+          cutoffDay={cutoffDay}
+        />
+      );
+
+    case 'committed-legacy':
+    default:
+      return (
+        <PlanApp
+          clientName={client?.name ?? 'your'}
+          posts={posts}
+          cycles={cycles}
+          homeCycleId={session.cycleId}
+          initialCycleId={initialCycleId}
+          initialReadOnly={initialReadOnly}
+        />
+      );
+  }
 }
 
 function Gate() {

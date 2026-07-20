@@ -12,11 +12,13 @@
  */
 import { and, asc, eq, gte, isNull, lt, ne, sql } from 'drizzle-orm';
 import type { ContentCyclePostRow } from '@sprigly/db';
-import { db, contentCycles, contentCyclePosts, PRE_PLANNING_STATUSES } from '@sprigly/db';
+import { db, contentCycles, contentCyclePosts, excludeDraftPosts, POST_STATUS_DRAFT, PRE_PLANNING_STATUSES } from '@sprigly/db';
+import type { BeatMeta } from '@sprigly/db';
 import { listStepsForPosts } from '@/lib/steps';
 import { nextMonth } from '@/lib/cycle-nav';
 import type {
   CycleSummary, PlanPost, PlanBeat, PostChannel, PostFormat, PostStatus, ReviewState, PostStepView,
+  DraftBeatView, BeatEvidence,
 } from './types.js';
 export type { PlanBeat } from './types.js';
 
@@ -71,7 +73,7 @@ export function beatsInMonth(brief: unknown, month: string): PlanBeat[] {
 }
 
 const FORMATS  = new Set<PostFormat>(['reel', 'carousel', 'single', 'email']);
-const STATUSES = new Set<PostStatus>(['planned', 'edited', 'new', 'generating', 'generation_failed']);
+const STATUSES = new Set<PostStatus>(['planned', 'edited', 'new', 'generating', 'generation_failed', 'draft']);
 const REVIEW_STATES = new Set<ReviewState>(['preserved_edit', 'preserved_edit_orphan', 'regenerated']);
 
 const MONTH_NAMES = [
@@ -115,7 +117,11 @@ function toPlanPost(r: ContentCyclePostRow, stepsByPost: Map<string, PostStepVie
 }
 
 /** Load the plan posts for a cycle, ordered by position then date. Scoped to the
- *  session's client+cycle — pass both so a token can only ever read its own plan. */
+ *  session's client+cycle — pass both so a token can only ever read its own plan.
+ *
+ *  This is the load behind THREE surfaces — first paint (page.tsx), GET /api/plan,
+ *  and the agent's plan context (lib/agent/turn.ts) — so the draft fence here is
+ *  also what stops the agent counting unapproved beats as the plan. */
 export async function loadPlanPosts(clientId: string, cycleId: string): Promise<PlanPost[]> {
   const rows = await db
     .select()
@@ -124,6 +130,7 @@ export async function loadPlanPosts(clientId: string, cycleId: string): Promise<
       eq(contentCyclePosts.cycleId, cycleId),
       eq(contentCyclePosts.clientId, clientId),
       isNull(contentCyclePosts.deletedAt),                 // exclude soft-deleted
+      excludeDraftPosts(),                                 // unapproved draft beats are NOT the plan
     ))
     .orderBy(asc(contentCyclePosts.position), asc(contentCyclePosts.scheduledDate));
 
@@ -153,6 +160,7 @@ export async function loadCrossMonthPosts(
       eq(contentCyclePosts.channel, channel),
       ne(contentCyclePosts.cycleId, excludeCycleId),
       isNull(contentCyclePosts.deletedAt),
+      excludeDraftPosts(),                                 // draft beats never reach the calendar grid
       gte(contentCyclePosts.scheduledDate, start),
       lt(contentCyclePosts.scheduledDate, end),
     ))
@@ -199,6 +207,10 @@ export async function loadCycleList(
     .leftJoin(contentCyclePosts, and(
       eq(contentCyclePosts.cycleId, contentCycles.id),
       isNull(contentCyclePosts.deletedAt),
+      // A cycle holding ONLY draft beats has no plan yet and must not qualify for the
+      // month menu on their strength. Filtered in the JOIN, not the WHERE, so such a
+      // cycle still returns its row with liveCount 0 rather than vanishing.
+      excludeDraftPosts(),
     ))
     .where(and(
       eq(contentCycles.clientId, clientId),
@@ -232,10 +244,91 @@ export async function loadCycleList(
 }
 
 /**
- * Guard for the read path: may THIS client read THIS cycle? True only if the cycle
- * belongs to the client AND qualifies (≥1 live post AND not 'out_of_sync'). The
- * caller allows the home cycle unconditionally; this covers every OTHER cycle, so a
- * forged ?cycleId= for another client (or an out_of_sync surface) is refused.
+ * Load a cycle's DRAFT beats. (Build B)
+ *
+ * The ONLY reader in the codebase permitted to see draft rows. Every other reader is
+ * fenced by excludeDraftPosts(); this one inverts the filter deliberately and says so in
+ * its name, so "who can see drafts?" has a single, greppable answer.
+ *
+ * Returns [] for a cycle with no drafts — a cycle whose posts are committed is simply not
+ * in draft mode, which is not an error.
+ */
+export async function loadDraftBeats(clientId: string, cycleId: string): Promise<DraftBeatView[]> {
+  const rows = await db
+    .select()
+    .from(contentCyclePosts)
+    .where(and(
+      eq(contentCyclePosts.cycleId, cycleId),
+      eq(contentCyclePosts.clientId, clientId),     // ownership — never trust the id alone
+      eq(contentCyclePosts.status, POST_STATUS_DRAFT),
+      isNull(contentCyclePosts.deletedAt),
+    ))
+    .orderBy(asc(contentCyclePosts.scheduledDate), asc(contentCyclePosts.position));
+
+  return rows.map(toDraftBeat);
+}
+
+/** Map a draft row to the view contract. Defensive about beat_meta: a row written before
+ *  the column existed, or by hand, must render as an honest unexplained beat rather than
+ *  throwing or inventing a rationale. */
+function toDraftBeat(r: ContentCyclePostRow): DraftBeatView {
+  const meta = (r.beatMeta ?? {}) as Partial<BeatMeta>;
+  const evidence = (meta.rationaleEvidence ?? { basis: 'template' }) as BeatEvidence;
+  const sm = (r.sourceMeta ?? {}) as Record<string, unknown>;
+  const title = typeof sm['title'] === 'string' && sm['title'].trim() ? sm['title'] : (r.pillar ?? 'Untitled beat');
+
+  return {
+    id:       r.id,
+    cycleId:  r.cycleId,
+    date:     r.scheduledDate,
+    format:   (FORMATS.has(r.format as PostFormat) ? r.format : 'single') as PostFormat,
+    pillar:   r.pillar ?? '',
+    title,
+    position: r.position,
+    slotType: meta.slotType === 'experiment' ? 'experiment' : 'proven',
+    evidence,
+    assumptions: Array.isArray(meta.assumptions) ? meta.assumptions.filter((a): a is string => typeof a === 'string') : [],
+  };
+}
+
+/**
+ * Does this cycle hold a draft the client can review? (Build B)
+ *
+ * The ONE deliberate exception to the draft fence, and deliberately its own named
+ * predicate rather than a relaxation of `excludeDraftPosts()`. The fence stays exactly
+ * as strict as Build A left it; readability becomes an explicit OR of two named
+ * conditions instead. That way "the client may see this cycle" is a decision someone
+ * wrote down, not a filter someone loosened.
+ *
+ * Reviewable means simply: at least one live draft beat. Deliberately NOT gated on the
+ * pre-cutoff window — VIEWING a draft and EDITING one are different rights. A client
+ * who opens their link the day after cutoff should still see what was drafted for them;
+ * the mutations are what refuse (see requireDraftMutable in draft-mutations.ts).
+ */
+export async function cycleHasReviewableDraft(clientId: string, cycleId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: contentCyclePosts.id })
+    .from(contentCyclePosts)
+    .where(and(
+      eq(contentCyclePosts.cycleId, cycleId),
+      eq(contentCyclePosts.clientId, clientId),          // ownership — never trust the id alone
+      eq(contentCyclePosts.status, POST_STATUS_DRAFT),
+      isNull(contentCyclePosts.deletedAt),
+    ))
+    .limit(1);
+  return !!row;
+}
+
+/**
+ * Guard for the read path: may THIS client read THIS cycle? True if the cycle belongs to
+ * the client AND it is not 'out_of_sync' AND it has either committed posts OR a
+ * reviewable draft. The caller allows the home cycle unconditionally; this covers every
+ * OTHER cycle, so a forged ?cycleId= for another client (or an out_of_sync surface) is
+ * refused.
+ *
+ * The committed-post count keeps its draft fence untouched (Build A): drafts still do not
+ * make a cycle readable *as a plan*. They make it readable as a DRAFT, via the separate
+ * predicate above. An empty cycle — no posts, no drafts — remains unreadable.
  */
 export async function isCycleReadableByClient(clientId: string, cycleId: string): Promise<boolean> {
   const [row] = await db
@@ -247,6 +340,7 @@ export async function isCycleReadableByClient(clientId: string, cycleId: string)
     .leftJoin(contentCyclePosts, and(
       eq(contentCyclePosts.cycleId, contentCycles.id),
       isNull(contentCyclePosts.deletedAt),
+      excludeDraftPosts(),                       // draft beats do not make a cycle readable
     ))
     .where(and(
       eq(contentCycles.id, cycleId),
@@ -256,5 +350,6 @@ export async function isCycleReadableByClient(clientId: string, cycleId: string)
 
   if (!row) return false;                        // not this client's cycle, or nonexistent
   if (row.syncStatus === 'out_of_sync') return false;
-  return row.liveCount > 0;
+  if (row.liveCount > 0) return true;            // has a committed plan
+  return cycleHasReviewableDraft(clientId, cycleId);   // …or a draft worth reviewing
 }

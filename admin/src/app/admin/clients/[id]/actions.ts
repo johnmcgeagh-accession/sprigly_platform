@@ -1,7 +1,7 @@
 'use server';
 
 import { randomBytes } from 'node:crypto';
-import { db, promptTemplates, clientConfigs, workflowRuns, clientChannels, clients, contentCycles, contentCyclePosts, appMagicLinkTokens } from '@sprigly/db';
+import { db, promptTemplates, clientConfigs, workflowRuns, clientChannels, clients, contentCycles, contentCyclePosts, excludeDraftPosts, appMagicLinkTokens } from '@sprigly/db';
 import { and, eq, isNull, desc, sql } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
@@ -57,7 +57,7 @@ export async function copyClientLink(formData: FormData): Promise<{ ok: boolean;
   const liveRows = await db
     .select({ liveCount: sql<number>`count(*)::int` })
     .from(contentCyclePosts)
-    .where(and(eq(contentCyclePosts.cycleId, cycle.id), isNull(contentCyclePosts.deletedAt)));
+    .where(and(eq(contentCyclePosts.cycleId, cycle.id), isNull(contentCyclePosts.deletedAt), excludeDraftPosts()));
   const liveCount = liveRows[0]?.liveCount ?? 0;
   if (liveCount === 0 && !confirmEmpty) {
     return { ok: false, needsConfirm: true, message: 'This cycle has no posts yet — the client would land on an empty plan. Copy the link anyway?' };

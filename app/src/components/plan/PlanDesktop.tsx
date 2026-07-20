@@ -253,7 +253,14 @@ function CalendarView({ data, year, month, selId, onSelect }: { data: PlanData; 
                   <BeatMarker key={`beat-${i}`} beat={b} onClick={() => data.flash(beatFlashText(b))} />
                 ))}
               </div>
-              {data.canEdit(isoOf(day)) && dayPosts.length === 0 && (
+              {/* ADD: every future day, occupied or not. The old `dayPosts.length === 0`
+                  condition was a one-post-per-day cap that existed ONLY here — the server
+                  never enforced it, the planner writes two posts onto one date, and the
+                  planning prompt permits it explicitly. After a plan ran, 24 of 31 days
+                  carried a post and this button silently left the DOM, with no message and
+                  no disabled state. On an occupied day it renders BELOW the cards (mt-auto
+                  already pins it to the bottom of the cell). */}
+              {data.canEdit(isoOf(day)) && (
                 <button data-testid="add-on-day" onClick={() => data.addPost(isoOf(day))} aria-label={`Add a post on ${isoOf(day)}`}
                   className="mt-auto rounded-[9px] border-[1.5px] border-dashed border-line py-0.5 text-center text-[15px] font-bold text-muted opacity-0 transition-opacity duration-200 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 hover:border-coral-600 hover:bg-coral-100 hover:text-coral">＋</button>
               )}

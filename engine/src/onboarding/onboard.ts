@@ -350,10 +350,18 @@ export async function derivePillars(params: { model: ModelClient; captions: stri
   return { pillars: parsePillarsResponse(result.content), usage: { inputTokens: result.inputTokens, outputTokens: result.outputTokens, modelId: result.modelId } };
 }
 
-/** Map derived pillars to the client_planning_config Pillar shape (share is kept only
- *  in the review file — the Pillar type/planning prompt use name + tagline + messages). */
+/** Map derived pillars to the client_planning_config Pillar shape.
+ *
+ *  sharePct is PERSISTED (Build A). It used to be dropped here — kept only in the
+ *  tmpdir review file — because the planning prompt reasons about pillar balance
+ *  rather than reading a number. The draft assembler cannot: it is deterministic by
+ *  contract and needs the stored weight. Dropping a value the model had already
+ *  computed was the whole reason pillar weights were unavailable anywhere in the
+ *  system (see the Phase 0 report, I-1 §1a). */
 export function toConfigPillars(derived: DerivedPillar[]): Pillar[] {
-  return derived.map((p) => ({ name: p.name, tagline: p.description, keyMessages: [], contentIdeas: [] }));
+  return derived.map((p) => ({
+    name: p.name, tagline: p.description, keyMessages: [], contentIdeas: [], sharePct: p.sharePct,
+  }));
 }
 
 // ── Writers (Stage C/D/E/F persistence) ──────────────────────────────────────

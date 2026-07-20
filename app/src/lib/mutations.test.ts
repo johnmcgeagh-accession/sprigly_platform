@@ -42,7 +42,10 @@ vi.mock('@sprigly/db', () => {
     insert: () => ({ values: (v: unknown) => { h.insertValues.push(v); return { returning: () => Promise.resolve(h.insertResults.shift() ?? []) }; } }),
     transaction: (fn: (tx: unknown) => unknown) => Promise.resolve(fn(db)),
   };
-  return { db, contentCyclePosts, planActivity };
+  // The real constant, not a stand-in: the point of sharing it is that the writer and the
+  // merge classifier use the same string, and a mocked value would hide a drift.
+  const DRAFT_PLACEHOLDER_CAPTION = 'Draft idea. Tell Sprigly what this post should be about and it\'ll write the caption.';
+  return { db, contentCyclePosts, planActivity, DRAFT_PLACEHOLDER_CAPTION };
 });
 
 vi.mock('@/lib/plan', () => ({ loadPlanPosts: async () => [] }));

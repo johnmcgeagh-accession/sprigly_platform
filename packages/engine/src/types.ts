@@ -96,14 +96,31 @@ export interface TriageConfig {
 // planning phase. The planning worker treats missing/empty fields as "not yet
 // configured" and surfaces a readiness error rather than silently defaulting.
 //
-// format_targets and pillar % target shares are intentionally absent:
-// the planning agent reasons both from competitor analysis at plan time.
+// format_targets is intentionally absent: the planning agent reasons it from
+// competitor analysis at plan time.
+//
+// Pillar shares were also absent, for the same reason — until the draft assembler
+// (Build A). That assembler is DETERMINISTIC by contract: it must produce the same
+// skeleton from the same inputs, with no model call, so it cannot "reason" a share
+// the way the planning agent does. It needs a stored number. derivePillars has
+// always computed one; toConfigPillars simply discarded it.
 
 export interface Pillar {
   name: string;
   tagline: string;
   keyMessages: string[];
   contentIdeas: string[];
+  /** Share of the client's posts this pillar represents, as an integer percentage
+   *  (derivePillars asks for shares roughly summing to 100).
+   *
+   *  OPTIONAL, and stays optional: every config written before Build A has no
+   *  sharePct, and those rows are still valid. Absence is resolved on READ by
+   *  resolvePillarWeights() rather than backfilled — a backfill would mean
+   *  re-running derivePillars per client, which is a billable non-deterministic
+   *  model call that would invent weights nobody measured. Equal-share on read is
+   *  both the smaller change and the more honest one, and the assembler records
+   *  which basis it used in the beat's rationaleEvidence. */
+  sharePct?: number;
 }
 
 export interface Cadence {

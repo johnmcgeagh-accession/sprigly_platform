@@ -27,6 +27,16 @@ export function isEditableDate(scheduledDate: string, today: string = editScopeT
   return scheduledDate >= today;
 }
 
+/**
+ * May a new post be created on this date? (Committed-plan surface.)
+ *
+ * Re-exported so edit-scope stays the one place server callers look for edit policy. The
+ * rule itself lives in add-policy.ts because this module imports @sprigly/db (fatal in the
+ * browser) and the client-side plan surface must share the same predicate. See add-policy.ts
+ * for the policy and why it deliberately differs from the draft surface's.
+ */
+export { canAddPost } from './add-policy';
+
 export interface PostEditContext {
   cycleId:       string;
   scheduledDate: string;   // 'YYYY-MM-DD'

@@ -1,12 +1,20 @@
 import { describe, it, expect } from 'vitest';
+import type { Logger } from 'pino';
+import type { ModelClient, ModelCompleteParams } from '@sprigly/model-client';
+import type { AuditLogger } from '@sprigly/audit';
 import {
   codeGateCheck, selectHistoricExamples, parseCriticVerdict, normaliseDashes, resolveRegister,
+  extractHashtags, editDistance, checkHashtags,
+  regeneratePost, mergeStructuralFields, STRUCTURAL_FIELDS, applyCodeGate, applyCritic,
   type PlanPostRow, type CodeGateVocab, type HistoricPost, type RegisterMap,
+  type PlanRepairContext, type CriticContext,
 } from './plan-validation.js';
 
 const VOCAB: CodeGateVocab = {
   categories: ['Styling', 'Brand', 'Product launch or offer related', 'No Post/Sally'],
   pillars:    ['Stable Foundations', 'Ethical Without Compromise', 'Personal Relationships'],
+  // Real tags from earl-of-east's own ig_posts, which is where the gate sources them.
+  knownHashtags: ['ritualoverroutine', 'earlofeast', 'greenhouse', 'homefragrance', 'incense', 'soho'],
 };
 
 const base: PlanPostRow = {
@@ -239,5 +247,309 @@ describe('normaliseDashes — deterministic em/en dash strip', () => {
   it('the gate no longer flags a normalised caption (safety-net check passes)', () => {
     const stripped = normaliseDashes("She's here — for everyone, all week");
     expect(codeGateCheck({ ...base, draftCaption: stripped }, VOCAB)).toEqual([]);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// STRUCTURAL MERGE — a regeneration may change CONTENT, never the post's SLOT.
+// Before this, structure survived only because the repair prompt asked nicely;
+// nothing enforced it and codeGateCheck never checked it.
+// ════════════════════════════════════════════════════════════════════════════
+
+const CRITIC_SYS = 'CRITIC-SYSTEM-PROMPT';
+const PLAN_SYS   = 'PLAN-SYSTEM-PROMPT';
+
+const LOG = { info() {}, warn() {}, error() {}, debug() {} } as unknown as Logger;
+const AUDIT = { logModelCall: async () => {} } as unknown as AuditLogger;
+
+/** A ModelClient whose response is decided by the caller, so a test can make the
+ *  model return deliberately mutated structure. `complete` is the only method the
+ *  repair/critic paths use. */
+function stubModel(reply: (params: ModelCompleteParams) => string): ModelClient {
+  return {
+    complete: async (params: ModelCompleteParams) => ({
+      content: reply(params), inputTokens: 1, outputTokens: 1, modelId: 'stub-model', stopReason: 'end_turn',
+    }),
+    completeStreaming: async () => { throw new Error('completeStreaming is not used on the repair path'); },
+  } as ModelClient;
+}
+
+const repairCtx = (model: ModelClient, vocab: CodeGateVocab = VOCAB): PlanRepairContext => ({
+  vocab, model, modelName: 'stub', audit: AUDIT,
+  systemPrompt: PLAN_SYS, userMessage: 'assembled plan context', clientId: 'client-1',
+  logger: LOG, logMeta: {},
+});
+
+/** A model that always returns this post, mutating every structural field it can. */
+const mutatingReply = (over: Partial<PlanPostRow> = {}) => () => JSON.stringify({
+  date: '01 January', day: 'Monday', format: 'Static', pillar: 'Ethical Without Compromise',
+  title: 'Rewritten', category: 'Brand', postingTime: '9pm', whoPosts: 'Client',
+  draftCaption: 'A freshly rewritten caption that is clean and finished.',
+  notes: 'new notes', competitorInsight: 'new insight', ...over,
+});
+
+describe('mergeStructuralFields — pure merge semantics', () => {
+  it('pins date, day and format from the input over the model output', () => {
+    const out = mergeStructuralFields(base, { ...base, date: '01 Jan', day: 'Mon', format: 'Static' }, VOCAB);
+    expect(out.date).toBe('14 May');
+    expect(out.day).toBe('Thu');
+    expect(out.format).toBe('Reel');
+  });
+
+  it('leaves content fields entirely to the model output', () => {
+    const out = mergeStructuralFields(base, {
+      ...base, draftCaption: 'new caption', title: 'new title', notes: 'new notes',
+      category: 'Brand', whoPosts: 'Client', competitorInsight: 'new insight',
+    }, VOCAB);
+    expect(out.draftCaption).toBe('new caption');
+    expect(out.title).toBe('new title');
+    expect(out.notes).toBe('new notes');
+    expect(out.category).toBe('Brand');          // vocab-checked, but NOT structural
+    expect(out.whoPosts).toBe('Client');
+    expect(out.competitorInsight).toBe('new insight');
+  });
+
+  it('pins every declared structural field and no others', () => {
+    expect([...STRUCTURAL_FIELDS]).toEqual(['date', 'day', 'format', 'pillar']);
+  });
+
+  it('mirrors ABSENCE too — a model may not invent structure the input did not have', () => {
+    const { date: _d, format: _f, ...noStructure } = base;
+    const out = mergeStructuralFields(noStructure, { ...base, date: '01 Jan', format: 'Static' }, VOCAB);
+    expect(out.date).toBeUndefined();
+    expect(out.format).toBeUndefined();
+    expect('date' in out).toBe(false);
+  });
+
+  it('takes the model pillar when the client has no configured pillar vocab', () => {
+    const noVocab: CodeGateVocab = { categories: [], pillars: [] };
+    // Nothing to violate → an input pillar is still structure worth holding.
+    expect(mergeStructuralFields(base, { ...base, pillar: 'Anything' }, noVocab).pillar).toBe('Stable Foundations');
+    // …but an absent input pillar has no structure to preserve.
+    expect(mergeStructuralFields({ ...base, pillar: '' }, { ...base, pillar: 'Anything' }, noVocab).pillar).toBe('Anything');
+  });
+});
+
+describe('regeneratePost — structural fields survive regeneration (a)', () => {
+  it('restores date and format when the model output mutates them', async () => {
+    const out = await regeneratePost(base, 'fix the caption', repairCtx(stubModel(mutatingReply())));
+
+    // Structure: restored from the input, byte-identical.
+    expect(out.date).toBe('14 May');
+    expect(out.day).toBe('Thu');
+    expect(out.format).toBe('Reel');
+    expect(out.pillar).toBe('Stable Foundations');
+    // Content: the model's rewrite lands.
+    expect(out.draftCaption).toBe('A freshly rewritten caption that is clean and finished.');
+    expect(out.title).toBe('Rewritten');
+  });
+
+  it('still normalises dashes in the regenerated caption (existing behaviour intact)', async () => {
+    const model = stubModel(mutatingReply({ draftCaption: 'She is here — for everyone.' }));
+    const out = await regeneratePost(base, 'fix', repairCtx(model));
+    expect(out.draftCaption).not.toMatch(/[—–]/);
+    expect(out.date).toBe('14 May');
+  });
+});
+
+describe('regeneratePost — the shape.ts instructed-rewrite path (b)', () => {
+  // Reconstructed exactly as shape.ts builds its PlanPostRow from a stored
+  // content_cycle_posts row (isoToLabel(scheduled_date), FORMAT_LABEL[format], …).
+  const shapePost: PlanPostRow = {
+    date: '3 Aug', day: 'Sun', title: 'Sunday Style', category: 'Styling',
+    pillar: 'Stable Foundations', format: 'Carousel', postingTime: '8pm', whoPosts: 'Sprigly',
+    competitorInsight: 'No competitor data this cycle. Rationale.',
+    draftCaption: 'The original caption as the client last saw it.',
+    notes: '', clientWritesOwn: false,
+  };
+
+  it('lands the caption change and leaves structural fields byte-identical', async () => {
+    const model = stubModel(mutatingReply({ draftCaption: 'A softer, warmer caption for the same slot.' }));
+    const out = await regeneratePost(shapePost, 'The client asked: "make it softer"', repairCtx(model));
+
+    expect(out.draftCaption).toBe('A softer, warmer caption for the same slot.');
+    for (const field of STRUCTURAL_FIELDS) {
+      expect(out[field]).toBe(shapePost[field]);
+    }
+  });
+});
+
+describe('regeneratePost — conditional pillar pinning (d, e)', () => {
+  it('(d) lets the model replace an out-of-vocab SENTINEL pillar — "New idea"', async () => {
+    // app/src/lib/mutations.ts addGeneratingPost inserts pillar 'New idea' and relies
+    // on the repair loop replacing it. An unconditional pin would break this.
+    const input = { ...base, pillar: 'New idea' };
+    const out = await regeneratePost(input, 'invalid-pillar', repairCtx(stubModel(mutatingReply())));
+    expect(out.pillar).toBe('Ethical Without Compromise');
+    expect(codeGateCheck(out, VOCAB)).toEqual([]);   // and the gate is now satisfied
+  });
+
+  it('(d) lets the model replace the weekly-session "Weather" sentinel too', async () => {
+    const input = { ...base, pillar: 'Weather' };
+    const out = await regeneratePost(input, 'invalid-pillar', repairCtx(stubModel(mutatingReply())));
+    expect(out.pillar).toBe('Ethical Without Compromise');
+  });
+
+  it('(d) keeps the model pillar when BOTH input and output are invalid, so the gate still flags it', async () => {
+    const input = { ...base, pillar: 'New idea' };
+    const model = stubModel(mutatingReply({ pillar: 'Also Not A Pillar' }));
+    const out = await regeneratePost(input, 'invalid-pillar', repairCtx(model));
+    expect(out.pillar).toBe('Also Not A Pillar');
+    expect(codes(out)).toContain('invalid-pillar');   // existing accept-with-warning behaviour preserved
+  });
+
+  it('(e) blocks a mutation of a VALID pillar — the input wins', async () => {
+    const out = await regeneratePost(base, 'fix the caption', repairCtx(stubModel(mutatingReply())));
+    expect(base.pillar).toBe('Stable Foundations');
+    expect(out.pillar).toBe('Stable Foundations');   // not the model's 'Ethical Without Compromise'
+  });
+});
+
+describe('applyCodeGate / applyCritic — slot count and order invariance (f)', () => {
+  // Guards the implicit 1:1 `out.push(post)` invariant in both loops: slot COUNT and
+  // ORDER are structure too, and nothing else asserts them. If either loop is ever
+  // restructured (filtered, batched, reordered, deduped) this fails loudly.
+  const plan: PlanPostRow[] = ['1 May', '2 May', '3 May', '4 May', '5 May'].map((date, i) => ({
+    ...base,
+    date,
+    title: `P${i + 1}`,
+    // Posts 2 and 4 carry an em dash → the gate fails them → they get regenerated.
+    draftCaption: i === 1 || i === 3
+      ? 'A caption with an em — dash that the gate rejects.'
+      : 'A clean caption with nothing wrong about it at all.',
+  }));
+  const inputDates = plan.map((p) => p.date);
+  const inputTitles = plan.map((p) => p.title);
+
+  it('applyCodeGate returns exactly one row per input row, in order, with dates intact', async () => {
+    const model = stubModel(mutatingReply());   // every repair mutates date + format
+    const res = await applyCodeGate(plan, repairCtx(model));
+
+    expect(res.rows).toHaveLength(plan.length);
+    expect(res.rows.map((r) => r.date)).toEqual(inputDates);
+    expect(res.rows.every((r) => r.format === 'Reel')).toBe(true);
+    expect(res.checked).toBe(plan.length);
+    expect(res.repaired).toBe(2);
+    expect(res.acceptedWithWarning).toEqual([]);
+  });
+
+  it('applyCritic returns exactly one row per input row, in order, even when a post exhausts its retries', async () => {
+    // Critic fails P2 forever (→ 3 repairs, then accept-with-warning); passes the rest.
+    const model = stubModel((params) => {
+      if (params.system === CRITIC_SYS) {
+        const failing = params.messages[0]?.content.includes('"P2"');
+        return JSON.stringify(failing
+          ? { pass: false, issues: ['off voice'], suggested_fix: 'warm it up' }
+          : { pass: true, issues: [], suggested_fix: '' });
+      }
+      return mutatingReply({ title: 'P2' })();   // repair keeps the title so it stays identifiable
+    });
+
+    const criticCtx: CriticContext = {
+      criticPrompt: CRITIC_SYS, voiceMd: null,
+      planConfig: { pillars: [], categories: [], registerMap: {} },
+      historicPosts: [], voiceEdits: [],
+      model, modelName: 'stub', audit: AUDIT, clientId: 'client-1',
+      logger: LOG, logMeta: {}, exampleCount: 4,
+    };
+    const clean = plan.map((p) => ({ ...p, draftCaption: 'A clean caption with nothing wrong about it.' }));
+    const res = await applyCritic(clean, criticCtx, repairCtx(model));
+
+    expect(res.rows).toHaveLength(clean.length);
+    expect(res.rows.map((r) => r.date)).toEqual(inputDates);
+    expect(res.rows.map((r) => r.title)).toEqual(inputTitles);
+    expect(res.checked).toBe(clean.length);
+    expect(res.acceptedWithWarning.map((w) => w.index)).toEqual([1]);   // P2, still at its own index
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// CORRUPTED HASHTAGS — the Build D dogfood run published-adjacent bug.
+// A generated caption carried "#ritualovertoutine" for the client's real
+// "#ritualoverroutine". The gate never looked at tags.
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('editDistance', () => {
+  it('measures substitutions, insertions and deletions', () => {
+    expect(editDistance('abc', 'abc')).toBe(0);
+    expect(editDistance('abc', 'abd')).toBe(1);
+    expect(editDistance('abc', 'ab')).toBe(1);
+    expect(editDistance('abc', 'abcd')).toBe(1);
+    expect(editDistance('kitten', 'sitting')).toBe(3);
+  });
+
+  it('bails out early rather than computing a distance nobody needs', () => {
+    expect(editDistance('short', 'a-very-much-longer-string', 2)).toBeGreaterThan(2);
+  });
+});
+
+describe('extractHashtags', () => {
+  it('pulls tags out lowercased, without the hash', () => {
+    expect(extractHashtags('Lovely day #EarlOfEast #ritualOverRoutine!')).toEqual(['earlofeast', 'ritualoverroutine']);
+  });
+  it('returns nothing for a caption with no tags', () => {
+    expect(extractHashtags('No tags here at all.')).toEqual([]);
+  });
+});
+
+describe('checkHashtags — catch mangled brand tags, allow novel ones', () => {
+  const known = VOCAB.knownHashtags!;
+
+  it('THE BUG: catches #ritualovertoutine as a mistyped #ritualoverroutine', () => {
+    // The exact string that reached a generated caption in the Build D dogfood run.
+    expect(checkHashtags('a caption // #earlofeast #ritualovertoutine', known))
+      .toEqual([['ritualovertoutine', 'ritualoverroutine']]);
+  });
+
+  it('passes a hashtag the client actually uses', () => {
+    expect(checkHashtags('#ritualoverroutine #earlofeast #greenhouse', known)).toEqual([]);
+  });
+
+  it('passes a GENUINELY NOVEL hashtag — the model may invent tags', () => {
+    // Blocking new tags would make captions worse. Only mangled KNOWN tags are wrong.
+    expect(checkHashtags('#autumnlight #slowmornings #octoberathome', known)).toEqual([]);
+  });
+
+  it('does not flag a short word that merely resembles a known tag', () => {
+    // "#solo" vs known "#soho" is one edit, but 1/4 = 0.25 > the 0.2 ratio: two ordinary
+    // distinct words, not a typo. A bare distance threshold would wrongly block this.
+    expect(checkHashtags('#solo', known)).toEqual([]);
+  });
+
+  it('catches a two-edit corruption of a long tag', () => {
+    expect(checkHashtags('#homefragrence', ['homefragrance'])).toEqual([['homefragrence', 'homefragrance']]);
+  });
+
+  it('is disabled entirely when the client has no scraped history', () => {
+    // No basis to judge → do not second-guess.
+    expect(checkHashtags('#anythingatall #ritualovertoutine', [])).toEqual([]);
+  });
+
+  it('reports the CLOSEST known tag when several are near', () => {
+    expect(checkHashtags('#earlofeastt', ['earlofeast', 'earlofeastsoho'])).toEqual([['earlofeastt', 'earlofeast']]);
+  });
+});
+
+describe('codeGateCheck — corrupted-hashtag issue', () => {
+  it('flags the corrupted tag and names the correction', () => {
+    const post = { ...base, draftCaption: 'A clean caption about candles. // #earlofeast #ritualovertoutine' };
+    const issues = codeGateCheck(post, VOCAB);
+    expect(issues.map((i) => i.code)).toContain('corrupted-hashtag');
+    const issue = issues.find((i) => i.code === 'corrupted-hashtag')!;
+    expect(issue.detail).toContain('#ritualovertoutine');
+    expect(issue.detail).toContain('#ritualoverroutine');
+  });
+
+  it('a caption with correct tags passes the whole gate', () => {
+    expect(codeGateCheck({ ...base, draftCaption: 'A clean caption. // #earlofeast #ritualoverroutine' }, VOCAB)).toEqual([]);
+  });
+
+  it('a caption with a novel tag passes the whole gate', () => {
+    expect(codeGateCheck({ ...base, draftCaption: 'A clean caption. // #autumnlight' }, VOCAB)).toEqual([]);
+  });
+
+  it('does not fire when the vocab carries no hashtags at all', () => {
+    const noTags: CodeGateVocab = { categories: VOCAB.categories, pillars: VOCAB.pillars };
+    expect(codeGateCheck({ ...base, draftCaption: 'A clean caption. // #ritualovertoutine' }, noTags)).toEqual([]);
   });
 });

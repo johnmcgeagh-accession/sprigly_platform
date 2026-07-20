@@ -46,6 +46,7 @@ import {
   appMagicLinkTokens,
   clientProductCatalogue,
   contentCyclePosts,
+  excludeDraftPosts,
   postEdits,
   stampPostsSyncStatus,
 } from '@sprigly/db';
@@ -320,6 +321,40 @@ function buildPlanningUserMessage(inp: PlanningInputs): string {
 
 // ── Critic reference loaders (per-client, both optional → degrade gracefully) ──
 
+/**
+ * Every hashtag this client has used, lowercased, from their own ig_posts captions.
+ *
+ * The ONLY authoritative source: there is no hashtag column or config list anywhere in the
+ * schema (verified against information_schema — zero columns matching 'hashtag', and no '#'
+ * in any client_planning_config row). Derived rather than curated, so it cannot go stale
+ * relative to what the client actually posts.
+ *
+ * Never throws: no history → [] → the hashtag gate disables itself, and a client with no
+ * scraped feed is never second-guessed about tags we have no basis to judge.
+ */
+async function loadKnownHashtags(
+  db: Db, clientId: string, channel: string, logger: Logger, logCtx: Record<string, unknown>,
+): Promise<string[]> {
+  try {
+    const rows = await db
+      .select({ posts: igPosts.posts })
+      .from(igPosts)
+      .where(and(eq(igPosts.clientId, clientId), eq(igPosts.channel, channel)));
+    const tags = new Set<string>();
+    for (const row of rows) {
+      for (const post of row.posts ?? []) {
+        const caption = (post as { caption?: unknown }).caption;
+        if (typeof caption !== 'string') continue;
+        for (const m of caption.matchAll(/#([A-Za-z0-9_]+)/g)) tags.add(m[1]!.toLowerCase());
+      }
+    }
+    return [...tags];
+  } catch (err) {
+    logger.warn({ ...logCtx, err: String(err) }, 'planning: could not load known hashtags — hashtag gate disabled for this run');
+    return [];
+  }
+}
+
 /** Load this client's historic published posts (IG scrape) from the ig_posts DB
  *  table (re-homed off Drive) as the critic's voice reference: the two most-recent
  *  months by month key. No rows → []. Never throws. */
@@ -573,6 +608,11 @@ export async function assembleShapeContext(
     pillars:    (planConfigRow?.pillars ?? [])
       .map((p) => (p as { name?: unknown }).name)
       .filter((n): n is string => typeof n === 'string' && n.length > 0),
+    // Hashtags this client has ACTUALLY used, for the corrupted-hashtag gate. Loaded over
+    // EVERY stored month, not just the critic's two: a bigger known set means more exact
+    // matches pass untouched, and the near-miss rule only ever fires against a tag we can
+    // prove they use. A thin set would be the dangerous direction.
+    knownHashtags: await loadKnownHashtags(db, clientId, channel, logger, logCtx),
   };
 
   // ── Critic context (client voice / register / historic posts) ─────────────
@@ -650,16 +690,25 @@ export async function ensureAppLink(
  * inputs (snapshot-tested). Best-effort: a failure is logged inside deliverTemplatedEmail and
  * never fails the cycle. {{appUrl}} became {{appLink}} in the template — same rendered URL.
  */
-async function sendAppReadyNotification(
+export async function sendAppReadyNotification(
   deps:      PlanningDeps,
   clientId:  string,
   clientName: string,
   monthLabel: string,
   appUrl:    string,
+  /** D3: the month went ahead without the client approving, so say so. Telling them their
+   *  plan is ready as though they asked for it — when they simply did not answer — is the
+   *  kind of small dishonesty that makes them distrust the rest of the message. */
+  autoApproved = false,
+  contactName = 'there',
 ): Promise<void> {
   await deliverTemplatedEmail(
     { db: deps.db, encProvider: deps.encProvider, googleClientId: deps.googleClientId, googleClientSecret: deps.googleClientSecret, logger: deps.logger },
-    { key: 'plan_ready', clientId, merge: { clientName, monthLabel, appLink: appUrl } },
+    {
+      key: autoApproved ? 'plan_ready_auto' : 'plan_ready',
+      clientId,
+      merge: { clientName, monthLabel, appLink: appUrl, contactName },
+    },
   );
 }
 
@@ -1004,9 +1053,17 @@ export async function runPlanningForCycle(
           id: contentCyclePosts.id, scheduledDate: contentCyclePosts.scheduledDate,
           status: contentCyclePosts.status, caption: contentCyclePosts.caption,
           sourceMeta: contentCyclePosts.sourceMeta,
+          // Stage-6 work the merge must not delete (Build D) — see isProtected.
+          hook: contentCyclePosts.hook, script: contentCyclePosts.script,
         })
         .from(contentCyclePosts)
-        .where(eq(contentCyclePosts.cycleId, cycleId));
+        // FENCE (Build A): draft beats are not plan posts, so the regen classifier must
+        // never see them. Without this they are neither 'new' nor 'edited', so
+        // shouldPreserve() returns false and they fall into dec.replace — a regen would
+        // DELETE every draft as an incidental side effect of a classifier that has never
+        // heard of them. Draft supersession is a lifecycle decision owned by a later
+        // build in this arc; this fence deliberately encodes none of it.
+        .where(and(eq(contentCyclePosts.cycleId, cycleId), excludeDraftPosts()));
       const editRefs = await db.select({ postId: postEdits.postId }).from(postEdits).where(eq(postEdits.cycleId, cycleId));
       const editedIds = new Set(editRefs.map((r) => r.postId));
       const catalogueNames = (catalogue?.families ?? [])
@@ -1016,6 +1073,8 @@ export async function runPlanningForCycle(
         id: r.id, scheduledDate: r.scheduledDate, status: r.status, caption: r.caption,
         title: ((r.sourceMeta as Record<string, unknown> | null)?.['title'] as string) ?? '',
         hasPostEdit: editedIds.has(r.id),
+        hasHook:   !!(r.hook   && r.hook.trim()),
+        hasScript: !!(r.script && r.script.trim()),
       }));
       const dec = mergePlan({ existing, briefedProducts: briefedProductNames(structuredBrief, catalogueNames), catalogueNames });
       const deleteIds = [...dec.drop, ...dec.replace].map((d) => d.post.id);

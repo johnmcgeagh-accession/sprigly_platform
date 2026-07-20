@@ -1,0 +1,34 @@
+-- 0084_draft_beat_meta — beat_meta for draft-plan beats (Build A, draft-plan intake arc).
+--
+-- D1: a draft beat is a content_cycle_posts row with status='draft'. No new table — the
+-- whole per-post machinery (edit, shape, hook, script, checklist) then works on a beat
+-- unchanged. beat_meta carries what a BEAT has and a plan post does not: why this slot
+-- exists, and what the assembler was unsure about.
+--
+-- Shape (BeatMeta in packages/db/src/schema.ts — that type is the contract):
+--   {
+--     slotType: 'proven' | 'experiment',
+--     rationaleEvidence: { ... structured metric refs — NEVER free prose ... },
+--     sourceRef?: <plan_inputs.id>,   -- the backlog idea an experiment slot came from
+--     assumptions?: string[]          -- gaps the assembler detected; become intake prompts
+--   }
+--
+-- rationaleEvidence is deliberately STRUCTURED, not a sentence. The evidence is the
+-- metrics actually used to choose the beat ({formatEngagement, pillarShare, cadenceBasis}),
+-- so it can be recomputed, audited and — later — measured against outcomes. Prose would
+-- make the phrasing pass's output indistinguishable from its input. When history is too
+-- thin to ground a beat, the evidence says so honestly ({basis:'template', reason:...})
+-- rather than carrying invented numbers.
+--
+-- NO CHECK on status: the column is bare text with no domain constraint today (verified
+-- against pg_constraint — only NOT NULLs, the PK and two FKs), and 'draft' is enforced in
+-- TS (PostStatus / STATUSES). Adding a CHECK here would be a new, wider change than this
+-- migration's scope.
+--
+-- Additive and non-destructive: one nullable column, no backfill, no default, no data
+-- touched. Existing rows keep beat_meta NULL, which reads as "an ordinary plan post".
+-- APPLY-BEFORE-DEPLOY — content_cycle_posts is read with select() in several places, so
+-- the mapped column must exist before the schema change deploys. Apply manually:
+--   psql "<DATABASE_URL>" -f 0084_draft_beat_meta.sql
+
+ALTER TABLE "content_cycle_posts" ADD COLUMN IF NOT EXISTS "beat_meta" jsonb;
