@@ -150,11 +150,24 @@ test('month nav: round-trips to the adjacent August cycle and disables at bounda
 
   // Forward to August: a sibling cycle with its own posts. Editability is date-based, not
   // whole-cycle — every August day is future (>= today), so the month is fully editable and
-  // its empty days offer the add affordance (regardless of which cycle the token was minted for).
+  // EVERY day offers the add affordance, occupied or not. (It used to be "its empty days":
+  // a one-post-per-day cap that lived only in the grid, which nothing server-side agreed
+  // with and which made the button vanish from most of the month once a plan had run.)
   await page.getByTestId('next-month').click();
   await expect(page.getByText('August 2026')).toBeVisible();
   await expect(page.getByTestId('post-chip')).toHaveCount(3);
   await expect(page.getByTestId('add-on-day').first()).toBeVisible();
+
+  // Every future day in the grid offers add — so the count matches the day cells, not the
+  // empty ones. August is wholly future, so that is every rendered day of the month.
+  const augDays = await page.getByTestId('calendar-cell').count();
+  await expect(page.getByTestId('add-on-day')).toHaveCount(augDays);
+
+  // And an OCCUPIED day shows its post AND offers add, side by side — the case the old
+  // expectation could not express.
+  const occupied = page.getByTestId('calendar-cell').filter({ has: page.getByTestId('post-chip') }).first();
+  await expect(occupied.getByTestId('post-chip').first()).toBeVisible();
+  await expect(occupied.getByTestId('add-on-day')).toBeVisible();
   // August is the far boundary — next disabled, prev available.
   await expect(page.getByTestId('next-month')).toBeDisabled();
   await expect(page.getByTestId('prev-month')).toBeEnabled();
