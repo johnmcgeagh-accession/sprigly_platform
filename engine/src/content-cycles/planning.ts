@@ -651,16 +651,25 @@ export async function ensureAppLink(
  * inputs (snapshot-tested). Best-effort: a failure is logged inside deliverTemplatedEmail and
  * never fails the cycle. {{appUrl}} became {{appLink}} in the template — same rendered URL.
  */
-async function sendAppReadyNotification(
+export async function sendAppReadyNotification(
   deps:      PlanningDeps,
   clientId:  string,
   clientName: string,
   monthLabel: string,
   appUrl:    string,
+  /** D3: the month went ahead without the client approving, so say so. Telling them their
+   *  plan is ready as though they asked for it — when they simply did not answer — is the
+   *  kind of small dishonesty that makes them distrust the rest of the message. */
+  autoApproved = false,
+  contactName = 'there',
 ): Promise<void> {
   await deliverTemplatedEmail(
     { db: deps.db, encProvider: deps.encProvider, googleClientId: deps.googleClientId, googleClientSecret: deps.googleClientSecret, logger: deps.logger },
-    { key: 'plan_ready', clientId, merge: { clientName, monthLabel, appLink: appUrl } },
+    {
+      key: autoApproved ? 'plan_ready_auto' : 'plan_ready',
+      clientId,
+      merge: { clientName, monthLabel, appLink: appUrl, contactName },
+    },
   );
 }
 

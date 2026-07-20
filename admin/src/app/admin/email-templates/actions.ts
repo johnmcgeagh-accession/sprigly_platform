@@ -5,7 +5,7 @@ import { db, emailTemplates, type EmailTemplateKey } from '@sprigly/db';
 import { unknownMergeFields } from '@sprigly/engine';
 import { revalidatePath } from 'next/cache';
 
-const KEYS: EmailTemplateKey[] = ['ask', 'ask_drafted', 'nudge', 'last_call', 'plan_ready'];
+const KEYS: EmailTemplateKey[] = ['ask', 'ask_drafted', 'nudge', 'last_call', 'plan_ready', 'plan_ready_auto'];
 
 export interface PublishResult { ok: boolean; error?: string; version?: number }
 

@@ -46,7 +46,7 @@ import { runWeeklySessionTick } from './weekly-cron.js';
 import { runIgTrawlJob } from '../ig-producer.js';
 import { requestEmailStub } from './stubs.js';
 import { runContentCycleTick } from './scheduler.js';
-import { assembleAndPersistDraft, summariseDraft, draftFlowEnabled } from './draft-plan.js';
+import { assembleAndPersistDraft, summariseDraft, draftFlowEnabled, countDraftBeats, autoApproveAndGenerate } from './draft-plan.js';
 import {
   IG_TRAWL_JOB_OPTIONS,
   REQUEST_EMAIL_JOB_OPTIONS,
@@ -197,6 +197,7 @@ export function createContentCycleConsumer(
           // deliberately NOT wired: on a real auto-run the trigger-time signal is the log-only
           // [auto-run:kicked] line, and the completion-path plan_ready email is the observation.
           const emailDeps = { db, encProvider, googleClientId, googleClientSecret, logger };
+          const planningDepsForTick = { db, encProvider, googleClientId, googleClientSecret, model, prompts, audit, logger };
           const sendEmail = (input: { key: EmailTemplateKey; clientId: string; merge: Record<string, string> }) =>
             deliverTemplatedEmail(emailDeps, input);
           const resolveAppLink = (clientId: string, cycleId: string) =>
@@ -216,7 +217,15 @@ export function createContentCycleConsumer(
             const { draft } = await assembleAndPersistDraft({ clientId, cycleId }, planningDeps);
             return { summary: summariseDraft(draft) };
           };
-          await runContentCycleTick({ db, queue, logger, sendEmail, resolveAppLink, assembleDraft });
+          // D3: at cutoff, a cycle holding an unapproved draft is auto-approved and fanned
+          // out INSTEAD of a baseline whole-plan run. Injected so the scheduler keeps no
+          // dependency on the approval/generation modules.
+          const autoApprove = {
+            countDrafts: (cycleId: string) => countDraftBeats(planningDepsForTick, cycleId),
+            approveAndGenerate: (clientId: string, cycleId: string) =>
+              autoApproveAndGenerate(planningDepsForTick, queue, clientId, cycleId),
+          };
+          await runContentCycleTick({ db, queue, logger, sendEmail, resolveAppLink, assembleDraft, autoApprove });
           break;
         }
 

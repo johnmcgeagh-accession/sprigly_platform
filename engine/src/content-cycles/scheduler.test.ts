@@ -460,6 +460,66 @@ describe('runContentCycleTick — auto-run DARK (AUTO_RUN_ENABLED unset ⇒ fals
     );
   });
 
+  it('D3: a cycle WITH drafts reports the AUTO-APPROVE plan, never the baseline run', async () => {
+    // The interim state from Build A is retired here: a cycle holding drafts can no longer
+    // reach the baseline whole-plan path, so a regen can never run alongside surviving
+    // invisible draft rows.
+    const { db, update, insert } = makeAutoRunDb({
+      id: 'cyc-draft', status: 'scheduled',
+      intakeJson: { planContent: { answers: {}, freeNotes: '' } }, createdAt: new Date('2026-05-01T00:00:00Z'),
+    });
+    const { queue, add } = makeQueue();
+    const approveAndGenerate = vi.fn();
+    const autoApprove = { countDrafts: vi.fn().mockResolvedValue(10), approveAndGenerate };
+
+    await runContentCycleTick({ db, queue, logger: LOGGER as never, now: DAY_25_JUN_2026, autoApprove });
+
+    // Still dark, so still zero mutation — but the plan it announces is the auto-approve.
+    expect(add).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    expect(approveAndGenerate).not.toHaveBeenCalled();
+    expect(LOGGER.info).toHaveBeenCalledWith(
+      expect.objectContaining({ cycleId: 'cyc-draft', draftCount: 10 }),
+      expect.stringContaining('would AUTO-APPROVE'),
+    );
+    // And crucially NOT the baseline line.
+    expect(LOGGER.info).not.toHaveBeenCalledWith(
+      expect.objectContaining({ wouldEnqueue: 'planning:cyc-draft' }),
+      expect.anything(),
+    );
+  });
+
+  it('a cycle with NO drafts still reports the baseline run', async () => {
+    // Flag off, or assembly failed at the Ask touch — the baseline remains the path.
+    const { db } = makeAutoRunDb({
+      id: 'cyc-nodraft', status: 'scheduled',
+      intakeJson: { planContent: { answers: {}, freeNotes: '' } }, createdAt: new Date('2026-05-01T00:00:00Z'),
+    });
+    const { queue } = makeQueue();
+    const autoApprove = { countDrafts: vi.fn().mockResolvedValue(0), approveAndGenerate: vi.fn() };
+
+    await runContentCycleTick({ db, queue, logger: LOGGER as never, now: DAY_25_JUN_2026, autoApprove });
+
+    expect(LOGGER.info).toHaveBeenCalledWith(
+      expect.objectContaining({ wouldEnqueue: 'planning:cyc-nodraft' }),
+      expect.stringContaining('[auto-run:dry]'),
+    );
+  });
+
+  it('with NO autoApprove injected at all, behaviour is exactly as before this build', async () => {
+    const { db } = makeAutoRunDb({
+      id: 'cyc-legacy', status: 'scheduled',
+      intakeJson: { planContent: { answers: {}, freeNotes: '' } }, createdAt: new Date('2026-05-01T00:00:00Z'),
+    });
+    const { queue } = makeQueue();
+    await runContentCycleTick({ db, queue, logger: LOGGER as never, now: DAY_25_JUN_2026 });
+    expect(LOGGER.info).toHaveBeenCalledWith(
+      expect.objectContaining({ wouldEnqueue: 'planning:cyc-legacy' }),
+      expect.stringContaining('[auto-run:dry]'),
+    );
+  });
+
   it('reports hasIntakeInput:true when the cycle already has intake content', async () => {
     const { db, update } = makeAutoRunDb({
       id: 'cyc-2', status: 'requested',

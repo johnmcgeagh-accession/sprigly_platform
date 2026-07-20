@@ -205,7 +205,12 @@ export type NewEmailTemplate = typeof emailTemplates.$inferInsert;
 // SEPARATE key rather than a new version of 'ask' because the resolver picks the highest
 // published version per key — two variants under one key could not be chosen between.
 // Cycles without a draft keep rendering 'ask' exactly as before.
-export type EmailTemplateKey = 'ask' | 'ask_drafted' | 'nudge' | 'last_call' | 'plan_ready';
+// 'plan_ready_auto' is the plan-ready email for a month that went ahead WITHOUT the
+// client approving (D3). Separate key for the same reason as ask_drafted — the
+// resolver picks the highest published version per key. Telling a client their plan
+// is ready as though they asked for it, when they simply did not answer, is the kind
+// of small dishonesty that makes them distrust the rest of the message.
+export type EmailTemplateKey = 'ask' | 'ask_drafted' | 'nudge' | 'last_call' | 'plan_ready' | 'plan_ready_auto';
 
 // ─── themes ───────────────────────────────────────────────────────────────────
 // Platform-wide design themes (admin-managed, GLOBAL — deliberately NO client_id column, so

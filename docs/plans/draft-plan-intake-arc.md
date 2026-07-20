@@ -90,8 +90,12 @@ model narration.
 
 ## Known interim states & follow-ups
 
-- Whole-plan regen on a cycle holding drafts produces generated posts
-  alongside surviving invisible drafts until Build D owns supersession.
+- ~~Whole-plan regen on a cycle holding drafts produces generated posts
+  alongside surviving invisible drafts until Build D owns supersession.~~
+  RETIRED in Build D: a cycle holding drafts auto-approves at cutoff and
+  fans out phase 2 instead of running the baseline, so it can no longer
+  reach the path that produced the overlap. Eliminated at source rather
+  than cleaned up after.
 - Staleness proxy: no trawl_runs table; ig_posts.updated_at inference can
   false-positive stale. Backlog: trawl_runs table (also graduation
   substrate).

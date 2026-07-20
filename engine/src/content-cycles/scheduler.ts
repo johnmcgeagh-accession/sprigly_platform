@@ -29,6 +29,14 @@ type Db = typeof _db;
 
 /** Injected send capability (constructed in the consumer with real Gmail deps): resolve +
  *  render + deliver a templated email to the pinned inbox. Returns true on a confirmed send. */
+/** D3: how the scheduler auto-approves a draft at cutoff. Injected, never imported. */
+export interface AutoApproveFns {
+  /** Live, unapproved draft beats on this cycle. 0 → the baseline path applies. */
+  countDrafts: (cycleId: string) => Promise<number>;
+  /** Approve (auto) + fan out phase 2. */
+  approveAndGenerate: (clientId: string, cycleId: string) => Promise<{ approved: number; captionsQueued: number }>;
+}
+
 export type SendTemplatedEmailFn = (input: { key: EmailTemplateKey; clientId: string; merge: MergeData }) => Promise<boolean>;
 
 /**
@@ -197,8 +205,11 @@ export async function evaluateAutoRunForClient(params: {
   today:     { day: number };
   logger:    Logger;
   notify?:   ((info: AutoRunNotifyInfo) => Promise<void>) | undefined;
+  /** D3 auto-approve capability. INJECTED so the scheduler keeps no dependency on the app's
+   *  approval/generation modules, and so the branch is directly testable. */
+  autoApprove?: AutoApproveFns | undefined;
 }): Promise<'dry' | 'ran' | 'skipped'> {
-  const { db, queue, clientId, channel, dataMonth, schedule, today, logger, notify } = params;
+  const { db, queue, clientId, channel, dataMonth, schedule, today, logger, notify, autoApprove } = params;
   const logCtx = { clientId, channel, dataMonth };
 
   const cutoffDay = schedule.cutoffDay ?? null;
@@ -232,7 +243,29 @@ export async function evaluateAutoRunForClient(params: {
   const hasIntakeInput = await hasSuppressibleInput(db, { clientId: cycle.clientId, createdAt: cycle.createdAt, intakeJson: cycle.intakeJson });
   const monthLabel     = planMonthLabel(dataMonth);   // dataMonth === this cycle's cycleMonth
 
+  // ── D3: auto-approve a draft instead of a baseline run ───────────────────────
+  // When the cutoff arrives with an UNAPPROVED draft on the cycle, that draft is what the
+  // client was shown and reacted to — it is a far better basis for the month than a
+  // baseline whole-plan generation from an empty intake. So we go ahead with it, stamped
+  // approved_by='auto' so the plan-ready email can say so rather than implying they chose.
+  //
+  // This also RETIRES the Build A interim state at its source: a cycle holding drafts can
+  // no longer reach the baseline path, so a regen can no longer run alongside surviving
+  // invisible draft rows. The baseline remains the path only for cycles with NO draft —
+  // flag off, or assembly failed at the Ask touch.
+  //
+  // AUTO_RUN_ENABLED composition: this branch sits INSIDE the same gate as the baseline
+  // enqueue and above the dry-run return, so the flag governs both paths identically.
+  // Flag false → we log what we WOULD auto-approve and change nothing. Flag true → we
+  // auto-approve and fan out. The flag's value is not read or changed here beyond that.
+  const draftCount = autoApprove ? await autoApprove.countDrafts(cycle.id) : 0;
+
   if (!AUTO_RUN_ENABLED) {
+    if (draftCount > 0) {
+      logger.info({ ...logCtx, cycleId: cycle.id, draftCount },
+        `${AUTO_RUN_DRY_PREFIX} would AUTO-APPROVE ${draftCount} draft beats for cycle ${cycle.id} and fan out phase 2 — NOT the baseline planning run.`);
+      return 'dry';
+    }
     logger.info({
       ...logCtx,
       cycleId:         cycle.id,
@@ -247,7 +280,19 @@ export async function evaluateAutoRunForClient(params: {
     return 'dry';
   }
 
-  // ── LIVE (AUTO_RUN_ENABLED=true) — NOT exercised in this build ────────────────
+  // ── LIVE: draft present → auto-approve, and DO NOT run the baseline ──────────
+  if (draftCount > 0 && autoApprove) {
+    const outcome = await autoApprove.approveAndGenerate(cycle.clientId, cycle.id);
+    logger.info({ ...logCtx, cycleId: cycle.id, monthLabel, ...outcome },
+      `[auto-run:auto-approved] approved ${outcome.approved} draft beats and started phase 2 for ${monthLabel} — baseline run skipped`);
+    if (notify) {
+      try { await notify({ clientId, channel, cycleId: cycle.id, dataMonth, monthLabel, intakePresent: hasIntakeInput }); }
+      catch (err) { logger.warn({ ...logCtx, cycleId: cycle.id, err: String(err) }, 'content-cycle-scheduler: auto-run operator notify failed (non-fatal)'); }
+    }
+    return 'ran';
+  }
+
+  // ── LIVE (AUTO_RUN_ENABLED=true) — the BASELINE path, for cycles with no draft ─
   // Uses only existing machine edges + the engine planning enqueue primitive; changes
   // NOTHING in runPlanningForCycle, confirmIntake, or the transition map.
   for (const edge of transitions) {
@@ -464,6 +509,9 @@ export async function runContentCycleTick(params: {
   // Draft-plan assembly for the Ask touch (Build A). Injected so the scheduler keeps no
   // model dependency; a throw degrades to the ordinary Ask email (see the touch sender).
   assembleDraft?: AssembleDraftFn;
+  // D3 auto-approve at cutoff. Absent → the baseline path applies to every cycle, exactly
+  // as before this build.
+  autoApprove?: AutoApproveFns;
 }): Promise<void> {
   const { db, queue, logger } = params;
   const now = params.now ?? new Date();
@@ -534,6 +582,7 @@ export async function runContentCycleTick(params: {
       const outcome = await evaluateAutoRunForClient({
         db, queue, clientId: row.clientId, channel: row.channel, dataMonth: cohortMonth(schedule), schedule, today, logger,
         notify: params.autoRunNotify,
+        autoApprove: params.autoApprove,
       });
       if (outcome === 'dry') autoRunDry++;
     } catch (err) {
