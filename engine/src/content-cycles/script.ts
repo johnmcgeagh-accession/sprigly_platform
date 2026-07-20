@@ -57,6 +57,17 @@ export async function runScriptForPost(job: ScriptJob, deps: PlanningDeps): Prom
   ].join('\n\n');
 
   const res = await model.complete({ model: SCRIPT_MODEL, system, messages: [{ role: 'user', content: user }], maxTokens: 1200, temperature: 0.6 });
+
+  // AUDIT (Build D): as with hooks, this call never reached audit_log, so script spend was
+  // invisible to the cost guard. Best-effort — never fail a generated script over auditing.
+  try {
+    await deps.audit.logModelCall({
+      clientId: job.clientId, modelId: res.modelId, inputTokens: res.inputTokens, outputTokens: res.outputTokens,
+      action: 'content-cycle:script', metadata: { cycleId: job.cycleId, postId: job.targetPostId, lengthSeconds: job.lengthSeconds },
+    });
+  } catch (err) {
+    logger.warn({ ...logCtx, err: String(err) }, 'script: audit log failed — non-fatal');
+  }
   const scriptText = res.content.trim();
   if (!scriptText) throw new Error('script: model returned an empty script');
 

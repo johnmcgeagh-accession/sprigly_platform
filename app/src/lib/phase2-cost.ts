@@ -19,14 +19,22 @@
  * The fan-out summary (posts, captions queued, hooks queued) is logged at enqueue time —
  * that is the one fact audit_log does not carry, since a queued job that never ran leaves
  * no model call behind.
+ *
+ * CAVEAT FOUND IN THE BUILD D DOGFOOD RUN: hook.ts and script.ts made ZERO audit writes,
+ * so hook and script spend was invisible here — the first measured run reported 19 calls
+ * when 23 had been made. Both are instrumented now. The lesson is the one the design
+ * assumed away: reading the ledger only cannot drift IF every call site writes to it, and
+ * two did not. Worth re-checking whenever a new model call is added.
  */
 import { and, eq, gte, sql } from 'drizzle-orm';
 import { db, auditLog, contentCycles, contentCyclePosts } from '@sprigly/db';
 
 /** Actions on the phase-2 path, as written by the code that makes the calls. */
 export const PHASE2_ACTIONS = [
-  'content-cycle:planning-repair',   // gate + critic regenerations (plan-validation.ts)
+  'content-cycle:planning-repair',   // caption generation + gate/critic regenerations
   'content-cycle:planning-critic',   // critic judgements
+  'content-cycle:hook',              // hook candidates (instrumented in Build D)
+  'content-cycle:script',            // reel scripts (instrumented in Build D)
 ] as const;
 
 export interface Phase2Cost {

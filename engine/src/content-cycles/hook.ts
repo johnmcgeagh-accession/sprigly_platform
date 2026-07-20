@@ -100,6 +100,18 @@ export async function runHookForPost(job: HookJob, deps: PlanningDeps): Promise<
   ].join('\n\n');
 
   const res = await model.complete({ model: HOOK_MODEL, system, messages: [{ role: 'user', content: user }], maxTokens: 700, temperature: 0.8 });
+
+  // AUDIT (Build D): this call was invisible to audit_log, so the phase-2 cost guard —
+  // which reads that ledger — could not see hook spend at all. Best-effort: a failed audit
+  // write must never cost the client their hooks.
+  try {
+    await deps.audit.logModelCall({
+      clientId: job.clientId, modelId: res.modelId, inputTokens: res.inputTokens, outputTokens: res.outputTokens,
+      action: 'content-cycle:hook', metadata: { cycleId: job.cycleId, postId: job.targetPostId },
+    });
+  } catch (err) {
+    deps.logger.warn({ cycleId: job.cycleId, err: String(err) }, 'hook: audit log failed — non-fatal');
+  }
   const candidates = parseHooks(res.content).slice(0, CANDIDATE_COUNT);
   if (candidates.length === 0) throw new Error('hook: model returned no usable hooks');
 
