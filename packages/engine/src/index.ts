@@ -78,6 +78,17 @@ export type {
 export { resolvePillarWeights, spreadPillars } from './pillar-weights.js';
 export type { PillarWeight, PillarWeights } from './pillar-weights.js';
 
+// ── Intake routing + reshaping (Build C) ─────────────────────────────────────
+export { classifyIntake, routeFromParsed, parseClassification, monthScopedIntentSchema, CLASSIFY_SYSTEM } from './intake-classify.js';
+export type { IntakeRouting, MonthScopedIntent, EvergreenReason, ClassifyParams } from './intake-classify.js';
+export {
+  applyIntent, applyLaunchArc, applyEvent, applyEmphasis, applyBeatEdit,
+  replacementCandidates, byWeakestEvidence, isReplaceable, isClientTouched, isClientOriginated, resolveBeatRef,
+} from './draft-transforms.js';
+export type { TransformBeat, BeatOp, TransformResult } from './draft-transforms.js';
+export { diffBeats, renderDiff, renderDelta, shortDate, isNoOp } from './draft-diff.js';
+export type { DiffBeat, BeatDelta, DraftDiff } from './draft-diff.js';
+
 // ── Draft-plan assembly (Build A) ────────────────────────────────────────────
 export { observeHistory, observeCadence, observeFormats } from './draft-history.js';
 export type { HistoryPost, HistoryObservation, CadenceObservation, FormatObservation } from './draft-history.js';

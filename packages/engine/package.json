@@ -34,10 +34,11 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@sprigly/db": "workspace:*",
     "@sprigly/audit": "workspace:*",
+    "@sprigly/db": "workspace:*",
     "@sprigly/prompts": "workspace:*",
-    "drizzle-orm": "^0.30.0"
+    "drizzle-orm": "^0.30.0",
+    "zod": "^3.22.0"
   },
   "devDependencies": {
     "typescript": "*",

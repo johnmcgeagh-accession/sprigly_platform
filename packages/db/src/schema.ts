@@ -950,8 +950,9 @@ export interface BeatRationaleEvidence {
   /** Where the beat's shape came from.
    *  'observed'     = derived from this client's own ig_posts history
    *  'template'     = the thin-data neutral skeleton (history below the floor)
-   *  'client_added' = the client added this beat themselves (Build B) */
-  basis:            'observed' | 'template' | 'client_added';
+   *  'client_added' = the client added this beat themselves (Build B)
+   *  'client_input' = created by something the client WROTE, quoted in `reason` (Build C) */
+  basis:            'observed' | 'template' | 'client_added' | 'client_input';
   /** Set only when basis='template' — why the observed path was unavailable. */
   reason?:          string;
   /** Engagement for THIS beat's format, as measured (likes+comments per post). */
@@ -980,6 +981,11 @@ export interface BeatMeta {
   /** Gaps the assembler detected (no launch info, no catalogue, thin month).
    *  These become the intake prompts the Ask email asks the client to fill. */
   assumptions?:      string[];
+  /** Set by the Build B structural mutations the moment the client edits a beat. Build C's
+   *  transforms never auto-replace a touched beat: the client's hand outranks the
+   *  algorithm, and silently evicting something they just placed is the fastest way to
+   *  lose their trust in the whole surface. */
+  clientTouched?:    boolean;
 }
 
 // ─── content_cycle_posts ──────────────────────────────────────────────────────
