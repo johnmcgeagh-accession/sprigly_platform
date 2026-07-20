@@ -433,3 +433,186 @@ The single exception: `ig_input_status = 'empty_month'` / `ig_input_checked_at` 
 **Redis:** remove `planning_<cycleId>`, `shape_<cycleId>_*`, `hook_<cycleId>_*`, `script_<cycleId>_*`, `weekly_<cycleId>_*`, plus `ig-trawl_` / `request-email_` keys derived from the cycle row. Never remove the repeatable `scheduler-tick` / `weekly-session-tick`.
 
 **Guard:** refuse unless `readDraftFlowFlag(client_configs.settings) === true` for the cycle's client AND the client is not the protected production tenant. Guard failure = loud error, zero writes.
+
+---
+
+# Part 2 — build record
+
+Built because §1 established no existing path is sufficient.
+
+| commit | contents |
+|---|---|
+| `01465f7` | `docs: cycle-reset investigation — no existing path resets a cycle` |
+| `cb3fe9e` | `feat: return one cycle to a genuinely never-run state` |
+
+Files: `engine/src/content-cycles/cycle-reset.ts` (core), `cycle-reset-cli.ts` (CLI),
+`cycle-reset.integration.test.ts` (8 tests), plus one script entry in `engine/package.json`.
+
+Placed under `engine/src/content-cycles/` with a package-script entry rather than in
+`scripts/`, matching the existing convention for cycle tooling (`trigger-plan-cli.ts`,
+`planning-trace-cli.ts`, `backfill-posts-cli.ts`). Named `cycle-reset` so it does not
+collide with the existing, insufficient `reset-cycle`.
+
+## Usage
+
+```
+pnpm --filter @sprigly/worker cycle-reset <cycleId>              # DRY RUN (default)
+pnpm --filter @sprigly/worker cycle-reset <cycleId> --confirm    # destructive
+```
+
+`DATABASE_URL` and `REDIS_URL` are sourced from `../.env.local` by the package script.
+Dry run is the default; `--confirm` is the only path that writes.
+
+## Guard proof
+
+Run against the **real Ivy T cycle on UAT** (`1b925191-…`), no `--confirm`:
+
+```
+$ pnpm --filter @sprigly/worker cycle-reset 1b925191-bb01-4839-a5fb-0552b14f1e57
+
+REFUSED: client c79cf1c5-b51d-4a9b-aedc-48577df43e8f (ivy-t) is PROTECTED — this tool never resets it
+No writes were made.
+Exit status 1
+```
+
+The guard runs before the queue is touched and before any statement executes. Both
+conditions are independently covered by tests: `draft_flow_enabled` off refuses, a
+non-boolean flag (`"true"`, `1`, `false`) refuses, and a protected client refuses **even
+with the flag on**. Ivy T trips both arms — it is in the protected set and has never had
+`draft_flow_enabled` in either environment.
+
+Dry run on a sandbox client (`earl-of-east` 2026-09), against live UAT:
+
+```
+cycle   040d6a1a-9ad4-4d32-bda2-d67b01f70512
+client  d5ea71c4-8859-4be2-9335-3b4b484ec312 (earl-of-east)
+month   2026-09  channel instagram
+mode    DRY RUN — no writes
+
+queue   0 cycle-keyed job(s)
+
+table                 before   after
+------------------------------------
+plan_activity             10      10
+agent_proposals            0       0
+agent_messages             0       0
+conversations              0       0
+post_edits                 9       9
+post_steps                 0       0
+content_cycle_posts       10      10
+planning_trace             0       0
+weekly_sessions            0       0
+plan_inputs_created        0       0
+plan_inputs_consumed       0       0
+
+DRY RUN — nothing was written. Re-run with --confirm to apply.
+```
+
+Verified independently afterwards that UAT was unchanged — `posts 10 | edits 9 |
+activity 10 | approved_at 2026-07-20 19:51:07.258`, identical to before.
+
+**`--confirm` was never run against any real cycle.** The destructive path was exercised
+only against fixture cycles created inside the test suite, on a disposable local Postgres.
+
+## Never-run-state diff evidence
+
+The `FULL RESET` test seeds a cycle with one row in every touched table plus every
+cycle-level stamp set (`status='workbook_built'`, `approved_at`, `approved_by`, all three
+`*_sent_at`, `intake_json` carrying a Build C receipt, `structured_brief`,
+`posts_sync_status`, `failed_step`, `ig_input_status`), creates a **second, never-touched
+cycle for the same client as the baseline**, resets the first, then asserts three things:
+
+1. every touched table is `0` for the reset cycle;
+2. `countState(reset)` deep-equals `countState(never-run)`;
+3. all 31 cycle-level columns deep-equal the never-run cycle's — a whole-row comparison,
+   not a spot check.
+
+It also asserts the durable `plan_inputs` row the run consumed **survives, un-consumed**:
+`{ lifecycle: 'candidate', used_in_cycle_id: null }`.
+
+```
+✓ GUARD: refuses when draft_flow_enabled is off, and writes nothing
+✓ GUARD: a non-boolean flag is not enough (strict === true)
+✓ GUARD: refuses a PROTECTED client even with the flag on, and writes nothing
+✓ the real production tenant id is in the built-in protected set
+✓ DRY RUN writes nothing and reports what would go
+✓ FULL RESET leaves the cycle in the same DB state as a never-run cycle
+✓ deleting posts would fail without the trigger bypass (proves the bypass is load-bearing)
+✓ ROLLBACK: a mid-reset failure leaves every table untouched
+
+Test Files  1 passed (1)
+     Tests  8 passed (8)
+```
+
+Run with:
+
+```
+DATABASE_URL="<test-db>" TEST_DATABASE_URL="<test-db>" \
+  pnpm --filter @sprigly/worker exec vitest run src/content-cycles/cycle-reset.integration.test.ts
+```
+
+**The trigger-bypass test empirically confirms §3.9**: a naive
+`DELETE FROM content_cycle_posts WHERE cycle_id = …` on the seeded data raises
+`plan_activity is append-only (UPDATE is blocked)`, and the supported path then succeeds on
+that same data. The bypass is load-bearing, not defensive.
+
+**Regression check:** `pnpm --filter @sprigly/worker type-check` clean.
+Full worker suite with `DATABASE_URL` set: **22 files passed, 363 tests passed, 9 skipped**.
+Without `DATABASE_URL`, 10 files fail at collect on `DATABASE_URL Required` — verified
+**pre-existing** by stashing these changes and reproducing the identical 10 failures.
+
+## Note on the local test database
+
+`scripts/test-db.sh up` could not bind its port: another container (`restore_check`) already
+holds `55432`. Rather than stop something that is not mine, the tests were run against an
+equivalent throwaway container on `55433`, loaded from the same
+`.test-db/schema.sql` baseline. That baseline was refreshed from UAT first
+(`./scripts/test-db.sh refresh` — schema-only, read-only, no row data) because the cached
+copy dated from 2026-07-09 and predated 0084/0086/0087, so it lacked `beat_meta`,
+`approved_at` and the `plan_inputs` backlog columns. `test-db.sh` itself was not modified.
+
+---
+
+# Full UAT test loop
+
+```bash
+# 0. one-time: which cycle?
+psql "$DATABASE_URL" -c "SELECT cy.id, c.slug, cy.cycle_month, cy.status, cy.approved_at
+                           FROM content_cycles cy JOIN clients c ON c.id = cy.client_id
+                          WHERE c.slug = 'earl-of-east' ORDER BY cy.cycle_month;"
+
+# 1. RESET — dry run first, always. Confirm the table looks like the cycle you meant.
+pnpm --filter @sprigly/worker cycle-reset <cycleId>
+pnpm --filter @sprigly/worker cycle-reset <cycleId> --confirm
+
+# 2. TRIGGER ASSEMBLY on demand — no scheduler, no date faking.
+#    Timing is already moot: calling assembleAndPersistDraft directly bypasses dueTouch,
+#    the ask_sent_at guard, hasSuppressibleInput and the cohort-month match (§4).
+#    Bedrock is optional — without credentials phraseDraftTitles returns
+#    outcome:'fallback' and assembly still completes with deterministic titles.
+#    There is no CLI for this yet; call it from a tsx one-liner or add one.
+
+# 3. WHERE TO LOOK
+#    draft beats written:
+psql "$DATABASE_URL" -c "SELECT scheduled_date, format, pillar, status, beat_meta->>'slotType' AS slot
+                           FROM content_cycle_posts
+                          WHERE cycle_id = '<cycleId>' AND status = 'draft'
+                          ORDER BY scheduled_date;"
+#    approval + intake receipts:
+psql "$DATABASE_URL" -c "SELECT status, approved_at, approved_by,
+                                intake_json->'draftApplications' AS receipts
+                           FROM content_cycles WHERE id = '<cycleId>';"
+#    phase-2 fan-out:
+psql "$DATABASE_URL" -c "SELECT status, count(*) FROM content_cycle_posts
+                          WHERE cycle_id = '<cycleId>' GROUP BY 1;"
+#    client surface: app.sprigly.co.uk with a magic link for this cycle
+#    (tokens are deliberately KEPT by the reset — §3.11 — so an already-issued link
+#     still works across loops).
+```
+
+**Two cautions for the loop.** The repeatable `scheduler-tick` (cron `0 5 * * *`
+Europe/London) is global and is deliberately left running — it can send touches or
+auto-approve a cycle between loops, so reset shortly before testing rather than long
+before. And if the CLI reports ACTIVE cycle-keyed jobs it refuses rather than resetting:
+an in-flight job will finish and write into the cycle regardless, so drain or pause the
+worker first.
