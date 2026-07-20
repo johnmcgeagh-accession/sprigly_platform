@@ -15,25 +15,29 @@
  * run without model access still assembles and persists — you just get `phrasing:
  * "fallback"` in the output, which for a structural test is the more reproducible mode.
  *
- * --auto-approve then runs the Build D approval core with auto=true, which is the D3
- * cutoff path: it skips the pre-cutoff guard (being at cutoff is the whole trigger) and
- * stamps approved_by='auto'. It does NOT enqueue the generation fan-out — this CLI is for
- * exercising the state transition, not for spending Bedrock budget.
+ * --auto-approve runs the full D3 cutoff path via autoApproveAndGenerate: the approval
+ * core with auto=true (skips the pre-cutoff guard, stamps approved_by='auto'), then the
+ * generation fan-out — a shape job per approved beat and a hook job for every reel or
+ * carousel. That SPENDS BEDROCK BUDGET once the worker picks the jobs up, and it needs a
+ * reachable REDIS_URL.
+ *
+ * Note it does NOT send plan_ready_auto: that email lives in sendAppReadyNotification,
+ * which is reached from the delivery path rather than from approval.
  *
  * SAFETY: refuses unless the cycle's client has draft_flow_enabled, the same posture as
  * cycle-reset. There is no default cycle id and no fallback of any kind — a tool that
  * guesses which cycle it is writing to is how you rewrite a real client's month.
  */
 import pino from 'pino';
+import { Queue } from 'bullmq';
 import { eq } from 'drizzle-orm';
 import { db, sql, contentCycles } from '@sprigly/db';
 import { createModelClientFromEnv } from '@sprigly/model-client';
 import { createAuditLogger } from '@sprigly/audit';
 import { DbPromptResolver } from '@sprigly/prompts';
 import { createEncryptionProvider } from '@sprigly/oauth-tokens';
-import { approveDraftCore } from '@sprigly/engine';
 import { env } from '../env.js';
-import { assembleAndPersistDraft, draftFlowEnabled } from './draft-plan.js';
+import { assembleAndPersistDraft, draftFlowEnabled, autoApproveAndGenerate } from './draft-plan.js';
 
 const args    = process.argv.slice(2);
 const cycleId = args.find((a) => !a.startsWith('--'));
@@ -83,9 +87,15 @@ if (!(await draftFlowEnabled(deps, cycle!.clientId))) {
 
 const result = await assembleAndPersistDraft({ clientId: cycle!.clientId, cycleId }, deps);
 
-const approval = autoApprove
-  ? await approveDraftCore(db, { clientId: cycle!.clientId, cycleId, auto: true })
-  : undefined;
+let approval: { approved: number; captionsQueued: number } | undefined;
+if (autoApprove) {
+  const queue = new Queue('content-cycles', { connection: { url: env.REDIS_URL } });
+  try {
+    approval = await autoApproveAndGenerate(deps, queue, cycle!.clientId, cycleId);
+  } finally {
+    await queue.close();
+  }
+}
 
 console.log(JSON.stringify(autoApprove ? { ...result, approval } : result, null, 2));
 

@@ -26,6 +26,8 @@ const SCRIPT = fileURLToPath(new URL('./draft-assemble-cli.ts', import.meta.url)
 const TSX    = fileURLToPath(new URL('../../node_modules/.bin/tsx', import.meta.url));
 const UNUSED_DB = 'postgresql://unused:unused@127.0.0.1:1/unused';
 const TEST_DB   = process.env['TEST_DATABASE_URL'];
+/** --auto-approve fans out onto the real queue, so that path needs a reachable Redis. */
+const TEST_REDIS = process.env['TEST_REDIS_URL'];
 
 /**
  * Everything env.ts + the model factory validate at import. None of it is dialled.
@@ -35,11 +37,11 @@ const TEST_DB   = process.env['TEST_DATABASE_URL'];
  * LOCAL_DEV_ENCRYPTION_KEY only because PlanningDeps carries an encProvider — draft
  * assembly touches none of the three. Real runs get them from .env.local.
  */
-function cliEnv(databaseUrl: string): NodeJS.ProcessEnv {
+function cliEnv(databaseUrl: string, redisUrl = 'redis://127.0.0.1:1'): NodeJS.ProcessEnv {
   return {
     ...process.env,
     DATABASE_URL:             databaseUrl,
-    REDIS_URL:                'redis://127.0.0.1:1',
+    REDIS_URL:                redisUrl,
     GOOGLE_CLIENT_ID:         'unused',
     GOOGLE_CLIENT_SECRET:     'unused',
     TAVILY_API_KEY:           'unused',
@@ -53,9 +55,9 @@ function cliEnv(databaseUrl: string): NodeJS.ProcessEnv {
 
 interface Run { code: number | null; stdout: string; stderr: string }
 
-function run(args: string[], databaseUrl: string): Promise<Run> {
+function run(args: string[], databaseUrl: string, redisUrl?: string): Promise<Run> {
   return new Promise((resolve) => {
-    const child = spawn(TSX, [SCRIPT, ...args], { env: cliEnv(databaseUrl) });
+    const child = spawn(TSX, [SCRIPT, ...args], { env: cliEnv(databaseUrl, redisUrl) });
     let stdout = '', stderr = '', done = false;
     const settle = (code: number | null): void => { if (!done) { done = true; resolve({ code, stdout, stderr }); } };
     child.stdout.on('data', (d) => { stdout += String(d); });
@@ -142,15 +144,23 @@ describe('draft-assemble CLI', () => {
     expect(rows.every((x) => x.scheduled_date.startsWith('2026-08'))).toBe(true);
   }, 60_000);
 
-  it.skipIf(!TEST_DB)('--auto-approve stamps the cycle approved_by=auto and transitions the beats', async () => {
+  it.skipIf(!TEST_DB || !TEST_REDIS)('--auto-approve approves and fans generation out onto the queue', async () => {
     const { sql } = await import('@sprigly/db');
+    const { Queue } = await import('bullmq');
     const { cycleId } = await fixture({ draft_flow_enabled: true });
 
-    const r = await run([cycleId, '--auto-approve'], TEST_DB!);
+    const r = await run([cycleId, '--auto-approve'], TEST_DB!, TEST_REDIS!);
 
     expect(r.code).toBe(0);
     const out = parseResult(r.stdout);
-    expect(out['approval']).toMatchObject({ ok: true, approved: expect.any(Number) });
+    // autoApproveAndGenerate reports both halves of the D3 path.
+    expect(out['approval']).toMatchObject({
+      approved:       expect.any(Number),
+      captionsQueued: expect.any(Number),
+    });
+    const approval = out['approval'] as { approved: number; captionsQueued: number };
+    expect(approval.approved).toBeGreaterThan(0);
+    expect(approval.captionsQueued).toBe(approval.approved);
 
     // approved_at is `timestamp without time zone`, which this raw handle returns as a
     // string rather than a Date — assert it was stamped, not what shape it came back as.
@@ -159,9 +169,26 @@ describe('draft-assemble CLI', () => {
     expect(cycles[0]!.approved_by).toBe('auto');
     expect(cycles[0]!.approved_at).toBeTruthy();
 
-    // Approval is the only writer that moves a draft row off 'draft'.
-    const rows = await sql<{ status: string }[]>`
-      SELECT status FROM content_cycle_posts WHERE cycle_id = ${cycleId}`;
+    // Approval is the only writer that moves a draft row off 'draft'. Nothing may be
+    // generation_failed — that is what an enqueue failure would look like.
+    const rows = await sql<{ id: string; status: string; format: string }[]>`
+      SELECT id, status, format FROM content_cycle_posts WHERE cycle_id = ${cycleId}`;
     expect(rows.every((x) => x.status === 'generating')).toBe(true);
+
+    // THE FAN-OUT ASSERTION: a real shape job per approved beat, under the deterministic
+    // job id, plus a hook job for every reel/carousel. Read back off the live queue.
+    const queue = new Queue('content-cycles', { connection: { url: TEST_REDIS! } });
+    try {
+      const jobIds = (await queue.getJobs(['waiting', 'delayed', 'active'])).map((j) => j.id);
+      for (const post of rows) {
+        expect(jobIds).toContain(`shape_${cycleId}_${post.id}`);
+        if (post.format === 'reel' || post.format === 'carousel') {
+          expect(jobIds).toContain(`hook_${cycleId}_${post.id}`);
+        }
+      }
+    } finally {
+      await queue.obliterate({ force: true }).catch(() => {});
+      await queue.close();
+    }
   }, 60_000);
 });
