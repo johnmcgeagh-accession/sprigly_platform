@@ -58,8 +58,17 @@ export async function runScriptForPost(job: ScriptJob, deps: PlanningDeps): Prom
 
   const res = await model.complete({ model: SCRIPT_MODEL, system, messages: [{ role: 'user', content: user }], maxTokens: 1200, temperature: 0.6 });
 
-  // AUDIT (Build D): as with hooks, this call never reached audit_log, so script spend was
-  // invisible to the cost guard. Best-effort — never fail a generated script over auditing.
+  // ── AUDIT: this call is on the cost-guard's ledger ─────────────────────────
+  // It was NOT, until Build D — hook and script spend was invisible to phase2-cost.ts,
+  // which reads audit_log on the assumption that every call site writes to it. Two did
+  // not. The structural cure is a Bedrock wrapper that writes the audit entry itself, so
+  // the assumption is true by construction rather than by everyone remembering.
+  //
+  // NOT DONE, deliberately: the hardening enumeration found 31 invocation sites across 6
+  // packages, many with no clientId in scope at all (CLIs, probes, the eval harness,
+  // workflow steps). Wrapping them is a real piece of work, not a hardening tweak.
+  // Backlogged with the full site list in docs/reports/hardening-pre-uat.md §4.
+  // Until then: ANY new model call needs its own audit write, like this one.
   try {
     await deps.audit.logModelCall({
       clientId: job.clientId, modelId: res.modelId, inputTokens: res.inputTokens, outputTokens: res.outputTokens,
