@@ -10,7 +10,12 @@ export type PostFormat  = 'reel' | 'carousel' | 'single' | 'email';
 // the post occupies its slot immediately while a shape job writes the caption
 // (generating) or after that job failed (generation_failed, instruction preserved
 // for retry). Both are transient — they resolve to 'new' on success.
-export type PostStatus  = 'planned' | 'edited' | 'new' | 'generating' | 'generation_failed';
+// 'draft' is an UNAPPROVED draft beat (Build A): a proposed slot the client has not
+// accepted, not part of the plan. Every plan reader filters it out via
+// excludeDraftPosts(), so it should never reach this union in practice — it is a
+// member precisely so that if one ever does, the row mapper labels it honestly
+// instead of coercing it to 'planned' (see STATUSES in plan.ts).
+export type PostStatus  = 'planned' | 'edited' | 'new' | 'generating' | 'generation_failed' | 'draft';
 
 // Regen-merge provenance (migration 0059), orthogonal to `status`. Carried on the
 // post so the future orphan accept/remove affordance and the switcher's per-month

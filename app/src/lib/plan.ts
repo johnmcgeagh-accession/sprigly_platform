@@ -71,7 +71,7 @@ export function beatsInMonth(brief: unknown, month: string): PlanBeat[] {
 }
 
 const FORMATS  = new Set<PostFormat>(['reel', 'carousel', 'single', 'email']);
-const STATUSES = new Set<PostStatus>(['planned', 'edited', 'new', 'generating', 'generation_failed']);
+const STATUSES = new Set<PostStatus>(['planned', 'edited', 'new', 'generating', 'generation_failed', 'draft']);
 const REVIEW_STATES = new Set<ReviewState>(['preserved_edit', 'preserved_edit_orphan', 'regenerated']);
 
 const MONTH_NAMES = [

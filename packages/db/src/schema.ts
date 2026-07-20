@@ -930,6 +930,46 @@ export const planningTrace = pgTable(
 export type PlanningTraceRow    = typeof planningTrace.$inferSelect;
 export type NewPlanningTraceRow = typeof planningTrace.$inferInsert;
 
+// ─── beat_meta (draft beats) ──────────────────────────────────────────────────
+// Why a draft beat exists, in a form that can be recomputed and audited.
+//
+// rationaleEvidence is STRUCTURED METRIC REFS, never a sentence. Two reasons:
+// the phrasing pass (Build A Part 4) takes this as input and may only restate it,
+// so prose here would make its output indistinguishable from its input; and the
+// graduation loop later needs to compare a beat's stated basis against what the
+// post actually did, which requires numbers, not adjectives.
+//
+// When history is too thin to ground a beat, the evidence says so —
+// {basis: 'template', reason: 'insufficient history'} — rather than carrying
+// invented metrics. Honest absence over fabricated confidence.
+export interface BeatRationaleEvidence {
+  /** Where the beat's shape came from. 'observed' = derived from this client's own
+   *  ig_posts history; 'template' = the thin-data neutral skeleton. */
+  basis:            'observed' | 'template';
+  /** Set only when basis='template' — why the observed path was unavailable. */
+  reason?:          string;
+  /** Engagement for THIS beat's format, as measured (likes+comments per post). */
+  formatEngagement?: { format: string; avgEngagement: number; posts: number };
+  /** This pillar's share of the client's configured pillar weights, 0–1. */
+  pillarShare?:      number;
+  /** The cadence figure the slot count came from, and what it was measured over. */
+  cadenceBasis?:     { postsPerWeek: number; source: 'observed' | 'config'; months: number };
+  /** For an experiment slot: how the candidate ranked, and against what. */
+  candidateRank?:    { rank: number; of: number; origin: 'client' | 'competitor' };
+}
+
+export interface BeatMeta {
+  /** 'proven' = drawn from what this client's history says works. 'experiment' =
+   *  drawn from the ideas backlog under the temperature dial. */
+  slotType:          'proven' | 'experiment';
+  rationaleEvidence: BeatRationaleEvidence;
+  /** plan_inputs.id the experiment came from. Absent on proven slots. */
+  sourceRef?:        string;
+  /** Gaps the assembler detected (no launch info, no catalogue, thin month).
+   *  These become the intake prompts the Ask email asks the client to fill. */
+  assumptions?:      string[];
+}
+
 // ─── content_cycle_posts ──────────────────────────────────────────────────────
 // Structured, per-post representation of a generated plan — the backbone the
 // client app (app.sprigly.co.uk / @sprigly/app) reads and (from Phase 2) edits.
@@ -965,6 +1005,10 @@ export const contentCyclePosts = pgTable(
     // plan), null (pre-existing / not yet classified). REQUIRES migration 0059 before
     // deploy — select().from(content_cycle_posts) emits every mapped column.
     reviewState:   text('review_state'),
+    // Draft-beat provenance (migration 0084) — non-null ONLY on rows the draft
+    // assembler created. See BeatMeta below for the shape and why the evidence is
+    // structured rather than prose. NULL = an ordinary plan post.
+    beatMeta:      jsonb('beat_meta').$type<BeatMeta>(),
   },
   (t) => ({
     cycleDateIdx: index('content_cycle_posts_cycle_date_idx').on(t.cycleId, t.scheduledDate),
