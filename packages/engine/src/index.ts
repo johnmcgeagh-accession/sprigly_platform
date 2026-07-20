@@ -79,6 +79,8 @@ export { resolvePillarWeights, spreadPillars } from './pillar-weights.js';
 export type { PillarWeight, PillarWeights } from './pillar-weights.js';
 
 export { DRAFT_FLOW_FLAG, readDraftFlowFlag } from './client-flags.js';
+export { approveDraftCore, POST_STATUS_GENERATING, APPROVAL_MESSAGES } from './draft-approval-core.js';
+export type { ApprovalError, ApprovalResult, ApproveDraftParams, ApprovalDb } from './draft-approval-core.js';
 
 // ── Intake routing + reshaping (Build C) ─────────────────────────────────────
 export { classifyIntake, routeFromParsed, parseClassification, monthScopedIntentSchema, CLASSIFY_SYSTEM } from './intake-classify.js';
