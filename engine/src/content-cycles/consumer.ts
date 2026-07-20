@@ -46,7 +46,7 @@ import { runWeeklySessionTick } from './weekly-cron.js';
 import { runIgTrawlJob } from '../ig-producer.js';
 import { requestEmailStub } from './stubs.js';
 import { runContentCycleTick } from './scheduler.js';
-import { assembleAndPersistDraft, summariseDraft } from './draft-plan.js';
+import { assembleAndPersistDraft, summariseDraft, draftFlowEnabled } from './draft-plan.js';
 import {
   IG_TRAWL_JOB_OPTIONS,
   REQUEST_EMAIL_JOB_OPTIONS,
@@ -205,9 +205,15 @@ export function createContentCycleConsumer(
           // scheduler deliberately does not depend on — hence injection. A throw here is
           // caught by the scheduler and degrades to the ordinary Ask email.
           const assembleDraft = async (clientId: string, cycleId: string) => {
-            const { draft } = await assembleAndPersistDraft({ clientId, cycleId }, {
-              db, encProvider, googleClientId, googleClientSecret, model, prompts, audit, logger,
-            });
+            const planningDeps = { db, encProvider, googleClientId, googleClientSecret, model, prompts, audit, logger };
+            // FLAG GATE (Build D). Checked first, so a flag-off client's Ask touch does no
+            // reads, makes no model call, writes no rows — exactly its pre-arc behaviour.
+            // An empty summary makes the scheduler send the plain Ask template.
+            if (!(await draftFlowEnabled(planningDeps, clientId))) {
+              logger.info({ clientId, cycleId }, 'draft-plan: draft_flow_enabled is off — plain Ask touch');
+              return { summary: '' };
+            }
+            const { draft } = await assembleAndPersistDraft({ clientId, cycleId }, planningDeps);
             return { summary: summariseDraft(draft) };
           };
           await runContentCycleTick({ db, queue, logger, sendEmail, resolveAppLink, assembleDraft });

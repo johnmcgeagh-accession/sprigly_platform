@@ -78,6 +78,8 @@ export type {
 export { resolvePillarWeights, spreadPillars } from './pillar-weights.js';
 export type { PillarWeight, PillarWeights } from './pillar-weights.js';
 
+export { DRAFT_FLOW_FLAG, readDraftFlowFlag } from './client-flags.js';
+
 // ── Intake routing + reshaping (Build C) ─────────────────────────────────────
 export { classifyIntake, routeFromParsed, parseClassification, monthScopedIntentSchema, CLASSIFY_SYSTEM } from './intake-classify.js';
 export type { IntakeRouting, MonthScopedIntent, EvergreenReason, ClassifyParams } from './intake-classify.js';

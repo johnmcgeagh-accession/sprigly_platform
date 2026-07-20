@@ -15,12 +15,12 @@
  */
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import {
-  clientChannels, clientPlanningConfig, clientProductCatalogue, contentCycles,
+  clientChannels, clientConfigs, clientPlanningConfig, clientProductCatalogue, contentCycles,
   contentCyclePosts, igPosts, voiceSnapshots, POST_STATUS_DRAFT,
   type NewContentCyclePostRow,
 } from '@sprigly/db';
 import {
-  assembleDraft, applyPhrasing, phraseDraftTitles, loadDurableInputs,
+  assembleDraft, applyPhrasing, phraseDraftTitles, loadDurableInputs, readDraftFlowFlag,
   STALE_TRAWL_DAYS, type DraftPlan, type ExperimentCandidate, type HistoryPost,
 } from '@sprigly/engine';
 import type { Pillar } from '@sprigly/engine';
@@ -81,6 +81,22 @@ async function staleTrawlWarning(deps: PlanningDeps, clientId: string, channel: 
   return ageDays > STALE_TRAWL_DAYS
     ? `IG history last refreshed ${ageDays} days ago (threshold ${STALE_TRAWL_DAYS}) — the draft is built on data that may be out of date.`
     : null;
+}
+
+/**
+ * Is the draft-plan arc enabled for this client?
+ *
+ * Checked BEFORE any assembly work, so a flag-off client's Ask touch is byte-identical to
+ * its pre-arc behaviour: no reads, no model call, no draft rows, plain Ask email. "Enabled
+ * but it silently did nothing" and "not enabled" should not be the same code path.
+ */
+export async function draftFlowEnabled(deps: PlanningDeps, clientId: string): Promise<boolean> {
+  const [cfg] = await deps.db
+    .select({ settings: clientConfigs.settings })
+    .from(clientConfigs)
+    .where(eq(clientConfigs.clientId, clientId))
+    .limit(1);
+  return readDraftFlowFlag(cfg?.settings);
 }
 
 export interface AssembleAndPersistResult {

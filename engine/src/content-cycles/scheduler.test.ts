@@ -612,6 +612,23 @@ describe('evaluateThreeTouchForClient', () => {
     }
   });
 
+  it('FLAG OFF: the Ask touch is byte-identical to its pre-arc behaviour', async () => {
+    // The gate lives in the injected assembler (consumer.ts), which returns an empty
+    // summary without doing any work when draft_flow_enabled is off. From the scheduler's
+    // side that is indistinguishable from the pre-arc world: plain 'ask' template, empty
+    // beatsSummary, touch stamped.
+    const { db, update, setCalls } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
+    const assembleDraft = vi.fn().mockResolvedValue({ summary: '' });   // what the gate returns
+    const args = base(db, { assembleDraft });
+    expect(await evaluateThreeTouchForClient(args)).toBe('sent');
+    expect(args.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+      key: 'ask',
+      merge: expect.objectContaining({ beatsSummary: '' }),
+    }));
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(setCalls).toEqual([{ askSentAt: expect.any(Date) }]);
+  });
+
   it('sends the ordinary Ask when no assembler is wired at all', async () => {
     const { db } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
     const args = base(db, { assembleDraft: undefined });
