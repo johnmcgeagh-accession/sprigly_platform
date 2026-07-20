@@ -49,6 +49,7 @@ import {
   excludeDraftPosts,
   postEdits,
   stampPostsSyncStatus,
+  claimPlanReadySend,
 } from '@sprigly/db';
 import type { NewContentCyclePostRow } from '@sprigly/db';
 import { mapFormat, isoDateInMonth } from './post-mapping.js';
@@ -174,7 +175,7 @@ export function nextMonth(yyyymm: string): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
-function monthLabelOf(yyyymm: string): string {
+export function monthLabelOf(yyyymm: string): string {
   const [y, m] = yyyymm.split('-');
   return new Date(Number(y), Number(m) - 1, 1)
     .toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'Europe/London' });
@@ -1177,7 +1178,16 @@ export async function runPlanningForCycle(
       // Link-only "plan ready" notification, PINNED to the test inbox (no attachment,
       // no Drive URL), via the same destination sheet/both use. Best-effort.
       if (appUrl) {
-        await sendAppReadyNotification(deps, clientId, clientName, monthLabelOf(targetMonth), appUrl);
+        // At-most-once (migration 0089). Before this, a re-run of a completed cycle re-sent
+        // the email every time (investigation §6.5). autoApproved is FALSE here by
+        // construction, not by choice: the auto-approve branch returns before enqueuing
+        // planning (scheduler.ts:283-293), so a cycle that reaches this line was never
+        // auto-approved. The settlement path owns the auto variant.
+        if (await claimPlanReadySend(db, cycleId)) {
+          await sendAppReadyNotification(deps, clientId, clientName, monthLabelOf(targetMonth), appUrl, false);
+        } else {
+          logger.info({ ...logCtx }, 'content-cycles: plan-ready already sent for this cycle — not re-sending');
+        }
       } else {
         logger.warn({ ...logCtx }, 'content-cycles: no app link available — skipping app-ready notification');
       }

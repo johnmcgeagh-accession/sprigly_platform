@@ -170,6 +170,9 @@ async function resetCycleRow(tx: SqlLike, cycleId: string): Promise<void> {
       ig_input_status = NULL, ig_input_detail = NULL, ig_input_checked_at = NULL,
       posts_sync_status = NULL, posts_synced_at = NULL, posts_synced_run_id = NULL,
       approved_at = NULL, approved_by = NULL,
+      -- Run state, not history: a reset cycle has not had its plan-ready email for THIS
+      -- run, and leaving the stamp would silence the send on every subsequent test loop.
+      plan_ready_sent_at = NULL,
       updated_at = now()
     WHERE id = ${cycleId}`;
 }

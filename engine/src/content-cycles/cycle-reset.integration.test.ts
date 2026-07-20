@@ -81,7 +81,8 @@ describe.skipIf(!TEST_DB)('cycle reset (integration — requires TEST_DATABASE_U
                 ask_sent_at = now(), nudge_sent_at = now(), last_call_sent_at = now(),
                 intake_json = ${sql.json({ draftApplications: [{ receipt: 1 }] })},
                 structured_brief = ${sql.json({ launches: [] })},
-                posts_sync_status = 'synced', failed_step = 'planning', ig_input_status = 'ok'
+                posts_sync_status = 'synced', failed_step = 'planning', ig_input_status = 'ok',
+                plan_ready_sent_at = now()
               WHERE id = ${cycleId}`;
     return { postId, durableId: durableId as string };
   }
@@ -97,7 +98,7 @@ describe.skipIf(!TEST_DB)('cycle reset (integration — requires TEST_DATABASE_U
              delivered_at, finalised_at, voice_merged_at, closed_at,
              ig_input_status, ig_input_detail, ig_input_checked_at,
              posts_sync_status, posts_synced_at, posts_synced_run_id,
-             approved_at, approved_by
+             approved_at, approved_by, plan_ready_sent_at
         FROM content_cycles WHERE id = ${cycleId}`;
     return row as Record<string, unknown>;
   }
