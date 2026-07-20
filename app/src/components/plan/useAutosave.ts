@@ -49,5 +49,13 @@ export function useAutosave(value: string, persisted: string, save: (v: string) 
     savedRef.current = v;
   }, []);
 
-  return { flush, markSaved };
+  // Whether the local value has diverged from the last-synced baseline (an unsaved edit).
+  // Computed in render on purpose: it reads `savedRef` BEFORE the persisted-sync effect
+  // (line 25) advances the baseline this render, so a caller that reads it during the same
+  // render an external value arrives sees "was this field dirty when the new value landed?"
+  // — the question its reset guard must answer. The baseline is the hook's own truth, so no
+  // caller re-derives it.
+  const dirty = value !== savedRef.current;
+
+  return { flush, markSaved, dirty };
 }
