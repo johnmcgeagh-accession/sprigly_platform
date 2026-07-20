@@ -253,6 +253,59 @@ test('regression: typing a caption keeps focus through the autosave re-render (n
   await expect(cap).toHaveValue(/ABCDEFGHIJ$/);
 });
 
+test('regression: editing mid-caption keeps the caret across an autosave (no jump-to-end) + saved hint', async ({ page }) => {
+  const id = SEED.post(7);   // 2026-07-16 single — editable (today-onward), caption-only
+  await page.locator(`[data-post-id="${id}"]`).click();
+  const cap = page.getByTestId('editor-caption');
+  const hint = page.getByTestId('caption-save-hint');
+
+  // Known content with a clear middle. Settle a baseline save first so the edit under test is
+  // the one whose autosave must NOT disturb the caret; the quiet hint confirms it landed.
+  await cap.click();
+  await cap.fill('HEADMIDTAIL');
+  await cap.blur();
+  await expect(hint).toHaveText('Saved');
+
+  // Put the caret right after "HEAD" (index 4), type — cross the ~1.5s debounce so an autosave
+  // fires and re-renders the drawer mid-edit — then type again. The second key must land at the
+  // caret, not at the end: proof the save no longer re-seeds the field under the cursor.
+  await cap.focus();
+  await cap.evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(4, 4));
+  await page.keyboard.type('X', { delay: 10 });   // HEADXMIDTAIL, caret after the X
+  await page.waitForTimeout(1800);                 // autosave settles while the field is focused
+  await page.keyboard.type('Y', { delay: 10 });    // inserts at the caret (→ ...XY...), not the end
+
+  await expect(cap).toBeFocused();
+  await expect(cap).toHaveValue('HEADXYMIDTAIL');  // caret held its mid-field position across the save
+  await expect(hint).toHaveText('Saved');
+});
+
+test('regression: an external caption rewrite never clobbers an in-progress edit', async ({ page }) => {
+  const id = SEED.post(7);   // 2026-07-16 single — editable, shapeable (caption target)
+  await page.locator(`[data-post-id="${id}"]`).click();
+  const cap = page.getByTestId('editor-caption');
+
+  // Kick off an async Shape that rewrites the caption server-side; it lands (poll → refresh) a
+  // second or so later, pushing a fresh `post.caption` into the still-open editor.
+  await page.getByTestId('shape-input').fill('make it warmer');
+  await page.getByTestId('shape-go').click();
+  await expect(page.getByTestId('shape-note')).toContainText('rewriting');
+
+  // Meanwhile the client keeps editing the caption (focused, unsaved edits).
+  await cap.click();
+  await cap.fill('MY OWN WORDS, MID-EDIT');
+
+  // Let the shape job complete and refresh the plan (the external "quietly working" caption
+  // arrives while the field is focused + dirty).
+  await page.waitForTimeout(4000);
+
+  // The client's in-progress edit wins — the guard refuses to adopt an external value into a
+  // focused/dirty field, so the shaped text never replaces what they were typing.
+  await expect(cap).toBeFocused();
+  await expect(cap).toHaveValue('MY OWN WORDS, MID-EDIT');
+  await expect(cap).not.toHaveValue(/quietly working/i);
+});
+
 test('checklist: add a step then rename it — autosaves on blur, ledgers step_renamed, persists', async ({ page }) => {
   const id = SEED.post(3); // reel with steps
   await page.locator(`[data-post-id="${id}"]`).click();

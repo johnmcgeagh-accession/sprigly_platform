@@ -32,6 +32,9 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
   const [pendingFormat, setPendingFormat] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const lastId = useRef(post.id);
+  // Which text field currently holds focus — read live by the per-field reset guard below so
+  // an external value never lands in a field the client is actively editing.
+  const focus = useRef({ caption: false, hook: false, script: false });
 
   // Format change: PATCH the format (format_changed ledger), then reconcile the checklist —
   // silently regenerate when there's no progress to lose; else ask (keep / replace). Email
@@ -47,14 +50,11 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
     }
   };
 
-  // Reset the textarea when the selected post changes or its caption is replaced
-  // (e.g. a shape job landed) — but not on every keystroke.
+  // Reset every field when the SELECTED post changes (switching records) — a full,
+  // unconditional reset is right here: it's a different post, nothing local to protect.
   useEffect(() => {
     if (lastId.current !== post.id) { lastId.current = post.id; setCaption(post.caption); setHook(post.hook ?? ''); setScript(post.script ?? ''); setLen(post.scriptLengthSeconds ?? 30); setPendingFormat(null); setShapeText(''); setConfirmDelete(false); }
   }, [post.id, post.caption, post.hook, post.script, post.scriptLengthSeconds]);
-  useEffect(() => { setCaption(post.caption); }, [post.caption]);
-  useEffect(() => { setHook(post.hook ?? ''); }, [post.hook]);
-  useEffect(() => { setScript(post.script ?? ''); }, [post.script]);
 
   // Autosave: caption / typed hook / script all persist on blur + ~1.5s idle (one
   // ledger row per settled edit). Candidate picks persist immediately (below) and mark
@@ -65,6 +65,27 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
   const capAuto = useAutosave(caption, post.caption, useCallback((v: string) => data.saveCaption(post.id, v), [data, post.id]), editable);
   const hookAuto = useAutosave(hook, post.hook ?? '', useCallback((v: string) => data.saveHook(post.id, v), [data, post.id]), editable);
   const scriptAuto = useAutosave(script, post.script ?? '', useCallback((v: string) => data.saveScript(post.id, v), [data, post.id]), editable);
+
+  // Accept a NEW server value for a field into local state only when it's safe to: the field
+  // isn't focused AND has no unsaved local edits (autosave's `dirty` baseline). This lets a
+  // genuine external change through — an agent edit or a shape job landing while the client is
+  // idle — while stopping the autosave echo (our own PATCH → refreshed `post` prop) from
+  // resetting the caret mid-typing, and stopping any in-flight round-trip from clobbering an
+  // edit the client is still making. Keyed on the field's own value only, so it runs when the
+  // SERVER value changes, not on focus/keystroke; `dirty` is the snapshot from that render.
+  // If the field was focused-but-clean when a change arrived it's simply not adopted (rare;
+  // reconciles on the next record switch or refetch) — never at the cost of the caret.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!focus.current.caption && !capAuto.dirty) setCaption(post.caption); }, [post.caption]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!focus.current.hook && !hookAuto.dirty) setHook(post.hook ?? ''); }, [post.hook]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!focus.current.script && !scriptAuto.dirty) setScript(post.script ?? ''); }, [post.script]);
+
+  // Quiet inline autosave hint for the caption (there's no Save button): in-flight while a
+  // save runs, settled after it lands, and hidden before the first save or once the client
+  // starts a fresh edit (dirty) — so "Saved" never lingers over unsaved text.
+  const captionSaveHint = capAuto.status === 'saving' ? 'Saving…' : capAuto.status === 'saved' && !capAuto.dirty ? 'Saved' : null;
 
   const ring = ringOf(post.steps);
   const shaping = data.shapingIds.has(post.id);
@@ -151,7 +172,8 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
             )}
           </div>
           <input
-            data-testid="editor-hook" aria-label="Hook" value={hook} onChange={(e) => setHook(e.target.value)} onBlur={hookAuto.flush} readOnly={!editable}
+            data-testid="editor-hook" aria-label="Hook" value={hook} onChange={(e) => setHook(e.target.value)}
+            onFocus={() => { focus.current.hook = true; }} onBlur={() => { focus.current.hook = false; hookAuto.flush(); }} readOnly={!editable}
             placeholder="The line that stops the scroll. Write one or generate options."
             className="w-full rounded-xl border border-line p-3 text-[15px] text-slate-700 outline-none focus:border-coral disabled:opacity-60"
           />
@@ -172,10 +194,17 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
         </div>
       )}
 
-      {/* caption — autosaves on blur + idle (no Save button) */}
-      <span className="mb-[9px] block text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">Caption</span>
+      {/* caption — autosaves on blur + idle (no Save button); a quiet inline hint stands in
+          for the missing button so the client sees the save land. */}
+      <div className="mb-[9px] flex items-center justify-between">
+        <span className="text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">Caption</span>
+        {captionSaveHint && (
+          <span data-testid="caption-save-hint" aria-live="polite" className="text-[11.5px] font-semibold text-faint">{captionSaveHint}</span>
+        )}
+      </div>
       <textarea
-        data-testid="editor-caption" value={caption} onChange={(e) => setCaption(e.target.value)} onBlur={capAuto.flush}
+        data-testid="editor-caption" value={caption} onChange={(e) => setCaption(e.target.value)}
+        onFocus={() => { focus.current.caption = true; }} onBlur={() => { focus.current.caption = false; capAuto.flush(); }}
         readOnly={!editable}
         placeholder="Draft idea. Tell Sprigly what this post should be about and it’ll write the caption."
         className="min-h-[200px] w-full resize-y rounded-2xl border border-line p-4 text-[15.5px] leading-relaxed text-slate-700 outline-none focus:border-coral"
@@ -214,7 +243,8 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
               )}
               {post.script && (
                 <textarea
-                  data-testid="editor-script" aria-label="Script" value={script} onChange={(e) => setScript(e.target.value)} onBlur={scriptAuto.flush} readOnly={!editable}
+                  data-testid="editor-script" aria-label="Script" value={script} onChange={(e) => setScript(e.target.value)}
+                  onFocus={() => { focus.current.script = true; }} onBlur={() => { focus.current.script = false; scriptAuto.flush(); }} readOnly={!editable}
                   className="mt-2.5 min-h-[170px] w-full resize-y rounded-2xl border border-line p-4 text-[14px] leading-relaxed text-slate-700 outline-none focus:border-coral disabled:opacity-60"
                 />
               )}

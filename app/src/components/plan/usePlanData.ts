@@ -182,10 +182,33 @@ export function usePlanData(init: PlanDataInit) {
     return () => { cancelled = true; };
   }, []);
 
+  /** Apply an `applied` result to local state WITHOUT a full refetch: splice the fresh
+   *  version of each changed post (from the response's post set) into whichever local array
+   *  holds it, matched by id. For a text edit (caption/hook/script) that touches only its own
+   *  post and never the plan's shape, this keeps the open editor's `post` prop in sync with
+   *  the client's own caret instead of replacing the whole array (which would fight it).
+   *  Returns false — caller falls back to refreshPlan — if any changed post is missing from
+   *  the response, so a cross-cycle surprise still reconciles the entire view. */
+  const applyResultLocally = useCallback((r: ShapeResult): boolean => {
+    if (r.mode !== 'applied') return false;
+    const fresh = new Map(r.posts.map((p) => [p.id, p] as const));
+    if (r.changedPostIds.some((id) => !fresh.has(id))) return false;
+    const changed = new Set(r.changedPostIds);
+    const splice = (cur: PlanPost[]) =>
+      cur.some((p) => changed.has(p.id)) ? cur.map((p) => (changed.has(p.id) ? (fresh.get(p.id) ?? p) : p)) : cur;
+    setPosts(splice);
+    setCrossMonthPosts(splice);
+    return true;
+  }, []);
+
   /** Structural write → refresh the current view (both sets). We re-fetch rather than
    *  trust the response's post set because a cross-cycle edit (a post shown from ANOTHER
-   *  cycle in this month's grid) returns THAT cycle's posts, not the viewed cycle's. */
-  const call = useCallback(async (url: string, method: string, payload?: unknown): Promise<void> => {
+   *  cycle in this month's grid) returns THAT cycle's posts, not the viewed cycle's.
+   *  `localApply` opts a text edit out of that refetch: the result is spliced in place
+   *  (applyResultLocally) so the editor keeps the caret, and the per-save toast is dropped
+   *  in favour of the field's own inline "Saving… / Saved" hint. Structural writes keep
+   *  the toast + refresh. A localApply that can't splice (missing post) falls back too. */
+  const call = useCallback(async (url: string, method: string, payload?: unknown, localApply = false): Promise<void> => {
     if (readOnly) return;
     setBusy(true);
     try {
@@ -194,10 +217,13 @@ export function usePlanData(init: PlanDataInit) {
       const res = await fetch(url, init2);
       if (!res.ok) { flash('Something went wrong. Please try again.'); return; }
       const r = (await res.json()) as ShapeResult;
-      if (r.mode === 'applied') { flash(r.summary); await refreshPlan(); }
+      if (r.mode === 'applied') {
+        if (localApply && applyResultLocally(r)) return;
+        flash(r.summary); await refreshPlan();
+      }
     } catch { flash('Network error. Please try again.'); }
     finally { setBusy(false); }
-  }, [readOnly, flash, refreshPlan]);
+  }, [readOnly, flash, refreshPlan, applyResultLocally]);
 
   /** Move a post's date OPTIMISTICALLY: the card moves in local state immediately, the write +
    *  reconcile run in the background, and on failure (gate/network) the card snaps back with the
@@ -229,9 +255,10 @@ export function usePlanData(init: PlanDataInit) {
       if (shouldReconcile(ok, pendingRef.current)) await refreshPlan();       // reconcile once all settle
     })();
   }, [readOnly, posts, crossMonthPosts, applyLocalDate, setPending, flash, refreshPlan]);
-  const saveCaption = useCallback((id: string, caption: string) => call(`/api/posts/${id}`, 'PATCH', { caption }), [call]);
-  const saveHook = useCallback((id: string, hook: string) => call(`/api/posts/${id}`, 'PATCH', { hook }), [call]);
-  const saveScript = useCallback((id: string, script: string) => call(`/api/posts/${id}`, 'PATCH', { script }), [call]);
+  // Text saves apply the result in place (no refetch) so the open editor keeps its caret.
+  const saveCaption = useCallback((id: string, caption: string) => call(`/api/posts/${id}`, 'PATCH', { caption }, true), [call]);
+  const saveHook = useCallback((id: string, hook: string) => call(`/api/posts/${id}`, 'PATCH', { hook }, true), [call]);
+  const saveScript = useCallback((id: string, script: string) => call(`/api/posts/${id}`, 'PATCH', { script }, true), [call]);
   const changeFormat = useCallback((id: string, format: string) => call(`/api/posts/${id}`, 'PATCH', { format }), [call]);
 
   const clearHookCandidates = useCallback((id: string) => {
