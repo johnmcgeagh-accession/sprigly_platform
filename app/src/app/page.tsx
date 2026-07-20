@@ -7,6 +7,7 @@ import { cycleIsPreCutoff } from '@/lib/draft-mutations';
 import { editScopeToday } from '@/lib/edit-scope';
 import { resolveDayCycleId } from '@/lib/cycle-nav';
 import { readPlanRedesignFlag } from '@/lib/flags';
+import { resolveSurfaceKind, mayHaveDraftSurface, type SurfaceKind } from '@/lib/surface-state';
 import PlanApp from '@/components/PlanApp';
 import PlanRedesign from '@/components/PlanRedesign';
 import { DraftPlan } from '@/components/DraftPlan';
@@ -54,42 +55,6 @@ export default async function Page({ searchParams }: { searchParams: { intake?: 
     ? await loadCrossMonthPosts(session.clientId, home.channel, initialMonth, initialCycleId)
     : [];
 
-  // ── DRAFT MODE (Build B) ────────────────────────────────────────────────────
-  // The client sees their draft ONLY when the cycle has no committed posts. A cycle
-  // holding BOTH (the known interim state from Build A: a whole-plan regen on a cycle
-  // that still has drafts) renders the ordinary plan — committed posts win the surface
-  // and the drafts stay invisible, exactly as they are to every other reader.
-  //
-  // Gating on `posts.length === 0` rather than on "are any rows drafts?" is what makes
-  // that true: posts is already draft-fenced, so a non-empty posts list IS the presence
-  // of committed work, and no separate mixed-state check can drift out of sync with it.
-  if (posts.length === 0) {
-    const draftBeats = await loadDraftBeats(session.clientId, initialCycleId);
-    if (draftBeats.length > 0) {
-      const [planCfg] = home
-        ? await db.select({ pillars: clientPlanningConfig.pillars })
-            .from(clientPlanningConfig)
-            .where(and(eq(clientPlanningConfig.clientId, session.clientId), eq(clientPlanningConfig.channel, home.channel)))
-            .limit(1)
-        : [];
-      const pillarNames = (planCfg?.pillars ?? [])
-        .map((p) => (p as { name?: unknown }).name)
-        .filter((n): n is string => typeof n === 'string' && n.trim().length > 0);
-
-      return (
-        <DraftPlan
-          beats={draftBeats}
-          monthLabel={cycles.find((c) => c.cycleId === initialCycleId)?.monthLabel ?? 'next month'}
-          clientName={client?.name ?? 'you'}
-          pillars={pillarNames}
-          // Past cutoff the draft stays READABLE but not editable — viewing and editing
-          // are different rights (see cycleHasReviewableDraft).
-          editable={await cycleIsPreCutoff(initialCycleId)}
-        />
-      );
-    }
-  }
-
   // Beats + saved intake (FIX 1) for the landed cycle.
   const [landed] = await db
     .select({ structuredBrief: contentCycles.structuredBrief, intakeJson: contentCycles.intakeJson })
@@ -126,36 +91,77 @@ export default async function Page({ searchParams }: { searchParams: { intake?: 
     .where(eq(clientConfigs.clientId, session.clientId))
     .limit(1);
 
-  if (readPlanRedesignFlag(cfg?.settings)) {
-    return (
-      <PlanRedesign
-        clientName={client?.name ?? 'your'}
-        posts={posts}
-        crossMonthPosts={crossMonthPosts}
-        beats={beats}
-        cycles={cycles}
-        homeCycleId={session.cycleId}
-        initialCycleId={initialCycleId}
-        initialReadOnly={initialReadOnly}
-        initialIntakeOpen={initialIntakeOpen}
-        questions={questions}
-        intake={intake}
-        durable={durable}
-        cutoffDay={cutoffDay}
-      />
-    );
-  }
+  // ── ONE surface decision ────────────────────────────────────────────────────
+  // Every branch below is a case of the same union, derived once. Build C and D add
+  // states to SurfaceKind — they do not add early returns here.
+  const draftBeats = mayHaveDraftSurface({ hasSession: true, committedPostCount: posts.length })
+    ? await loadDraftBeats(session.clientId, initialCycleId)
+    : [];
 
-  return (
-    <PlanApp
-      clientName={client?.name ?? 'your'}
-      posts={posts}
-      cycles={cycles}
-      homeCycleId={session.cycleId}
-      initialCycleId={initialCycleId}
-      initialReadOnly={initialReadOnly}
-    />
-  );
+  const surface: SurfaceKind = resolveSurfaceKind({
+    hasSession:         true,                     // the no-session case returned <Gate/> above
+    committedPostCount: posts.length,             // already draft-fenced by loadPlanPosts
+    draftBeatCount:     draftBeats.length,
+    planRedesign:       readPlanRedesignFlag(cfg?.settings),
+  });
+
+  switch (surface) {
+    case 'draft': {
+      const [planCfg] = home
+        ? await db.select({ pillars: clientPlanningConfig.pillars })
+            .from(clientPlanningConfig)
+            .where(and(eq(clientPlanningConfig.clientId, session.clientId), eq(clientPlanningConfig.channel, home.channel)))
+            .limit(1)
+        : [];
+      const pillarNames = (planCfg?.pillars ?? [])
+        .map((p) => (p as { name?: unknown }).name)
+        .filter((n): n is string => typeof n === 'string' && n.trim().length > 0);
+
+      return (
+        <DraftPlan
+          beats={draftBeats}
+          monthLabel={cycles.find((c) => c.cycleId === initialCycleId)?.monthLabel ?? 'next month'}
+          clientName={client?.name ?? 'you'}
+          pillars={pillarNames}
+          // Past cutoff the draft stays READABLE but not editable — viewing and editing
+          // are different rights (see cycleHasReviewableDraft).
+          editable={await cycleIsPreCutoff(initialCycleId)}
+        />
+      );
+    }
+
+    case 'committed-redesign':
+      return (
+        <PlanRedesign
+          clientName={client?.name ?? 'your'}
+          posts={posts}
+          crossMonthPosts={crossMonthPosts}
+          beats={beats}
+          cycles={cycles}
+          homeCycleId={session.cycleId}
+          initialCycleId={initialCycleId}
+          initialReadOnly={initialReadOnly}
+          initialIntakeOpen={initialIntakeOpen}
+          questions={questions}
+          intake={intake}
+          durable={durable}
+          cutoffDay={cutoffDay}
+        />
+      );
+
+    case 'committed-legacy':
+    default:
+      return (
+        <PlanApp
+          clientName={client?.name ?? 'your'}
+          posts={posts}
+          cycles={cycles}
+          homeCycleId={session.cycleId}
+          initialCycleId={initialCycleId}
+          initialReadOnly={initialReadOnly}
+        />
+      );
+  }
 }
 
 function Gate() {
