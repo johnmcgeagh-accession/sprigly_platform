@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, gte, isNull, lte, or } from 'drizzle-orm';
 import {
   clients, contentCycles, contentCyclePosts, conversations, agentMessages,
-  agentProposals, planInputs, postEdits, weeklySessions,
+  agentProposals, planInputs, postEdits, weeklySessions, excludeDraftPosts,
 } from '@sprigly/db';
 import { fetchForecast } from '@sprigly/weather';
 import { assembleShapeContext, type PlanningDeps } from './planning.js';
@@ -134,6 +134,7 @@ export async function runWeeklySession(job: WeeklySessionJob, deps: PlanningDeps
 
   const posts = await db.select().from(contentCyclePosts).where(and(
     eq(contentCyclePosts.cycleId, cycleId), eq(contentCyclePosts.clientId, clientId), isNull(contentCyclePosts.deletedAt),
+    excludeDraftPosts(),   // the weekly audit critiques the PLAN, never unapproved draft beats
     gte(contentCyclePosts.scheduledDate, weekStart), lte(contentCyclePosts.scheduledDate, weekEnd),
   ));
 

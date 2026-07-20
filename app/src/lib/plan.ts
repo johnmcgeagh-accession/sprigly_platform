@@ -12,7 +12,7 @@
  */
 import { and, asc, eq, gte, isNull, lt, ne, sql } from 'drizzle-orm';
 import type { ContentCyclePostRow } from '@sprigly/db';
-import { db, contentCycles, contentCyclePosts, PRE_PLANNING_STATUSES } from '@sprigly/db';
+import { db, contentCycles, contentCyclePosts, excludeDraftPosts, PRE_PLANNING_STATUSES } from '@sprigly/db';
 import { listStepsForPosts } from '@/lib/steps';
 import { nextMonth } from '@/lib/cycle-nav';
 import type {
@@ -115,7 +115,11 @@ function toPlanPost(r: ContentCyclePostRow, stepsByPost: Map<string, PostStepVie
 }
 
 /** Load the plan posts for a cycle, ordered by position then date. Scoped to the
- *  session's client+cycle — pass both so a token can only ever read its own plan. */
+ *  session's client+cycle — pass both so a token can only ever read its own plan.
+ *
+ *  This is the load behind THREE surfaces — first paint (page.tsx), GET /api/plan,
+ *  and the agent's plan context (lib/agent/turn.ts) — so the draft fence here is
+ *  also what stops the agent counting unapproved beats as the plan. */
 export async function loadPlanPosts(clientId: string, cycleId: string): Promise<PlanPost[]> {
   const rows = await db
     .select()
@@ -124,6 +128,7 @@ export async function loadPlanPosts(clientId: string, cycleId: string): Promise<
       eq(contentCyclePosts.cycleId, cycleId),
       eq(contentCyclePosts.clientId, clientId),
       isNull(contentCyclePosts.deletedAt),                 // exclude soft-deleted
+      excludeDraftPosts(),                                 // unapproved draft beats are NOT the plan
     ))
     .orderBy(asc(contentCyclePosts.position), asc(contentCyclePosts.scheduledDate));
 
@@ -153,6 +158,7 @@ export async function loadCrossMonthPosts(
       eq(contentCyclePosts.channel, channel),
       ne(contentCyclePosts.cycleId, excludeCycleId),
       isNull(contentCyclePosts.deletedAt),
+      excludeDraftPosts(),                                 // draft beats never reach the calendar grid
       gte(contentCyclePosts.scheduledDate, start),
       lt(contentCyclePosts.scheduledDate, end),
     ))
@@ -199,6 +205,10 @@ export async function loadCycleList(
     .leftJoin(contentCyclePosts, and(
       eq(contentCyclePosts.cycleId, contentCycles.id),
       isNull(contentCyclePosts.deletedAt),
+      // A cycle holding ONLY draft beats has no plan yet and must not qualify for the
+      // month menu on their strength. Filtered in the JOIN, not the WHERE, so such a
+      // cycle still returns its row with liveCount 0 rather than vanishing.
+      excludeDraftPosts(),
     ))
     .where(and(
       eq(contentCycles.clientId, clientId),
@@ -247,6 +257,7 @@ export async function isCycleReadableByClient(clientId: string, cycleId: string)
     .leftJoin(contentCyclePosts, and(
       eq(contentCyclePosts.cycleId, contentCycles.id),
       isNull(contentCyclePosts.deletedAt),
+      excludeDraftPosts(),                       // draft beats do not make a cycle readable
     ))
     .where(and(
       eq(contentCycles.id, cycleId),

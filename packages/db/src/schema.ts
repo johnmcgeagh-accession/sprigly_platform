@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { ne, sql } from 'drizzle-orm';
 import {
   pgTable,
   uuid,
@@ -973,6 +973,26 @@ export const contentCyclePosts = pgTable(
 
 export type ContentCyclePostRow    = typeof contentCyclePosts.$inferSelect;
 export type NewContentCyclePostRow = typeof contentCyclePosts.$inferInsert;
+
+// ─── draft beats: the one definition of "not yet part of the plan" ────────────
+// A draft beat is a proposed slot the client has NOT approved. It lives in this
+// table (D1 — no separate table) so the whole per-post machinery works on it, but
+// it is NOT the plan and must never be read as one.
+//
+// Every plan reader filters with excludeDraftPosts(). The predicate is defined
+// ONCE, here, because the readers span three packages (app/, admin/, engine/) and
+// a hand-written `ne(status, 'draft')` at ~15 call sites would drift. The audit
+// behind this lives in docs/reports/build-a-draft-assembly.md §Part 0.
+//
+// Belt AND braces: `'draft'` is also a member of the app's PostStatus union and
+// its STATUSES coercion set, so a draft row that ever DOES reach the row mapper
+// is labelled honestly rather than silently relabelled 'planned'.
+export const POST_STATUS_DRAFT = 'draft' as const;
+
+/** Drizzle condition: exclude unapproved draft beats from a plan read.
+ *  Use in EVERY query that answers "what is the plan?" — client surfaces, the
+ *  agent's plan context, cycle counts, the regen classifier, the weekly audit. */
+export const excludeDraftPosts = () => ne(contentCyclePosts.status, POST_STATUS_DRAFT);
 
 // ─── app_magic_link_tokens ────────────────────────────────────────────────────
 // Password-less client access to app/. Modelled on triage_digest_tokens but

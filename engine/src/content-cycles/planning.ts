@@ -46,6 +46,7 @@ import {
   appMagicLinkTokens,
   clientProductCatalogue,
   contentCyclePosts,
+  excludeDraftPosts,
   postEdits,
   stampPostsSyncStatus,
 } from '@sprigly/db';
@@ -1006,7 +1007,13 @@ export async function runPlanningForCycle(
           sourceMeta: contentCyclePosts.sourceMeta,
         })
         .from(contentCyclePosts)
-        .where(eq(contentCyclePosts.cycleId, cycleId));
+        // FENCE (Build A): draft beats are not plan posts, so the regen classifier must
+        // never see them. Without this they are neither 'new' nor 'edited', so
+        // shouldPreserve() returns false and they fall into dec.replace — a regen would
+        // DELETE every draft as an incidental side effect of a classifier that has never
+        // heard of them. Draft supersession is a lifecycle decision owned by a later
+        // build in this arc; this fence deliberately encodes none of it.
+        .where(and(eq(contentCyclePosts.cycleId, cycleId), excludeDraftPosts()));
       const editRefs = await db.select({ postId: postEdits.postId }).from(postEdits).where(eq(postEdits.cycleId, cycleId));
       const editedIds = new Set(editRefs.map((r) => r.postId));
       const catalogueNames = (catalogue?.families ?? [])
