@@ -129,6 +129,85 @@ describe('DraftPlanView — it must read as a draft, not a finished plan', () =>
   });
 });
 
+describe('the receipt panel — computed facts, dismissible', () => {
+  const receipt = {
+    id: 'r-1', at: '2026-08-01T00:00:00Z',
+    sourceText: 'The Wilderness candle relaunches on the 24th',
+    scope: 'month_scoped' as const,
+    lines: ['Added: the Wilderness relaunch — Launch, Thu 24 Sep', 'Replaced: Home & Space — Carousel, Fri 4 Sep'],
+    changedIds: ['beat-1'],
+  };
+
+  it('quotes the client’s own words back as the cause', () => {
+    const html = render([beat()], { receipts: [receipt], onSay: async () => ({ ok: true }) });
+    expect(html).toContain('What changed');
+    expect(html).toContain('The Wilderness candle relaunches on the 24th');
+  });
+
+  it('lists the computed deltas verbatim', () => {
+    const html = render([beat()], { receipts: [receipt], onSay: async () => ({ ok: true }) });
+    expect(html).toContain('Added: the Wilderness relaunch — Launch, Thu 24 Sep');
+    expect(html).toContain('Replaced: Home &amp; Space — Carousel, Fri 4 Sep');
+  });
+
+  it('marks the beats that changed', () => {
+    const html = render([beat()], { receipts: [{ ...receipt, changedIds: ['beat-1'] }], onSay: async () => ({ ok: true }) });
+    expect(html).toContain('Just changed');
+  });
+
+  it('does NOT mark beats that did not change', () => {
+    const html = render([beat()], { receipts: [{ ...receipt, changedIds: ['someone-else'] }], onSay: async () => ({ ok: true }) });
+    expect(html).not.toContain('Just changed');
+  });
+
+  it('reads as a filing receipt, not a change, when the input went to the backlog', () => {
+    const html = render([beat()], {
+      receipts: [{ ...receipt, scope: 'evergreen' as const, lines: [], changedIds: [], reason: 'classified_evergreen' }],
+      onSay: async () => ({ ok: true }),
+    });
+    expect(html).toContain('Saved to your ideas');
+    expect(html).toContain('kept this for later');
+    expect(html).not.toContain('What changed');
+  });
+
+  it('says nothing changed rather than showing an empty panel', () => {
+    const html = render([beat()], { receipts: [{ ...receipt, lines: [], changedIds: [] }], onSay: async () => ({ ok: true }) });
+    expect(html).toContain('Nothing needed changing');
+  });
+
+  it('is dismissible', () => {
+    const html = render([beat()], { receipts: [receipt], onSay: async () => ({ ok: true }) });
+    expect(html).toContain('aria-label="Dismiss what changed"');
+  });
+
+  it('shows no panel when there are no receipts', () => {
+    expect(render([beat()])).not.toContain('What changed');
+  });
+});
+
+describe('the say box — the north-star input', () => {
+  it('offers a labelled input when saying is wired', () => {
+    const html = render([beat()], { onSay: async () => ({ ok: true }) });
+    expect(html).toContain('Anything we should know?');
+    expect(html).toContain('id="draft-say"');
+    expect(html).toContain('Tell Sprigly');
+  });
+
+  it('turns assumptions into answerable prompts once saying is possible', () => {
+    const html = render([beat()], { onSay: async () => ({ ok: true }) });
+    expect(html).toContain('Answer any of these below');
+  });
+
+  it('falls back to "reply to our email" when saying is not wired', () => {
+    expect(render([beat()])).toContain('Reply to our email');
+  });
+
+  it('hides the say box past cutoff', () => {
+    const html = render([beat()], { onSay: async () => ({ ok: true }), editable: false });
+    expect(html).not.toContain('id="draft-say"');
+  });
+});
+
 describe('mixed state — committed posts win the surface', () => {
   // The page fork gates draft mode on `posts.length === 0`, where `posts` is already
   // draft-fenced by loadPlanPosts. So a non-empty posts list IS committed work, and

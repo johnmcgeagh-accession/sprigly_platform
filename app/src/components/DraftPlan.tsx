@@ -14,7 +14,7 @@
  * client showing a change that did not happen.
  */
 import React from 'react';
-import { DraftPlanView } from './plan/DraftPlanView';
+import { DraftPlanView, type DraftReceipt } from './plan/DraftPlanView';
 import type { DraftBeatView } from '@/lib/types';
 
 export interface DraftPlanProps {
@@ -23,6 +23,7 @@ export interface DraftPlanProps {
   clientName: string;
   pillars:    string[];
   editable:   boolean;
+  receipts:   DraftReceipt[];
 }
 
 export function DraftPlan(props: DraftPlanProps) {
@@ -45,6 +46,24 @@ export function DraftPlan(props: DraftPlanProps) {
     }
   }
 
+  async function onSay(text: string) {
+    try {
+      const res = await fetch('/api/plan/draft/apply', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ op: 'text', text }),
+      });
+      const json = (await res.json()) as { ok?: boolean; application?: DraftReceipt; beats?: DraftBeatView[]; message?: string };
+      if (!res.ok || !json.ok) return { ok: false, message: json.message ?? 'That didn’t work. Try again?' };
+      // exactOptionalPropertyTypes: only include `application` when we actually have one,
+      // rather than passing an explicit undefined the prop type does not admit.
+      return json.application
+        ? { ok: true, application: json.application, beats: json.beats ?? [] }
+        : { ok: true, beats: json.beats ?? [] };
+    } catch {
+      return { ok: false, message: 'We couldn’t reach the server. Check your connection and try again.' };
+    }
+  }
+
   return (
     <DraftPlanView
       beats={props.beats}
@@ -52,7 +71,9 @@ export function DraftPlan(props: DraftPlanProps) {
       clientName={props.clientName}
       pillars={props.pillars}
       editable={props.editable}
+      receipts={props.receipts}
       onMutate={onMutate}
+      onSay={onSay}
     />
   );
 }

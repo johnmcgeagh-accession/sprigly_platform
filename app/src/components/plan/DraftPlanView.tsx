@@ -22,6 +22,13 @@ import React, { useMemo, useRef, useState } from 'react';
 import type { DraftBeatView, PostFormat } from '@/lib/types';
 import { rationaleFor, slotLabel, assumptionPrompt } from '@/lib/draft-rationale';
 
+/** A change receipt, as persisted on the cycle's intake record. */
+export interface DraftReceipt {
+  id: string; at: string; sourceText: string;
+  scope: 'month_scoped' | 'evergreen';
+  reason?: string; lines: string[]; changedIds: string[]; note?: string;
+}
+
 const C = {
   bg: '#F8F9FB', card: '#FFFFFF', navy: '#1E2A4A', muted: '#5B647A', faint: '#98A0AE',
   line: '#E8EAEE', coral: '#FF6F62', coralDeep: '#E2574B', coralLt: '#FFEDEB',
@@ -48,12 +55,23 @@ export interface DraftPlanViewProps {
   pillars:    string[];
   /** Applies one mutation and resolves with the new beat list, or an error message. */
   onMutate:   (op: Record<string, unknown>) => Promise<{ ok: boolean; beats?: DraftBeatView[]; message?: string }>;
+  /** Sends a sentence of intake. Resolves with the receipt and the reshaped month. */
+  onSay?:     (text: string) => Promise<{ ok: boolean; application?: DraftReceipt; beats?: DraftBeatView[]; message?: string }>;
+  /** Receipts already stored for this cycle, newest first — so they survive a reload. */
+  receipts?:  DraftReceipt[];
   /** False once the cycle passes its cutoff — the draft stays readable, just not editable. */
   editable?:  boolean;
 }
 
-export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars, onMutate, editable = true }: DraftPlanViewProps) {
+export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars, onMutate, onSay, receipts = [], editable = true }: DraftPlanViewProps) {
   const [beats, setBeats] = useState<DraftBeatView[]>(initial);
+  const [receipt, setReceipt] = useState<DraftReceipt | null>(receipts[0] ?? null);
+  const [saying, setSaying] = useState(false);
+  const [said, setSaid] = useState('');
+  // Changed beats carry a marker until the next visit. One boolean's worth of state, held
+  // in memory and gone on reload — a persisted seen-state would be a lot of machinery for
+  // a highlight that has already done its job by the time they look away.
+  const [changedIds, setChangedIds] = useState<string[]>(receipts[0]?.changedIds ?? []);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -87,6 +105,18 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
     if (!u) return;
     undo.current = null; setUndoLabel(null);
     await mutate(u.op, null);
+  }
+
+  async function say() {
+    const text = said.trim();
+    if (!text || !onSay) return;
+    setSaying(true); setError(null);
+    const res = await onSay(text);
+    setSaying(false);
+    if (!res.ok) { setError(res.message ?? 'That didn’t work. Try again?'); return; }
+    setSaid('');
+    if (res.beats) setBeats(res.beats);
+    if (res.application) { setReceipt(res.application); setChangedIds(res.application.changedIds); }
   }
 
   const byDate = useMemo(() => [...beats].sort((a, b) => a.date.localeCompare(b.date) || a.position - b.position), [beats]);
@@ -123,7 +153,58 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
                 <li key={a} style={{ fontSize: 14, lineHeight: 1.5, color: C.navy }}>{assumptionPrompt(a)}</li>
               ))}
             </ul>
-            <p style={{ fontSize: 12.5, color: C.muted, margin: '9px 0 0' }}>Reply to our email and we’ll work it in.</p>
+            <p style={{ fontSize: 12.5, color: C.muted, margin: '9px 0 0' }}>
+              {onSay ? 'Answer any of these below and we’ll work it in.' : 'Reply to our email and we’ll work it in.'}
+            </p>
+          </section>
+        )}
+
+        {/* Say something — the north-star input. One sentence reshapes the month. */}
+        {editable && onSay && (
+          <section aria-label="Tell us about this month" style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: 13, marginBottom: 14 }}>
+            <label htmlFor="draft-say" style={{ display: 'block', fontSize: 13.5, fontWeight: 600, marginBottom: 7 }}>
+              Anything we should know?
+            </label>
+            <textarea
+              id="draft-say" value={said} disabled={saying} rows={2}
+              onChange={(e) => setSaid(e.target.value)}
+              placeholder="e.g. the Wilderness candle relaunches on the 24th"
+              style={{ width: '100%', font: 'inherit', fontSize: 15, lineHeight: 1.45, padding: '10px 11px', border: `1px solid ${C.line}`, borderRadius: 10, resize: 'vertical', color: C.navy, boxSizing: 'border-box' }}
+            />
+            <button type="button" onClick={say} disabled={saying || !said.trim()}
+              style={{ marginTop: 8, width: '100%', minHeight: 46, font: 'inherit', fontSize: 15, fontWeight: 700, color: '#fff', background: C.coral, border: 0, borderRadius: 10, cursor: 'pointer', opacity: saying || !said.trim() ? 0.5 : 1 }}>
+              {saying ? 'Working…' : 'Tell Sprigly'}
+            </button>
+          </section>
+        )}
+
+        {/* What changed — computed from row deltas, never narrated. Dismissible. */}
+        {receipt && (
+          <section aria-label={receipt.scope === 'evergreen' ? 'Saved to your ideas' : 'What changed'} style={{ background: C.navyLt, border: `1px solid ${C.line}`, borderRadius: 12, padding: '13px 14px', marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+              <h2 style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: C.muted, margin: 0 }}>
+                {receipt.scope === 'evergreen' ? 'Saved to your ideas' : 'What changed'}
+              </h2>
+              <button type="button" onClick={() => setReceipt(null)} aria-label="Dismiss what changed"
+                style={{ font: 'inherit', fontSize: 13, color: C.faint, background: 'transparent', border: 0, cursor: 'pointer', minHeight: 28, padding: 0 }}>
+                Dismiss
+              </button>
+            </div>
+            <p style={{ fontSize: 13, color: C.muted, fontStyle: 'italic', margin: '7px 0 0' }}>“{receipt.sourceText}”</p>
+            {receipt.scope === 'evergreen' ? (
+              <p style={{ fontSize: 14, lineHeight: 1.5, margin: '8px 0 0' }}>
+                We’ve kept this for later rather than changing {monthLabel}. Want it this month? Add it from your ideas.
+              </p>
+            ) : receipt.lines.length > 0 ? (
+              <ul style={{ margin: '8px 0 0', paddingLeft: 18, display: 'grid', gap: 5 }}>
+                {receipt.lines.map((line) => (
+                  <li key={line} style={{ fontSize: 14, lineHeight: 1.45 }}>{line}</li>
+                ))}
+              </ul>
+            ) : (
+              <p style={{ fontSize: 14, margin: '8px 0 0' }}>Nothing needed changing.</p>
+            )}
+            {receipt.note && <p style={{ fontSize: 13, color: C.muted, margin: '8px 0 0' }}>{receipt.note}</p>}
           </section>
         )}
 
@@ -140,9 +221,10 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
             const reason = rationaleFor(beat.evidence, beat.pillar);
             const label = slotLabel(beat.slotType);
             const busy = busyId === beat.id;
+            const changed = changedIds.includes(beat.id);
             return (
               <li key={beat.id} style={{
-                background: C.card, border: `1px dashed ${C.line}`, borderRadius: 14,
+                background: C.card, border: `1px dashed ${changed ? C.coral : C.line}`, borderRadius: 14,
                 padding: '13px 14px', opacity: busy ? 0.55 : 1, transition: 'opacity .12s',
               }}>
                 <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
@@ -161,6 +243,9 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
                         <span style={{ fontSize: 11, fontWeight: 700, color: C.coralDeep, background: C.coralLt, padding: '3px 8px', borderRadius: 999 }}>
                           {label}
                         </span>
+                      )}
+                      {changed && (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: C.coralDeep }}>Just changed</span>
                       )}
                     </div>
 

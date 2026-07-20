@@ -75,7 +75,7 @@ export async function cycleIsPreCutoff(cycleId: string): Promise<boolean> {
   return !!row && PRE_PLANNING_STATUSES.has(row.status);
 }
 
-interface MutableDraft { cycleId: string; scheduledDate: string; channel: string; position: number; pillar: string | null }
+interface MutableDraft { cycleId: string; scheduledDate: string; channel: string; position: number; pillar: string | null; beatMeta: BeatMeta | null }
 
 /**
  * Resolve a draft row this client may mutate, or the reason they may not.
@@ -93,6 +93,7 @@ async function requireDraftMutable(clientId: string, postId: string): Promise<Mu
       channel:       contentCyclePosts.channel,
       position:      contentCyclePosts.position,
       pillar:        contentCyclePosts.pillar,
+      beatMeta:      contentCyclePosts.beatMeta,
       status:        contentCyclePosts.status,
     })
     .from(contentCyclePosts)
@@ -106,10 +107,26 @@ async function requireDraftMutable(clientId: string, postId: string): Promise<Mu
   if (!row) return 'not_found';
   if (row.status !== POST_STATUS_DRAFT) return 'not_a_draft';
   if (!(await cycleIsPreCutoff(row.cycleId))) return 'cutoff_passed';
-  return { cycleId: row.cycleId, scheduledDate: row.scheduledDate, channel: row.channel, position: row.position, pillar: row.pillar };
+  return { cycleId: row.cycleId, scheduledDate: row.scheduledDate, channel: row.channel, position: row.position, pillar: row.pillar, beatMeta: row.beatMeta };
 }
 
 const isError = (v: MutableDraft | DraftMutationError): v is DraftMutationError => typeof v === 'string';
+
+/**
+ * Stamp beat_meta.clientTouched on a beat the client has just edited.
+ *
+ * Build C's transforms read this and will never auto-replace a touched beat. The client's
+ * hand outranks the algorithm: silently evicting something they just placed to make room
+ * for something we inferred is the fastest way to lose their trust in the surface.
+ *
+ * Merged into the existing beat_meta rather than overwriting it, so the beat keeps the
+ * evidence it was assembled on — "you moved this" and "carousels do well for you" are
+ * both true and the client should be able to see both.
+ */
+function withClientTouched(beatMeta: BeatMeta | null): BeatMeta {
+  const base: BeatMeta = beatMeta ?? { slotType: 'proven', rationaleEvidence: { basis: 'template' } };
+  return { ...base, clientTouched: true };
+}
 
 /** The client's configured pillar names for this channel. Empty means unconfigured, which
  *  we treat as "cannot validate" — see addBeat. */
@@ -144,7 +161,7 @@ export async function moveBeat(
   if (!isEditableDate(newDate, today)) return fail('read_only_date');
 
   await db.update(contentCyclePosts)
-    .set({ scheduledDate: newDate })
+    .set({ scheduledDate: newDate, beatMeta: withClientTouched(ctx.beatMeta) })
     .where(scopedDraft(clientId, ctx.cycleId, postId));
   return { ok: true, beats: await loadDraftBeats(clientId, ctx.cycleId) };
 }
@@ -156,7 +173,7 @@ export async function swapFormat(clientId: string, postId: string, format: strin
   if (!BEAT_FORMATS.has(format as PostFormat)) return fail('invalid_format');
 
   await db.update(contentCyclePosts)
-    .set({ format })
+    .set({ format, beatMeta: withClientTouched(ctx.beatMeta) })
     .where(scopedDraft(clientId, ctx.cycleId, postId));
   return { ok: true, beats: await loadDraftBeats(clientId, ctx.cycleId) };
 }
@@ -217,6 +234,7 @@ export async function addBeat(
   const beatMeta: BeatMeta = {
     slotType: 'proven',
     rationaleEvidence: { basis: 'client_added' },
+    clientTouched: true,   // they placed it; no transform may quietly take the slot back
   };
 
   await db.insert(contentCyclePosts).values({

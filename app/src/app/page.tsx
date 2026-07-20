@@ -4,6 +4,7 @@ import { BASE_QUESTIONS, type IntakeJson } from '@sprigly/engine';
 import { getSession } from '@/lib/auth';
 import { loadPlanPosts, loadCrossMonthPosts, loadCycleList, beatsInMonth, loadDraftBeats } from '@/lib/plan';
 import { cycleIsPreCutoff } from '@/lib/draft-mutations';
+import { loadReceipts } from '@/lib/draft-apply';
 import { editScopeToday } from '@/lib/edit-scope';
 import { resolveDayCycleId } from '@/lib/cycle-nav';
 import { readPlanRedesignFlag } from '@/lib/flags';
@@ -126,6 +127,9 @@ export default async function Page({ searchParams }: { searchParams: { intake?: 
           // Past cutoff the draft stays READABLE but not editable — viewing and editing
           // are different rights (see cycleHasReviewableDraft).
           editable={await cycleIsPreCutoff(initialCycleId)}
+          // Receipts are persisted on the cycle's intake record, so "what changed" survives
+          // a reload rather than living only in the tab that caused it.
+          receipts={await loadReceipts(initialCycleId)}
         />
       );
     }
