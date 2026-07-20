@@ -173,6 +173,73 @@ export interface PlanRepairContext {
   tracer?:      PlanningTracer;            // optional diagnostic trace (never affects behaviour)
 }
 
+// ── Structural fields (slot identity) ──────────────────────────────────────────
+// A regeneration exists to change a post's CONTENT. It must never change the post's
+// SLOT — the plan's structure is decided by the planning run (or, from the draft-plan
+// arc, by the client's approval) and is not the repair loop's to renegotiate. Before
+// this merge, structure survived regeneration only because the repair prompt ASKED the
+// model to keep it (see the fixMessage below); nothing enforced it and nothing checked
+// it — codeGateCheck validates captions and vocab, never dates or formats.
+//
+// NOT structural (deliberately): draftCaption, title, notes, competitorInsight,
+// whoPosts, category. Those are what regeneration is FOR.
+//
+// `position` / slot ordering needs no field here: it is not on PlanPostRow. It is
+// assigned by array index (planning.ts `position: i`) and preserved by applyCodeGate /
+// applyCritic pushing exactly once per input index. That 1:1 invariant is asserted in
+// plan-validation.test.ts so it fails loudly if either loop is ever restructured.
+export const STRUCTURAL_FIELDS = ['date', 'day', 'format', 'pillar'] as const;
+export type StructuralField = (typeof STRUCTURAL_FIELDS)[number];
+
+/** True when `pillar` is worth pinning: present, and either the client has no configured
+ *  pillar vocab (nothing to violate) or it is in that vocab. Mirrors codeGateCheck's
+ *  invalid-pillar semantics, so "pinnable" and "gate-clean" can never disagree. */
+function isPinnablePillar(pillar: string | undefined, vocab: CodeGateVocab): boolean {
+  const p = (pillar ?? '').trim();
+  if (p.length === 0) return false;                    // nothing structural to preserve
+  if (vocab.pillars.length === 0) return true;         // unconfigured client — gate checks nothing
+  return vocab.pillars.includes(p);
+}
+
+/**
+ * Merge the input post's STRUCTURAL fields over a regenerated one, so a repair can
+ * only ever change content. Pure.
+ *
+ * `pillar` is CONDITIONAL and must stay that way. Two live paths deliberately hand
+ * regeneratePost an out-of-vocabulary SENTINEL pillar and rely on the repair loop
+ * replacing it with a real one:
+ *   - 'New idea' — app/src/lib/mutations.ts addGeneratingPost (client adds a post),
+ *                  passed through by shape.ts
+ *   - 'Weather'  — weekly-session.ts weather_opportunity skeleton
+ * Pinning pillar unconditionally would make codeGateCheck's invalid-pillar issue
+ * UNREPAIRABLE: the gate would burn all MAX_PLAN_RETRIES attempts (three billable model
+ * calls) and then accept-with-warning, silently leaving the sentinel in place. So:
+ * a valid input pillar wins; an invalid one yields to the model's replacement.
+ * Do NOT "simplify" this to an unconditional pin.
+ */
+export function mergeStructuralFields(
+  input:  PlanPostRow,
+  output: PlanPostRow,
+  vocab:  CodeGateVocab,
+): PlanPostRow {
+  const merged: PlanPostRow = { ...output };
+  // Absence is mirrored as faithfully as presence: if the input carried no date, the
+  // model may not invent one. Otherwise "no structure" would be the one gap through
+  // which regeneration could still write structure.
+  const pin = (field: StructuralField, value: string | undefined): void => {
+    if (value === undefined) delete merged[field];
+    else merged[field] = value;
+  };
+  for (const field of STRUCTURAL_FIELDS) {
+    if (field === 'pillar') continue;   // conditional — handled below
+    pin(field, input[field]);
+  }
+  // Valid input pillar → pin it. Invalid (incl. the sentinels above) → keep the model's,
+  // whether or not it is itself valid; if it is not, the gate flags it as it does today.
+  pin('pillar', isPinnablePillar(input.pillar, vocab) ? input.pillar : output.pillar);
+  return merged;
+}
+
 /** Extract a single post object from a model response (fence/prose tolerant). */
 function parseSinglePost(text: string): PlanPostRow {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -233,7 +300,11 @@ export async function regeneratePost(
     ctx.logger.warn({ ...ctx.logMeta, err: String(auditErr) }, 'code-gate: repair audit log failed — non-fatal');
   }
 
-  const after = parseSinglePost(result.content);
+  // STRUCTURE IS NOT REGENERABLE. The fixMessage above ASKS the model to hold the
+  // slot fields; this merge ENFORCES it, at the one boundary every caller flows
+  // through (applyCodeGate, applyCritic, shape.ts, weekly-session.ts). See
+  // mergeStructuralFields for why `pillar` is conditional rather than pinned.
+  const after = mergeStructuralFields(post, parseSinglePost(result.content), ctx.vocab);
 
   // Deterministic em-dash strip BEFORE the caller re-gates. The trace showed repairs
   // re-introduce dashes (a critic fix that adds a "—" then fails the em-dash gate and
