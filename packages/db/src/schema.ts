@@ -759,6 +759,12 @@ export const contentCycles = pgTable(
     // and cleared to null on out_of_sync/unknown. REQUIRES migration 0061.
     postsSyncedAt:     timestamp('posts_synced_at'),
     postsSyncedRunId:  text('posts_synced_run_id'),
+    // Draft approval (migration 0087, Build D). NULL = never approved. approved_by is
+    // 'client' (they pressed the button) or 'auto' (D3: the cutoff arrived and we went
+    // ahead). The distinction drives the plan-ready copy — telling a client "you approved
+    // this" when they did not would be a small lie with a long tail.
+    approvedAt:        timestamp('approved_at'),
+    approvedBy:        text('approved_by'),
   },
   (t) => ({
     uniqClientChannelMonth: uniqueIndex('content_cycles_unique').on(

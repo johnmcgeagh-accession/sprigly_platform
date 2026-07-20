@@ -68,11 +68,18 @@ function scopedDraft(clientId: string, cycleId: string, postId: string) {
  *  two different things in two places. */
 export async function cycleIsPreCutoff(cycleId: string): Promise<boolean> {
   const [row] = await db
-    .select({ status: contentCycles.status })
+    .select({ status: contentCycles.status, approvedAt: contentCycles.approvedAt })
     .from(contentCycles)
     .where(eq(contentCycles.id, cycleId))
     .limit(1);
-  return !!row && PRE_PLANNING_STATUSES.has(row.status);
+  if (!row) return false;
+  // APPROVAL CLOSES THIS DOOR (Build D). Once a month is approved, generation is running
+  // against those exact rows and their structure is fixed by contract. A structural edit
+  // arriving mid-fan-out would change a slot the generator is already writing into.
+  // Post-approval structural changes go through the existing paths (the post-cutoff agent,
+  // admin) — never through the draft mutation API.
+  if (row.approvedAt) return false;
+  return PRE_PLANNING_STATUSES.has(row.status);
 }
 
 interface MutableDraft { cycleId: string; scheduledDate: string; channel: string; position: number; pillar: string | null; beatMeta: BeatMeta | null }
