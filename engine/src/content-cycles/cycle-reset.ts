@@ -3,10 +3,11 @@
  *
  * Why this exists: repeated end-to-end runs of the draft flow (assemble → intake reshape
  * → approve → phase 2) on a sandbox client need the next run to behave as a FIRST run.
- * The three existing "reset" affordances (admin `resetCycle`, `triggerCycle`,
- * `engine/src/reset-cycle.ts`) all perform the same two-column status poke —
- * `status='scheduled', request_sent_at=null` — and leave everything that actually
- * contaminates a re-run in place. The full inventory and the evidence for each item is in
+ * The two existing "reset" affordances (admin `resetCycle` and `triggerCycle`) both
+ * perform the same two-column status poke — `status='scheduled', request_sent_at=null` —
+ * and leave everything that actually contaminates a re-run in place. (A third, the
+ * `engine/src/reset-cycle.ts` CLI, did the same and was deleted in dd7c335.) The full
+ * inventory and the evidence for each item is in
  * docs/reports/cycle-reset-investigation.md.
  *
  * Two survivors are hard blockers rather than cosmetic residue:
