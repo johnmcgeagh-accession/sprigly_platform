@@ -96,6 +96,38 @@ export interface PlanPost {
   generationError?:    string | null;
 }
 
+// ── Draft beats (Build B) ─────────────────────────────────────────────────────
+// A draft beat is a PROPOSAL: a slot the assembler suggested and the client has not
+// accepted. It is NOT a PlanPost and is deliberately a separate type — a beat has no
+// caption, no hook, no script, no checklist, because none of those exist until the
+// draft is approved and generation runs (Build D). Modelling it as a PlanPost with
+// empty strings would invite exactly the confusion the draft fence exists to prevent.
+
+/** Structured evidence a beat was chosen on. Mirrors BeatRationaleEvidence in
+ *  @sprigly/db — restated here so the client bundle does not import the db package. */
+export interface BeatEvidence {
+  basis:             'observed' | 'template' | 'client_added';
+  reason?:           string;
+  formatEngagement?: { format: string; avgEngagement: number; posts: number };
+  pillarShare?:      number;
+  cadenceBasis?:     { postsPerWeek: number; source: 'observed' | 'config'; months: number };
+  candidateRank?:    { rank: number; of: number; origin: 'client' | 'competitor' };
+}
+
+export interface DraftBeatView {
+  id:       string;
+  cycleId:  string;
+  date:     string;              // ISO 'YYYY-MM-DD'
+  format:   PostFormat;
+  pillar:   string;
+  title:    string;              // Build A's phrasing, or its deterministic fallback
+  position: number;
+  slotType: 'proven' | 'experiment';
+  evidence: BeatEvidence;
+  /** Gaps the assembler flagged. DISPLAY ONLY in Build B — answering them is Build C. */
+  assumptions: string[];
+}
+
 // ── Month switcher (slice 1) ──────────────────────────────────────────────────
 // One qualifying cycle the client may browse. `displayMonth` is derived from the
 // EARLIEST live post date (not cycle_month + 1), so it stays correct through any
