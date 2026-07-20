@@ -99,7 +99,8 @@ for (let i = 1; i < grid.length; i++) {
 // ── Classify existing posts (explicit columns; no select-all) ─────────────────
 const existingRows = await db
   .select({ id: contentCyclePosts.id, scheduledDate: contentCyclePosts.scheduledDate, status: contentCyclePosts.status,
-            caption: contentCyclePosts.caption, sourceMeta: contentCyclePosts.sourceMeta })
+            caption: contentCyclePosts.caption, sourceMeta: contentCyclePosts.sourceMeta,
+            hook: contentCyclePosts.hook, script: contentCyclePosts.script })
   .from(contentCyclePosts).where(eq(contentCyclePosts.cycleId, cycle.id));
 const editRefs = await db.select({ postId: postEdits.postId }).from(postEdits).where(eq(postEdits.cycleId, cycle.id));
 const editedIds = new Set(editRefs.map((r) => r.postId));
@@ -110,6 +111,7 @@ const catalogueNames = (((catRow?.catalogue ?? { families: [] }) as unknown as C
 const existing: ExistingPost[] = existingRows.map((r) => ({
   id: r.id, scheduledDate: r.scheduledDate, status: r.status, caption: r.caption,
   title: ((r.sourceMeta as Record<string, unknown> | null)?.['title'] as string) ?? '', hasPostEdit: editedIds.has(r.id),
+  hasHook: !!(r.hook && r.hook.trim()), hasScript: !!(r.script && r.script.trim()),
 }));
 const dec = mergePlan({ existing, briefedProducts: briefedProductNames(cycle.brief as StructuredBrief | null, catalogueNames), catalogueNames });
 const deleteIds = [...dec.drop, ...dec.replace].map((d) => d.post.id);

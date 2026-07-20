@@ -24,6 +24,11 @@ export interface ExistingPost {
   caption:       string | null;
   title:         string;                        // source_meta.title (may be '')
   hasPostEdit:   boolean;                        // referenced by a post_edits row
+  // Generated Stage-6 work living on the row (Build D fix). A hook was CHOSEN by the
+  // client from candidates; a script cost a Bedrock call. Neither leaves a post_edits
+  // row, so without these flags the merge could not see them at all.
+  hasHook:       boolean;
+  hasScript:     boolean;
 }
 
 export interface PreserveDecision {
@@ -50,16 +55,28 @@ function escapeRe(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, '
  *  Disposable — safe to drop (never post_edits-referenced). */
 export function isEmptyPlaceholder(p: ExistingPost): boolean {
   if (p.status !== 'new' || p.hasPostEdit) return false;
+  // A slot carrying a generated hook or script is not empty, whatever its caption says.
+  if (p.hasHook || p.hasScript) return false;
   const cap = (p.caption ?? '').trim();
   return cap.length === 0 || cap.startsWith(PLACEHOLDER_PREFIX);
 }
 
 /** Protected = carries client work: referenced by post_edits, OR an edited post, OR a
- *  new post with real content. Everything protected is PRESERVED (never deleted). */
+ *  new post with real content, OR a generated hook/script.
+ *  Everything protected is PRESERVED (never deleted).
+ *
+ *  THE HOOK/SCRIPT CASE (Phase 0 found this latent; Build D fixes it). A post can carry a
+ *  hook the client picked from candidates, and a script that cost a Bedrock call, while
+ *  being status='planned' with no post_edits row — because neither generation writes one.
+ *  Such a post was therefore unprotected, fell into `replace`, and a whole-plan regen
+ *  DELETED it: the client silently lost work they had chosen and we had paid for, with
+ *  nothing recording the loss. A hook is a client decision even though it leaves no edit
+ *  row, and that is exactly what this clause encodes. */
 export function isProtected(p: ExistingPost): boolean {
   if (p.hasPostEdit) return true;
   if (p.status === 'edited') return true;
   if (p.status === 'new' && !isEmptyPlaceholder(p)) return true;
+  if (p.hasHook || p.hasScript) return true;
   return false;
 }
 

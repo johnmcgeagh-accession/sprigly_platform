@@ -1005,6 +1005,8 @@ export async function runPlanningForCycle(
           id: contentCyclePosts.id, scheduledDate: contentCyclePosts.scheduledDate,
           status: contentCyclePosts.status, caption: contentCyclePosts.caption,
           sourceMeta: contentCyclePosts.sourceMeta,
+          // Stage-6 work the merge must not delete (Build D) — see isProtected.
+          hook: contentCyclePosts.hook, script: contentCyclePosts.script,
         })
         .from(contentCyclePosts)
         // FENCE (Build A): draft beats are not plan posts, so the regen classifier must
@@ -1023,6 +1025,8 @@ export async function runPlanningForCycle(
         id: r.id, scheduledDate: r.scheduledDate, status: r.status, caption: r.caption,
         title: ((r.sourceMeta as Record<string, unknown> | null)?.['title'] as string) ?? '',
         hasPostEdit: editedIds.has(r.id),
+        hasHook:   !!(r.hook   && r.hook.trim()),
+        hasScript: !!(r.script && r.script.trim()),
       }));
       const dec = mergePlan({ existing, briefedProducts: briefedProductNames(structuredBrief, catalogueNames), catalogueNames });
       const deleteIds = [...dec.drop, ...dec.replace].map((d) => d.post.id);

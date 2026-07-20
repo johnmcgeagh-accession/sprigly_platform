@@ -7,6 +7,7 @@ function ep(over: Partial<ExistingPost>): ExistingPost {
     id: over.id ?? 'x', scheduledDate: over.scheduledDate ?? '2026-06-01',
     status: over.status ?? 'planned', caption: over.caption ?? 'c',
     title: over.title ?? '', hasPostEdit: over.hasPostEdit ?? false,
+    hasHook: over.hasHook ?? false, hasScript: over.hasScript ?? false,
   };
 }
 
@@ -62,5 +63,53 @@ describe('dropCollidingInserts — slot-aware merge (recurrence fix)', () => {
     const { kept, dropped } = dropCollidingInserts(incoming, []);
     expect(dropped).toHaveLength(0);
     expect(kept).toHaveLength(2);
+  });
+});
+
+describe('generated hook/script survives a whole-plan regeneration (Phase 0 latent bug)', () => {
+  // The bug: a post carrying a generated hook and script, but NO post_edits row, is
+  // neither 'edited' nor a non-empty 'new' post — so isProtected() was false, it fell
+  // into `replace`, and the regen DELETED it. The client silently lost a hook they had
+  // chosen and a script that cost a Bedrock call, with nothing recording the loss.
+  const withHookAndScript = ep({
+    id: 'reel-with-work', scheduledDate: '2026-06-10', status: 'planned',
+    caption: 'A perfectly ordinary generated caption.',
+    hasHook: true, hasScript: true,
+  });
+
+  it('PRESERVES a planned post that carries a generated hook', () => {
+    const dec = mergePlan({
+      existing: [ep({ id: 'plain', scheduledDate: '2026-06-02', status: 'planned' }),
+                 ep({ id: 'hooked', scheduledDate: '2026-06-10', status: 'planned', hasHook: true })],
+      briefedProducts: [], catalogueNames: [],
+    });
+    expect(dec.preserve.map((d) => d.post.id)).toContain('hooked');
+    expect(dec.replace.map((d) => d.post.id)).not.toContain('hooked');
+    // The un-hooked ordinary post is still replaceable — this must not preserve everything.
+    expect(dec.replace.map((d) => d.post.id)).toContain('plain');
+  });
+
+  it('PRESERVES a planned post that carries a generated script', () => {
+    const dec = mergePlan({
+      existing: [ep({ id: 'scripted', scheduledDate: '2026-06-10', status: 'planned', hasScript: true })],
+      briefedProducts: [], catalogueNames: [],
+    });
+    expect(dec.preserve.map((d) => d.post.id)).toContain('scripted');
+  });
+
+  it('never DROPS a post carrying generated work, even if it looks like a placeholder', () => {
+    const dec = mergePlan({
+      existing: [ep({ id: 'placeholder-but-hooked', status: 'new', caption: '', hasHook: true })],
+      briefedProducts: [], catalogueNames: [],
+    });
+    expect(dec.drop.map((d) => d.post.id)).not.toContain('placeholder-but-hooked');
+    expect(dec.preserve.map((d) => d.post.id)).toContain('placeholder-but-hooked');
+  });
+
+  it('preserves a post with BOTH, and nothing is lost across the merge', () => {
+    const dec = mergePlan({ existing: [withHookAndScript], briefedProducts: [], catalogueNames: [] });
+    const all = [...dec.preserve, ...dec.drop, ...dec.replace].map((d) => d.post.id);
+    expect(all).toEqual(['reel-with-work']);          // accounted for exactly once
+    expect(dec.preserve).toHaveLength(1);
   });
 });
