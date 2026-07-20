@@ -286,7 +286,7 @@ describe('assembleDraft', () => {
     for (const beat of draft.beats) {
       const ev = beat.beatMeta.rationaleEvidence;
       expect(ev.basis).toBe('observed');
-      expect(ev.cadenceBasis.postsPerWeek).toBeGreaterThan(0);
+      expect(ev.cadenceBasis!.postsPerWeek).toBeGreaterThan(0);   // always set on an ASSEMBLED beat
       expect(ev.formatEngagement!.posts).toBeGreaterThan(0);
       expect(typeof ev.pillarShare).toBe('number');
       // Structured refs only — no prose smuggled into the evidence.

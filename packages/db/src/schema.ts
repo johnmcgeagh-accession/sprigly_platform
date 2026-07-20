@@ -947,9 +947,11 @@ export type NewPlanningTraceRow = typeof planningTrace.$inferInsert;
 // {basis: 'template', reason: 'insufficient history'} — rather than carrying
 // invented metrics. Honest absence over fabricated confidence.
 export interface BeatRationaleEvidence {
-  /** Where the beat's shape came from. 'observed' = derived from this client's own
-   *  ig_posts history; 'template' = the thin-data neutral skeleton. */
-  basis:            'observed' | 'template';
+  /** Where the beat's shape came from.
+   *  'observed'     = derived from this client's own ig_posts history
+   *  'template'     = the thin-data neutral skeleton (history below the floor)
+   *  'client_added' = the client added this beat themselves (Build B) */
+  basis:            'observed' | 'template' | 'client_added';
   /** Set only when basis='template' — why the observed path was unavailable. */
   reason?:          string;
   /** Engagement for THIS beat's format, as measured (likes+comments per post). */
@@ -957,9 +959,13 @@ export interface BeatRationaleEvidence {
   /** This pillar's share of the client's configured pillar weights, 0–1. */
   pillarShare?:      number;
   /** The cadence figure the slot count came from, and what it was measured over.
-   *  REQUIRED: every beat has a slot count basis, on the observed and template paths
-   *  alike — a beat that cannot say why it exists at all should not exist. */
-  cadenceBasis:      { postsPerWeek: number; source: 'observed' | 'config'; months: number };
+   *  Present on every ASSEMBLED beat (observed and template paths alike). Absent on a
+   *  client_added beat, which has no slot-count basis at all — it exists because the
+   *  client asked for it. Build A made this required, correctly for the cases that then
+   *  existed; Build B introduced one where the only honest value is no value, and a
+   *  fabricated {postsPerWeek: 0} would be exactly the invention this contract exists to
+   *  prevent. */
+  cadenceBasis?:     { postsPerWeek: number; source: 'observed' | 'config'; months: number };
   /** For an experiment slot: how the candidate ranked, and against what. */
   candidateRank?:    { rank: number; of: number; origin: 'client' | 'competitor' };
 }
