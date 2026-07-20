@@ -18,7 +18,14 @@ import type { Catalogue } from '../catalogue/parse-catalogue.js';
 import type { StructuredBrief } from '@sprigly/engine';
 import { mergePlan, type ExistingPost } from './plan-merge.js';
 
-const cycleId = process.argv[2] ?? 'd502f22d-983b-442c-880a-db4f86861ecb';
+// Required, no fallback: this used to default to a real production cycle, so a bare
+// invocation silently reported on someone else's month.
+const cycleId = process.argv[2];
+if (!cycleId) {
+  console.error('plan-merge-dryrun: missing required argument <cycleId>.');
+  console.error('usage: pnpm exec tsx src/content-cycles/plan-merge-dryrun.ts <cycleId>');
+  process.exit(1);
+}
 const AMBIGUOUS = new Set(['ivy']);
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const snip = (s: string | null, n = 66) => (s ?? '').replace(/\s+/g, ' ').trim().slice(0, n);

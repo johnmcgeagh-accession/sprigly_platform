@@ -3,11 +3,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ─── Module mocks (hoisted before imports) ────────────────────────────────────
 
 let capturedProcessor: (job: { data: unknown; id?: string }) => Promise<void>;
+const capturedListeners: Record<string, (job: unknown) => void> = {};
 
 vi.mock('bullmq', () => ({
   Worker: vi.fn().mockImplementation((_queue: string, processor: typeof capturedProcessor) => {
     capturedProcessor = processor;
-    return { close: vi.fn() };
+    // `on` captures the plan-ready settlement listeners the consumer attaches. A bare
+    // object without it is no longer a usable stand-in for a Worker.
+    return {
+      close: vi.fn(),
+      on: vi.fn((event: string, handler: (job: unknown) => void) => { capturedListeners[event] = handler; }),
+    };
   }),
 }));
 
@@ -23,6 +29,7 @@ vi.mock('./apply.js',   () => ({ applyVoiceDeltasForCycle:  vi.fn() }));
 vi.mock('../ig-producer.js', () => ({ runIgTrawlJob:        vi.fn() }));
 vi.mock('./stubs.js',   () => ({ requestEmailStub:          vi.fn() }));
 vi.mock('./scheduler.js',() => ({ runContentCycleTick:      vi.fn() }));
+vi.mock('./plan-ready.js',() => ({ settlePlanReady:          vi.fn() }));
 
 import {
   createContentCycleConsumer,
@@ -35,6 +42,7 @@ import { applyVoiceDeltasForCycle }   from './apply.js';
 import { runIgTrawlJob }              from '../ig-producer.js';
 import { requestEmailStub }           from './stubs.js';
 import { runContentCycleTick }        from './scheduler.js';
+import { settlePlanReady }            from './plan-ready.js';
 
 // ─── Shared setup ─────────────────────────────────────────────────────────────
 
@@ -43,6 +51,7 @@ const applyMock           = applyVoiceDeltasForCycle   as ReturnType<typeof vi.f
 const igTrawlMock         = runIgTrawlJob              as ReturnType<typeof vi.fn>;
 const requestEmailMock    = requestEmailStub            as ReturnType<typeof vi.fn>;
 const schedulerTickMock   = runContentCycleTick         as ReturnType<typeof vi.fn>;
+const settleMock          = settlePlanReady             as ReturnType<typeof vi.fn>;
 
 const LOGGER        = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 const mockQueueAdd  = vi.fn().mockResolvedValue({ id: 'enqueued-job' });
@@ -314,5 +323,72 @@ describe('unknown job type', () => {
     expect(igTrawlMock).not.toHaveBeenCalled();
     expect(requestEmailMock).not.toHaveBeenCalled();
     expect(extractMock).not.toHaveBeenCalled();
+  });
+});
+
+
+// ─── Plan-ready settlement wiring ─────────────────────────────────────────────
+// The settlement check hangs off worker EVENTS, not the processor: the events fire once
+// BullMQ has moved the job out of 'active', which is what makes "no pending generation
+// jobs" answerable at all. These tests pin which jobs trigger it and when.
+
+describe('plan-ready settlement listeners', () => {
+  const flush = () => new Promise((r) => setImmediate(r));
+
+  beforeEach(() => { settleMock.mockReset(); settleMock.mockResolvedValue('not_settled'); });
+
+  it('attaches to both completed and failed', () => {
+    makeConsumer();
+    expect(typeof capturedListeners['completed']).toBe('function');
+    expect(typeof capturedListeners['failed']).toBe('function');
+  });
+
+  it.each(['shape', 'hook', 'script'])('settles the cycle after a completed %s job', async (type) => {
+    makeConsumer();
+    capturedListeners['completed']!({ id: `${type}_cyc-1_post-1`, data: { type, cycleId: 'cyc-1' } });
+    await flush();
+    expect(settleMock).toHaveBeenCalledWith(expect.anything(), MOCK_QUEUE, 'cyc-1', `${type}_cyc-1_post-1`);
+  });
+
+  it('ignores job types that are not per-post generation', async () => {
+    makeConsumer();
+    for (const type of ['planning', 'ig-trawl', 'scheduler-tick', 'weekly-session']) {
+      capturedListeners['completed']!({ id: `${type}_x`, data: { type, cycleId: 'cyc-1' } });
+    }
+    await flush();
+    expect(settleMock).not.toHaveBeenCalled();
+  });
+
+  it('does NOT settle on a failure that still has retries left', async () => {
+    makeConsumer();
+    capturedListeners['failed']!({
+      id: 'shape_cyc-1_post-1', data: { type: 'shape', cycleId: 'cyc-1' },
+      attemptsMade: 1, opts: { attempts: 3 },
+    });
+    await flush();
+    expect(settleMock).not.toHaveBeenCalled();
+  });
+
+  it('settles on the FINAL failure — generation_failed is terminal, and the month still ships', async () => {
+    makeConsumer();
+    capturedListeners['failed']!({
+      id: 'shape_cyc-1_post-1', data: { type: 'shape', cycleId: 'cyc-1' },
+      attemptsMade: 3, opts: { attempts: 3 },
+    });
+    await flush();
+    expect(settleMock).toHaveBeenCalledWith(expect.anything(), MOCK_QUEUE, 'cyc-1', 'shape_cyc-1_post-1');
+  });
+
+  it('a settlement error never escapes the listener', async () => {
+    makeConsumer();
+    settleMock.mockRejectedValue(new Error('redis gone'));
+    expect(() => capturedListeners['completed']!({
+      id: 'shape_cyc-1_post-1', data: { type: 'shape', cycleId: 'cyc-1' },
+    })).not.toThrow();
+    await flush();
+    expect(LOGGER.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ jobId: 'shape_cyc-1_post-1' }),
+      expect.stringContaining('settlement failed'),
+    );
   });
 });

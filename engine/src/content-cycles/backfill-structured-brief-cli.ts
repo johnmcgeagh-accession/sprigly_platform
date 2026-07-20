@@ -21,7 +21,16 @@ import { extractStructuredBrief } from './brief-extract.js';
 
 const args = process.argv.slice(2);
 const write = args.includes('--write');
-const cycleId = args.find((a) => !a.startsWith('--')) ?? 'd502f22d-983b-442c-880a-db4f86861ecb';
+
+// cycleId is REQUIRED and has no fallback. It used to default to a real production cycle
+// id, so `--write` with no argument would have persisted a structured_brief onto someone
+// else's month. A tool that guesses which cycle it is writing to is how you overwrite one.
+const cycleId = args.find((a) => !a.startsWith('--'));
+if (!cycleId) {
+  console.error('backfill-structured-brief: missing required argument <cycleId>.');
+  console.error('usage: pnpm exec tsx src/content-cycles/backfill-structured-brief-cli.ts <cycleId> [--write]');
+  process.exit(1);
+}
 
 function nextMonth(yyyymm: string): string {
   const [y, m] = yyyymm.split('-').map(Number);

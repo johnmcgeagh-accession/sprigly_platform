@@ -27,7 +27,7 @@
  * Enqueue via contentCyclesQueue.add(type, { type, ... }, { ...JOB_OPTIONS, jobId: ... }).
  */
 
-import { Worker, type Queue } from 'bullmq';
+import { Worker, type Queue, type Job } from 'bullmq';
 import { db as _db, type EmailTemplateKey } from '@sprigly/db';
 import type { EncryptionProvider } from '@sprigly/oauth-tokens';
 import { DbPromptResolver } from '@sprigly/prompts';
@@ -47,6 +47,7 @@ import { runIgTrawlJob } from '../ig-producer.js';
 import { requestEmailStub } from './stubs.js';
 import { runContentCycleTick } from './scheduler.js';
 import { assembleAndPersistDraft, summariseDraft, draftFlowEnabled, countDraftBeats, autoApproveAndGenerate } from './draft-plan.js';
+import { settlePlanReady } from './plan-ready.js';
 import {
   IG_TRAWL_JOB_OPTIONS,
   REQUEST_EMAIL_JOB_OPTIONS,
@@ -87,7 +88,11 @@ export function createContentCycleConsumer(
   apifyApiKey:        string | undefined,
   queue:              Queue,
 ): Worker {
-  return new Worker(
+  // Deps for the settlement check. Same shape the Ask touch builds; only db/logger and the
+  // email fields are exercised by the plan-ready send.
+  const planReadyDeps = { db, encProvider, googleClientId, googleClientSecret, model, prompts, audit, logger };
+
+  const worker = new Worker(
     'content-cycles',
     async (job) => {
       const data   = job.data as ContentCycleJob;
@@ -251,4 +256,41 @@ export function createContentCycleConsumer(
     },
     { connection: { url: redisUrl }, concurrency: 2 },
   );
+
+  /**
+   * Plan-ready settlement, driven off worker EVENTS rather than the processor.
+   *
+   * The events fire after BullMQ has moved the job out of 'active', which is what makes the
+   * "no pending generation jobs" half of the predicate answerable — asked from inside the
+   * processor, a job would always find itself still running and no cycle would ever settle.
+   * The job id is still passed as an exclusion: belt and braces, and it keeps the predicate
+   * honest if this is ever called from somewhere less careful.
+   *
+   * 'failed' fires per ATTEMPT, so it is filtered to the final one. A job with retries left
+   * is still pending work and must not settle the cycle.
+   *
+   * Best-effort throughout: a settlement failure must never fail the job that triggered it,
+   * and the next completing job will try again.
+   */
+  const settleFor = async (job: Job, phase: 'completed' | 'failed'): Promise<void> => {
+    try {
+      const data = job.data as ContentCycleJob;
+      if (data.type !== 'shape' && data.type !== 'hook' && data.type !== 'script') return;
+      if (phase === 'failed') {
+        const maxAttempts = job.opts?.attempts ?? 1;
+        if ((job.attemptsMade ?? 0) < maxAttempts) return;   // retries remain — still in flight
+      }
+      const outcome = await settlePlanReady(planReadyDeps, queue, data.cycleId, job.id);
+      if (outcome !== 'not_settled' && outcome !== 'not_approved') {
+        logger.info({ cycleId: data.cycleId, jobId: job.id, outcome }, 'content-cycles: plan-ready settlement');
+      }
+    } catch (err) {
+      logger.warn({ jobId: job.id, err: String(err) }, 'content-cycles: plan-ready settlement failed (non-fatal)');
+    }
+  };
+
+  worker.on('completed', (job) => { void settleFor(job, 'completed'); });
+  worker.on('failed', (job) => { if (job) void settleFor(job, 'failed'); });
+
+  return worker;
 }
