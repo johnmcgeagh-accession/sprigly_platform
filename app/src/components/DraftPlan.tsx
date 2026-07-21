@@ -75,6 +75,30 @@ export function DraftPlan(props: DraftPlanProps) {
     }
   }
 
+  /**
+   * The rescue tap Build C specified and never wired.
+   *
+   * The server op has always existed (api/plan/draft/apply/route.ts:49); nothing ever sent
+   * it, so an evergreen receipt told the client to "add it from your ideas" on a surface
+   * with no such control. Routes through the SAME transform path as a typed input, so a
+   * rescued idea lands and displaces exactly as if they had just written it.
+   */
+  async function onAddToMonth(planInputId: string, date: string) {
+    try {
+      const res = await fetch('/api/plan/draft/apply', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ op: 'add_to_month', planInputId, date }),
+      });
+      const json = (await res.json()) as { ok?: boolean; application?: DraftReceipt; beats?: DraftBeatView[]; message?: string };
+      if (!res.ok || !json.ok) return { ok: false, message: json.message ?? 'That didn’t work. Try again?' };
+      return json.application
+        ? { ok: true, application: json.application, beats: json.beats ?? [] }
+        : { ok: true, beats: json.beats ?? [] };
+    } catch {
+      return { ok: false, message: 'We couldn’t reach the server. Check your connection and try again.' };
+    }
+  }
+
   async function onApprove() {
     try {
       const res = await fetch('/api/plan/draft/approve', { method: 'POST' });
@@ -123,6 +147,7 @@ export function DraftPlan(props: DraftPlanProps) {
         receipts={props.receipts}
         onMutate={onMutate}
         onSay={onSay}
+        onAddToMonth={onAddToMonth}
         onApprove={onApprove}
       />
     </>

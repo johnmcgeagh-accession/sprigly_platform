@@ -27,6 +27,8 @@ export interface DraftReceipt {
   id: string; at: string; sourceText: string;
   scope: 'month_scoped' | 'evergreen';
   reason?: string; lines: string[]; changedIds: string[]; note?: string;
+  /** The backlog row, when this receipt filed one — what the rescue tap acts on. */
+  planInputId?: string;
 }
 
 const C = {
@@ -57,6 +59,8 @@ export interface DraftPlanViewProps {
   onMutate:   (op: Record<string, unknown>) => Promise<{ ok: boolean; beats?: DraftBeatView[]; message?: string; dropped?: Record<string, unknown> }>;
   /** Sends a sentence of intake. Resolves with the receipt and the reshaped month. */
   onSay?:     (text: string) => Promise<{ ok: boolean; application?: DraftReceipt; beats?: DraftBeatView[]; message?: string }>;
+  /** Rescue a filed idea into this month (Build C's one-tap, finally wired). */
+  onAddToMonth?: (planInputId: string, date: string) => Promise<{ ok: boolean; application?: DraftReceipt; beats?: DraftBeatView[]; message?: string }>;
   /** Receipts already stored for this cycle, newest first — so they survive a reload. */
   receipts?:  DraftReceipt[];
   /** False once the cycle passes its cutoff — the draft stays readable, just not editable. */
@@ -65,7 +69,7 @@ export interface DraftPlanViewProps {
   onApprove?: () => Promise<{ ok: boolean; message?: string }>;
 }
 
-export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars, onMutate, onSay, onApprove, receipts = [], editable = true }: DraftPlanViewProps) {
+export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars, onMutate, onSay, onAddToMonth, onApprove, receipts = [], editable = true }: DraftPlanViewProps) {
   const [beats, setBeats] = useState<DraftBeatView[]>(initial);
   const [receipt, setReceipt] = useState<DraftReceipt | null>(receipts[0] ?? null);
   const [saying, setSaying] = useState(false);
@@ -112,6 +116,27 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
       ? { label: 'Beat removed', op: { op: 'restore', beat: res.dropped } as Record<string, unknown> }
       : undoOp;
     if (restore) { undo.current = restore; setUndoLabel(restore.label); } else { undo.current = null; setUndoLabel(null); }
+  }
+
+  /**
+   * Where a rescued idea lands: the first day of this month the client can still edit.
+   * Deterministic and near, so the beat is visible immediately and they can move it with the
+   * date control — better than inventing a date deep in the month they then have to hunt for.
+   */
+  function rescueDate(): string {
+    const first = beats.map((b) => b.date).sort()[0];
+    return first ?? new Date().toISOString().slice(0, 10);
+  }
+
+  const [rescuing, setRescuing] = useState(false);
+  async function rescue(planInputId: string) {
+    if (!onAddToMonth) return;
+    setRescuing(true); setError(null);
+    const res = await onAddToMonth(planInputId, rescueDate());
+    setRescuing(false);
+    if (!res.ok) { setError(res.message ?? 'That didn’t work. Try again?'); return; }
+    if (res.beats) setBeats(res.beats);
+    if (res.application) { setReceipt(res.application); setChangedIds(res.application.changedIds ?? []); }
   }
 
   async function runUndo() {
@@ -228,6 +253,7 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
                 {receipt.reason === 'couldnt_apply'
                   ? <>We couldn’t apply this to {monthLabel} automatically, so we’ve saved it to your ideas.</>
                   : <>We’ve kept this for later rather than changing {monthLabel}.</>}
+                {' '}If you meant now, add it to this month.
               </p>
             ) : receipt.lines.length > 0 ? (
               <ul style={{ margin: '8px 0 0', paddingLeft: 18, display: 'grid', gap: 5 }}>
@@ -239,6 +265,20 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
               <p style={{ fontSize: 14, margin: '8px 0 0' }}>Nothing needed changing.</p>
             )}
             {receipt.note && <p style={{ fontSize: 13, color: C.muted, margin: '8px 0 0' }}>{receipt.note}</p>}
+            {/* Build C's one-tap rescue. The server op shipped without it, so every evergreen
+                receipt pointed at an ideas list this surface has no control for. */}
+            {receipt.scope === 'evergreen' && receipt.planInputId && onAddToMonth && editable && (
+              <button
+                type="button" disabled={rescuing}
+                data-testid="add-to-this-month"
+                onClick={() => rescue(receipt.planInputId!)}
+                style={{ font: 'inherit', fontSize: 14, fontWeight: 700, marginTop: 11, minHeight: 44,
+                  padding: '10px 15px', borderRadius: 10, border: `1.5px solid ${C.coral}`,
+                  background: C.coralLt, color: C.coralDeep, cursor: rescuing ? 'default' : 'pointer' }}
+              >
+                {rescuing ? 'Adding…' : 'Add to this month'}
+              </button>
+            )}
           </section>
         )}
 

@@ -234,3 +234,54 @@ describe('mixed state — committed posts win the surface', () => {
     expect(draftModeApplies(0, 0)).toBe(false);
   });
 });
+
+// ── Build C's rescue tap (Commit 4) ───────────────────────────────────────────
+// The server op `add_to_month` shipped in Build C; nothing ever sent it, so an evergreen
+// receipt told the client to "add it from your ideas" on a surface with no such control.
+
+describe('evergreen receipt — Add to this month', () => {
+  const receipt = (over: Record<string, unknown> = {}) => ({
+    id: 'r1', at: '2026-07-21T07:28:14Z', sourceText: 'Meadow candle launch is the 10th not the 1st',
+    scope: 'evergreen' as const, reason: 'classified_evergreen', lines: [], changedIds: [],
+    planInputId: 'pi-1', ...over,
+  });
+
+  it('offers the tap when the receipt filed a backlog row', () => {
+    const html = renderToStaticMarkup(
+      <DraftPlanView beats={[beat()]} monthLabel="October" clientName="Earl of East" pillars={['Brand Story & Culture']}
+        onMutate={async () => ({ ok: true })} onAddToMonth={async () => ({ ok: true })}
+        receipts={[receipt()]} />,
+    );
+    expect(html).toContain('Add to this month');
+    expect(html).toContain('If you meant now, add it to this month.');
+  });
+
+  it('says plainly when it could not apply, rather than implying a filing was asked for', () => {
+    const html = renderToStaticMarkup(
+      <DraftPlanView beats={[beat()]} monthLabel="October" clientName="Earl of East" pillars={['Brand Story & Culture']}
+        onMutate={async () => ({ ok: true })} onAddToMonth={async () => ({ ok: true })}
+        receipts={[receipt({ reason: 'couldnt_apply' })]} />,
+    );
+    expect(html).toContain('We couldn’t apply this');
+    expect(html).toContain('so we’ve saved it to your ideas');
+    expect(html).toContain('Add to this month');
+  });
+
+  it('no tap without a backlog row to act on', () => {
+    const html = renderToStaticMarkup(
+      <DraftPlanView beats={[beat()]} monthLabel="October" clientName="Earl of East" pillars={['Brand Story & Culture']}
+        onMutate={async () => ({ ok: true })} onAddToMonth={async () => ({ ok: true })}
+        receipts={[receipt({ planInputId: undefined })]} />,
+    );
+    expect(html).not.toContain('Add to this month');
+  });
+
+  it('no tap on a month_scoped receipt — it already changed the month', () => {
+    const html = renderToStaticMarkup(
+      <DraftPlanView beats={[beat()]} monthLabel="October" clientName="Earl of East" pillars={['Brand Story & Culture']}
+        onMutate={async () => ({ ok: true })} onAddToMonth={async () => ({ ok: true })}
+        receipts={[receipt({ scope: 'month_scoped', lines: ['Moved 3 posts'] })]} />,
+    );
+    expect(html).not.toContain('Add to this month');
+  });
+});
