@@ -8,14 +8,19 @@
  *
  * ── The replacement rule ──────────────────────────────────────────────────────
  * A month has a fixed slot count. Adding a launch arc means something else goes. What goes
- * is the LOWEST-EVIDENCE beat, in this order:
- *   1. template-basis beats   — we had no history to justify these at all
- *   2. observed beats, weakest evidence first (smallest n, then lowest engagement)
+ * is decided by TIER — the client's hand outranks the machine, newer words outrank older:
+ *   tier 0  template-basis beats   — we had no history to justify these at all
+ *   tier 1  observed beats, weakest evidence first (smallest n, then lowest engagement)
+ *   tier 2  beats an EARLIER input created and the client never touched — last resort,
+ *           oldest application first
  * and NEVER:
  *   - a beat the client has touched (beat_meta.clientTouched) — their hand outranks the
  *     algorithm, always
+ *   - a beat the client added themselves (basis 'client_added')
  *   - an experiment beat sourced from a client idea — they asked for that specifically
- *   - a beat already added by a previous client input this cycle
+ *
+ * See replacementTier for why tier 2 exists: protecting an earlier sentence's output forever
+ * made each sentence immunise the month against the next one, and the pool starved.
  *
  * Slot count never grows. If nothing is replaceable, the transform reports that rather
  * than silently exceeding the month or silently doing nothing.
@@ -68,7 +73,10 @@ export function isClientTouched(beat: TransformBeat): boolean {
   return (beat.beatMeta as { clientTouched?: unknown } | null)?.clientTouched === true;
 }
 
-/** An experiment the client asked for, or a beat a previous input of theirs created. */
+/** An experiment the client asked for, or a beat a previous input of theirs created.
+ *  NOT the replaceability test any more — see replacementTier, which distinguishes a beat
+ *  the client placed from a beat the machine placed on an earlier sentence's behalf. Kept
+ *  because "did this originate with the client at all" is still a question worth asking. */
 export function isClientOriginated(beat: TransformBeat): boolean {
   const meta = beat.beatMeta;
   if (!meta) return false;
@@ -77,9 +85,50 @@ export function isClientOriginated(beat: TransformBeat): boolean {
   return meta.slotType === 'experiment' && meta.rationaleEvidence?.candidateRank?.origin === 'client';
 }
 
+/** Was this beat placed by the client's own hand (the Build B "add" affordance)? */
+export function isClientAdded(beat: TransformBeat): boolean {
+  return beat.beatMeta?.rationaleEvidence?.basis === 'client_added';
+}
+
+/** Was this beat placed by an EARLIER intake sentence, and left alone since? */
+export function isFromEarlierInput(beat: TransformBeat): boolean {
+  return beat.beatMeta?.rationaleEvidence?.basis === 'client_input' && !isClientTouched(beat);
+}
+
+/**
+ * Replacement tiers — lower goes first, `null` is never replaceable.
+ *
+ * The rule in one line: **the client's hand outranks the machine, and newer words outrank
+ * older words.**
+ *
+ * Tier 3 is the change. It used to be that anything a previous input created was protected
+ * forever, which sounds respectful and isn't: ivy-t's rehearsal drove the pool from 21 beats
+ * to 5 in eleven sentences, because every sentence's output immunised itself against the next
+ * sentence (docs/reports/ivy-t-rehearsal-failures.md F3, "a different, real refusal"). The
+ * client would have hit "every beat this month is either yours or already earning its place"
+ * within a few more inputs, having never touched a single beat themselves.
+ *
+ * A beat the machine wrote from an earlier sentence is not the client's hand — it is our
+ * guess at an earlier sentence, and their newer sentence is better evidence of what they want
+ * than our older guess. A beat they actually TOUCHED, or added themselves, still outranks
+ * everything, and that is the distinction that matters.
+ */
+export function replacementTier(beat: TransformBeat): 0 | 1 | 2 | null {
+  if (isClientTouched(beat)) return null;                     // their hand — always
+  if (isClientAdded(beat))   return null;                     // they placed it themselves
+  const meta = beat.beatMeta;
+  if (meta && meta.slotType === 'experiment'
+      && meta.rationaleEvidence?.candidateRank?.origin === 'client') return null;   // they asked for this experiment
+
+  if (isFromEarlierInput(beat)) return 2;                     // last resort, oldest first
+  const basis = meta?.rationaleEvidence?.basis;
+  if (!meta || basis === 'template') return 0;                // nothing ever justified it
+  return 1;                                                   // observed
+}
+
 /** May this beat be replaced to make room for something the client asked for? */
 export function isReplaceable(beat: TransformBeat): boolean {
-  return !isClientTouched(beat) && !isClientOriginated(beat);
+  return replacementTier(beat) !== null;
 }
 
 /**
@@ -105,14 +154,60 @@ export function byWeakestEvidence(a: TransformBeat, b: TransformBeat): number {
   return a.date.localeCompare(b.date) || a.id.localeCompare(b.id);
 }
 
-/** Replacement candidates, weakest first, optionally preferring beats near a date. */
+/**
+ * Replacement candidates, weakest first, optionally preferring beats near a date.
+ *
+ * TIER dominates every other consideration: a tier-2 beat (an earlier input's untouched
+ * output) is only ever reached once tiers 0 and 1 are exhausted, however weak its evidence
+ * looks. Within tier 2, OLDEST APPLICATION FIRST — `position` is the ordering, because
+ * writeOps assigns positions from `max(position) + 1` per application, so a later
+ * application's beats always carry higher positions than an earlier one's. That makes
+ * position a true application-order key here rather than a proxy for one.
+ */
 export function replacementCandidates(beats: TransformBeat[], nearDate?: string): TransformBeat[] {
-  const pool = beats.filter(isReplaceable).sort(byWeakestEvidence);
+  const tierOf = (b: TransformBeat) => replacementTier(b) ?? 99;
+  const pool = beats
+    .filter(isReplaceable)
+    .sort((a, b) =>
+      tierOf(a) - tierOf(b)
+      || (tierOf(a) === 2 ? a.position - b.position || a.date.localeCompare(b.date) || a.id.localeCompare(b.id) : 0)
+      || byWeakestEvidence(a, b));
   if (!nearDate) return pool;
   // Among equally weak beats, take the one nearest the client's date — a launch tease
-  // should displace something that week, not something three weeks away.
+  // should displace something that week, not something three weeks away. Tier still leads:
+  // proximity decides WITHIN a tier and never promotes a tier-2 beat over a tier-0 one.
   const dist = (d: string) => Math.abs(Date.parse(`${d}T00:00:00Z`) - Date.parse(`${nearDate}T00:00:00Z`));
-  return pool.sort((a, b) => byWeakestEvidence(a, b) || dist(a.date) - dist(b.date));
+  return pool.sort((a, b) =>
+    tierOf(a) - tierOf(b)
+    || (tierOf(a) === 2 ? a.position - b.position : 0)
+    || byWeakestEvidence(a, b)
+    || dist(a.date) - dist(b.date));
+}
+
+/**
+ * The one honest sentence for "there is nowhere to put this".
+ *
+ * Shared by every placing transform so the client meets the same words whichever kind of
+ * input ran out of room, and told what to DO about it — a refusal that names no remedy is
+ * just a wall.
+ */
+export const POOL_EMPTY_NOTE =
+  'Every beat this month is either yours or already earning its place — add a day or drop something to make room.';
+
+/**
+ * Name a tier-2 displacement in terms the client can act on.
+ *
+ * They need to know we moved something they asked for earlier, because that is the one
+ * category of replacement they might want to undo. Tiers 0-1 need no line: displacing a beat
+ * we generated is the ordinary cost of a new ask and saying so on every application would be
+ * noise.
+ */
+function displacementNote(victims: TransformBeat[]): string | undefined {
+  const n = victims.filter((v) => replacementTier(v) === 2).length;
+  if (n === 0) return undefined;
+  return n === 1
+    ? 'Made room by replacing a post from an earlier request.'
+    : `Made room by replacing ${n} posts from earlier requests.`;
 }
 
 /** Evidence for a beat that exists because the client said so. No metrics pretended. */
@@ -182,18 +277,18 @@ export function applyLaunchArc(intent: MonthScopedIntent, beats: TransformBeat[]
   const anchor = intent.dateRange.start;
 
   const pool = replacementCandidates(beats, anchor);
-  if (pool.length === 0) {
-    return { ops: [], note: `Every beat this month is either yours or already earning its place, so ${intent.subject} was added to your ideas instead.` };
-  }
+  if (pool.length === 0) return { ops: [], note: POOL_EMPTY_NOTE };
 
   const { parts, dropped } = arcDates(anchor, month);
 
   const ops: BeatOp[] = [];
   const used = new Set<string>();
+  const victims: TransformBeat[] = [];
   for (const part of parts) {
     const victim = pool.find((b) => !used.has(b.id));
     if (!victim) break;
     used.add(victim.id);
+    victims.push(victim);
     ops.push({ op: 'remove', id: victim.id });
     ops.push({
       op: 'add',
@@ -211,6 +306,8 @@ export function applyLaunchArc(intent: MonthScopedIntent, beats: TransformBeat[]
     notes.push(`Added ${placed} of ${parts.length} posts for ${intent.subject} — the rest of the month is already spoken for.`);
   }
   if (dropped) notes.push(dropped);
+  const displaced = displacementNote(victims);
+  if (displaced) notes.push(displaced);
   return notes.length > 0 ? { ops, note: notes.join(' ') } : { ops };
 }
 
@@ -354,11 +451,13 @@ export function applySeries(intent: MonthScopedIntent, beats: TransformBeat[], m
   const ops: BeatOp[] = [];
   const used = new Set<string>();
   const placed: DeferredInstance[] = [];
+  const victims: TransformBeat[] = [];
 
   for (const inst of within) {
     const victim = pool.find((b) => !used.has(b.id));
     if (!victim) break;
     used.add(victim.id);
+    victims.push(victim);
     placed.push(inst);
     ops.push({ op: 'remove', id: victim.id });
     ops.push({
@@ -372,10 +471,7 @@ export function applySeries(intent: MonthScopedIntent, beats: TransformBeat[], m
   }
 
   if (placed.length === 0) {
-    return {
-      ops: [], deferred: beyond,
-      note: `Every beat this month is either yours or already earning its place, so ${intent.subject} was added to your ideas instead.`,
-    };
+    return { ops: [], deferred: beyond, note: POOL_EMPTY_NOTE };
   }
 
   const short = within.length - placed.length;
@@ -387,8 +483,9 @@ export function applySeries(intent: MonthScopedIntent, beats: TransformBeat[], m
   // it belongs in the backlog with the out-of-month ones rather than vanishing.
   const unplaced = within.slice(placed.length);
   const deferred = [...unplaced, ...beyond];
+  const full = [note, displacementNote(victims)].filter(Boolean).join(' ');
 
-  return { ops, ...(note ? { note } : {}), ...(deferred.length > 0 ? { deferred } : {}) };
+  return { ops, ...(full ? { note: full } : {}), ...(deferred.length > 0 ? { deferred } : {}) };
 }
 
 /** A single dated beat, same replacement rule. */
@@ -397,14 +494,15 @@ export function applyEvent(intent: MonthScopedIntent, beats: TransformBeat[], mo
   const date = clampToMonth(intent.dateRange.start, month);
 
   const victim = replacementCandidates(beats, date)[0];
-  if (!victim) {
-    return { ops: [], note: `Every beat this month is either yours or already earning its place, so ${intent.subject} was added to your ideas instead.` };
-  }
+  if (!victim) return { ops: [], note: POOL_EMPTY_NOTE };
+
+  const displaced = displacementNote([victim]);
   return {
     ops: [
       { op: 'remove', id: victim.id },
       { op: 'add', date, format: victim.format, pillar: victim.pillar, title: intent.subject, beatMeta: clientInputMeta(intent.sourceText) },
     ],
+    ...(displaced ? { note: displaced } : {}),
   };
 }
 
@@ -427,7 +525,10 @@ export function applyEmphasis(
 
   const eligible = beats
     .filter((b) => b.date >= today)               // past beats are not ours to change
-    .filter(isReplaceable)                        // client-touched + client-originated protected
+    // Tiers 0-1 ONLY. An emphasis is a tilt, not a request for a specific post, so it must
+    // not re-pillar a beat an earlier sentence asked for by name — displacing one to make
+    // room for a NEW named ask is defensible; quietly rewriting what it is about is not.
+    .filter((b) => { const t = replacementTier(b); return t === 0 || t === 1; })
     .filter((b) => (asFormat ? b.format !== asFormat : b.pillar.toLowerCase() !== target.toLowerCase()))
     .sort(byWeakestEvidence);
 

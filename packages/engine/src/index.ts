@@ -87,7 +87,8 @@ export { classifyIntake, routeFromParsed, parseClassification, monthScopedIntent
 export type { IntakeRouting, MonthScopedIntent, EvergreenReason, ClassifyParams } from './intake-classify.js';
 export {
   applyIntent, applyLaunchArc, applyEvent, applySeries, expandSeries, applyEmphasis, applyBeatEdit,
-  replacementCandidates, byWeakestEvidence, isReplaceable, isClientTouched, isClientOriginated, resolveBeatRef,
+  replacementCandidates, byWeakestEvidence, isReplaceable, replacementTier, isClientTouched, isClientOriginated,
+  isClientAdded, isFromEarlierInput, POOL_EMPTY_NOTE, resolveBeatRef,
 } from './draft-transforms.js';
 export type { TransformBeat, BeatOp, TransformResult, DeferredInstance } from './draft-transforms.js';
 export { diffBeats, renderDiff, renderDelta, shortDate, isNoOp } from './draft-diff.js';
