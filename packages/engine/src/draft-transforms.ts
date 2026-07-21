@@ -186,16 +186,18 @@ export function applyLaunchArc(intent: MonthScopedIntent, beats: TransformBeat[]
     return { ops: [], note: `Every beat this month is either yours or already earning its place, so ${intent.subject} was added to your ideas instead.` };
   }
 
+  const { parts, dropped } = arcDates(anchor, month);
+
   const ops: BeatOp[] = [];
   const used = new Set<string>();
-  for (const part of LAUNCH_ARC) {
+  for (const part of parts) {
     const victim = pool.find((b) => !used.has(b.id));
     if (!victim) break;
     used.add(victim.id);
     ops.push({ op: 'remove', id: victim.id });
     ops.push({
       op: 'add',
-      date:   clampToMonth(iso(parse(anchor) + part.offsetDays * dayMs), month),
+      date:   part.date,
       format: part.format,
       pillar: victim.pillar,   // keep the displaced beat's pillar — the month's balance holds
       title:  `${intent.subject} — ${part.label}`,
@@ -204,9 +206,67 @@ export function applyLaunchArc(intent: MonthScopedIntent, beats: TransformBeat[]
   }
 
   const placed = ops.filter((o) => o.op === 'add').length;
-  return placed < LAUNCH_ARC.length
-    ? { ops, note: `Added ${placed} of ${LAUNCH_ARC.length} posts for ${intent.subject} — the rest of the month is already spoken for.` }
-    : { ops };
+  const notes: string[] = [];
+  if (placed < parts.length) {
+    notes.push(`Added ${placed} of ${parts.length} posts for ${intent.subject} — the rest of the month is already spoken for.`);
+  }
+  if (dropped) notes.push(dropped);
+  return notes.length > 0 ? { ops, note: notes.join(' ') } : { ops };
+}
+
+/**
+ * Resolve the arc's three parts to distinct, in-month, correctly-ordered dates.
+ *
+ * The bug this exists for: `clampToMonth` pinned the tease's -5 offset to the month's first
+ * day, so a launch anchored on the 1st put the tease ON the launch — two beats of one arc on
+ * one date, which is not an arc (docs/reports/ivy-t-rehearsal-failures.md F2). Nothing
+ * checked for the collision because nothing looked at the parts together.
+ *
+ * The rule, deterministic in both directions:
+ *   - a tease colliding with the launch slides to the first FREE EARLIER day in the month
+ *   - if there is no earlier day (anchor IS the month start), the tease is DROPPED and said
+ *   - the follow-up mirrors it against the month end
+ *
+ * Dropping beats shifting-forward deliberately: a tease after its launch is not a tease, and
+ * silently reordering the arc would teach the client that our labels don't mean anything.
+ */
+function arcDates(anchor: string, month: string): {
+  parts: Array<{ date: string; label: string; format: string }>;
+  dropped?: string;
+} {
+  const first = clampToMonth(`${month}-01`, month);
+  const last  = clampToMonth(`${month}-31`, month);
+  const at = (offset: number) => clampToMonth(iso(parse(anchor) + offset * dayMs), month);
+
+  const launchDate = at(0);
+  const parts: Array<{ date: string; label: string; format: string }> = [];
+  const notes: string[] = [];
+
+  // Tease — must land strictly BEFORE the launch.
+  const teasePart = LAUNCH_ARC[0]!;
+  const teaseWanted = at(teasePart.offsetDays);
+  if (teaseWanted < launchDate) {
+    parts.push({ date: teaseWanted, label: teasePart.label, format: teasePart.format });
+  } else if (launchDate > first) {
+    parts.push({ date: iso(parse(launchDate) - dayMs), label: teasePart.label, format: teasePart.format });
+  } else {
+    notes.push('The launch is at the very start of the month, so there was no room for a tease before it.');
+  }
+
+  parts.push({ date: launchDate, label: LAUNCH_ARC[1]!.label, format: LAUNCH_ARC[1]!.format });
+
+  // Follow-up — must land strictly AFTER the launch. Same rule, mirrored off the month end.
+  const followPart = LAUNCH_ARC[2]!;
+  const followWanted = at(followPart.offsetDays);
+  if (followWanted > launchDate) {
+    parts.push({ date: followWanted, label: followPart.label, format: followPart.format });
+  } else if (launchDate < last) {
+    parts.push({ date: iso(parse(launchDate) + dayMs), label: followPart.label, format: followPart.format });
+  } else {
+    notes.push('The launch is on the last day of the month, so the follow-up moves to next month’s plan.');
+  }
+
+  return notes.length > 0 ? { parts, dropped: notes.join(' ') } : { parts };
 }
 
 // ── Series ────────────────────────────────────────────────────────────────────
