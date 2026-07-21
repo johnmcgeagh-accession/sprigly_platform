@@ -28,6 +28,40 @@ function numVal(e: { currentTarget: unknown }): number {
   return Number((e.currentTarget as unknown as { value: string }).value);
 }
 
+/**
+ * Change handlers that read the event SYNCHRONOUSLY.
+ *
+ * React recycles a synthetic event once the handler returns, nulling currentTarget. A
+ * setState UPDATER runs later — React calls it during the render pass, not at the call
+ * site — so `setCadence((c) => ({ ...c, min: numVal(e) }))` reads a dead event and throws
+ *   TypeError: null is not an object (evaluating 'e.currentTarget.value')
+ * the moment anyone types. It is data-independent, which is why it survived a session of
+ * shape hardening: nothing about the stored config affects it.
+ *
+ * These exist as factories rather than inline arrows so the synchronous read is structural
+ * — a handler cannot be written the wrong way by accident — and so the recycling can be
+ * simulated in a test without a DOM.
+ */
+export function onCadenceFieldChange(
+  set: (updater: (c: Cadence) => Cadence) => void,
+  field: keyof Cadence,
+): (e: { currentTarget: unknown }) => void {
+  return (e) => {
+    const v = numVal(e);                       // read NOW, while the event is alive
+    set((c) => ({ ...c, [field]: v }));
+  };
+}
+
+export function onPostingTimeChange(
+  set: (updater: (t: PostingTimes) => PostingTimes) => void,
+  key: keyof PostingTimes,
+): (e: { currentTarget: unknown }) => void {
+  return (e) => {
+    const v = val(e);                          // read NOW, while the event is alive
+    set((t) => ({ ...t, [key]: v }));
+  };
+}
+
 // ── local state types ─────────────────────────────────────────────────────────
 
 interface PillarState {
@@ -557,7 +591,7 @@ export function PlanningConfigEditor({ clientId, clientName, channel, initial }:
               min={0}
               className={inputCls}
               value={cadence.postsPerMonthMin}
-              onChange={(e) => setCadence((c: Cadence) => ({ ...c, postsPerMonthMin: numVal(e) }))}
+              onChange={onCadenceFieldChange(setCadence, 'postsPerMonthMin')}
             />
           </div>
           <div>
@@ -567,7 +601,7 @@ export function PlanningConfigEditor({ clientId, clientName, channel, initial }:
               min={0}
               className={inputCls}
               value={cadence.postsPerMonthMax}
-              onChange={(e) => setCadence((c: Cadence) => ({ ...c, postsPerMonthMax: numVal(e) }))}
+              onChange={onCadenceFieldChange(setCadence, 'postsPerMonthMax')}
             />
           </div>
           <div>
@@ -577,7 +611,7 @@ export function PlanningConfigEditor({ clientId, clientName, channel, initial }:
               min={0}
               className={inputCls}
               value={cadence.minPerWeek}
-              onChange={(e) => setCadence((c: Cadence) => ({ ...c, minPerWeek: numVal(e) }))}
+              onChange={onCadenceFieldChange(setCadence, 'minPerWeek')}
             />
           </div>
           <div>
@@ -587,7 +621,7 @@ export function PlanningConfigEditor({ clientId, clientName, channel, initial }:
               min={0}
               className={inputCls}
               value={cadence.maxPerWeek}
-              onChange={(e) => setCadence((c: Cadence) => ({ ...c, maxPerWeek: numVal(e) }))}
+              onChange={onCadenceFieldChange(setCadence, 'maxPerWeek')}
             />
           </div>
         </div>
@@ -614,7 +648,7 @@ export function PlanningConfigEditor({ clientId, clientName, channel, initial }:
               <input
                 className={inputCls}
                 value={postingTimes[key]}
-                onChange={(e) => setPostingTimes((t: PostingTimes) => ({ ...t, [key]: val(e) }))}
+                onChange={onPostingTimeChange(setPostingTimes, key)}
                 placeholder="7pm"
               />
             </div>

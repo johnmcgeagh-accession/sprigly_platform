@@ -11,7 +11,11 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 vi.mock('./actions', () => ({ upsertPlanningConfig: async () => ({ ok: true }) }));
 
-import { PlanningConfigEditor, pillarToState, stateToPillar, type InitialPlanningConfig } from './editor';
+import {
+  PlanningConfigEditor, pillarToState, stateToPillar,
+  onCadenceFieldChange, onPostingTimeChange,
+  type InitialPlanningConfig,
+} from './editor';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -130,4 +134,80 @@ describe('pillar round-trip', () => {
     const out = stateToPillar(pillarToState({ name: 'X', tagline: '', keyMessages: [], contentIdeas: [], sharePct: 'lots' } as Any)) as unknown as Record<string, unknown>;
     expect('sharePct' in out).toBe(false);
   });
+});
+
+// ── Recycled synthetic events (the prod crash) ────────────────────────────────
+// prod admin, ivy-t: typing in Posts/month min died with
+//   TypeError: null is not an object (evaluating 'e.currentTarget.value')
+// A setState UPDATER runs later than the handler that created it — React invokes it during
+// the render pass, by which point the pooled event has been recycled and currentTarget is
+// null. Reading the event inside the updater therefore reads a corpse.
+//
+// Simulated faithfully below: capture the updater without running it, recycle the event,
+// THEN run the updater — exactly React's order.
+
+/** A synthetic event that React will recycle, as it does after the handler returns. */
+function recyclableEvent(value: string) {
+  const e: { currentTarget: { value: string } | null } = { currentTarget: { value } };
+  return { e, recycle: () => { e.currentTarget = null; } };
+}
+
+/** A setState stand-in that DEFERS the updater, like React. */
+function deferredSetter<T>() {
+  let pending: ((prev: T) => T) | null = null;
+  const set = (updater: (prev: T) => T) => { pending = updater; };
+  return { set, run: (prev: T): T => pending!(prev) };
+}
+
+describe('cadence inputs survive event recycling', () => {
+  const CADENCE = { postsPerMonthMin: 16, postsPerMonthMax: 20, minPerWeek: 3, maxPerWeek: 5 };
+
+  it.each(['postsPerMonthMin', 'postsPerMonthMax', 'minPerWeek', 'maxPerWeek'] as const)(
+    'typing into %s does not throw, and stores the typed number',
+    (field) => {
+      const { set, run } = deferredSetter<typeof CADENCE>();
+      const { e, recycle } = recyclableEvent('12');
+
+      onCadenceFieldChange(set as Any, field)(e);
+      recycle();                                     // React nulls the pooled event…
+
+      let next!: typeof CADENCE;
+      expect(() => { next = run(CADENCE); }).not.toThrow();   // …then runs the updater
+      expect(next[field]).toBe(12);
+      // every other field is untouched
+      for (const k of Object.keys(CADENCE) as (keyof typeof CADENCE)[]) {
+        if (k !== field) expect(next[k]).toBe(CADENCE[k]);
+      }
+    },
+  );
+
+  it('an emptied field reads as 0, not NaN-from-a-dead-event', () => {
+    const { set, run } = deferredSetter<typeof CADENCE>();
+    const { e, recycle } = recyclableEvent('');
+    onCadenceFieldChange(set as Any, 'postsPerMonthMin')(e);
+    recycle();
+    expect(run(CADENCE).postsPerMonthMin).toBe(0);
+  });
+});
+
+describe('posting-time inputs survive event recycling', () => {
+  const TIMES = { launch: '6am', morning: '7am', evening: '7pm', wsg: '6pm', sundayStyle: '8pm' };
+
+  it.each(['launch', 'morning', 'evening', 'wsg', 'sundayStyle'] as const)(
+    'typing into %s does not throw, and stores the typed string',
+    (key) => {
+      const { set, run } = deferredSetter<typeof TIMES>();
+      const { e, recycle } = recyclableEvent('9pm');
+
+      onPostingTimeChange(set as Any, key)(e);
+      recycle();
+
+      let next!: typeof TIMES;
+      expect(() => { next = run(TIMES); }).not.toThrow();
+      expect(next[key]).toBe('9pm');
+      for (const k of Object.keys(TIMES) as (keyof typeof TIMES)[]) {
+        if (k !== key) expect(next[k]).toBe(TIMES[k]);
+      }
+    },
+  );
 });
