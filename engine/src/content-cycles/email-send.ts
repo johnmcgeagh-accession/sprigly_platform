@@ -23,6 +23,35 @@ type Db = typeof _db;
  *  go-live toggle). Do not change without changing the go-live plan. */
 export const APP_DELIVERY_PIN = 'john.mcgeagh@gmail.com';
 
+/**
+ * WHOSE Gmail account sends a platform→client notification.
+ *
+ * Every template this module serves — ask, ask_drafted, nudge, last_call, plan_ready,
+ * plan_ready_auto — is Sprigly writing TO a client. None of them is Sprigly acting AS a
+ * client. Sending them with the client's own OAuth tokens made a platform notification
+ * depend on a per-client integration that has nothing to do with it: earl-of-east has no
+ * Gmail connection, so its October plan-ready email failed with "No Gmail tokens for
+ * client" and the client heard nothing
+ * (docs/reports/round-two-email-and-surface.md §A5).
+ *
+ * STORAGE: a client id, pointing at an EXISTING oauth_connections row — not a new table, a
+ * new column, or a second copy of the tokens. Copying would mean two rows refreshing
+ * independently against one Google account, and the copy would silently expire. Referencing
+ * keeps one row, refreshed in one place, reconnectable through the connect flow that
+ * already exists. Which identity is the operator is deployment configuration — it differs
+ * between uat and prod — so it lives in env rather than in the data.
+ *
+ * UNSET → falls back to the client's own tokens, i.e. exactly today's behaviour, with a
+ * warning naming the missing variable. A deploy that has not been configured yet must not
+ * change how anything sends; it must say so.
+ */
+export const OPERATOR_SEND_CLIENT_ID = 'OPERATOR_SEND_CLIENT_ID';
+
+export function operatorSendClientId(env: NodeJS.ProcessEnv = process.env): string | null {
+  const v = (env[OPERATOR_SEND_CLIENT_ID] ?? '').trim();
+  return v.length > 0 ? v : null;
+}
+
 export interface TemplateEmailDeps {
   db:                 Db;
   encProvider:        EncryptionProvider;
@@ -78,9 +107,20 @@ export async function deliverTemplatedEmail(
     return false;
   }
 
+  // The account that SENDS. Only the token lookup moves: the destination reads and refreshes
+  // tokens by event.clientId (gmail-reply-with-attachment.ts:205,234), and the recipient is
+  // the pinned address below, resolved before any client-scoped logic runs (:128-130). So
+  // this changes who it is from, and nothing else.
+  const operatorId    = operatorSendClientId();
+  const sendAsClientId = operatorId ?? clientId;
+  if (!operatorId) {
+    logger.warn({ clientId, key, env: OPERATOR_SEND_CLIENT_ID },
+      'email-send: no operator send identity configured — falling back to the client\'s own Gmail tokens');
+  }
+
   try {
     const dest   = new GmailReplyWithAttachment(db, encProvider, googleClientId, googleClientSecret);
-    const event  = { clientId, reply: { data: {} } } as unknown as IncomingEvent;
+    const event  = { clientId: sendAsClientId, reply: { data: {} } } as unknown as IncomingEvent;
     const config = {
       settings: {
         to:           { mode: 'address', address: APP_DELIVERY_PIN },
@@ -93,10 +133,12 @@ export async function deliverTemplatedEmail(
 
     const result = await dest.deliver({}, event, config, ctx);
     if (result.success) {
-      logger.info({ clientId, key, to: APP_DELIVERY_PIN }, 'email-send: sent (pinned test inbox)');
+      logger.info({ clientId, key, sentAs: sendAsClientId, to: APP_DELIVERY_PIN }, 'email-send: sent (pinned test inbox)');
       return true;
     }
-    logger.warn({ clientId, key, err: result.error }, 'email-send: not sent (non-fatal)');
+    // Missing or invalid OPERATOR tokens fail exactly like missing client tokens did: false,
+    // logged, never thrown — so settlement releases its claim and the daily sweep retries.
+    logger.warn({ clientId, key, sentAs: sendAsClientId, err: result.error }, 'email-send: not sent (non-fatal)');
     return false;
   } catch (err) {
     logger.warn({ clientId, key, err: String(err) }, 'email-send: send threw (non-fatal)');
