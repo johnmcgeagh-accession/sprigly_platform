@@ -41,11 +41,15 @@ export function DraftPlan(props: DraftPlanProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(op),
       });
-      const json = (await res.json()) as { ok?: boolean; beats?: DraftBeatView[]; message?: string };
+      const json = (await res.json()) as { ok?: boolean; beats?: DraftBeatView[]; message?: string; dropped?: Record<string, unknown> };
       if (!res.ok || !json.ok) {
         return { ok: false, message: json.message ?? 'That didn’t work. Try again?' };
       }
-      return { ok: true, beats: json.beats ?? [] };
+      // `dropped` is the full removed beat — the view holds it so undo can restore it
+      // verbatim rather than re-adding a skeleton.
+      return json.dropped
+        ? { ok: true, beats: json.beats ?? [], dropped: json.dropped }
+        : { ok: true, beats: json.beats ?? [] };
     } catch {
       // A network failure must read as a network failure, not as a rejected edit — the
       // client should retry, not assume we refused them.

@@ -38,8 +38,30 @@ export type DraftMutationError =
   | 'invalid_pillar';
 
 export type DraftMutationResult =
-  | { ok: true;  beats: DraftBeatView[] }
+  | { ok: true;  beats: DraftBeatView[]; dropped?: DroppedBeat }
   | { ok: false; error: DraftMutationError; message: string };
+
+/**
+ * A dropped beat, complete enough to put back exactly as it was.
+ *
+ * Undo used to re-add with {date, format, pillar} and nothing else, which routed through
+ * addBeat and manufactured a NEW beat: title = the pillar name, basis = 'client_added',
+ * clientTouched = true, position at the end, and the rationale, sourceRef and assumptions
+ * simply gone. Undoing a launch-arc beat therefore destroyed it rather than restoring it —
+ * which is where the seven subjectless husks in cycle 040d6a1a came from
+ * (docs/reports/uat-findings-fixes.md, Part 0).
+ *
+ * Returned by dropBeat so the caller can hold it and hand it straight back. It survives a
+ * refetch between drop and undo because it is the caller's to keep, not a lookup.
+ */
+export interface DroppedBeat {
+  date:     string;
+  format:   string;
+  pillar:   string;
+  title:    string;
+  position: number;
+  beatMeta: BeatMeta | null;
+}
 
 const MESSAGES: Record<DraftMutationError, string> = {
   not_found:       'We couldn’t find that beat.',
@@ -197,8 +219,77 @@ export async function dropBeat(clientId: string, postId: string): Promise<DraftM
   const ctx = await requireDraftMutable(clientId, postId);
   if (isError(ctx)) return fail(ctx);
 
+  // Snapshot BEFORE the delete: this is a hard delete, so afterwards there is nothing left
+  // to reconstruct from. Handing it back is what makes undo a restore rather than a re-add.
+  const [row] = await db
+    .select({
+      scheduledDate: contentCyclePosts.scheduledDate, format: contentCyclePosts.format,
+      pillar: contentCyclePosts.pillar, position: contentCyclePosts.position,
+      beatMeta: contentCyclePosts.beatMeta, sourceMeta: contentCyclePosts.sourceMeta,
+    })
+    .from(contentCyclePosts)
+    .where(scopedDraft(clientId, ctx.cycleId, postId))
+    .limit(1);
+
   await db.delete(contentCyclePosts).where(scopedDraft(clientId, ctx.cycleId, postId));
-  return { ok: true, beats: await loadDraftBeats(clientId, ctx.cycleId) };
+
+  const beats = await loadDraftBeats(clientId, ctx.cycleId);
+  if (!row) return { ok: true, beats };
+  const title = typeof row.sourceMeta?.['title'] === 'string' ? (row.sourceMeta['title'] as string) : (row.pillar ?? '');
+  return {
+    ok: true, beats,
+    dropped: {
+      date: row.scheduledDate, format: row.format, pillar: row.pillar ?? '',
+      title, position: row.position, beatMeta: row.beatMeta,
+    },
+  };
+}
+
+/**
+ * Put a dropped beat back, exactly as it was.
+ *
+ * Deliberately NOT addBeat with extra fields: addBeat's job is to create a beat the client
+ * chose, and it stamps that provenance on purpose. Restoring is the opposite act — the row
+ * should come back indistinguishable from the one that was removed, including the evidence
+ * that justified it and the position it held.
+ *
+ * The snapshot comes from the client, so everything that decides ACCESS is re-derived
+ * server-side (client, cycle, channel, draft status) and the same guards addBeat applies are
+ * applied here. What the snapshot is trusted for is its own content — title, evidence,
+ * position — which the server handed to that client moments earlier. The trust boundary is
+ * therefore no wider than the existing 'add' op, which already lets a client name a date,
+ * format and pillar.
+ */
+export async function restoreBeat(
+  clientId: string, cycleId: string, beat: DroppedBeat, today: string = editScopeToday(),
+): Promise<DraftMutationResult> {
+  if (!(await cycleIsPreCutoff(cycleId))) return fail('cutoff_passed');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(beat.date) || !isEditableDate(beat.date, today)) return fail('read_only_date');
+  if (!BEAT_FORMATS.has(beat.format as PostFormat)) return fail('invalid_format');
+
+  const [cycle] = await db
+    .select({ channel: contentCycles.channel })
+    .from(contentCycles)
+    .where(and(eq(contentCycles.id, cycleId), eq(contentCycles.clientId, clientId)))
+    .limit(1);
+  if (!cycle) return fail('not_found');
+
+  const vocab = await pillarVocab(clientId, cycle.channel);
+  if (vocab.length === 0 || !vocab.includes(beat.pillar)) return fail('invalid_pillar');
+
+  await db.insert(contentCyclePosts).values({
+    clientId, cycleId, channel: cycle.channel,
+    scheduledDate: beat.date,
+    format:        beat.format,
+    pillar:        beat.pillar,
+    caption:       null,
+    status:        POST_STATUS_DRAFT,
+    position:      beat.position,          // its own slot back, not the end of the list
+    beatMeta:      beat.beatMeta,          // the evidence that justified it, intact
+    sourceMeta:    { title: beat.title },  // its subject, not its pillar's name
+  });
+
+  return { ok: true, beats: await loadDraftBeats(clientId, cycleId) };
 }
 
 export interface AddBeatSpec { date: string; format: string; pillar: string }

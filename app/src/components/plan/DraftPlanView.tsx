@@ -54,7 +54,7 @@ export interface DraftPlanViewProps {
   /** Pillars the client may add a beat under — their configured vocabulary, nothing else. */
   pillars:    string[];
   /** Applies one mutation and resolves with the new beat list, or an error message. */
-  onMutate:   (op: Record<string, unknown>) => Promise<{ ok: boolean; beats?: DraftBeatView[]; message?: string }>;
+  onMutate:   (op: Record<string, unknown>) => Promise<{ ok: boolean; beats?: DraftBeatView[]; message?: string; dropped?: Record<string, unknown> }>;
   /** Sends a sentence of intake. Resolves with the receipt and the reshaped month. */
   onSay?:     (text: string) => Promise<{ ok: boolean; application?: DraftReceipt; beats?: DraftBeatView[]; message?: string }>;
   /** Receipts already stored for this cycle, newest first — so they survive a reload. */
@@ -104,7 +104,14 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
     setBusyId(null);
     if (!res.ok) { setError(res.message ?? 'That didn’t work. Try again?'); return; }
     if (res.beats) setBeats(res.beats);
-    if (undoOp) { undo.current = undoOp; setUndoLabel(undoOp.label); } else { undo.current = null; setUndoLabel(null); }
+
+    // A drop hands back the WHOLE beat. Undo puts that back verbatim — title, evidence,
+    // position and all. Rebuilding it from {date, format, pillar} turned a launch beat into
+    // a subjectless husk (docs/reports/uat-findings-fixes.md, Part 0).
+    const restore = res.dropped
+      ? { label: 'Beat removed', op: { op: 'restore', beat: res.dropped } as Record<string, unknown> }
+      : undoOp;
+    if (restore) { undo.current = restore; setUndoLabel(restore.label); } else { undo.current = null; setUndoLabel(null); }
   }
 
   async function runUndo() {
@@ -298,11 +305,7 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
 
                         <button
                           type="button" disabled={busy}
-                          onClick={() => mutate({ op: 'drop', postId: beat.id }, beat.id,
-                            // Undo re-adds with the same fields — no history system, just
-                            // the inverse call. The new row is a fresh id, which is honest:
-                            // it IS a new beat, added by the client.
-                            { label: 'Beat removed', op: { op: 'add', date: beat.date, format: beat.format, pillar: beat.pillar } })}
+                          onClick={() => mutate({ op: 'drop', postId: beat.id }, beat.id)}
                           style={{ font: 'inherit', fontSize: 13, minHeight: 40, padding: '7px 11px', border: `1px solid ${C.line}`, borderRadius: 9, background: '#fff', color: C.muted, cursor: 'pointer' }}
                         >
                           Remove
