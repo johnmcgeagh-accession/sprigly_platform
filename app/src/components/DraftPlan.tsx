@@ -41,11 +41,15 @@ export function DraftPlan(props: DraftPlanProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(op),
       });
-      const json = (await res.json()) as { ok?: boolean; beats?: DraftBeatView[]; message?: string };
+      const json = (await res.json()) as { ok?: boolean; beats?: DraftBeatView[]; message?: string; dropped?: Record<string, unknown> };
       if (!res.ok || !json.ok) {
         return { ok: false, message: json.message ?? 'That didn’t work. Try again?' };
       }
-      return { ok: true, beats: json.beats ?? [] };
+      // `dropped` is the full removed beat — the view holds it so undo can restore it
+      // verbatim rather than re-adding a skeleton.
+      return json.dropped
+        ? { ok: true, beats: json.beats ?? [], dropped: json.dropped }
+        : { ok: true, beats: json.beats ?? [] };
     } catch {
       // A network failure must read as a network failure, not as a rejected edit — the
       // client should retry, not assume we refused them.
@@ -63,6 +67,30 @@ export function DraftPlan(props: DraftPlanProps) {
       if (!res.ok || !json.ok) return { ok: false, message: json.message ?? 'That didn’t work. Try again?' };
       // exactOptionalPropertyTypes: only include `application` when we actually have one,
       // rather than passing an explicit undefined the prop type does not admit.
+      return json.application
+        ? { ok: true, application: json.application, beats: json.beats ?? [] }
+        : { ok: true, beats: json.beats ?? [] };
+    } catch {
+      return { ok: false, message: 'We couldn’t reach the server. Check your connection and try again.' };
+    }
+  }
+
+  /**
+   * The rescue tap Build C specified and never wired.
+   *
+   * The server op has always existed (api/plan/draft/apply/route.ts:49); nothing ever sent
+   * it, so an evergreen receipt told the client to "add it from your ideas" on a surface
+   * with no such control. Routes through the SAME transform path as a typed input, so a
+   * rescued idea lands and displaces exactly as if they had just written it.
+   */
+  async function onAddToMonth(planInputId: string, date: string) {
+    try {
+      const res = await fetch('/api/plan/draft/apply', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ op: 'add_to_month', planInputId, date }),
+      });
+      const json = (await res.json()) as { ok?: boolean; application?: DraftReceipt; beats?: DraftBeatView[]; message?: string };
+      if (!res.ok || !json.ok) return { ok: false, message: json.message ?? 'That didn’t work. Try again?' };
       return json.application
         ? { ok: true, application: json.application, beats: json.beats ?? [] }
         : { ok: true, beats: json.beats ?? [] };
@@ -119,6 +147,7 @@ export function DraftPlan(props: DraftPlanProps) {
         receipts={props.receipts}
         onMutate={onMutate}
         onSay={onSay}
+        onAddToMonth={onAddToMonth}
         onApprove={onApprove}
       />
     </>

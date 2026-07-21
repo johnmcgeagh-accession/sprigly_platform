@@ -27,6 +27,8 @@ export interface DraftReceipt {
   id: string; at: string; sourceText: string;
   scope: 'month_scoped' | 'evergreen';
   reason?: string; lines: string[]; changedIds: string[]; note?: string;
+  /** The backlog row, when this receipt filed one — what the rescue tap acts on. */
+  planInputId?: string;
 }
 
 const C = {
@@ -54,9 +56,11 @@ export interface DraftPlanViewProps {
   /** Pillars the client may add a beat under — their configured vocabulary, nothing else. */
   pillars:    string[];
   /** Applies one mutation and resolves with the new beat list, or an error message. */
-  onMutate:   (op: Record<string, unknown>) => Promise<{ ok: boolean; beats?: DraftBeatView[]; message?: string }>;
+  onMutate:   (op: Record<string, unknown>) => Promise<{ ok: boolean; beats?: DraftBeatView[]; message?: string; dropped?: Record<string, unknown> }>;
   /** Sends a sentence of intake. Resolves with the receipt and the reshaped month. */
   onSay?:     (text: string) => Promise<{ ok: boolean; application?: DraftReceipt; beats?: DraftBeatView[]; message?: string }>;
+  /** Rescue a filed idea into this month (Build C's one-tap, finally wired). */
+  onAddToMonth?: (planInputId: string, date: string) => Promise<{ ok: boolean; application?: DraftReceipt; beats?: DraftBeatView[]; message?: string }>;
   /** Receipts already stored for this cycle, newest first — so they survive a reload. */
   receipts?:  DraftReceipt[];
   /** False once the cycle passes its cutoff — the draft stays readable, just not editable. */
@@ -65,7 +69,7 @@ export interface DraftPlanViewProps {
   onApprove?: () => Promise<{ ok: boolean; message?: string }>;
 }
 
-export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars, onMutate, onSay, onApprove, receipts = [], editable = true }: DraftPlanViewProps) {
+export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars, onMutate, onSay, onAddToMonth, onApprove, receipts = [], editable = true }: DraftPlanViewProps) {
   const [beats, setBeats] = useState<DraftBeatView[]>(initial);
   const [receipt, setReceipt] = useState<DraftReceipt | null>(receipts[0] ?? null);
   const [saying, setSaying] = useState(false);
@@ -104,7 +108,35 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
     setBusyId(null);
     if (!res.ok) { setError(res.message ?? 'That didn’t work. Try again?'); return; }
     if (res.beats) setBeats(res.beats);
-    if (undoOp) { undo.current = undoOp; setUndoLabel(undoOp.label); } else { undo.current = null; setUndoLabel(null); }
+
+    // A drop hands back the WHOLE beat. Undo puts that back verbatim — title, evidence,
+    // position and all. Rebuilding it from {date, format, pillar} turned a launch beat into
+    // a subjectless husk (docs/reports/uat-findings-fixes.md, Part 0).
+    const restore = res.dropped
+      ? { label: 'Beat removed', op: { op: 'restore', beat: res.dropped } as Record<string, unknown> }
+      : undoOp;
+    if (restore) { undo.current = restore; setUndoLabel(restore.label); } else { undo.current = null; setUndoLabel(null); }
+  }
+
+  /**
+   * Where a rescued idea lands: the first day of this month the client can still edit.
+   * Deterministic and near, so the beat is visible immediately and they can move it with the
+   * date control — better than inventing a date deep in the month they then have to hunt for.
+   */
+  function rescueDate(): string {
+    const first = beats.map((b) => b.date).sort()[0];
+    return first ?? new Date().toISOString().slice(0, 10);
+  }
+
+  const [rescuing, setRescuing] = useState(false);
+  async function rescue(planInputId: string) {
+    if (!onAddToMonth) return;
+    setRescuing(true); setError(null);
+    const res = await onAddToMonth(planInputId, rescueDate());
+    setRescuing(false);
+    if (!res.ok) { setError(res.message ?? 'That didn’t work. Try again?'); return; }
+    if (res.beats) setBeats(res.beats);
+    if (res.application) { setReceipt(res.application); setChangedIds(res.application.changedIds ?? []); }
   }
 
   async function runUndo() {
@@ -204,7 +236,8 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
           <section aria-label={receipt.scope === 'evergreen' ? 'Saved to your ideas' : 'What changed'} style={{ background: C.navyLt, border: `1px solid ${C.line}`, borderRadius: 12, padding: '13px 14px', marginBottom: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
               <h2 style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: C.muted, margin: 0 }}>
-                {receipt.scope === 'evergreen' ? 'Saved to your ideas' : 'What changed'}
+                {receipt.scope !== 'evergreen' ? 'What changed'
+                  : receipt.reason === 'couldnt_apply' ? 'We couldn’t apply this' : 'Saved to your ideas'}
               </h2>
               <button type="button" onClick={() => setReceipt(null)} aria-label="Dismiss what changed"
                 style={{ font: 'inherit', fontSize: 13, color: C.faint, background: 'transparent', border: 0, cursor: 'pointer', minHeight: 28, padding: 0 }}>
@@ -214,7 +247,13 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
             <p style={{ fontSize: 13, color: C.muted, fontStyle: 'italic', margin: '7px 0 0' }}>“{receipt.sourceText}”</p>
             {receipt.scope === 'evergreen' ? (
               <p style={{ fontSize: 14, lineHeight: 1.5, margin: '8px 0 0' }}>
-                We’ve kept this for later rather than changing {monthLabel}. Want it this month? Add it from your ideas.
+                {/* couldnt_apply is NOT a filing the client asked for. Saying "saved to your
+                    ideas" for a failed extraction is the silent demotion that cost a client
+                    their Meadow launch twice — the copy has to admit what happened. */}
+                {receipt.reason === 'couldnt_apply'
+                  ? <>We couldn’t apply this to {monthLabel} automatically, so we’ve saved it to your ideas.</>
+                  : <>We’ve kept this for later rather than changing {monthLabel}.</>}
+                {' '}If you meant now, add it to this month.
               </p>
             ) : receipt.lines.length > 0 ? (
               <ul style={{ margin: '8px 0 0', paddingLeft: 18, display: 'grid', gap: 5 }}>
@@ -226,6 +265,20 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
               <p style={{ fontSize: 14, margin: '8px 0 0' }}>Nothing needed changing.</p>
             )}
             {receipt.note && <p style={{ fontSize: 13, color: C.muted, margin: '8px 0 0' }}>{receipt.note}</p>}
+            {/* Build C's one-tap rescue. The server op shipped without it, so every evergreen
+                receipt pointed at an ideas list this surface has no control for. */}
+            {receipt.scope === 'evergreen' && receipt.planInputId && onAddToMonth && editable && (
+              <button
+                type="button" disabled={rescuing}
+                data-testid="add-to-this-month"
+                onClick={() => rescue(receipt.planInputId!)}
+                style={{ font: 'inherit', fontSize: 14, fontWeight: 700, marginTop: 11, minHeight: 44,
+                  padding: '10px 15px', borderRadius: 10, border: `1.5px solid ${C.coral}`,
+                  background: C.coralLt, color: C.coralDeep, cursor: rescuing ? 'default' : 'pointer' }}
+              >
+                {rescuing ? 'Adding…' : 'Add to this month'}
+              </button>
+            )}
           </section>
         )}
 
@@ -298,11 +351,7 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
 
                         <button
                           type="button" disabled={busy}
-                          onClick={() => mutate({ op: 'drop', postId: beat.id }, beat.id,
-                            // Undo re-adds with the same fields — no history system, just
-                            // the inverse call. The new row is a fresh id, which is honest:
-                            // it IS a new beat, added by the client.
-                            { label: 'Beat removed', op: { op: 'add', date: beat.date, format: beat.format, pillar: beat.pillar } })}
+                          onClick={() => mutate({ op: 'drop', postId: beat.id }, beat.id)}
                           style={{ font: 'inherit', fontSize: 13, minHeight: 40, padding: '7px 11px', border: `1px solid ${C.line}`, borderRadius: 9, background: '#fff', color: C.muted, cursor: 'pointer' }}
                         >
                           Remove
@@ -328,7 +377,7 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
               <>
                 <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 6px' }}>Happy with it?</h2>
                 <p style={{ fontSize: 14, lineHeight: 1.5, color: C.muted, margin: '0 0 12px' }}>
-                  We’ll write the captions and get everything ready. You can still change things afterwards.
+                  We’ll write the captions, hooks and scripts. You can still change dates and formats afterwards.
                 </p>
                 <button type="button" onClick={() => setConfirming(true)}
                   style={{ width: '100%', minHeight: 50, font: 'inherit', fontSize: 15.5, fontWeight: 700, color: '#fff', background: C.coral, border: 0, borderRadius: 11, cursor: 'pointer' }}>
@@ -345,8 +394,15 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
                   {reelCount > 0 ? <>, and a script for {reelCount === 1 ? 'the' : 'each of the'} <strong>{reelCount}</strong> {reelCount === 1 ? 'reel' : 'reels'}</> : null}
                   . This takes a few minutes.
                 </p>
+                {/* What approval ACTUALLY does. The old copy said "after this the dates and
+                    formats are set for the month", which is not true: every post stays
+                    editable on the calendar by date until its own date passes (the
+                    isEditableDate rule the whole surface is built on). Telling a client
+                    their month is locked when it is not makes them rush a decision that did
+                    not need rushing — and teaches them the interface lies. */}
                 <p style={{ fontSize: 13, color: C.muted, margin: '0 0 12px' }}>
-                  After this the dates and formats are set for the month, so have a last look if you want to move anything.
+                  Dates and formats stay yours to change afterwards, right up until each post’s date.
+                  What this starts is the writing.
                 </p>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button type="button" onClick={approve} disabled={approving}

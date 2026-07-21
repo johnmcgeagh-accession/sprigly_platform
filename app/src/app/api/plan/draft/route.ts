@@ -17,7 +17,7 @@ import { db, contentCycles } from '@sprigly/db';
 import { getSession } from '@/lib/auth';
 import { loadDraftBeats, loadDraftSurfaceContext } from '@/lib/plan';
 import {
-  moveBeat, swapFormat, dropBeat, addBeat, reorderWithinDay,
+  moveBeat, swapFormat, dropBeat, addBeat, restoreBeat, reorderWithinDay,
   type DraftMutationResult,
 } from '@/lib/draft-mutations';
 
@@ -36,7 +36,9 @@ const STATUS: Record<string, number> = {
 };
 
 function respond(result: DraftMutationResult) {
-  if (result.ok) return NextResponse.json({ ok: true, beats: result.beats });
+  // `dropped` rides back on a drop so the client can hold the whole beat and hand it back
+  // verbatim on undo — a re-add from {date,format,pillar} manufactured a husk instead.
+  if (result.ok) return NextResponse.json({ ok: true, beats: result.beats, ...(result.dropped ? { dropped: result.dropped } : {}) });
   return NextResponse.json(
     { ok: false, error: result.error, message: result.message },
     { status: STATUS[result.error] ?? 400 },
@@ -92,6 +94,19 @@ export async function POST(req: Request) {
     case 'drop': {
       if (!postId) return NextResponse.json({ error: 'bad_request' }, { status: 400 });
       return respond(await dropBeat(session.clientId, postId));
+    }
+    case 'restore': {
+      const b = body['beat'];
+      if (!b || typeof b !== 'object') return NextResponse.json({ error: 'bad_request' }, { status: 400 });
+      const beat = b as Record<string, unknown>;
+      const date = String(beat['date'] ?? ''), format = String(beat['format'] ?? ''), pillar = String(beat['pillar'] ?? '');
+      if (!date || !format || !pillar) return NextResponse.json({ error: 'bad_request' }, { status: 400 });
+      return respond(await restoreBeat(session.clientId, cycleId, {
+        date, format, pillar,
+        title:    typeof beat['title'] === 'string' ? beat['title'] : pillar,
+        position: typeof beat['position'] === 'number' ? beat['position'] : 0,
+        beatMeta: (beat['beatMeta'] ?? null) as never,
+      }));
     }
     case 'add': {
       const date   = String(body['date'] ?? '');

@@ -94,8 +94,12 @@ describe('classifyIntake — end to end, never throws', () => {
     expect(r).toMatchObject({ scope: 'evergreen', reason: 'classified_evergreen' });
   });
 
-  it('falls back to evergreen when the model returns junk', async () => {
-    expect(await classify('not json at all')).toMatchObject({ scope: 'evergreen', reason: 'validation_failed' });
+  it('falls back to evergreen when the model returns junk — as couldnt_apply after the retry', async () => {
+    // Behaviour change: a failed extraction is now retried once, and a second failure is
+    // reported as couldnt_apply rather than validation_failed, so the receipt can say we
+    // could not apply it instead of implying the client asked for a filing. The
+    // single-attempt contract is still pinned by routeFromParsed's own tests above.
+    expect(await classify('not json at all')).toMatchObject({ scope: 'evergreen', reason: 'couldnt_apply' });
   });
 
   it('falls back to evergreen when the model THROWS', async () => {

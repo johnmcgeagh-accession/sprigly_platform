@@ -44,6 +44,15 @@ export interface DraftApplication {
   changedIds:  string[];
   /** A transform's explanation when it did less than asked (partial arc, nothing eligible). */
   note?:       string;
+  /**
+   * The backlog row this receipt filed, on the evergreen path.
+   *
+   * Carried so the receipt can offer the one-tap rescue Build C specified: without an id,
+   * "add it to this month" has nothing to add. The server op (`add_to_month`) shipped and
+   * the tap did not, so every evergreen receipt pointed the client at an ideas list with no
+   * way back (docs/reports/uat-findings-fixes.md, Commit 4).
+   */
+  planInputId?: string;
 }
 
 export type ApplyResult =
@@ -160,8 +169,8 @@ export async function loadReceipts(cycleId: string): Promise<DraftApplication[]>
 }
 
 /** File an input in the ideas backlog. */
-async function saveToBacklog(clientId: string, cycleId: string, sourceText: string): Promise<void> {
-  await db.insert(planInputs).values({
+async function saveToBacklog(clientId: string, cycleId: string, sourceText: string): Promise<string | undefined> {
+  const [row] = await db.insert(planInputs).values({
     clientId,
     cycleId: null,                 // durable items are cycle-INDEPENDENT (see notes.ts)
     type: 'idea',
@@ -170,8 +179,9 @@ async function saveToBacklog(clientId: string, cycleId: string, sourceText: stri
     source: 'web',                 // transport
     origin: 'client',              // where the idea came from (Build C)
     lifecycle: 'candidate',        // maturity (Build C)
-  });
+  }).returning({ id: planInputs.id });
   void cycleId;                    // capture cycle deliberately not recorded on durables
+  return row?.id;
 }
 
 /** A stable-enough id for a receipt without pulling in a uuid dep on this path. */
@@ -218,8 +228,11 @@ export async function applyIntakeToDraft(params: {
 
   // ── Evergreen ──────────────────────────────────────────────────────────────
   if (routing.scope === 'evergreen') {
-    await saveToBacklog(clientId, cycleId, sourceText);
-    const application: DraftApplication = { ...base, scope: 'evergreen', reason: routing.reason, lines: [], changedIds: [] };
+    const planInputId = await saveToBacklog(clientId, cycleId, sourceText);
+    const application: DraftApplication = {
+      ...base, scope: 'evergreen', reason: routing.reason, lines: [], changedIds: [],
+      ...(planInputId ? { planInputId } : {}),
+    };
     await persistReceipt(cycleId, application);
     return { ok: true, application, beats: await loadDraftBeats(clientId, cycleId) };
   }
@@ -239,10 +252,11 @@ export async function applyIntakeToDraft(params: {
   // A transform that can do nothing files the input instead of dropping it. The client
   // typed something; it has to land somewhere they can see.
   if (result.ops.length === 0) {
-    await saveToBacklog(clientId, cycleId, sourceText);
+    const planInputId = await saveToBacklog(clientId, cycleId, sourceText);
     const application: DraftApplication = {
       ...base, scope: 'evergreen', reason: 'not_applicable', lines: [], changedIds: [],
       ...(result.note ? { note: result.note } : {}),
+      ...(planInputId ? { planInputId } : {}),
     };
     await persistReceipt(cycleId, application);
     return { ok: true, application, beats: await loadDraftBeats(clientId, cycleId) };

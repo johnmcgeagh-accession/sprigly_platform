@@ -28,7 +28,19 @@ export type ActivityAction =
   | 'step_completed'
   | 'step_uncompleted'
   | 'step_renamed'
-  | 'checklist_generated';
+  | 'checklist_generated'
+  // ── Draft-beat mutations (observability only) ───────────────────────────────
+  // A draft drop is a HARD delete with no tombstone, and nothing recorded these at all —
+  // so when six launch-arc beats vanished from cycle 040d6a1a before approval, the data
+  // could not say what had removed them and the investigation had to infer it
+  // (docs/reports/wrong-month-generated.md §6). These make the next such question
+  // answerable. plan_activity.post_id is ON DELETE SET NULL, so the row survives the
+  // beat it describes — which is the point.
+  | 'beat_added'
+  | 'beat_dropped'
+  | 'beat_restored'
+  | 'beat_moved'
+  | 'beat_format_changed';
 
 /** Who caused a change, and (for agent changes) which proposal it applied. */
 export interface ActivityActor {

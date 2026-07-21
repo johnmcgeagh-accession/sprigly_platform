@@ -48,6 +48,7 @@ import { requestEmailStub } from './stubs.js';
 import { runContentCycleTick } from './scheduler.js';
 import { assembleAndPersistDraft, summariseDraft, draftFlowEnabled, countDraftBeats, autoApproveAndGenerate } from './draft-plan.js';
 import { settlePlanReady } from './plan-ready.js';
+import { enqueueScriptIfReady } from './script-ready.js';
 import {
   IG_TRAWL_JOB_OPTIONS,
   REQUEST_EMAIL_JOB_OPTIONS,
@@ -280,6 +281,14 @@ export function createContentCycleConsumer(
         const maxAttempts = job.opts?.attempts ?? 1;
         if ((job.attemptsMade ?? 0) < maxAttempts) return;   // retries remain — still in flight
       }
+      // ORDER IS LOAD-BEARING. A completed shape or hook job may be the second half of a
+      // reel's (hook, caption) pair, which is what makes its script enqueueable. Settle
+      // first and the cycle would be declared ready in the instant before that script is
+      // queued — the email would go out mid-generation.
+      if (data.type === 'shape' || data.type === 'hook') {
+        await enqueueScriptIfReady(planReadyDeps, queue, data.clientId, data.cycleId, data.targetPostId);
+      }
+
       const outcome = await settlePlanReady(planReadyDeps, queue, data.cycleId, job.id);
       if (outcome !== 'not_settled' && outcome !== 'not_approved') {
         logger.info({ cycleId: data.cycleId, jobId: job.id, outcome }, 'content-cycles: plan-ready settlement');

@@ -32,7 +32,13 @@ vi.mock('@sprigly/db', () => {
       })),
     })),
     insert: vi.fn(() => ({
-      values: vi.fn((payload: unknown) => { writes.push({ kind: 'insert', payload }); return Promise.resolve(); }),
+      // `.returning()` is awaited by addBeat/restoreBeat so the ledger row can name the
+      // post they created; a bare thenable is no longer a usable stand-in for the insert.
+      values: vi.fn((payload: unknown) => {
+        writes.push({ kind: 'insert', payload });
+        const rows = [{ id: 'new-post-id' }];
+        return Object.assign(Promise.resolve(rows), { returning: () => Promise.resolve(rows) });
+      }),
     })),
     delete: vi.fn(() => ({
       where: vi.fn((where: unknown) => { writes.push({ kind: 'delete', where }); return Promise.resolve(); }),
