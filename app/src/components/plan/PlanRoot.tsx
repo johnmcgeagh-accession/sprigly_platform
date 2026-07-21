@@ -56,6 +56,7 @@ export function PlanRoot(props: PlanDataInit) {
         receipts={data.draft.receipts}
         cycles={data.cycles}
         viewedCycleId={data.viewedCycleId}
+        cycleId={data.viewedCycleId}
         onSwitchCycle={data.switchCycle}
         switching={data.switching}
       />
