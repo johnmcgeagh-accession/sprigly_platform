@@ -377,7 +377,7 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
               <>
                 <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 6px' }}>Happy with it?</h2>
                 <p style={{ fontSize: 14, lineHeight: 1.5, color: C.muted, margin: '0 0 12px' }}>
-                  We’ll write the captions and get everything ready. You can still change things afterwards.
+                  We’ll write the captions, hooks and scripts. You can still change dates and formats afterwards.
                 </p>
                 <button type="button" onClick={() => setConfirming(true)}
                   style={{ width: '100%', minHeight: 50, font: 'inherit', fontSize: 15.5, fontWeight: 700, color: '#fff', background: C.coral, border: 0, borderRadius: 11, cursor: 'pointer' }}>
@@ -394,8 +394,15 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
                   {reelCount > 0 ? <>, and a script for {reelCount === 1 ? 'the' : 'each of the'} <strong>{reelCount}</strong> {reelCount === 1 ? 'reel' : 'reels'}</> : null}
                   . This takes a few minutes.
                 </p>
+                {/* What approval ACTUALLY does. The old copy said "after this the dates and
+                    formats are set for the month", which is not true: every post stays
+                    editable on the calendar by date until its own date passes (the
+                    isEditableDate rule the whole surface is built on). Telling a client
+                    their month is locked when it is not makes them rush a decision that did
+                    not need rushing — and teaches them the interface lies. */}
                 <p style={{ fontSize: 13, color: C.muted, margin: '0 0 12px' }}>
-                  After this the dates and formats are set for the month, so have a last look if you want to move anything.
+                  Dates and formats stay yours to change afterwards, right up until each post’s date.
+                  What this starts is the writing.
                 </p>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button type="button" onClick={approve} disabled={approving}

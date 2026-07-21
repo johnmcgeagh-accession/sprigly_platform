@@ -285,3 +285,25 @@ describe('evergreen receipt — Add to this month', () => {
     expect(html).not.toContain('Add to this month');
   });
 });
+
+// ── Approval copy tells the truth (Commit 5) ──────────────────────────────────
+
+describe('approval dialog copy', () => {
+  const render = () => renderToStaticMarkup(
+    <DraftPlanView beats={[beat({ format: 'reel' }), beat({ id: 'b2', format: 'carousel' })]}
+      monthLabel="October" clientName="Earl of East" pillars={['Brand Story & Culture']}
+      onMutate={async () => ({ ok: true })} onApprove={async () => ({ ok: true })} />,
+  );
+
+  it('does not claim dates and formats are set after approval — they are not', () => {
+    const html = render();
+    expect(html).not.toContain('dates and formats are set');
+    expect(html).not.toContain('set for the month');
+  });
+
+  it('names what approval actually starts', () => {
+    const html = render();
+    expect(html).toContain('We’ll write the captions, hooks and scripts.');
+    expect(html).toContain('You can still change dates and formats afterwards.');
+  });
+});
