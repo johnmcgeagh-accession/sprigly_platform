@@ -8,10 +8,11 @@
  */
 import { NextResponse } from 'next/server';
 import { and, desc, eq, inArray } from 'drizzle-orm';
-import { db, contentCycles, planInputs } from '@sprigly/db';
+import { db, contentCycles, clientConfigs, planInputs } from '@sprigly/db';
 import type { IntakeJson } from '@sprigly/engine';
 import { getSession } from '@/lib/auth';
-import { loadPlanPosts, loadCrossMonthPosts, isCycleReadableByClient, beatsInMonth } from '@/lib/plan';
+import { loadPlanPosts, loadCrossMonthPosts, isCycleReadableByClient, beatsInMonth, surfaceForCycle } from '@/lib/plan';
+import { readPlanRedesignFlag } from '@/lib/flags';
 import { nextMonth } from '@/lib/cycle-nav';
 
 export const runtime = 'nodejs';
@@ -62,5 +63,22 @@ export async function GET(req: Request) {
     .orderBy(desc(planInputs.createdAt));
   const durable = durableRows.map((r) => ({ id: r.id, type: r.type, content: r.content, createdAt: r.createdAt.toISOString() }));
 
-  return NextResponse.json({ posts, crossMonthPosts, beats, intake, durable, readOnly: !isHome });
+  // SURFACE KIND for the REQUESTED cycle, computed with the same helper the first paint
+  // uses (plan.ts surfaceForCycle). Without this the client had no way back into draft
+  // mode once it had left it: the shell was chosen server-side at landing and the month
+  // switch could only ever swap data inside it
+  // (docs/reports/draft-mode-not-rendering.md §3).
+  const [cfg] = await db
+    .select({ settings: clientConfigs.settings })
+    .from(clientConfigs)
+    .where(eq(clientConfigs.clientId, session.clientId))
+    .limit(1);
+  const { kind: surfaceKind } = await surfaceForCycle({
+    clientId:           session.clientId,
+    cycleId,
+    committedPostCount: posts.length,
+    planRedesign:       readPlanRedesignFlag(cfg?.settings),
+  });
+
+  return NextResponse.json({ posts, crossMonthPosts, beats, intake, durable, surfaceKind, readOnly: !isHome });
 }

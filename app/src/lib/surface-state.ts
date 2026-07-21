@@ -54,3 +54,22 @@ export function resolveSurfaceKind(facts: SurfaceFacts): SurfaceKind {
 export function mayHaveDraftSurface(facts: Pick<SurfaceFacts, 'hasSession' | 'committedPostCount'>): boolean {
   return facts.hasSession && facts.committedPostCount === 0;
 }
+
+/**
+ * What the client should hold after entering a cycle, given the server's answer for it.
+ *
+ * The client FOLLOWS; it does not decide. This exists so that rule is a named, testable
+ * thing rather than an `if` buried in a fetch handler, and so "drop the draft when leaving
+ * a draft month" cannot be forgotten — a stale draft rendering over a committed month
+ * would be the same class of bug as the one this build fixes, pointing the other way.
+ *
+ * An absent kind means an older server (or a failed field); defaulting to the committed
+ * shell is the safe direction — it shows real plan rows rather than an empty draft frame.
+ */
+export function followServerSurface(serverKind: SurfaceKind | undefined): {
+  kind: SurfaceKind;
+  loadDraft: boolean;
+} {
+  const kind = serverKind ?? 'committed-redesign';
+  return { kind, loadDraft: kind === 'draft' };
+}

@@ -2,17 +2,13 @@ import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db, clients, clientConfigs, contentCycles, clientChannels, planInputs } from '@sprigly/db';
 import { BASE_QUESTIONS, type IntakeJson } from '@sprigly/engine';
 import { getSession } from '@/lib/auth';
-import { loadPlanPosts, loadCrossMonthPosts, loadCycleList, beatsInMonth, loadDraftBeats, cycleHasReviewableDraft } from '@/lib/plan';
-import { cycleIsPreCutoff } from '@/lib/draft-mutations';
-import { loadReceipts } from '@/lib/draft-apply';
+import { loadPlanPosts, loadCrossMonthPosts, loadCycleList, beatsInMonth, cycleHasReviewableDraft, surfaceForCycle, loadDraftSurfaceContext } from '@/lib/plan';
 import { editScopeToday } from '@/lib/edit-scope';
 import { resolveLandingCycleId } from '@/lib/cycle-nav';
 import { readPlanRedesignFlag } from '@/lib/flags';
-import { resolveSurfaceKind, mayHaveDraftSurface, type SurfaceKind } from '@/lib/surface-state';
 import PlanApp from '@/components/PlanApp';
 import PlanRedesign from '@/components/PlanRedesign';
 import { DraftPlan } from '@/components/DraftPlan';
-import { clientPlanningConfig } from '@sprigly/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -107,41 +103,59 @@ export default async function Page({ searchParams }: { searchParams: { intake?: 
   // ── ONE surface decision ────────────────────────────────────────────────────
   // Every branch below is a case of the same union, derived once. Build C and D add
   // states to SurfaceKind — they do not add early returns here.
-  const draftBeats = mayHaveDraftSurface({ hasSession: true, committedPostCount: posts.length })
-    ? await loadDraftBeats(session.clientId, initialCycleId)
-    : [];
-
-  const surface: SurfaceKind = resolveSurfaceKind({
-    hasSession:         true,                     // the no-session case returned <Gate/> above
+  const planRedesign = readPlanRedesignFlag(cfg?.settings);
+  // ONE computation, shared with GET /api/plan so the first paint and a month switch can
+  // never disagree about which surface a cycle gets (plan.ts surfaceForCycle).
+  const { kind: surface, draftBeats } = await surfaceForCycle({
+    clientId:           session.clientId,
+    cycleId:            initialCycleId,
     committedPostCount: posts.length,             // already draft-fenced by loadPlanPosts
-    draftBeatCount:     draftBeats.length,
-    planRedesign:       readPlanRedesignFlag(cfg?.settings),
+    planRedesign,
   });
 
   switch (surface) {
     case 'draft': {
-      const [planCfg] = home
-        ? await db.select({ pillars: clientPlanningConfig.pillars })
-            .from(clientPlanningConfig)
-            .where(and(eq(clientPlanningConfig.clientId, session.clientId), eq(clientPlanningConfig.channel, home.channel)))
-            .limit(1)
-        : [];
-      const pillarNames = (planCfg?.pillars ?? [])
-        .map((p) => (p as { name?: unknown }).name)
-        .filter((n): n is string => typeof n === 'string' && n.trim().length > 0);
+      // pillars / editable / receipts come from the same helper GET /api/plan/draft uses,
+      // so a draft entered by landing and one entered by a month switch render identically.
+      const draftCtx = home
+        ? await loadDraftSurfaceContext(session.clientId, initialCycleId, home.channel)
+        : { pillars: [], editable: false, receipts: [] };
+
+      // Flag-on tenants get the draft INSIDE the redesign shell, which owns the month
+      // switcher — so a client can leave their draft month and come back to it, and the
+      // surface follows them (docs/reports/draft-mode-not-rendering.md, the round trip).
+      // Flag-off tenants keep the standalone render they have always had: the legacy shell
+      // has no switcher, so there is nothing for the draft to sit inside.
+      if (planRedesign) {
+        return (
+          <PlanRedesign
+            clientName={client?.name ?? 'your'}
+            posts={posts}
+            crossMonthPosts={crossMonthPosts}
+            beats={beats}
+            cycles={cycles}
+            homeCycleId={session.cycleId}
+            initialCycleId={initialCycleId}
+            initialReadOnly={initialReadOnly}
+            initialIntakeOpen={initialIntakeOpen}
+            questions={questions}
+            intake={intake}
+            durable={durable}
+            cutoffDay={cutoffDay}
+            initialSurfaceKind="draft"
+            initialDraft={{ beats: draftBeats, ...draftCtx }}
+          />
+        );
+      }
 
       return (
         <DraftPlan
           beats={draftBeats}
           monthLabel={cycles.find((c) => c.cycleId === initialCycleId)?.monthLabel ?? 'next month'}
           clientName={client?.name ?? 'you'}
-          pillars={pillarNames}
-          // Past cutoff the draft stays READABLE but not editable — viewing and editing
-          // are different rights (see cycleHasReviewableDraft).
-          editable={await cycleIsPreCutoff(initialCycleId)}
-          // Receipts are persisted on the cycle's intake record, so "what changed" survives
-          // a reload rather than living only in the tab that caused it.
-          receipts={await loadReceipts(initialCycleId)}
+          pillars={draftCtx.pillars}
+          editable={draftCtx.editable}
+          receipts={draftCtx.receipts}
         />
       );
     }

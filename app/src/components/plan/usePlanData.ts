@@ -2,6 +2,21 @@
 
 import { canAddPost } from '@/lib/add-policy';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { followServerSurface, type SurfaceKind } from '@/lib/surface-state';
+import type { DraftBeatView } from '@/lib/types';
+import type { DraftReceipt } from './DraftPlanView';
+
+/**
+ * Everything the draft surface renders from, for one cycle. Sourced ONLY from
+ * GET /api/plan/draft — the committed payload never carries draft data.
+ * monthLabel is absent deliberately: the cycle list already has it.
+ */
+export interface DraftSurfaceData {
+  beats:    DraftBeatView[];
+  pillars:  string[];
+  editable: boolean;
+  receipts: DraftReceipt[];
+}
 import type { PlanPost, PlanBeat, PlanIntake, DurableItemView, CycleSummary, PostStepView, ShapeResult, ExtractedSummary, IntakeResult } from '@/lib/types';
 import type { ProposalView } from '@/lib/agent/types';
 import type { NoteView } from '@/lib/agent/notes';
@@ -41,6 +56,14 @@ export interface PlanDataInit {
   // Landing overrides (empty-home-cycle guard): the cycle initially rendered and
   // whether it's read-only. Default to the home cycle / editable when unset.
   initialViewedCycleId?: string | undefined;
+  // SURFACE KIND for the landed cycle, decided server-side (plan.ts surfaceForCycle) and
+  // re-decided server-side on every month switch. The client stores and follows it; it
+  // never derives it. Absent → 'committed-redesign', the shell this hook has always driven.
+  initialSurfaceKind?: SurfaceKind | undefined;
+  // The draft surface's data for the landed cycle, when it landed in draft mode. Beats and
+  // context both come from the draft reader (GET /api/plan/draft) on a later switch — the
+  // committed payload never carries them.
+  initialDraft?: DraftSurfaceData | undefined;
   initialReadOnly?: boolean | undefined;
 }
 
@@ -66,6 +89,10 @@ export function usePlanData(init: PlanDataInit) {
   const [proposals, setProposals] = useState<ProposalView[]>([]);
   const [notes, setNotes] = useState<NoteView[]>([]);
   const [viewedCycleId, setViewedCycleId] = useState(init.initialViewedCycleId ?? init.homeCycleId);
+  // The surface the SERVER chose for the viewed cycle, and the draft data when it chose
+  // draft. Both are stored, never derived — resolveSurfaceKind runs server-side only.
+  const [surfaceKind, setSurfaceKind] = useState<SurfaceKind>(init.initialSurfaceKind ?? 'committed-redesign');
+  const [draft, setDraft] = useState<DraftSurfaceData | null>(init.initialDraft ?? null);
   // DATE POLICY: editability is per-post by scheduled_date (>= today London) across ALL of
   // the client's months — NOT whole-cycle. The old whole-cycle `readOnly` flag is
   // superseded (kept at `false` so every month is browsable AND editable); the per-day
@@ -506,7 +533,21 @@ export function usePlanData(init: PlanDataInit) {
       const isHome = cycleId === init.homeCycleId;
       const res = await fetch(isHome ? '/api/plan' : `/api/plan?cycleId=${encodeURIComponent(cycleId)}`);
       if (!res.ok) { flash('Could not open that month.'); return; }
-      const d = (await res.json()) as { posts: PlanPost[]; crossMonthPosts?: PlanPost[]; beats?: PlanBeat[]; intake?: PlanIntake; durable?: DurableItemView[] };
+      const d = (await res.json()) as { posts: PlanPost[]; crossMonthPosts?: PlanPost[]; beats?: PlanBeat[]; intake?: PlanIntake; durable?: DurableItemView[]; surfaceKind?: SurfaceKind };
+      // FOLLOW the server's surface decision for the cycle being entered. Entering a
+      // draft-only month means fetching the draft surface's own data from its own reader;
+      // leaving one means dropping it, so a stale draft can never render over a committed
+      // month. (docs/reports/draft-mode-not-rendering.md — the round-trip hole.)
+      const { kind, loadDraft } = followServerSurface(d.surfaceKind);
+      if (loadDraft) {
+        const dres = await fetch(`/api/plan/draft?cycleId=${encodeURIComponent(cycleId)}`);
+        if (!dres.ok) { flash('Could not open that month.'); return; }
+        const dd = (await dres.json()) as DraftSurfaceData;
+        setDraft({ beats: dd.beats ?? [], pillars: dd.pillars ?? [], editable: !!dd.editable, receipts: dd.receipts ?? [] });
+      } else {
+        setDraft(null);
+      }
+      setSurfaceKind(kind);
       setPosts(d.posts); setCrossMonthPosts(d.crossMonthPosts ?? []); setBeats(d.beats ?? []); setViewedCycleId(cycleId);
       if (d.intake) setIntake(d.intake); if (d.durable) setDurable(d.durable);
     } catch { flash('Network error. Please try again.'); }
@@ -556,6 +597,7 @@ export function usePlanData(init: PlanDataInit) {
     posts, crossMonthPosts, calendarPosts, beats, beatsOn, cycles, proposals, notes, today: init.today, clientName: init.clientName, pendingMoves,
     questions: init.questions, intake, durable, intakeOpen, intakeBusy, viewedCyclePrePlanning, openIntake, closeIntake, submitIntake,
     homeCycleId: init.homeCycleId, viewedCycleId, readOnly, canEdit, todayCycleId,
+    surfaceKind, draft, setDraft,
     // status
     busy, switching, shapingIds, proposalBusy, agentBusy, agentReply, agentError,
     shapeErrors, loadError, flashView, toast,

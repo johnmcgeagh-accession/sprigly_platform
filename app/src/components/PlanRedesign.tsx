@@ -2,6 +2,8 @@ import type { PlanPost, PlanBeat, PlanIntake, DurableItemView, CycleSummary } fr
 import { resolveTodayIso } from '@/lib/steps';
 import { fraunces, inter, jakarta } from '@/app/fonts';
 import { PlanRoot } from '@/components/plan/PlanRoot';
+import type { SurfaceKind } from '@/lib/surface-state';
+import type { DraftSurfaceData } from '@/components/plan/usePlanData';
 
 interface PlanRedesignProps {
   clientName: string;
@@ -17,6 +19,10 @@ interface PlanRedesignProps {
   intake: PlanIntake;            // the landed cycle's saved intake (form pre-fill, FIX 1)
   durable: DurableItemView[];    // client's active durable items (read-only list)
   cutoffDay?: number | null;     // auto-run cutoff day-of-month (client schedule), or null
+  // The surface the server chose for the landed cycle, and the draft data when it chose
+  // draft. Passed straight through — this shell decides nothing.
+  initialSurfaceKind?: SurfaceKind;
+  initialDraft?: DraftSurfaceData;
 }
 
 /**
@@ -25,7 +31,7 @@ interface PlanRedesignProps {
  * resolves "today" once, server-side, from the tenant timezone default. Everything
  * interactive lives in <PlanRoot>, which chooses the desktop or mobile layout.
  */
-export default function PlanRedesign({ clientName, posts, crossMonthPosts, beats, cycles, homeCycleId, initialCycleId, initialReadOnly, initialIntakeOpen, questions, intake, durable, cutoffDay }: PlanRedesignProps) {
+export default function PlanRedesign({ clientName, posts, crossMonthPosts, beats, cycles, homeCycleId, initialCycleId, initialReadOnly, initialIntakeOpen, questions, intake, durable, cutoffDay, initialSurfaceKind, initialDraft }: PlanRedesignProps) {
   return (
     <div className={`plan-redesign ${fraunces.variable} ${inter.variable} ${jakarta.variable} font-sans`}>
       <PlanRoot
@@ -42,6 +48,8 @@ export default function PlanRedesign({ clientName, posts, crossMonthPosts, beats
         intake={intake}
         durable={durable}
         cutoffDay={cutoffDay ?? null}
+        initialSurfaceKind={initialSurfaceKind}
+        initialDraft={initialDraft}
         today={resolveTodayIso()}
       />
     </div>

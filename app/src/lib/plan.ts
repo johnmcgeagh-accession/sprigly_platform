@@ -12,10 +12,13 @@
  */
 import { and, asc, eq, gte, isNull, lt, ne, sql } from 'drizzle-orm';
 import type { ContentCyclePostRow } from '@sprigly/db';
-import { db, contentCycles, contentCyclePosts, excludeDraftPosts, POST_STATUS_DRAFT, PRE_PLANNING_STATUSES } from '@sprigly/db';
+import { db, contentCycles, contentCyclePosts, clientPlanningConfig, excludeDraftPosts, POST_STATUS_DRAFT, PRE_PLANNING_STATUSES } from '@sprigly/db';
 import type { BeatMeta } from '@sprigly/db';
 import { listStepsForPosts } from '@/lib/steps';
 import { nextMonth } from '@/lib/cycle-nav';
+import { resolveSurfaceKind, mayHaveDraftSurface, type SurfaceKind } from '@/lib/surface-state';
+import { cycleIsPreCutoff } from '@/lib/draft-mutations';
+import { loadReceipts, type DraftApplication } from '@/lib/draft-apply';
 import type {
   CycleSummary, PlanPost, PlanBeat, PostChannel, PostFormat, PostStatus, ReviewState, PostStepView,
   DraftBeatView, BeatEvidence,
@@ -352,4 +355,68 @@ export async function isCycleReadableByClient(clientId: string, cycleId: string)
   if (row.syncStatus === 'out_of_sync') return false;
   if (row.liveCount > 0) return true;            // has a committed plan
   return cycleHasReviewableDraft(clientId, cycleId);   // …or a draft worth reviewing
+}
+
+/**
+ * Resolve the SURFACE KIND for one cycle. (Build E)
+ *
+ * The single server-side computation of "which surface does this cycle get". Both callers
+ * use it — the first paint (`page.tsx`) and the month switch (`GET /api/plan`) — so a
+ * client who lands on a draft and one who navigates to it cannot end up in different
+ * shells. The client never decides; it is told, and follows.
+ *
+ * Laziness is preserved exactly as `page.tsx` had it: `mayHaveDraftSurface` gates the
+ * draft read, so a cycle with committed posts never pays for `loadDraftBeats`.
+ *
+ * `committedPostCount` is passed in rather than re-queried because both callers have
+ * already loaded the fenced post list for this cycle; re-counting could only disagree
+ * with the list actually being rendered.
+ */
+export async function surfaceForCycle(params: {
+  clientId:           string;
+  cycleId:            string;
+  committedPostCount: number;
+  planRedesign:       boolean;
+}): Promise<{ kind: SurfaceKind; draftBeats: DraftBeatView[] }> {
+  const draftBeats = mayHaveDraftSurface({ hasSession: true, committedPostCount: params.committedPostCount })
+    ? await loadDraftBeats(params.clientId, params.cycleId)
+    : [];
+
+  const kind = resolveSurfaceKind({
+    hasSession:         true,
+    committedPostCount: params.committedPostCount,
+    draftBeatCount:     draftBeats.length,
+    planRedesign:       params.planRedesign,
+  });
+
+  return { kind, draftBeats };
+}
+
+/**
+ * Everything the draft surface needs beyond its beats, for ONE cycle.
+ *
+ * Exists so the month switch can enter draft mode client-side without the committed
+ * payload ever carrying draft data: `GET /api/plan/draft` serves this, and it remains the
+ * only reader permitted to see draft rows. monthLabel is deliberately absent — the client
+ * already has it from the cycle list, and duplicating it would give two sources for one
+ * label.
+ */
+export async function loadDraftSurfaceContext(clientId: string, cycleId: string, channel: string): Promise<{
+  pillars:  string[];
+  editable: boolean;
+  receipts: DraftApplication[];
+}> {
+  const [planCfg] = await db
+    .select({ pillars: clientPlanningConfig.pillars })
+    .from(clientPlanningConfig)
+    .where(and(eq(clientPlanningConfig.clientId, clientId), eq(clientPlanningConfig.channel, channel)))
+    .limit(1);
+
+  const pillars = (planCfg?.pillars ?? [])
+    .map((p) => (p as { name?: unknown }).name)
+    .filter((n): n is string => typeof n === 'string' && n.trim().length > 0);
+
+  // Past cutoff the draft stays READABLE but not editable — viewing and editing are
+  // different rights (the same split cycleHasReviewableDraft exists for).
+  return { pillars, editable: await cycleIsPreCutoff(cycleId), receipts: await loadReceipts(cycleId) };
 }

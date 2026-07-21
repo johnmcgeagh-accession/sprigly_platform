@@ -10,6 +10,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const h = vi.hoisted(() => ({
   session: null as { clientId: string; cycleId: string } | null,
   loadDraftBeats: vi.fn(),
+  loadDraftSurfaceContext: vi.fn(),
+  cycleRow: [{ channel: 'instagram' }] as { channel: string }[],
   moveBeat: vi.fn(),
   swapFormat: vi.fn(),
   dropBeat: vi.fn(),
@@ -18,7 +20,16 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/auth', () => ({ getSession: async () => h.session }));
-vi.mock('@/lib/plan', () => ({ loadDraftBeats: (...a: unknown[]) => h.loadDraftBeats(...a) }));
+vi.mock('@/lib/plan', () => ({
+  loadDraftBeats: (...a: unknown[]) => h.loadDraftBeats(...a),
+  loadDraftSurfaceContext: (...a: unknown[]) => h.loadDraftSurfaceContext(...a),
+}));
+// GET resolves the cycle's CHANNEL from the row (never from the request) before loading
+// the draft surface context.
+vi.mock('@sprigly/db', () => {
+  const chain = { from: () => chain, where: () => chain, limit: () => Promise.resolve(h.cycleRow) };
+  return { db: { select: () => chain }, contentCycles: new Proxy({}, { get: (_t, k) => String(k) }) };
+});
 vi.mock('@/lib/draft-mutations', () => ({
   moveBeat:         (...a: unknown[]) => h.moveBeat(...a),
   swapFormat:       (...a: unknown[]) => h.swapFormat(...a),
@@ -38,8 +49,10 @@ const post = (body: unknown) =>
 
 beforeEach(() => {
   h.session = { clientId: CLIENT, cycleId: CYCLE };
-  for (const fn of [h.loadDraftBeats, h.moveBeat, h.swapFormat, h.dropBeat, h.addBeat, h.reorderWithinDay]) fn.mockReset();
+  for (const fn of [h.loadDraftBeats, h.loadDraftSurfaceContext, h.moveBeat, h.swapFormat, h.dropBeat, h.addBeat, h.reorderWithinDay]) fn.mockReset();
   h.loadDraftBeats.mockResolvedValue([]);
+  h.loadDraftSurfaceContext.mockResolvedValue({ pillars: [], editable: true, receipts: [] });
+  h.cycleRow = [{ channel: 'instagram' }];
   h.moveBeat.mockResolvedValue(OK);
   h.swapFormat.mockResolvedValue(OK);
   h.dropBeat.mockResolvedValue(OK);
@@ -65,13 +78,33 @@ describe('GET', () => {
     h.loadDraftBeats.mockResolvedValue([{ id: 'beat-1' }]);
     const res = await GET(new Request('http://x/api/plan/draft'));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ beats: [{ id: 'beat-1' }] });
+    expect(await res.json()).toMatchObject({ beats: [{ id: 'beat-1' }] });
     expect(h.loadDraftBeats).toHaveBeenCalledWith(CLIENT, CYCLE);
   });
 
   it('honours an explicit ?cycleId, still scoped to the session client', async () => {
     await GET(new Request('http://x/api/plan/draft?cycleId=other-cycle'));
     expect(h.loadDraftBeats).toHaveBeenCalledWith(CLIENT, 'other-cycle');
+  });
+
+  it('also serves the draft surface context, so a month switch never needs the committed payload', async () => {
+    h.loadDraftSurfaceContext.mockResolvedValue({ pillars: ['Brand'], editable: false, receipts: [{ id: 'r1' }] });
+    const res = await GET(new Request('http://x/api/plan/draft'));
+    expect(await res.json()).toEqual({ beats: [], pillars: ['Brand'], editable: false, receipts: [{ id: 'r1' }] });
+  });
+
+  it('takes the channel from the cycle row, never from the request', async () => {
+    h.cycleRow = [{ channel: 'email' }];
+    await GET(new Request('http://x/api/plan/draft?cycleId=other-cycle&channel=instagram'));
+    expect(h.loadDraftSurfaceContext).toHaveBeenCalledWith(CLIENT, 'other-cycle', 'email');
+  });
+
+  it('an unknown cycle yields an empty surface rather than an error or a leak', async () => {
+    h.cycleRow = [];
+    const res = await GET(new Request('http://x/api/plan/draft?cycleId=nope'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ beats: [], pillars: [], editable: false, receipts: [] });
+    expect(h.loadDraftSurfaceContext).not.toHaveBeenCalled();
   });
 });
 
