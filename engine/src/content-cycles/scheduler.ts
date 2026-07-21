@@ -512,6 +512,14 @@ export async function runContentCycleTick(params: {
   // D3 auto-approve at cutoff. Absent → the baseline path applies to every cycle, exactly
   // as before this build.
   autoApprove?: AutoApproveFns;
+  /**
+   * Retry pass for approved cycles that settled but never got their plan-ready email.
+   *
+   * INJECTED for the same reason the others are: the sweep needs the planning/Gmail deps and
+   * the scheduler keeps none. Absent ⇒ no sweep, and the tick behaves exactly as before.
+   * The daily cadence IS the backoff — there is no retry machinery behind this.
+   */
+  sweepPlanReady?: () => Promise<unknown>;
 }): Promise<void> {
   const { db, queue, logger } = params;
   const now = params.now ?? new Date();
@@ -524,6 +532,14 @@ export async function runContentCycleTick(params: {
   const currentMonth = `${today.year}-${String(today.month).padStart(2, '0')}`;
   const cohortMonth = (s: CycleSchedule) => (s.cutoffDay != null ? currentMonth : dataMonth);
   logger.info({ today, dataMonth, currentMonth }, 'content-cycle-scheduler: tick started');
+
+  // Retry unsent plan-ready emails FIRST, so a transport that was fixed since yesterday
+  // delivers before the tick spends time on anything else. Best-effort: a sweep failure must
+  // never stop the tick's real work.
+  if (params.sweepPlanReady) {
+    try { await params.sweepPlanReady(); }
+    catch (err) { logger.warn({ err: String(err) }, 'content-cycle-scheduler: plan-ready sweep failed (non-fatal)'); }
+  }
 
   const enabledRows = await db
     .select({

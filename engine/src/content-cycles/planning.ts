@@ -702,8 +702,14 @@ export async function sendAppReadyNotification(
    *  kind of small dishonesty that makes them distrust the rest of the message. */
   autoApproved = false,
   contactName = 'there',
-): Promise<void> {
-  await deliverTemplatedEmail(
+): Promise<boolean> {
+  // Returns whether the email actually WENT. deliverTemplatedEmail has always reported this
+  // ("the caller decides whether to stamp a send-log column" — email-send.ts) and this
+  // function used to discard it, so a send that failed for want of Gmail tokens was
+  // indistinguishable from one that arrived. The settlement path stamped
+  // plan_ready_sent_at either way and logged "sent"
+  // (docs/reports/round-two-email-and-surface.md §A5-A6).
+  return deliverTemplatedEmail(
     { db: deps.db, encProvider: deps.encProvider, googleClientId: deps.googleClientId, googleClientSecret: deps.googleClientSecret, logger: deps.logger },
     {
       key: autoApproved ? 'plan_ready_auto' : 'plan_ready',

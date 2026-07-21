@@ -34,3 +34,24 @@ export async function claimPlanReadySend(db: Db, cycleId: string, now: Date = ne
     .returning({ id: contentCycles.id });
   return claimed.length > 0;
 }
+
+/**
+ * Give the claim back when the send did not happen.
+ *
+ * The claim is taken BEFORE the send so two concurrent settlements cannot both email. That
+ * ordering is right, but it means a stamp records an ATTEMPT, not a delivery — and because
+ * the stamp is the at-most-once key, a failed send was never retried. earl-of-east's October
+ * plan-ready email failed for want of Gmail tokens and the cycle was left stamped as sent
+ * (docs/reports/round-two-email-and-surface.md §A5).
+ *
+ * Releasing restores "nobody has sent this" so the next settled pass — or the daily sweep —
+ * can try again. Deliberately NOT conditioned on who claimed it: the only caller is the one
+ * that just failed to send, and a conditional release would need an owner column to be
+ * correct about a case that cannot arise.
+ */
+export async function releasePlanReadySend(db: Db, cycleId: string): Promise<void> {
+  await db
+    .update(contentCycles)
+    .set({ planReadySentAt: null, updatedAt: new Date() })
+    .where(eq(contentCycles.id, cycleId));
+}
