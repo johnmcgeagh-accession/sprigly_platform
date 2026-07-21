@@ -34,7 +34,7 @@ export type ActivityAction =
   // so when six launch-arc beats vanished from cycle 040d6a1a before approval, the data
   // could not say what had removed them and the investigation had to infer it
   // (docs/reports/wrong-month-generated.md §6). These make the next such question
-  // answerable. plan_activity.post_id is ON DELETE SET NULL, so the row survives the
+  // answerable. plan_activity.post_id carries NO foreign key (migration 0090), so the row survives the
   // beat it describes — which is the point.
   | 'beat_added'
   | 'beat_dropped'

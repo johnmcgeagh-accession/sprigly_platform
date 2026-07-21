@@ -1359,7 +1359,11 @@ export const planActivity = pgTable(
     id:            uuid('id').primaryKey().defaultRandom(),
     clientId:      uuid('client_id').notNull().references(() => clients.id),
     cycleId:       uuid('cycle_id').references(() => contentCycles.id),         // nullable
-    postId:        uuid('post_id').references(() => contentCyclePosts.id, { onDelete: 'set null' }),
+    // NO foreign key, deliberately (migration 0090). The append-only trigger blocks every
+    // UPDATE on this table, and ON DELETE SET NULL is implemented AS an update — so the FK
+    // made any post referenced by a ledger row undeletable. The id is kept raw: an audit row
+    // naming a post that no longer exists is more truthful than one whose subject was erased.
+    postId:        uuid('post_id'),
     origin:        text('origin').notNull(),                                    // 'user' | 'agent' (CHECK in 0068)
     action:        text('action').notNull(),                                    // 'rescheduled' | 'caption_saved' | …
     refProposalId: uuid('ref_proposal_id').references(() => agentProposals.id),  // set when origin='agent'

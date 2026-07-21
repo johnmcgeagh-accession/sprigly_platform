@@ -1,0 +1,39 @@
+-- 0090_plan_activity_post_fk — the append-only ledger stops blocking post deletes.
+--
+-- 0068 created plan_activity with two guarantees that cannot both hold:
+--
+--   line 16:  "post_id" uuid REFERENCES "content_cycle_posts"("id") ON DELETE SET NULL
+--   line 37:  CREATE TRIGGER plan_activity_no_mutate BEFORE UPDATE OR DELETE ...
+--
+-- ON DELETE SET NULL is implemented as an UPDATE on plan_activity. The trigger blocks every
+-- UPDATE. So deleting a post that any ledger row points at raises
+--
+--   ERROR: plan_activity is append-only (UPDATE is blocked)
+--   CONTEXT: SQL statement "UPDATE ONLY public.plan_activity SET post_id = NULL WHERE $1 = post_id"
+--
+-- and the whole delete transaction aborts. On uat this surfaced as a 500 from
+-- POST /api/plan/draft whenever the operator dropped a beat they had previously MOVED —
+-- a move is what writes a ledger row carrying post_id. Beats never moved dropped fine, which
+-- is why the failure looked intermittent and beat-specific
+-- (docs/reports/ivy-t-draft-mutation-500.md).
+--
+-- The FK goes, not the trigger. Three reasons:
+--   1. Append-only is the stronger guarantee and the one 0068 argues for at length. SET NULL
+--      is itself a mutation of history, so the two were never compatible in principle.
+--   2. SET NULL destroys the very fact the ledger exists to record. "Something was dropped,
+--      we no longer know what" is a worse audit row than one naming a post that is gone.
+--      Keeping the raw uuid is strictly more faithful.
+--   3. An audit ledger outliving its subjects is normal. Referential integrity is the wrong
+--      contract for a history table.
+--
+-- post_id keeps its column, its type and its index — only the constraint is dropped. Rows
+-- already written are untouched, and nothing needs backfilling: existing post_ids stay valid
+-- and simply stop being enforced.
+--
+-- APPLY-BEFORE-DEPLOY: prod carries the same conflict (351 rows with a non-null post_id at
+-- time of writing), so every one of those posts is currently undeletable. Apply there too.
+--
+-- Apply manually:  psql "<DATABASE_URL>" -f 0090_plan_activity_post_fk.sql
+-- Reverse (LOCAL / emergency ONLY):  psql "<DATABASE_URL>" -f 0090_plan_activity_post_fk.down.sql
+
+ALTER TABLE "plan_activity" DROP CONSTRAINT IF EXISTS "plan_activity_post_id_fkey";

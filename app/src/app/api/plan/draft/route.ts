@@ -75,9 +75,32 @@ export async function POST(req: Request) {
   try { body = (await req.json()) as Record<string, unknown>; } catch { /* handled below */ }
 
   const op     = String(body['op'] ?? '');
-  const postId = typeof body['postId'] === 'string' ? body['postId'] : '';
   // cycleId is only ever taken from the session for ops that create rows — a caller must
-  // not be able to plant a beat in a cycle they were not issued a link for.
+  // not be able to plant a beat in a cycle they were not issued a link for (see runOp).
+  try {
+    return await runOp(op, body, session);
+  } catch (err) {
+    // An UNEXPECTED failure — a constraint, a trigger, a dropped connection. Every guard
+    // refusal above returns a typed result and never lands here, so anything reaching this
+    // point is ours, not the client's.
+    //
+    // It used to fall through as an unhandled rejection: Next returned a bare 500 and the
+    // surface showed its generic connection error, which is what made the plan_activity FK
+    // conflict look like a network problem for a day
+    // (docs/reports/ivy-t-draft-mutation-500.md). A 500 is still correct — the fault IS the
+    // server's — but it now says so in a shape the client can render, and the real error is
+    // logged rather than swallowed.
+    console.error('[plan/draft] mutation failed', { op, err });
+    return NextResponse.json(
+      { ok: false, error: 'mutation_failed', message: 'Something went wrong on our side. Nothing was changed.' },
+      { status: 500 },
+    );
+  }
+}
+
+/** The op dispatch itself. Split out so every branch sits inside the POST handler's catch. */
+async function runOp(op: string, body: Record<string, unknown>, session: { clientId: string; cycleId: string }) {
+  const postId = typeof body['postId'] === 'string' ? body['postId'] : '';
   const cycleId = session.cycleId;
 
   switch (op) {
