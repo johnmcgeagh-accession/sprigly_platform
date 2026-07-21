@@ -2,11 +2,11 @@ import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db, clients, clientConfigs, contentCycles, clientChannels, planInputs } from '@sprigly/db';
 import { BASE_QUESTIONS, type IntakeJson } from '@sprigly/engine';
 import { getSession } from '@/lib/auth';
-import { loadPlanPosts, loadCrossMonthPosts, loadCycleList, beatsInMonth, loadDraftBeats } from '@/lib/plan';
+import { loadPlanPosts, loadCrossMonthPosts, loadCycleList, beatsInMonth, loadDraftBeats, cycleHasReviewableDraft } from '@/lib/plan';
 import { cycleIsPreCutoff } from '@/lib/draft-mutations';
 import { loadReceipts } from '@/lib/draft-apply';
 import { editScopeToday } from '@/lib/edit-scope';
-import { resolveDayCycleId } from '@/lib/cycle-nav';
+import { resolveLandingCycleId } from '@/lib/cycle-nav';
 import { readPlanRedesignFlag } from '@/lib/flags';
 import { resolveSurfaceKind, mayHaveDraftSurface, type SurfaceKind } from '@/lib/surface-state';
 import PlanApp from '@/components/PlanApp';
@@ -47,7 +47,19 @@ export default async function Page({ searchParams }: { searchParams: { intake?: 
   // by date, so the landed cycle is fully editable for its today-onward posts;
   // `initialReadOnly` is retained only for the prop shape.
   const initialReadOnly = false;
-  const initialCycleId  = resolveDayCycleId(cycles, editScopeToday()) ?? session.cycleId;
+  // An OUTSTANDING DRAFT WINS THE LANDING. The token was minted to ask the client to react
+  // to a specific month; landing them on a different one — and, because the surface is
+  // derived from the landed cycle, in the committed shell — answers a question they were
+  // never asked. Date-based landing is otherwise unchanged and still the rule.
+  //
+  // Reviewable, not merely present: once the draft is approved its rows leave 'draft', the
+  // predicate goes false, and the date rule takes over again by itself.
+  const initialCycleId = resolveLandingCycleId({
+    cycles,
+    today:                  editScopeToday(),
+    homeCycleId:            session.cycleId,
+    homeHasReviewableDraft: await cycleHasReviewableDraft(session.clientId, session.cycleId),
+  });
   const posts = await loadPlanPosts(session.clientId, initialCycleId);
   // Cross-cycle posts dated in the landed cycle's plan month, so the calendar grid is
   // date-authoritative from first paint (see loadCrossMonthPosts).

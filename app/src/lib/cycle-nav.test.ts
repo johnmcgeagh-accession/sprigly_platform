@@ -3,7 +3,7 @@
  * (resolveDayCycleId + fallbacks), and cross-month-move stability + reachability.
  */
 import { describe, it, expect } from 'vitest';
-import { nextMonth, resolveDayCycleId, orphanPosts, type CycleMonthRef } from './cycle-nav';
+import { nextMonth, resolveDayCycleId, resolveLandingCycleId, orphanPosts, type CycleMonthRef } from './cycle-nav';
 
 describe('nextMonth — a cycle labels as the month it PLANS', () => {
   it('cycle_month → the following month', () => {
@@ -106,5 +106,55 @@ describe('date bucketing across cycles (calendar grid = posts ∪ crossMonthPost
     const placements = calendarPosts.flatMap((p) => months.filter((m) => p.date.startsWith(m)).map(() => p.id));
     expect(new Set(placements).size).toBe(placements.length);
     expect(placements.length).toBe(calendarPosts.length);    // each placed exactly once
+  });
+});
+
+// ── resolveLandingCycleId — an outstanding draft outranks the date rule ────────
+// The bug this fixes: the surface kind is derived from the LANDED cycle, so landing by
+// date alone put a client with an unapproved October draft into the committed shell for
+// August, showing "0 posts" for a month they were never asked about.
+// (docs/reports/draft-mode-not-rendering.md)
+
+describe('resolveLandingCycleId', () => {
+  // Mirrors the report's Q7 result for earl-of-east: home is the draft cycle (October),
+  // and today (2026-07-21) matches no cycle's plan month.
+  const CYCLES = [
+    { cycleId: 'oct', displayMonth: '2026-10' },
+    { cycleId: 'sep', displayMonth: '2026-09' },
+    { cycleId: 'aug', displayMonth: '2026-08' },
+  ];
+  const TODAY = '2026-07-21';
+
+  it('lands on the home cycle when it holds a reviewable draft', () => {
+    expect(resolveLandingCycleId({
+      cycles: CYCLES, today: TODAY, homeCycleId: 'oct', homeHasReviewableDraft: true,
+    })).toBe('oct');
+  });
+
+  it('falls back to the date rule when the home cycle has no draft', () => {
+    // Unchanged behaviour: nearest future plan month ahead of today → August.
+    expect(resolveLandingCycleId({
+      cycles: CYCLES, today: TODAY, homeCycleId: 'oct', homeHasReviewableDraft: false,
+    })).toBe('aug');
+  });
+
+  it('the date rule wins again once the draft is approved (no longer reviewable)', () => {
+    // Approval moves the rows off 'draft', so cycleHasReviewableDraft goes false and this
+    // reverts to the ordinary landing WITHOUT anything else changing.
+    expect(resolveLandingCycleId({
+      cycles: CYCLES, today: TODAY, homeCycleId: 'oct', homeHasReviewableDraft: false,
+    })).toBe('aug');
+  });
+
+  it('exact plan-month match still beats nearest-future when there is no draft', () => {
+    expect(resolveLandingCycleId({
+      cycles: CYCLES, today: '2026-09-04', homeCycleId: 'oct', homeHasReviewableDraft: false,
+    })).toBe('sep');
+  });
+
+  it('falls back to the home cycle when the list is empty', () => {
+    expect(resolveLandingCycleId({
+      cycles: [], today: TODAY, homeCycleId: 'oct', homeHasReviewableDraft: false,
+    })).toBe('oct');
   });
 });
