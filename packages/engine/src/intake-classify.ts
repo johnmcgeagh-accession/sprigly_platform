@@ -51,7 +51,7 @@ const dateRangeSchema = z.object({
  * traceability is the whole promise of this surface.
  */
 export const monthScopedIntentSchema = z.object({
-  kind:       z.enum(['launch', 'event', 'emphasis', 'beat_edit']),
+  kind:       z.enum(['launch', 'event', 'emphasis', 'beat_edit', 'correction']),
   subject:    z.string().min(1).max(200),
   sourceText: z.string().min(1),
   dateRange:  dateRangeSchema.nullable().optional(),
@@ -62,6 +62,16 @@ export const monthScopedIntentSchema = z.object({
   editValue:  z.string().max(64).nullable().optional(),
   /** emphasis only: the pillar or format to weight up. */
   emphasis:   z.string().max(120).nullable().optional(),
+  /**
+   * correction only: what the owner is correcting ABOUT, in their words — "the Meadow
+   * candle launch". Matched against the beats already on the plan, so a correction acts on
+   * what is there rather than adding something new.
+   *
+   * Distinct from beatRef, which points at ONE post by day/format/date. A correction names
+   * a SUBJECT and may move a whole arc: "the Meadow launch is the 10th not the 1st" is
+   * three beats, not one.
+   */
+  correctionOf: z.string().max(200).nullable().optional(),
 });
 
 export type MonthScopedIntent = z.infer<typeof monthScopedIntentSchema>;
@@ -81,6 +91,7 @@ export type EvergreenReason =
   | 'classified_evergreen'   // the model read it as a standing idea
   | 'ambiguous'              // the model was unsure — the asymmetry rule applied
   | 'validation_failed'      // output did not satisfy the contract
+  | 'couldnt_apply'          // two extraction attempts failed — filed, and the client is TOLD
   | 'model_error';           // the call itself failed
 
 export const CLASSIFY_SYSTEM = `You route a single message from a small brand's owner about their social media content plan.
@@ -99,12 +110,13 @@ EVERGREEN — a standing idea for the backlog:
 
 RULES:
 - If you are not sure, choose EVERGREEN. Being filed as an idea is easy to undo; changing a month the owner was happy with is not.
+- CORRECTION is for fixing something already on the plan: "X is the 10th not the 1st", "actually the workshop is the 15th", "move the launch to the 3rd", "make the launch post a reel". Set kind=correction, correctionOf = the thing being corrected in the owner's words, and dateRange for a new date (or edit/editValue for a format change). A correction is NOT a new launch — do not use kind=launch to restate a date the owner is fixing.
 - Do NOT invent a date. Only set dateRange when a real date or clear window is stated. Resolve relative dates ("next Friday", "the 28th") against the PLAN MONTH you are given.
 - subject is a short noun phrase in the owner's own words. Do not embellish it.
 - sourceText is the owner's message, VERBATIM.
 
 Return ONE JSON object, no markdown, no code fences:
-{"scope":"month_scoped","intent":{"kind":"launch|event|emphasis|beat_edit","subject":"","sourceText":"","dateRange":{"start":"YYYY-MM-DD","end":"YYYY-MM-DD"}|null,"beatRef":null,"edit":null,"editValue":null,"emphasis":null}}
+{"scope":"month_scoped","intent":{"kind":"launch|event|emphasis|beat_edit|correction","subject":"","sourceText":"","dateRange":{"start":"YYYY-MM-DD","end":"YYYY-MM-DD"}|null,"beatRef":null,"edit":null,"editValue":null,"emphasis":null,"correctionOf":null}}
 or
 {"scope":"evergreen"}`;
 
@@ -137,6 +149,10 @@ export function routeFromParsed(parsed: unknown, sourceText: string): IntakeRout
   const intent = monthScopedIntentSchema.safeParse(outer.data.intent);
   if (!intent.success) return { scope: 'evergreen', sourceText, reason: 'validation_failed' };
 
+  // A correction that names nothing to correct cannot be matched against the plan.
+  if (intent.data.kind === 'correction' && !intent.data.correctionOf && !intent.data.subject) {
+    return { scope: 'evergreen', sourceText, reason: 'ambiguous' };
+  }
   // A beat_edit that does not say WHAT to change cannot be applied deterministically.
   // Routing it to the backlog (with a receipt) beats guessing at the client's meaning.
   if (intent.data.kind === 'beat_edit' && (!intent.data.edit || !intent.data.beatRef)) {
@@ -180,6 +196,12 @@ export async function classifyIntake(params: ClassifyParams): Promise<IntakeRout
     'Route it now. JSON only.',
   ].join('\n');
 
+  // ONE RETRY, then honesty. A single schema miss is usually a bad sample, not a bad
+  // request — the uat data shows a client correcting a launch date twice and being filed as
+  // an "idea" both times with no signal that nothing had happened
+  // (docs/reports/wrong-month-generated.md §6). Retrying costs one call; the alternative
+  // cost that client their month.
+  const attempt = async (): Promise<IntakeRouting> => {
   try {
     const res = await model.complete({
       model: modelName, system: CLASSIFY_SYSTEM,
@@ -218,4 +240,20 @@ export async function classifyIntake(params: ClassifyParams): Promise<IntakeRout
     logger?.warn({ planMonth, err: String(err) }, 'intake-classify: model call failed — routing to the backlog');
     return { scope: 'evergreen', sourceText, reason: 'model_error' };
   }
+  };
+
+  const first = await attempt();
+  // Only a FAILURE to extract is retried. A confident 'classified_evergreen' is an answer,
+  // not a miss, and asking twice would just spend money to hear it again.
+  if (first.scope !== 'evergreen' || first.reason !== 'validation_failed') return first;
+
+  logger?.info({ planMonth }, 'intake-classify: extraction failed — retrying once');
+  const second = await attempt();
+  if (second.scope === 'month_scoped') return second;
+  if (second.scope === 'evergreen' && second.reason !== 'validation_failed') return second;
+
+  // Twice is a pattern, not a blip. File it — but as couldnt_apply, so the receipt can say
+  // so rather than presenting it as a filing the client asked for.
+  logger?.warn({ planMonth }, 'intake-classify: extraction failed twice — filing as couldnt_apply');
+  return { scope: 'evergreen', sourceText, reason: 'couldnt_apply' };
 }

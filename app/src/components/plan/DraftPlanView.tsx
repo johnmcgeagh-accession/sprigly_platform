@@ -211,7 +211,8 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
           <section aria-label={receipt.scope === 'evergreen' ? 'Saved to your ideas' : 'What changed'} style={{ background: C.navyLt, border: `1px solid ${C.line}`, borderRadius: 12, padding: '13px 14px', marginBottom: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
               <h2 style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: C.muted, margin: 0 }}>
-                {receipt.scope === 'evergreen' ? 'Saved to your ideas' : 'What changed'}
+                {receipt.scope !== 'evergreen' ? 'What changed'
+                  : receipt.reason === 'couldnt_apply' ? 'We couldn’t apply this' : 'Saved to your ideas'}
               </h2>
               <button type="button" onClick={() => setReceipt(null)} aria-label="Dismiss what changed"
                 style={{ font: 'inherit', fontSize: 13, color: C.faint, background: 'transparent', border: 0, cursor: 'pointer', minHeight: 28, padding: 0 }}>
@@ -221,7 +222,12 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
             <p style={{ fontSize: 13, color: C.muted, fontStyle: 'italic', margin: '7px 0 0' }}>“{receipt.sourceText}”</p>
             {receipt.scope === 'evergreen' ? (
               <p style={{ fontSize: 14, lineHeight: 1.5, margin: '8px 0 0' }}>
-                We’ve kept this for later rather than changing {monthLabel}. Want it this month? Add it from your ideas.
+                {/* couldnt_apply is NOT a filing the client asked for. Saying "saved to your
+                    ideas" for a failed extraction is the silent demotion that cost a client
+                    their Meadow launch twice — the copy has to admit what happened. */}
+                {receipt.reason === 'couldnt_apply'
+                  ? <>We couldn’t apply this to {monthLabel} automatically, so we’ve saved it to your ideas.</>
+                  : <>We’ve kept this for later rather than changing {monthLabel}.</>}
               </p>
             ) : receipt.lines.length > 0 ? (
               <ul style={{ margin: '8px 0 0', paddingLeft: 18, display: 'grid', gap: 5 }}>

@@ -308,6 +308,81 @@ export function applyBeatEdit(intent: MonthScopedIntent, beats: TransformBeat[],
   }
 }
 
+
+/**
+ * Match beats by SUBJECT, for a correction.
+ *
+ * Distinct from resolveBeatRef, which identifies one post by day/format/date. A correction
+ * names a thing — "the Meadow candle launch" — and that thing may be a whole arc. Matching
+ * looks at the beat's title AND at the words that created it (beat_meta evidence `reason`,
+ * which applyLaunchArc/applyEvent write verbatim from the client's own message), so a
+ * correction can find beats whose titles were phrased by the assembler rather than typed.
+ */
+export function resolveBeatSubject(subject: string, beats: TransformBeat[]): TransformBeat[] {
+  const words = subject.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3);
+  if (words.length === 0) return [];
+
+  const haystack = (b: TransformBeat): string => {
+    const reason = (b.beatMeta?.rationaleEvidence as { reason?: unknown } | undefined)?.reason;
+    return `${b.title} ${typeof reason === 'string' ? reason : ''}`.toLowerCase();
+  };
+  // Every significant word must appear. "meadow candle" must not match a wilderness beat
+  // just because both say "candle".
+  return beats.filter((b) => { const h = haystack(b); return words.every((w) => h.includes(w)); });
+}
+
+/**
+ * Apply a correction: move (or reformat) what is already on the plan.
+ *
+ * The uat failure this exists for: a client wrote "Meadow candle launch is the 10th not the
+ * 1st" twice, and both times it was classified evergreen and filed as an idea — the month
+ * never changed and nothing said so (docs/reports/wrong-month-generated.md §6).
+ *
+ * RELATIVE SPACING IS PRESERVED. A launch is three beats at fixed offsets; moving the
+ * launch must move the tease and follow-up with it, or the correction fixes one date and
+ * silently breaks two. Offsets are measured from the EARLIEST matched beat and re-applied
+ * from the new anchor, then clamped into the month.
+ *
+ * No match on the plan → no ops, and the caller files it as evergreen exactly as today.
+ * A correction that names something we cannot find is not a licence to invent a beat.
+ */
+export function applyCorrection(intent: MonthScopedIntent, beats: TransformBeat[], month: string): TransformResult {
+  const subject = intent.correctionOf ?? intent.subject;
+  const matches = resolveBeatSubject(subject, beats);
+  if (matches.length === 0) {
+    return { ops: [], note: `We couldn’t find “${subject}” on this month’s plan, so it was saved to your ideas instead.` };
+  }
+
+  // A format correction applies to every matched beat of a launch? No — a format change is
+  // about ONE post, so it needs an unambiguous match.
+  if (intent.edit === 'swap_format' || intent.editValue) {
+    const fmt = (intent.editValue ?? '').toLowerCase();
+    if (['reel', 'carousel', 'single'].includes(fmt)) {
+      if (matches.length > 1) {
+        return { ops: [], note: `“${subject}” is ${matches.length} posts this month, so it wasn’t clear which one to change the format of.` };
+      }
+      return { ops: [{ op: 'update', id: matches[0]!.id, changes: { format: fmt } }] };
+    }
+  }
+
+  const to = intent.dateRange?.start;
+  if (!to || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    return { ops: [], note: `It wasn’t clear what to change about “${subject}”, so it was saved to your ideas.` };
+  }
+
+  const sorted = [...matches].sort((a, b) => a.date.localeCompare(b.date));
+  const anchor = parse(sorted[0]!.date);
+  const ops: BeatOp[] = sorted.map((b) => ({
+    op: 'update' as const,
+    id: b.id,
+    changes: { date: clampToMonth(iso(parse(to) + (parse(b.date) - anchor)), month) },
+  }));
+
+  return sorted.length > 1
+    ? { ops, note: `Moved all ${sorted.length} posts for “${subject}”, keeping the same spacing.` }
+    : { ops };
+}
+
 /** Dispatch an intent to its transform. */
 export function applyIntent(
   intent: MonthScopedIntent, beats: TransformBeat[], month: string, today: string,
@@ -317,6 +392,7 @@ export function applyIntent(
     case 'event':     return applyEvent(intent, beats, month);
     case 'emphasis':  return applyEmphasis(intent, beats, today);
     case 'beat_edit': return applyBeatEdit(intent, beats, month);
+    case 'correction':return applyCorrection(intent, beats, month);
     default:          return { ops: [] };
   }
 }
