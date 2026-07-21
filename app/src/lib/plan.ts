@@ -10,7 +10,7 @@
  *                          another client's plan.
  * Neither widens WRITE scope: mutations stay bound to the session's own cycleId.
  */
-import { and, asc, eq, gte, isNull, lt, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
 import type { ContentCyclePostRow } from '@sprigly/db';
 import { db, contentCycles, contentCyclePosts, clientPlanningConfig, excludeDraftPosts, POST_STATUS_DRAFT, PRE_PLANNING_STATUSES } from '@sprigly/db';
 import type { BeatMeta } from '@sprigly/db';
@@ -227,10 +227,19 @@ export async function loadCycleList(
   // cycles can never collide in month-space, and a cross-month-moved post can no longer
   // relabel its cycle or shadow another (the old min(scheduled_date)-derived label + the
   // collision-tiebreak that resolved it are gone — deliberately no residual collision path).
+  // A cycle holding only DRAFT beats scores liveCount 0 (the join fences drafts out), so
+  // before this it qualified only by being the token's home cycle — a draft on any other
+  // cycle was unreachable rather than merely mis-rendered
+  // (docs/reports/draft-mode-not-rendering.md, anomaly 2). Named predicate, one query.
+  const withDraft = await cyclesWithReviewableDraft(clientId, rows.map((r) => r.cycleId));
+
   const out: CycleSummary[] = [];
   for (const r of rows) {
     const isHome = r.cycleId === homeCycleId;
-    if (!isHome && (r.liveCount === 0 || r.syncStatus === 'out_of_sync')) continue;   // home is always kept
+    const reviewableDraft = withDraft.has(r.cycleId);
+    // Home is always kept; a reviewable draft is its own reason to be reachable; otherwise
+    // the cycle must actually hold live, in-sync plan rows.
+    if (!isHome && !reviewableDraft && (r.liveCount === 0 || r.syncStatus === 'out_of_sync')) continue;
     const displayMonth = nextMonth(r.cycleMonth);
     out.push({
       cycleId:                  r.cycleId,
@@ -320,6 +329,31 @@ export async function cycleHasReviewableDraft(clientId: string, cycleId: string)
     ))
     .limit(1);
   return !!row;
+}
+
+/**
+ * The BATCH form of cycleHasReviewableDraft, for the month menu — which asks the question
+ * of every candidate cycle at once (loadCycleList), where one query per cycle would be an
+ * N+1 on every page load.
+ *
+ * SAME RULE, deliberately stated twice: live, non-deleted rows at status='draft', scoped by
+ * client as well as cycle. It is duplicated rather than delegated because the single-cycle
+ * form's exact query shape is asserted by draft-reader.test.ts — it pins the ownership
+ * scoping, which is a security property, not an implementation detail. The two must change
+ * together; if a third caller appears, collapse them and update that test deliberately.
+ */
+export async function cyclesWithReviewableDraft(clientId: string, cycleIds: readonly string[]): Promise<Set<string>> {
+  if (cycleIds.length === 0) return new Set();          // inArray([]) is not valid SQL
+  const rows = await db
+    .selectDistinct({ cycleId: contentCyclePosts.cycleId })
+    .from(contentCyclePosts)
+    .where(and(
+      inArray(contentCyclePosts.cycleId, [...cycleIds]),
+      eq(contentCyclePosts.clientId, clientId),          // ownership — never trust the id alone
+      eq(contentCyclePosts.status, POST_STATUS_DRAFT),
+      isNull(contentCyclePosts.deletedAt),
+    ));
+  return new Set(rows.map((r) => r.cycleId));
 }
 
 /**
