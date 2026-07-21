@@ -14,12 +14,35 @@ const TEST_DB = process.env['TEST_DATABASE_URL'];
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
+/**
+ * Dates relative to the RUN date, not the authoring date.
+ *
+ * These fixtures pass through the real date gate (isEditableDate, defaulting today to
+ * editScopeToday()), so a hardcoded literal is only "a future date" until the calendar
+ * reaches it — the failure mode plan-activity.integration.test.ts hit. Anchoring to the 1st
+ * of next month keeps every fixture date future whenever the suite runs.
+ */
+function nextMonthStart(todayIso: string): string {
+  const [y, m] = todayIso.split('-').map(Number);
+  return m === 12 ? `${y! + 1}-01-01` : `${y}-${String(m! + 1).padStart(2, '0')}-01`;
+}
+const plusDays = (iso: string, n: number): string =>
+  new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+
+
 describe.skipIf(!TEST_DB)('draft mutations write to the ledger', () => {
   let sql: Any, M: Any;
+  let beatDate: string, addDate: string, moveDate: string, cycleMonth: string;
 
   beforeAll(async () => {
     ({ sql } = await import('@sprigly/db'));
     M = await import('./draft-mutations');
+    const { editScopeToday } = await import('./edit-scope');
+    const base = nextMonthStart(editScopeToday());
+    beatDate   = base;                 // the seeded beat's slot
+    addDate    = plusDays(base, 3);    // where a hand-added beat lands
+    moveDate   = plusDays(base, 5);    // where a move sends it
+    cycleMonth = editScopeToday().slice(0, 7);
   });
 
   const PILLARS = ['Brand Story & Culture', 'Home & Space'];
@@ -32,14 +55,14 @@ describe.skipIf(!TEST_DB)('draft mutations write to the ledger', () => {
               VALUES (${clientId}, 'instagram', ${sql.json(PILLARS.map((name) => ({ name })))}, ${sql.json(['Brand'])})`;
     const [{ id: cycleId }] = await sql`
       INSERT INTO content_cycles (client_id, channel, cycle_month, status)
-      VALUES (${clientId}, 'instagram', '2026-09', 'scheduled') RETURNING id`;
+      VALUES (${clientId}, 'instagram', ${cycleMonth}, 'scheduled') RETURNING id`;
     return { clientId, cycleId };
   }
 
   const seed = async (clientId: string, cycleId: string): Promise<string> => {
     const [{ id }] = await sql`
       INSERT INTO content_cycle_posts (client_id, cycle_id, channel, scheduled_date, format, pillar, status, position, beat_meta, source_meta)
-      VALUES (${clientId}, ${cycleId}, 'instagram', '2026-10-26', 'single', 'Brand Story & Culture', 'draft', 11,
+      VALUES (${clientId}, ${cycleId}, 'instagram', ${beatDate}, 'single', 'Brand Story & Culture', 'draft', 11,
               ${sql.json({ slotType: 'proven', rationaleEvidence: { basis: 'client_input', reason: 'the wilderness launch' } })},
               ${sql.json({ title: 'wilderness candle launch — Tease' })})
       RETURNING id`;
@@ -51,13 +74,13 @@ describe.skipIf(!TEST_DB)('draft mutations write to the ledger', () => {
 
   it('add writes exactly one beat_added', async () => {
     const { clientId, cycleId } = await fixture();
-    await M.addBeat(clientId, cycleId, { date: '2026-10-20', format: 'reel', pillar: 'Home & Space' });
+    await M.addBeat(clientId, cycleId, { date: addDate, format: 'reel', pillar: 'Home & Space' });
 
     const rows = await ledger(cycleId);
     expect(rows).toHaveLength(1);
     expect(rows[0].action).toBe('beat_added');
     expect(rows[0].origin).toBe('user');
-    expect(rows[0].payload).toMatchObject({ title: 'Home & Space', date: '2026-10-20', basis: 'client_added', format: 'reel' });
+    expect(rows[0].payload).toMatchObject({ title: 'Home & Space', date: addDate, basis: 'client_added', format: 'reel' });
   }, 60_000);
 
   it('drop writes exactly one beat_dropped — WITH the provenance that was lost', async () => {
@@ -71,7 +94,7 @@ describe.skipIf(!TEST_DB)('draft mutations write to the ledger', () => {
     // The exact question the uat investigation could not answer: what was removed, and
     // where had it come from.
     expect(rows[0].payload).toMatchObject({
-      title: 'wilderness candle launch — Tease', date: '2026-10-26', basis: 'client_input',
+      title: 'wilderness candle launch — Tease', date: beatDate, basis: 'client_input',
     });
   }, 60_000);
 
@@ -101,12 +124,12 @@ describe.skipIf(!TEST_DB)('draft mutations write to the ledger', () => {
   it('move writes exactly one beat_moved, recording where it came from', async () => {
     const { clientId, cycleId } = await fixture();
     const id = await seed(clientId, cycleId);
-    await M.moveBeat(clientId, id, '2026-10-28');
+    await M.moveBeat(clientId, id, moveDate);
 
     const rows = await ledger(cycleId);
     expect(rows).toHaveLength(1);
     expect(rows[0].action).toBe('beat_moved');
-    expect(rows[0].payload).toMatchObject({ date: '2026-10-28', from: '2026-10-26' });
+    expect(rows[0].payload).toMatchObject({ date: moveDate, from: beatDate });
   }, 60_000);
 
   it('format change writes exactly one beat_format_changed', async () => {
@@ -124,9 +147,9 @@ describe.skipIf(!TEST_DB)('draft mutations write to the ledger', () => {
     const { clientId, cycleId } = await fixture();
     const id = await seed(clientId, cycleId);
 
-    await M.moveBeat(clientId, id, '2020-01-01');                 // past date → refused
+    await M.moveBeat(clientId, id, '2020-01-01');                 // deliberately absolute: past whenever this runs
     await M.swapFormat(clientId, id, 'skywriting');               // bad format → refused
-    await M.addBeat(clientId, cycleId, { date: '2026-10-20', format: 'reel', pillar: 'Nope' });
+    await M.addBeat(clientId, cycleId, { date: addDate, format: 'reel', pillar: 'Nope' });
 
     expect(await ledger(cycleId)).toHaveLength(0);
   }, 60_000);

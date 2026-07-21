@@ -17,12 +17,32 @@ const TEST_DB = process.env['TEST_DATABASE_URL'];
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
+/**
+ * Dates relative to the RUN date, not the authoring date.
+ *
+ * These fixtures pass through the real date gate (isEditableDate, defaulting today to
+ * editScopeToday()), so a hardcoded literal is only "a future date" until the calendar
+ * reaches it — the failure mode plan-activity.integration.test.ts hit. Anchoring to the 1st
+ * of next month keeps every fixture date future whenever the suite runs.
+ */
+function nextMonthStart(todayIso: string): string {
+  const [y, m] = todayIso.split('-').map(Number);
+  return m === 12 ? `${y! + 1}-01-01` : `${y}-${String(m! + 1).padStart(2, '0')}-01`;
+}
+const plusDays = (iso: string, n: number): string =>
+  new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+
+
 describe.skipIf(!TEST_DB)('undo restores a dropped beat byte-identically', () => {
   let sql: Any, M: Any;
+  let beatDate: string, cycleMonth: string;
 
   beforeAll(async () => {
     ({ sql } = await import('@sprigly/db'));
     M = await import('./draft-mutations');
+    const { editScopeToday } = await import('./edit-scope');
+    beatDate   = nextMonthStart(editScopeToday());
+    cycleMonth = editScopeToday().slice(0, 7);     // a cycle plans the month AFTER its own
   });
 
   const PILLARS = ['Brand Story & Culture', 'Home & Space', 'Workshops & Experiences'];
@@ -35,7 +55,7 @@ describe.skipIf(!TEST_DB)('undo restores a dropped beat byte-identically', () =>
               VALUES (${clientId}, 'instagram', ${sql.json(PILLARS.map((name) => ({ name })))}, ${sql.json(['Brand'])})`;
     const [{ id: cycleId }] = await sql`
       INSERT INTO content_cycles (client_id, channel, cycle_month, status)
-      VALUES (${clientId}, 'instagram', '2026-09', 'scheduled') RETURNING id`;
+      VALUES (${clientId}, 'instagram', ${cycleMonth}, 'scheduled') RETURNING id`;
     return { clientId, cycleId };
   }
 
@@ -58,7 +78,7 @@ describe.skipIf(!TEST_DB)('undo restores a dropped beat byte-identically', () =>
   }): Promise<string> {
     const [{ id }] = await sql`
       INSERT INTO content_cycle_posts (client_id, cycle_id, channel, scheduled_date, format, pillar, status, position, beat_meta, source_meta)
-      VALUES (${clientId}, ${cycleId}, 'instagram', '2026-10-26', ${over.format ?? 'single'}, ${over.pillar}, 'draft',
+      VALUES (${clientId}, ${cycleId}, 'instagram', ${beatDate}, ${over.format ?? 'single'}, ${over.pillar}, 'draft',
               ${over.position}, ${sql.json(over.beatMeta as Any)}, ${sql.json({ title: over.title })})
       RETURNING id`;
     return id as string;
@@ -153,6 +173,7 @@ describe.skipIf(!TEST_DB)('undo restores a dropped beat byte-identically', () =>
     const id = await seed(clientId, cycleId, CASES[1]);
     const dropped = await M.dropBeat(clientId, id);
 
+    // Deliberately absolute: 2020 is past no matter when this runs — that is the assertion.
     const res = await M.restoreBeat(clientId, cycleId, { ...dropped.dropped, date: '2020-01-01' });
     expect(res).toMatchObject({ ok: false, error: 'read_only_date' });
   }, 60_000);
