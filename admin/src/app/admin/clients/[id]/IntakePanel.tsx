@@ -21,6 +21,47 @@ function defaultIntake(): IntakeJson {
   };
 }
 
+/**
+ * Normalise a stored intake into a fully-formed one.
+ *
+ * `existingIntake ?? defaultIntake()` was NOT enough. `??` only fires on null, and the
+ * approval arc writes an intake_json that is a NON-NULL object carrying only
+ * `draftApplications`: draft-apply.ts persistReceipt spreads receipts onto whatever is
+ * already there, which for a draft-flow cycle is nothing. That object reached
+ * `intake.planContent.answers` and threw, taking the WHOLE admin client page down with it —
+ * including the OAuth section, which is how a missing Gmail connection became unfixable.
+ * (uat: earl-of-east cycle 040d6a1a, whose intake_json's only top-level key is
+ * `draftApplications`.)
+ *
+ * IntakeJson types every field as required, but the column is jsonb cast to it — the type
+ * describes what the planning arc writes, not what the table can hold. So this normalises
+ * FIELD BY FIELD: whatever is stored survives, and only genuinely absent fields default.
+ * The defaults are empty (no answers, no notes) — which is the honest state for a cycle
+ * that never had an intake, not an invention of content.
+ */
+function normaliseIntake(existing: IntakeJson | null): IntakeJson {
+  const d = defaultIntake();
+  if (!existing) return d;
+  const e = existing as Partial<IntakeJson>;
+  return {
+    planContent: {
+      answers:   e.planContent?.answers   ?? d.planContent.answers,
+      freeNotes: e.planContent?.freeNotes ?? d.planContent.freeNotes,
+    },
+    businessContext: Array.isArray(e.businessContext) ? e.businessContext : d.businessContext,
+    otherChannel:    e.otherChannel ?? d.otherChannel,
+    source:          e.source     ?? d.source,
+    capturedAt:      e.capturedAt ?? d.capturedAt,
+  };
+}
+
+/** True when this cycle has a real captured intake, as opposed to a normalised empty one. */
+export function hasCapturedIntake(existing: IntakeJson | null): boolean {
+  const pc = (existing as Partial<IntakeJson> | null)?.planContent;
+  if (!pc) return false;
+  return Object.keys(pc.answers ?? {}).length > 0 || (pc.freeNotes ?? '').trim().length > 0;
+}
+
 interface Props {
   cycleId:        string;
   cycleMonth:     string;
@@ -36,7 +77,9 @@ export function IntakePanel({
   questions, existingIntake,
 }: Props) {
   // Normalise to a fully-formed object so all downstream accesses are non-optional.
-  const intake     = existingIntake ?? defaultIntake();
+  // Field-wise, not `?? default` — see normaliseIntake.
+  const intake     = normaliseIntake(existingIntake);
+  const captured   = hasCapturedIntake(existingIntake);
   const allQuestions = questions;
 
   const [answers, setAnswers] = useState<Record<string, string>>(
@@ -135,6 +178,13 @@ export function IntakePanel({
         <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
           Plan content — answers for this month
         </h4>
+        {/* Honest about the absence rather than showing blank fields as though something
+            had been captured. The form stays usable — this is where an admin enters it. */}
+        {!captured && (
+          <p data-testid="no-intake-answers" className="text-xs text-gray-500 italic mb-3">
+            No intake answers for this cycle — nothing has been captured yet.
+          </p>
+        )}
         <div className="space-y-4">
           {allQuestions.map((q, i) => (
             <div key={i}>
