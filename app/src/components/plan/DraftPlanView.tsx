@@ -71,6 +71,17 @@ export interface DraftPlanViewProps {
   onApprove?: () => Promise<{ ok: boolean; message?: string }>;
 }
 
+/**
+ * Is this blur a real date change worth a mutation?
+ *
+ * Pure and exported so the rule can be tested without a DOM — the admin/app harness is a node
+ * environment, and a rule that can only be verified by clicking is a rule that rots.
+ */
+export function isRealDateChange(current: string, next: string): boolean {
+  if (!next || !/^\d{4}-\d{2}-\d{2}$/.test(next)) return false;   // cleared or half-typed
+  return next !== current;
+}
+
 export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars, cycleId, onMutate, onSay, onAddToMonth, onApprove, receipts = [], editable = true }: DraftPlanViewProps) {
   const [beats, setBeats] = useState<DraftBeatView[]>(initial);
   const [receipt, setReceipt] = useState<DraftReceipt | null>(receipts[0] ?? null);
@@ -118,6 +129,23 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
       ? { label: 'Beat removed', op: { op: 'restore', beat: res.dropped } as Record<string, unknown> }
       : undoOp;
     if (restore) { undo.current = restore; setUndoLabel(restore.label); } else { undo.current = null; setUndoLabel(null); }
+  }
+
+  /**
+   * Commit a date change, if it IS one.
+   *
+   * Two guards, both of which the rehearsal needed. A blur with the date unchanged is not an
+   * edit — the client opened the picker and closed it, or tabbed through — and sending it
+   * costs a DB write, an activity row, and a `beat_moved` entry reading "24 Aug → 24 Aug"
+   * that makes the ledger harder to read. An empty value means the picker was cleared rather
+   * than set, which is not a date and must not be sent as one.
+   *
+   * Exported logic lives in `isRealDateChange` so the rule is testable without a DOM.
+   */
+  function commitDate(beat: DraftBeatView, next: string): void {
+    if (!isRealDateChange(beat.date, next)) return;
+    void mutate({ op: 'move', postId: beat.id, date: next }, beat.id,
+      { label: 'Date changed', op: { op: 'move', postId: beat.id, date: beat.date } });
   }
 
   /**
@@ -339,10 +367,18 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
                         <label style={{ fontSize: 12.5, color: C.muted, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                           <span className="sr-only">Date for {beat.title}</span>
                           <input
-                            type="date" value={beat.date} disabled={busy}
+                            type="date" defaultValue={beat.date} key={beat.date} disabled={busy}
                             aria-label={`Date for ${beat.title}`}
-                            onChange={(e) => mutate({ op: 'move', postId: beat.id, date: e.target.value }, beat.id,
-                              { label: 'Date changed', op: { op: 'move', postId: beat.id, date: beat.date } })}
+                            // COMMIT ON BLUR, not on every onChange. A date input emits a
+                            // change per intermediate value the picker produces, so binding
+                            // the mutation to onChange sent a write (and an activity row) per
+                            // keystroke — ivy-t's rehearsal logged every move twice, once with
+                            // from == to (docs/reports/ivy-t-rehearsal-failures.md).
+                            // `key={beat.date}` remounts the input when the server's
+                            // authoritative date comes back, so an uncontrolled field can
+                            // never drift from the beat it belongs to.
+                            onBlur={(e) => commitDate(beat, e.currentTarget.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
                             style={{ font: 'inherit', fontSize: 13, padding: '7px 9px', minHeight: 40, border: `1px solid ${C.line}`, borderRadius: 9, background: '#fff', color: C.navy }}
                           />
                         </label>
