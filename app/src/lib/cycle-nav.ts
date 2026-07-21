@@ -90,7 +90,19 @@ export function resolveLandingCycleId(params: {
   today:                  string;
   homeCycleId:            string;
   homeHasReviewableDraft: boolean;
+  /**
+   * A cycle the caller asked for BY NAME (?cycle=), already verified to belong to this
+   * client. Explicit intent outranks every heuristic below it — "I just approved this month"
+   * is not a guess about today's date.
+   *
+   * Ignored silently when absent or not in the list: a stale or foreign id should land the
+   * client somewhere sensible, not on an error.
+   */
+  requestedCycleId?:      string | undefined;
 }): string {
+  if (params.requestedCycleId && params.cycles.some((c) => c.cycleId === params.requestedCycleId)) {
+    return params.requestedCycleId;
+  }
   if (params.homeHasReviewableDraft) return params.homeCycleId;
   return resolveDayCycleId(params.cycles, params.today) ?? params.homeCycleId;
 }

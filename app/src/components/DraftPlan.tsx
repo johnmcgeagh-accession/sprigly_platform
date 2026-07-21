@@ -29,6 +29,8 @@ export interface DraftPlanProps {
    *  Without it a client who lands on a draft has no way to look at any other month. */
   cycles?:        CycleSummary[];
   viewedCycleId?: string;
+  /** The cycle being reviewed, for the post-approval landing. Defaults to viewedCycleId. */
+  cycleId?:       string;
   onSwitchCycle?: (cycleId: string) => void;
   switching?:     boolean;
 }
@@ -139,6 +141,7 @@ export function DraftPlan(props: DraftPlanProps) {
           client returning to a draft month would see the month they left. */}
       <DraftPlanView
         key={viewedCycleId ?? 'draft'}
+        cycleId={props.cycleId ?? viewedCycleId}
         beats={props.beats}
         monthLabel={props.monthLabel}
         clientName={props.clientName}

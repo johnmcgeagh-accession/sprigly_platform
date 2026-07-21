@@ -59,6 +59,8 @@ export interface DraftPlanViewProps {
   onMutate:   (op: Record<string, unknown>) => Promise<{ ok: boolean; beats?: DraftBeatView[]; message?: string; dropped?: Record<string, unknown> }>;
   /** Sends a sentence of intake. Resolves with the receipt and the reshaped month. */
   onSay?:     (text: string) => Promise<{ ok: boolean; application?: DraftReceipt; beats?: DraftBeatView[]; message?: string }>;
+  /** The cycle being reviewed — approval navigates back to it by name. */
+  cycleId?:      string | undefined;
   /** Rescue a filed idea into this month (Build C's one-tap, finally wired). */
   onAddToMonth?: (planInputId: string, date: string) => Promise<{ ok: boolean; application?: DraftReceipt; beats?: DraftBeatView[]; message?: string }>;
   /** Receipts already stored for this cycle, newest first — so they survive a reload. */
@@ -69,7 +71,7 @@ export interface DraftPlanViewProps {
   onApprove?: () => Promise<{ ok: boolean; message?: string }>;
 }
 
-export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars, onMutate, onSay, onAddToMonth, onApprove, receipts = [], editable = true }: DraftPlanViewProps) {
+export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars, cycleId, onMutate, onSay, onAddToMonth, onApprove, receipts = [], editable = true }: DraftPlanViewProps) {
   const [beats, setBeats] = useState<DraftBeatView[]>(initial);
   const [receipt, setReceipt] = useState<DraftReceipt | null>(receipts[0] ?? null);
   const [saying, setSaying] = useState(false);
@@ -164,9 +166,15 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
     const res = await onApprove();
     setApproving(false);
     if (!res.ok) { setError(res.message ?? 'We couldn’t start that. Try again?'); return; }
-    // The surface re-renders out of draft mode on the next load: the cycle now has
-    // committed posts, so resolveSurfaceKind stops returning 'draft'.
-    window.location.reload();
+    // Land on the month they just approved, by NAME.
+    //
+    // A bare reload re-ran the landing rule from scratch, and approval is exactly the moment
+    // that rule stops working: it moves every draft row to 'generating', so
+    // cycleHasReviewableDraft goes false and resolveDayCycleId falls back to picking by
+    // today's date — which sent earl-of-east to August seconds after they approved October
+    // (docs/reports/round-two-email-and-surface.md §B3). "I just approved this month" is
+    // explicit intent and should outrank a heuristic about today.
+    window.location.assign(cycleId ? `/?cycle=${encodeURIComponent(cycleId)}` : '/');
   }
 
   const reelCount = useMemo(() => beats.filter((b) => b.format === 'reel').length, [beats]);

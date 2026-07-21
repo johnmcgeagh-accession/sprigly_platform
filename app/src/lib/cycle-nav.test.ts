@@ -158,3 +158,56 @@ describe('resolveLandingCycleId', () => {
     })).toBe('oct');
   });
 });
+
+// ── ?cycle= — approval lands on the month it just approved ────────────────────
+// A bare reload re-ran the landing rule, and approval is exactly when that rule stops
+// working: it clears the drafts, so the draft-wins branch goes false and the date rule sends
+// the client somewhere else entirely (docs/reports/round-two-email-and-surface.md §B3).
+
+describe('resolveLandingCycleId — an explicit cycle outranks the heuristics', () => {
+  const CYCLES = [
+    { cycleId: 'oct', displayMonth: '2026-10' },
+    { cycleId: 'sep', displayMonth: '2026-09' },
+    { cycleId: 'aug', displayMonth: '2026-08' },
+  ];
+  const TODAY = '2026-07-21';
+
+  it('POST-APPROVAL: lands on the approved cycle, not the date-derived one', () => {
+    // The exact uat shape: October just approved (so no draft remains), today is July, and
+    // the date rule would pick August.
+    expect(resolveLandingCycleId({
+      cycles: CYCLES, today: TODAY, homeCycleId: 'oct',
+      homeHasReviewableDraft: false, requestedCycleId: 'oct',
+    })).toBe('oct');
+  });
+
+  it('outranks the draft-wins branch too — explicit beats every heuristic', () => {
+    expect(resolveLandingCycleId({
+      cycles: CYCLES, today: TODAY, homeCycleId: 'oct',
+      homeHasReviewableDraft: true, requestedCycleId: 'sep',
+    })).toBe('sep');
+  });
+
+  it('a FOREIGN or stale cycle is ignored silently — falls through to the ordinary rule', () => {
+    expect(resolveLandingCycleId({
+      cycles: CYCLES, today: TODAY, homeCycleId: 'oct',
+      homeHasReviewableDraft: false, requestedCycleId: 'someone-elses-cycle',
+    })).toBe('aug');                       // the date rule, unchanged
+  });
+
+  it('an absent param leaves ordinary arrival byte-unchanged', () => {
+    expect(resolveLandingCycleId({
+      cycles: CYCLES, today: TODAY, homeCycleId: 'oct', homeHasReviewableDraft: false,
+    })).toBe('aug');
+    expect(resolveLandingCycleId({
+      cycles: CYCLES, today: TODAY, homeCycleId: 'oct', homeHasReviewableDraft: true,
+    })).toBe('oct');
+  });
+
+  it('an empty string is not a request', () => {
+    expect(resolveLandingCycleId({
+      cycles: CYCLES, today: TODAY, homeCycleId: 'oct',
+      homeHasReviewableDraft: false, requestedCycleId: '',
+    })).toBe('aug');
+  });
+});

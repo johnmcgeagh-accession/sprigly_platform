@@ -35,12 +35,12 @@
  * on it selects exactly the arc this fixes and excludes the baseline path, which keeps its
  * own send.
  */
-import { and, eq, isNull, sql as dsql } from 'drizzle-orm';
+import { and, eq, isNull, isNotNull, sql as dsql } from 'drizzle-orm';
 import type { Queue } from 'bullmq';
-import { contentCycles, contentCyclePosts, clients, claimPlanReadySend } from '@sprigly/db';
+import { contentCycles, contentCyclePosts, clients, claimPlanReadySend, releasePlanReadySend } from '@sprigly/db';
 import { ensureAppLink, monthLabelOf, nextMonth, sendAppReadyNotification, type PlanningDeps } from './planning.js';
 
-export { claimPlanReadySend };
+export { claimPlanReadySend, releasePlanReadySend };
 
 /** Job kinds whose ids embed a cycle id and whose completion can settle a cycle. */
 export const GENERATION_JOB_KINDS = ['shape', 'hook', 'script'] as const;
@@ -103,6 +103,7 @@ export type SettleOutcome =
   | 'not_settled'    // work still in flight
   | 'not_approved'   // baseline cycle, or an ad-hoc edit — not this path's to announce
   | 'already_sent'   // another worker claimed it, or the baseline already sent
+  | 'send_failed'    // claimed, transport refused, claim released — a later pass retries
   | 'no_link';       // no app link yet — do not claim, so a later job can try again
 
 /**
@@ -152,7 +153,76 @@ export async function settlePlanReady(
   const autoApproved = cycle.approvedBy === 'auto';
   const monthLabel   = monthLabelOf(nextMonth(cycle.cycleMonth));
 
-  await sendAppReadyNotification(deps, cycle.clientId, client?.name ?? '', monthLabel, appUrl, autoApproved);
+  // Claim-first still holds the concurrency line; what changes is that a claim which does
+  // not turn into a delivery is GIVEN BACK. Before this the send's result was discarded and
+  // the next line logged 'settled and sent' unconditionally — for earl-of-east it logged
+  // exactly that, one line after 'No Gmail tokens for client'.
+  const sent = await sendAppReadyNotification(deps, cycle.clientId, client?.name ?? '', monthLabel, appUrl, autoApproved);
+  if (!sent) {
+    await releasePlanReadySend(db, cycleId);
+    logger.warn({ cycleId, autoApproved, monthLabel }, 'plan-ready: send failed — claim released, will retry');
+    return 'send_failed';
+  }
+
   logger.info({ cycleId, autoApproved, monthLabel }, 'plan-ready: settled and sent');
   return 'sent';
+}
+
+/**
+ * Cap on one sweep pass. Not a rate limit — a guard against an unbounded scan if something
+ * upstream starts leaving cycles unsent en masse. A capped pass says so in the log rather
+ * than reporting a clean run over a truncated list.
+ */
+const SWEEP_LIMIT = 50;
+
+/**
+ * Daily sweep: approved cycles that settled but never got their email.
+ *
+ * The retry arm of the release added above. A send can fail for reasons that are fixed
+ * elsewhere and later — earl-of-east's failed because the client had no Gmail connection at
+ * all, which is an operational fix, not a code one. Without a sweep the cycle would stay
+ * unsent forever, because the only thing that used to call settlePlanReady was a generation
+ * job completing, and those are long finished by the time anyone connects an account.
+ *
+ * No backoff machinery: the tick runs once a day, and once a day IS the backoff. Each
+ * attempt logs, so a cycle failing repeatedly is visible rather than silent.
+ *
+ * Candidate selection is deliberately loose — approved, not yet sent. Everything that makes
+ * a send correct (settled, has a link, not already claimed) is re-checked by settlePlanReady
+ * itself, so the sweep cannot send anything a live settlement would not have.
+ */
+export async function sweepUnsentPlanReady(
+  deps: PlanningDeps, queue: Queue,
+): Promise<{ considered: number; sent: number; capped: boolean }> {
+  const { db, logger } = deps;
+
+  const candidates = await db
+    .select({ id: contentCycles.id })
+    .from(contentCycles)
+    .where(and(
+      isNotNull(contentCycles.approvedAt),
+      isNull(contentCycles.planReadySentAt),
+    ))
+    .limit(SWEEP_LIMIT + 1);
+
+  const capped = candidates.length > SWEEP_LIMIT;
+  const batch  = capped ? candidates.slice(0, SWEEP_LIMIT) : candidates;
+  if (capped) {
+    logger.warn({ limit: SWEEP_LIMIT }, 'plan-ready sweep: more unsent cycles than the pass cap — the rest wait for tomorrow');
+  }
+
+  let sent = 0;
+  for (const c of batch) {
+    try {
+      const outcome = await settlePlanReady(deps, queue, c.id);
+      if (outcome === 'sent') sent++;
+      logger.info({ cycleId: c.id, outcome }, 'plan-ready sweep: attempted');
+    } catch (err) {
+      // One cycle's failure must not end the pass for the rest.
+      logger.warn({ cycleId: c.id, err: String(err) }, 'plan-ready sweep: attempt threw (non-fatal)');
+    }
+  }
+
+  logger.info({ considered: batch.length, sent, capped }, 'plan-ready sweep: done');
+  return { considered: batch.length, sent, capped };
 }

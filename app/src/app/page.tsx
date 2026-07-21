@@ -12,7 +12,7 @@ import { DraftPlan } from '@/components/DraftPlan';
 
 export const dynamic = 'force-dynamic';
 
-export default async function Page({ searchParams }: { searchParams: { intake?: string } }) {
+export default async function Page({ searchParams }: { searchParams: { intake?: string; cycle?: string } }) {
   const session = await getSession();
   if (!session) return <Gate />;
   // Landed from the Ask email's {{intakeLink}} (…/p/<token>?intake=1 → /?intake=1).
@@ -50,11 +50,16 @@ export default async function Page({ searchParams }: { searchParams: { intake?: 
   //
   // Reviewable, not merely present: once the draft is approved its rows leave 'draft', the
   // predicate goes false, and the date rule takes over again by itself.
+  // ?cycle= names a month explicitly — approval sends the client back to the one they just
+  // approved. Ownership is enforced by membership of `cycles`, which loadCycleList already
+  // scoped to this client and channel, so a foreign or stale id simply falls through to the
+  // ordinary rule rather than erroring or leaking that the cycle exists.
   const initialCycleId = resolveLandingCycleId({
     cycles,
     today:                  editScopeToday(),
     homeCycleId:            session.cycleId,
     homeHasReviewableDraft: await cycleHasReviewableDraft(session.clientId, session.cycleId),
+    requestedCycleId:       searchParams?.cycle,
   });
   const posts = await loadPlanPosts(session.clientId, initialCycleId);
   // Cross-cycle posts dated in the landed cycle's plan month, so the calendar grid is
@@ -150,6 +155,7 @@ export default async function Page({ searchParams }: { searchParams: { intake?: 
 
       return (
         <DraftPlan
+          cycleId={initialCycleId}
           beats={draftBeats}
           monthLabel={cycles.find((c) => c.cycleId === initialCycleId)?.monthLabel ?? 'next month'}
           clientName={client?.name ?? 'you'}

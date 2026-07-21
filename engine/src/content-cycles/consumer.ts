@@ -47,7 +47,7 @@ import { runIgTrawlJob } from '../ig-producer.js';
 import { requestEmailStub } from './stubs.js';
 import { runContentCycleTick } from './scheduler.js';
 import { assembleAndPersistDraft, summariseDraft, draftFlowEnabled, countDraftBeats, autoApproveAndGenerate } from './draft-plan.js';
-import { settlePlanReady } from './plan-ready.js';
+import { settlePlanReady, sweepUnsentPlanReady } from './plan-ready.js';
 import { enqueueScriptIfReady } from './script-ready.js';
 import {
   IG_TRAWL_JOB_OPTIONS,
@@ -235,7 +235,12 @@ export function createContentCycleConsumer(
             approveAndGenerate: (clientId: string, cycleId: string) =>
               autoApproveAndGenerate(planningDepsForTick, queue, clientId, cycleId),
           };
-          await runContentCycleTick({ db, queue, logger, sendEmail, resolveAppLink, assembleDraft, autoApprove });
+          await runContentCycleTick({
+            db, queue, logger, sendEmail, resolveAppLink, assembleDraft, autoApprove,
+            // The retry arm: approved cycles whose plan-ready send failed get another go
+            // each day, using the same claim/send/release path a live settlement uses.
+            sweepPlanReady: () => sweepUnsentPlanReady(planReadyDeps, queue),
+          });
           break;
         }
 
