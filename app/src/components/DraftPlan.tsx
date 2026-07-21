@@ -15,7 +15,7 @@
  */
 import React from 'react';
 import { DraftPlanView, type DraftReceipt } from './plan/DraftPlanView';
-import type { DraftBeatView } from '@/lib/types';
+import type { DraftBeatView, CycleSummary } from '@/lib/types';
 
 export interface DraftPlanProps {
   beats:      DraftBeatView[];
@@ -24,6 +24,13 @@ export interface DraftPlanProps {
   pillars:    string[];
   editable:   boolean;
   receipts:   DraftReceipt[];
+  /** Month navigation. Present when the draft renders inside PlanRoot (which owns the
+   *  switch); absent on the standalone legacy render, which has no switcher and never had.
+   *  Without it a client who lands on a draft has no way to look at any other month. */
+  cycles?:        CycleSummary[];
+  viewedCycleId?: string;
+  onSwitchCycle?: (cycleId: string) => void;
+  switching?:     boolean;
 }
 
 export function DraftPlan(props: DraftPlanProps) {
@@ -75,17 +82,56 @@ export function DraftPlan(props: DraftPlanProps) {
     }
   }
 
+  const { cycles, viewedCycleId, onSwitchCycle } = props;
+  const others = cycles && viewedCycleId
+    ? [...cycles].sort((a, b) => b.displayMonth.localeCompare(a.displayMonth))
+    : [];
+
   return (
-    <DraftPlanView
-      beats={props.beats}
-      monthLabel={props.monthLabel}
-      clientName={props.clientName}
-      pillars={props.pillars}
-      editable={props.editable}
-      receipts={props.receipts}
-      onMutate={onMutate}
-      onSay={onSay}
-      onApprove={onApprove}
-    />
+    <>
+      {others.length > 1 && onSwitchCycle && (
+        <nav aria-label="Choose a month" data-testid="draft-month-nav" style={NAV}>
+          {others.map((c) => (
+            <button
+              key={c.cycleId}
+              type="button"
+              data-testid={`draft-month-${c.cycleId}`}
+              aria-current={c.cycleId === viewedCycleId ? 'true' : undefined}
+              disabled={props.switching || c.cycleId === viewedCycleId}
+              onClick={() => onSwitchCycle(c.cycleId)}
+              style={c.cycleId === viewedCycleId ? NAV_ON : NAV_OFF}
+            >
+              {c.monthLabel}
+            </button>
+          ))}
+        </nav>
+      )}
+      {/* Keyed by cycle so the view RE-SEEDS from the new month's beats: DraftPlanView
+          holds its beats in local state (DraftPlanView.tsx:69), so without a remount a
+          client returning to a draft month would see the month they left. */}
+      <DraftPlanView
+        key={viewedCycleId ?? 'draft'}
+        beats={props.beats}
+        monthLabel={props.monthLabel}
+        clientName={props.clientName}
+        pillars={props.pillars}
+        editable={props.editable}
+        receipts={props.receipts}
+        onMutate={onMutate}
+        onSay={onSay}
+        onApprove={onApprove}
+      />
+    </>
   );
 }
+
+const NAV: React.CSSProperties = {
+  display: 'flex', gap: 8, flexWrap: 'wrap',
+  padding: '12px 16px 0', background: '#F8F9FB',
+};
+const NAV_BASE: React.CSSProperties = {
+  border: '1.5px solid #E8EAEE', borderRadius: 999, padding: '6px 14px',
+  fontSize: 13, fontWeight: 700, cursor: 'pointer', background: '#FFFFFF', color: '#5B647A',
+};
+const NAV_ON:  React.CSSProperties = { ...NAV_BASE, background: '#1E2A4A', color: '#FFFFFF', borderColor: '#1E2A4A', cursor: 'default' };
+const NAV_OFF: React.CSSProperties = NAV_BASE;

@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { usePlanData, type PlanDataInit } from './usePlanData';
+import { DraftPlan } from '../DraftPlan';
 import { PlanDesktop } from './PlanDesktop';
 import { PlanMobile } from './PlanMobile';
 import { IntakeCapture } from './IntakeCapture';
@@ -38,6 +39,28 @@ export function PlanRoot(props: PlanDataInit) {
   // The cutoff for the VIEWED cycle: its run month is prevMonth(displayMonth), the cutoff fires on
   // the client's cutoffDay of that month. null when the client has no cutoffDay (neutral copy).
   const cutoffLabel = props.cutoffDay && viewedCycle ? cutoffLabelFor(prevMonth(viewedCycle.displayMonth), props.cutoffDay) : null;
+
+  // THE SURFACE FOLLOWS THE VIEWED CYCLE. The kind is the server's answer for whichever
+  // cycle is being shown (usePlanData.switchCycle); this switches on it rather than forking
+  // on "are there drafts?", so the client can never reach a different conclusion than the
+  // server did. Draft mode renders INSIDE this root — the month switcher lives here, so a
+  // client can leave a draft month and come back to it.
+  if (data.surfaceKind === 'draft' && data.draft) {
+    return (
+      <DraftPlan
+        beats={data.draft.beats}
+        monthLabel={viewedMonthLabel}
+        clientName={data.clientName}
+        pillars={data.draft.pillars}
+        editable={data.draft.editable}
+        receipts={data.draft.receipts}
+        cycles={data.cycles}
+        viewedCycleId={data.viewedCycleId}
+        onSwitchCycle={data.switchCycle}
+        switching={data.switching}
+      />
+    );
+  }
 
   return (
     <>

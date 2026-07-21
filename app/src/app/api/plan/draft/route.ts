@@ -12,8 +12,10 @@
  * guards server-side. The route never trusts a body field for identity or permission.
  */
 import { NextResponse } from 'next/server';
+import { and, eq } from 'drizzle-orm';
+import { db, contentCycles } from '@sprigly/db';
 import { getSession } from '@/lib/auth';
-import { loadDraftBeats } from '@/lib/plan';
+import { loadDraftBeats, loadDraftSurfaceContext } from '@/lib/plan';
 import {
   moveBeat, swapFormat, dropBeat, addBeat, reorderWithinDay,
   type DraftMutationResult,
@@ -47,7 +49,20 @@ export async function GET(req: Request) {
 
   const cycleId = new URL(req.url).searchParams.get('cycleId') ?? session.cycleId;
   const beats = await loadDraftBeats(session.clientId, cycleId);
-  return NextResponse.json({ beats });
+
+  // Everything else the draft surface needs, so a client entering draft mode on a month
+  // switch can render it WITHOUT the committed payload ever carrying draft data. This
+  // route is the one deliberate draft reader; routing the context through it keeps that
+  // true. Channel comes from the cycle row — never from the request.
+  const [cyc] = await db
+    .select({ channel: contentCycles.channel })
+    .from(contentCycles)
+    .where(and(eq(contentCycles.id, cycleId), eq(contentCycles.clientId, session.clientId)))
+    .limit(1);
+  if (!cyc) return NextResponse.json({ beats, pillars: [], editable: false, receipts: [] });
+
+  const ctx = await loadDraftSurfaceContext(session.clientId, cycleId, cyc.channel);
+  return NextResponse.json({ beats, ...ctx });
 }
 
 export async function POST(req: Request) {

@@ -10,12 +10,15 @@
  *                          another client's plan.
  * Neither widens WRITE scope: mutations stay bound to the session's own cycleId.
  */
-import { and, asc, eq, gte, isNull, lt, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
 import type { ContentCyclePostRow } from '@sprigly/db';
-import { db, contentCycles, contentCyclePosts, excludeDraftPosts, POST_STATUS_DRAFT, PRE_PLANNING_STATUSES } from '@sprigly/db';
+import { db, contentCycles, contentCyclePosts, clientPlanningConfig, excludeDraftPosts, POST_STATUS_DRAFT, PRE_PLANNING_STATUSES } from '@sprigly/db';
 import type { BeatMeta } from '@sprigly/db';
 import { listStepsForPosts } from '@/lib/steps';
 import { nextMonth } from '@/lib/cycle-nav';
+import { resolveSurfaceKind, mayHaveDraftSurface, type SurfaceKind } from '@/lib/surface-state';
+import { cycleIsPreCutoff } from '@/lib/draft-mutations';
+import { loadReceipts, type DraftApplication } from '@/lib/draft-apply';
 import type {
   CycleSummary, PlanPost, PlanBeat, PostChannel, PostFormat, PostStatus, ReviewState, PostStepView,
   DraftBeatView, BeatEvidence,
@@ -224,10 +227,19 @@ export async function loadCycleList(
   // cycles can never collide in month-space, and a cross-month-moved post can no longer
   // relabel its cycle or shadow another (the old min(scheduled_date)-derived label + the
   // collision-tiebreak that resolved it are gone — deliberately no residual collision path).
+  // A cycle holding only DRAFT beats scores liveCount 0 (the join fences drafts out), so
+  // before this it qualified only by being the token's home cycle — a draft on any other
+  // cycle was unreachable rather than merely mis-rendered
+  // (docs/reports/draft-mode-not-rendering.md, anomaly 2). Named predicate, one query.
+  const withDraft = await cyclesWithReviewableDraft(clientId, rows.map((r) => r.cycleId));
+
   const out: CycleSummary[] = [];
   for (const r of rows) {
     const isHome = r.cycleId === homeCycleId;
-    if (!isHome && (r.liveCount === 0 || r.syncStatus === 'out_of_sync')) continue;   // home is always kept
+    const reviewableDraft = withDraft.has(r.cycleId);
+    // Home is always kept; a reviewable draft is its own reason to be reachable; otherwise
+    // the cycle must actually hold live, in-sync plan rows.
+    if (!isHome && !reviewableDraft && (r.liveCount === 0 || r.syncStatus === 'out_of_sync')) continue;
     const displayMonth = nextMonth(r.cycleMonth);
     out.push({
       cycleId:                  r.cycleId,
@@ -320,6 +332,31 @@ export async function cycleHasReviewableDraft(clientId: string, cycleId: string)
 }
 
 /**
+ * The BATCH form of cycleHasReviewableDraft, for the month menu — which asks the question
+ * of every candidate cycle at once (loadCycleList), where one query per cycle would be an
+ * N+1 on every page load.
+ *
+ * SAME RULE, deliberately stated twice: live, non-deleted rows at status='draft', scoped by
+ * client as well as cycle. It is duplicated rather than delegated because the single-cycle
+ * form's exact query shape is asserted by draft-reader.test.ts — it pins the ownership
+ * scoping, which is a security property, not an implementation detail. The two must change
+ * together; if a third caller appears, collapse them and update that test deliberately.
+ */
+export async function cyclesWithReviewableDraft(clientId: string, cycleIds: readonly string[]): Promise<Set<string>> {
+  if (cycleIds.length === 0) return new Set();          // inArray([]) is not valid SQL
+  const rows = await db
+    .selectDistinct({ cycleId: contentCyclePosts.cycleId })
+    .from(contentCyclePosts)
+    .where(and(
+      inArray(contentCyclePosts.cycleId, [...cycleIds]),
+      eq(contentCyclePosts.clientId, clientId),          // ownership — never trust the id alone
+      eq(contentCyclePosts.status, POST_STATUS_DRAFT),
+      isNull(contentCyclePosts.deletedAt),
+    ));
+  return new Set(rows.map((r) => r.cycleId));
+}
+
+/**
  * Guard for the read path: may THIS client read THIS cycle? True if the cycle belongs to
  * the client AND it is not 'out_of_sync' AND it has either committed posts OR a
  * reviewable draft. The caller allows the home cycle unconditionally; this covers every
@@ -352,4 +389,68 @@ export async function isCycleReadableByClient(clientId: string, cycleId: string)
   if (row.syncStatus === 'out_of_sync') return false;
   if (row.liveCount > 0) return true;            // has a committed plan
   return cycleHasReviewableDraft(clientId, cycleId);   // …or a draft worth reviewing
+}
+
+/**
+ * Resolve the SURFACE KIND for one cycle. (Build E)
+ *
+ * The single server-side computation of "which surface does this cycle get". Both callers
+ * use it — the first paint (`page.tsx`) and the month switch (`GET /api/plan`) — so a
+ * client who lands on a draft and one who navigates to it cannot end up in different
+ * shells. The client never decides; it is told, and follows.
+ *
+ * Laziness is preserved exactly as `page.tsx` had it: `mayHaveDraftSurface` gates the
+ * draft read, so a cycle with committed posts never pays for `loadDraftBeats`.
+ *
+ * `committedPostCount` is passed in rather than re-queried because both callers have
+ * already loaded the fenced post list for this cycle; re-counting could only disagree
+ * with the list actually being rendered.
+ */
+export async function surfaceForCycle(params: {
+  clientId:           string;
+  cycleId:            string;
+  committedPostCount: number;
+  planRedesign:       boolean;
+}): Promise<{ kind: SurfaceKind; draftBeats: DraftBeatView[] }> {
+  const draftBeats = mayHaveDraftSurface({ hasSession: true, committedPostCount: params.committedPostCount })
+    ? await loadDraftBeats(params.clientId, params.cycleId)
+    : [];
+
+  const kind = resolveSurfaceKind({
+    hasSession:         true,
+    committedPostCount: params.committedPostCount,
+    draftBeatCount:     draftBeats.length,
+    planRedesign:       params.planRedesign,
+  });
+
+  return { kind, draftBeats };
+}
+
+/**
+ * Everything the draft surface needs beyond its beats, for ONE cycle.
+ *
+ * Exists so the month switch can enter draft mode client-side without the committed
+ * payload ever carrying draft data: `GET /api/plan/draft` serves this, and it remains the
+ * only reader permitted to see draft rows. monthLabel is deliberately absent — the client
+ * already has it from the cycle list, and duplicating it would give two sources for one
+ * label.
+ */
+export async function loadDraftSurfaceContext(clientId: string, cycleId: string, channel: string): Promise<{
+  pillars:  string[];
+  editable: boolean;
+  receipts: DraftApplication[];
+}> {
+  const [planCfg] = await db
+    .select({ pillars: clientPlanningConfig.pillars })
+    .from(clientPlanningConfig)
+    .where(and(eq(clientPlanningConfig.clientId, clientId), eq(clientPlanningConfig.channel, channel)))
+    .limit(1);
+
+  const pillars = (planCfg?.pillars ?? [])
+    .map((p) => (p as { name?: unknown }).name)
+    .filter((n): n is string => typeof n === 'string' && n.trim().length > 0);
+
+  // Past cutoff the draft stays READABLE but not editable — viewing and editing are
+  // different rights (the same split cycleHasReviewableDraft exists for).
+  return { pillars, editable: await cycleIsPreCutoff(cycleId), receipts: await loadReceipts(cycleId) };
 }

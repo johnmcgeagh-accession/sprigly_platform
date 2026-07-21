@@ -70,3 +70,27 @@ export function resolveDayCycleId(cycles: readonly CycleMonthRef[], today: strin
     .sort((a, b) => b.displayMonth.localeCompare(a.displayMonth))[0];   // most recent behind
   return past?.cycleId ?? null;
 }
+
+/**
+ * Which cycle should the client LAND on?
+ *
+ * Date-based landing (resolveDayCycleId) is the rule, with one exception that outranks it:
+ * an outstanding draft on the session's home cycle. The magic link was minted to ask the
+ * client to react to one specific month, and because the surface kind is derived from the
+ * landed cycle, landing elsewhere shows them the committed shell for a month they were not
+ * asked about — answering a question nobody put to them.
+ *
+ * `homeHasReviewableDraft` is the caller's already-resolved answer from
+ * `cycleHasReviewableDraft` (plan.ts) — passed in rather than fetched so this stays pure
+ * and the predicate keeps ONE definition. Reviewable, not merely present: once the draft is
+ * approved its rows leave 'draft' and the date rule takes over again on its own.
+ */
+export function resolveLandingCycleId(params: {
+  cycles:                 readonly CycleMonthRef[];
+  today:                  string;
+  homeCycleId:            string;
+  homeHasReviewableDraft: boolean;
+}): string {
+  if (params.homeHasReviewableDraft) return params.homeCycleId;
+  return resolveDayCycleId(params.cycles, params.today) ?? params.homeCycleId;
+}
