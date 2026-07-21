@@ -35,6 +35,20 @@ interface PillarState {
   tagline: string;
   keyMessages: string;  // textarea — one entry per line
   contentIdeas: string; // textarea — one entry per line
+  /**
+   * Carried through the edit round-trip, never edited here.
+   *
+   * Onboarding derives a share-of-posts percentage per pillar and persists it
+   * (onboard.ts:361-365, toConfigPillars). This panel has no field for it, and before this
+   * it simply vanished: state→pillar rebuilt the object from the four editable fields, so
+   * the first save of an onboarded client silently deleted every sharePct.
+   *
+   * Optional because BOTH shapes are real: ivy-t predates the persistence and has no
+   * sharePct on any of its 7 pillars (verified on prod); an onboarded client has one on all
+   * of them. Neither is wrong, and this panel must not invent the value for the former or
+   * destroy it for the latter.
+   */
+  sharePct?: number;
 }
 
 interface SeriesState {
@@ -59,31 +73,50 @@ function stripAt(handle: string): string {
   return handle.startsWith('@') ? handle.slice(1) : handle;
 }
 
-function pillarToState(p: Pillar): PillarState {
+/**
+ * Read a stored pillar into edit state.
+ *
+ * Every field is guarded because the `Pillar` type describes what the writers intend, not
+ * what the jsonb column can hold — the same gap that took the client page down through
+ * IntakePanel. An array field arriving absent used to reach `undefined.join()` and throw
+ * during render, and with no error boundaries on the page (known backlog) that is the whole
+ * screen, not one panel.
+ */
+export function pillarToState(p: Pillar): PillarState {
+  const shareOf = (x: Pillar): number | undefined => {
+    const v = (x as { sharePct?: unknown }).sharePct;
+    return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+  };
+  const share = shareOf(p);
   return {
-    name:         p.name,
-    tagline:      p.tagline,
-    keyMessages:  joinLines(p.keyMessages),
-    contentIdeas: joinLines(p.contentIdeas),
+    name:         p.name ?? '',
+    tagline:      p.tagline ?? '',
+    keyMessages:  joinLines(p.keyMessages  ?? []),
+    contentIdeas: joinLines(p.contentIdeas ?? []),
+    ...(share !== undefined ? { sharePct: share } : {}),
   };
 }
 
-function stateToPillar(s: PillarState): Pillar {
+export function stateToPillar(s: PillarState): Pillar {
   return {
     name:         s.name.trim(),
     tagline:      s.tagline.trim(),
     keyMessages:  splitLines(s.keyMessages),
     contentIdeas: splitLines(s.contentIdeas),
-  };
+    // Re-emitted ONLY when it was there. A pillar without a share keeps not having one —
+    // inventing a number here would put a made-up weighting in front of the planner.
+    ...(s.sharePct !== undefined ? { sharePct: s.sharePct } : {}),
+  } as Pillar;
 }
 
+/** Same posture as pillarToState: the stored shape is not guaranteed to be the typed one. */
 function seriesToState(r: RecurringSeries): SeriesState {
   return {
-    name:       r.name,
-    dayOfWeek:  r.dayOfWeek,
-    time:       r.time,
+    name:       r.name ?? '',
+    dayOfWeek:  r.dayOfWeek ?? 'Sunday',
+    time:       r.time ?? '',
     format:     r.format ?? '',
-    whoPosts:   r.whoPosts,
+    whoPosts:   r.whoPosts ?? 'Sprigly',
   };
 }
 
