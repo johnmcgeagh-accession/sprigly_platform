@@ -88,7 +88,7 @@ export type { IntakeRouting, MonthScopedIntent, EvergreenReason, ClassifyParams 
 export {
   applyIntent, applyLaunchArc, applyEvent, applySeries, expandSeries, applyEmphasis, applyBeatEdit,
   replacementCandidates, byWeakestEvidence, isReplaceable, replacementTier, isClientTouched, isClientOriginated,
-  isClientAdded, isFromEarlierInput, POOL_EMPTY_NOTE, resolveBeatRef,
+  isClientAdded, isFromEarlierInput, POOL_EMPTY_NOTE, deriveTitle, resolveBeatRef,
 } from './draft-transforms.js';
 export type { TransformBeat, BeatOp, TransformResult, DeferredInstance } from './draft-transforms.js';
 export { diffBeats, renderDiff, renderDelta, shortDate, isNoOp } from './draft-diff.js';

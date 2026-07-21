@@ -210,6 +210,61 @@ function displacementNote(victims: TransformBeat[]): string | undefined {
     : `Made room by replacing ${n} posts from earlier requests.`;
 }
 
+// ── Titles ────────────────────────────────────────────────────────────────────
+
+/** Longest a derived title may be. Past this a card stops being scannable and the title
+ *  stops doing its job, which is to let the client find the post at a glance. */
+const TITLE_MAX = 60;
+
+/**
+ * Derive a beat title from an intent subject.
+ *
+ * The transforms used to write `intent.subject` verbatim. The classifier asks for "a short
+ * noun phrase in the owner's own words", but `subject` is only bounded at 200 chars, and on
+ * real briefing text the model returned whole sentences. ivy-t's plan ended up with six beats
+ * titled with raw briefing prose, one clipped mid-date at the 200-char bound —
+ * "…grey marl; 14th" (docs/reports/ivy-t-rehearsal-failures.md F1). Those are not titles;
+ * they are input echoes, and the client saw them on their plan.
+ *
+ * Deterministic, no model: take the first clause, drop any trailing enumeration or date
+ * fragment, and cap on a word boundary. The FULL text is untouched in
+ * beat_meta.rationaleEvidence.reason, so nothing is lost — the receipt and the rationale
+ * still quote the client's own words in full. Only the card gets a readable label.
+ */
+export function deriveTitle(subject: string): string {
+  const cleaned = subject.replace(/\s+/g, ' ').trim();
+  if (!cleaned) return 'Untitled beat';
+
+  // Split on hard separators that end a thought. Sentence-enders and list separators only —
+  // a comma is too aggressive ("Lily tee and Sophie short co-ord set, navy" is one product,
+  // not two clauses).
+  const clauses = cleaned.split(/(?:[.;:!?]|\s[—–-]\s)\s*/).map((c) => c.trim()).filter(Boolean);
+
+  // Take the first SUBSTANTIVE clause, not merely the first one. Clients lead with the date
+  // constantly — "14th August — the stock leaves the factory" — and taking clause one there
+  // titles the beat "14th August", which tells them nothing they can't already see in the
+  // date column. A bare date is a position, not a subject.
+  const isBareDate = (c: string) =>
+    /^\d{1,2}(?:st|nd|rd|th)?(?:\s+\w+)?$/i.test(c) || /^\d{4}-\d{2}-\d{2}$/.test(c);
+  const clause = clauses.find((c) => !isBareDate(c) && c.length >= 12) ?? clauses[0] ?? cleaned;
+
+  // Trailing enumerations and dangling dates: "…: 7th", "…, 14th August", "… 2026-08-07".
+  const trimmed = clause
+    .replace(/[\s,;:—–-]+\d{1,2}(?:st|nd|rd|th)?(?:\s+\w+)?$/i, '')
+    .replace(/[\s,;:—–-]+\d{4}-\d{2}-\d{2}$/, '')
+    .replace(/[\s,;:—–-]+$/, '')
+    .trim() || clause;
+
+  if (trimmed.length <= TITLE_MAX) return trimmed;
+
+  // Word-boundary cap. Cut at the last space inside the budget; if there isn't one (a single
+  // enormous token) take the hard slice rather than returning something longer than the cap.
+  const slice = trimmed.slice(0, TITLE_MAX);
+  const lastSpace = slice.lastIndexOf(' ');
+  const capped = (lastSpace > TITLE_MAX * 0.5 ? slice.slice(0, lastSpace) : slice).replace(/[\s,;:—–-]+$/, '');
+  return `${capped}…`;
+}
+
 /** Evidence for a beat that exists because the client said so. No metrics pretended. */
 function clientInputMeta(sourceText: string, slotType: 'proven' | 'experiment' = 'proven'): BeatMeta {
   return {
@@ -295,7 +350,7 @@ export function applyLaunchArc(intent: MonthScopedIntent, beats: TransformBeat[]
       date:   part.date,
       format: part.format,
       pillar: victim.pillar,   // keep the displaced beat's pillar — the month's balance holds
-      title:  `${intent.subject} — ${part.label}`,
+      title:  `${deriveTitle(intent.subject)} — ${part.label}`,
       beatMeta: clientInputMeta(intent.sourceText),
     });
   }
@@ -385,13 +440,19 @@ function inMonth(date: string, month: string): boolean {
  * transform could produce is a wrong date first.
  */
 export function expandSeries(intent: MonthScopedIntent, month: string): DeferredInstance[] {
+  // The ordinal is appended AFTER the title is derived, never before — deriveTitle cuts at
+  // the first clause separator, and " — 2" is exactly that shape. Composing it here would
+  // mean every instance's title collapsed back to the bare series name.
   const subjectFor = (s: string | null | undefined, i: number, total: number): string =>
-    (s && s.trim()) ? s.trim() : (total > 1 ? `${intent.subject} — ${i + 1}` : intent.subject);
+    (s && s.trim()) ? s.trim() : (total > 1 ? `${deriveTitle(intent.subject)} — ${i + 1}` : intent.subject);
 
   const listed = intent.instances ?? [];
   if (listed.length > 0) {
     const sorted = [...listed].sort((a, b) => a.date.localeCompare(b.date));
-    return sorted.map((inst, i) => ({ date: inst.date, subject: subjectFor(inst.subject, i, sorted.length) }));
+    return sorted.map((inst, i) => ({
+      date: inst.date,
+      subject: inst.subject?.trim() ? deriveTitle(inst.subject) : subjectFor(null, i, sorted.length),
+    }));
   }
 
   const rec = intent.recurrence;
@@ -465,7 +526,7 @@ export function applySeries(intent: MonthScopedIntent, beats: TransformBeat[], m
       date:   inst.date,
       format: victim.format,
       pillar: victim.pillar,
-      title:  inst.subject,
+      title:  inst.subject,   // already derived: per-instance subject via deriveTitle below, or the ordinal form
       beatMeta: clientInputMeta(intent.sourceText),
     });
   }
@@ -500,7 +561,7 @@ export function applyEvent(intent: MonthScopedIntent, beats: TransformBeat[], mo
   return {
     ops: [
       { op: 'remove', id: victim.id },
-      { op: 'add', date, format: victim.format, pillar: victim.pillar, title: intent.subject, beatMeta: clientInputMeta(intent.sourceText) },
+      { op: 'add', date, format: victim.format, pillar: victim.pillar, title: deriveTitle(intent.subject), beatMeta: clientInputMeta(intent.sourceText) },
     ],
     ...(displaced ? { note: displaced } : {}),
   };
