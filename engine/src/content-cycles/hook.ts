@@ -10,6 +10,7 @@
  */
 import { and, eq } from 'drizzle-orm';
 import { contentCycles, contentCyclePosts, hookPatterns } from '@sprigly/db';
+import { recordPlanActivity } from './ledger.js';
 import { assembleShapeContext } from './planning.js';
 import type { PlanningDeps } from './planning.js';
 
@@ -24,6 +25,20 @@ export interface HookJob {
   clientId:     string;
   cycleId:      string;
   targetPostId: string;
+  /**
+   * FAN-OUT MODE. Additive, and off unless set.
+   *
+   * Interactively, this job's whole job is to OFFER: it returns candidates and a human
+   * picks one. In the approval fan-out there is no human, so the candidates were generated,
+   * billed and thrown away — every reel and carousel in an auto-generated month ended up
+   * with a null hook, and because scripts are gated on a hook existing, no script was ever
+   * enqueued either (docs/reports/wrong-month-generated.md §5b–5c).
+   *
+   * With this set the job additionally PERSISTS its top candidate. The return value is
+   * unchanged, so the interactive path is byte-identical — the flag is carried on the job
+   * payload rather than read from anything ambient, so the two callers cannot drift.
+   */
+  autoSelect?:  boolean;
 }
 export interface HookResultData { candidates: string[]; }
 
@@ -122,6 +137,30 @@ export async function runHookForPost(job: HookJob, deps: PlanningDeps): Promise<
   }
   const candidates = parseHooks(res.content).slice(0, CANDIDATE_COUNT);
   if (candidates.length === 0) throw new Error('hook: model returned no usable hooks');
+
+  // FAN-OUT: keep the top candidate. Ranked first by the same prompt that produced them,
+  // so "top" is the model's own preference, not ours. The client can still change it — this
+  // writes a hook where there would otherwise be none, it does not lock one in.
+  if (job.autoSelect) {
+    const chosen = candidates[0]!;
+    await db.update(contentCyclePosts)
+      .set({ hook: chosen })
+      .where(and(
+        eq(contentCyclePosts.id, job.targetPostId),
+        eq(contentCyclePosts.cycleId, job.cycleId),
+        eq(contentCyclePosts.clientId, job.clientId),
+      ));
+    try {
+      await recordPlanActivity(db, {
+        clientId: job.clientId, cycleId: job.cycleId, postId: job.targetPostId,
+        action: 'hook_saved', actor: { origin: 'agent' },
+      });
+    } catch (err) {
+      logger.warn({ ...logCtx, err: String(err) }, 'hook: ledger write failed — non-fatal');
+    }
+    logger.info({ ...logCtx, count: candidates.length }, 'hook: generated candidates and auto-selected the top one');
+    return { candidates };
+  }
 
   logger.info({ ...logCtx, count: candidates.length }, 'hook: generated candidates');
   return { candidates };

@@ -124,6 +124,8 @@ export interface HookPayload {
   clientId:     string;
   cycleId:      string;
   targetPostId: string;
+  /** Fan-out mode: the worker persists the top candidate (hook.ts). Absent = interactive. */
+  autoSelect?: boolean;
 }
 export const hookJobId = (cycleId: string, postId: string) => `hook_${cycleId}_${postId}`;
 

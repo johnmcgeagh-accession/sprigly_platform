@@ -320,7 +320,8 @@ export async function autoApproveAndGenerate(
       }, { jobId: `shape_${cycleId}_${post.id}`, ...GENERATION_JOB_OPTIONS });
       captionsQueued++;
       if (post.format === 'reel' || post.format === 'carousel') {
-        await queue.add('hook', { type: 'hook', clientId, cycleId, targetPostId: post.id },
+        // autoSelect: same reason as the app fan-out — nobody is here to pick a candidate.
+        await queue.add('hook', { type: 'hook', clientId, cycleId, targetPostId: post.id, autoSelect: true },
           { jobId: `hook_${cycleId}_${post.id}`, ...GENERATION_JOB_OPTIONS });
       }
     } catch (err) {

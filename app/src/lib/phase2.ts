@@ -5,7 +5,8 @@
  *   caption → enqueueShape  → shape.ts (assembleShapeContext → regeneratePost → gate →
  *                             critic → catalogue), which writes caption + status ONLY
  *   hook    → enqueueHookJob   → hook.ts   (reels + carousels)
- *   script  → enqueueScriptJob → script.ts (reels only, needs a hook and caption first)
+ *   script  → enqueueScriptJob → script.ts (reels only, needs a hook and caption first),
+ *             enqueued by the WORKER once both have landed (consumer.ts scriptReadyCheck)
  *
  * ── Structure is immutable by construction, not by care ──────────────────────
  * shape.ts writes `{ caption, status }` and nothing else, and the structural fields inside
@@ -19,8 +20,11 @@
  * retry. Ten good posts and one broken one is a month the client can work with; a blocked
  * cycle is not.
  *
- * Ordering matters for reels: a script needs a hook and a caption, so scripts are enqueued
- * by the client AFTER a hook lands rather than blindly here (see enqueueScriptsForReady).
+ * Ordering matters for reels: a script needs a hook AND a caption, and those two jobs race.
+ * So scripts are not enqueued here — the worker enqueues one when the last of the pair lands
+ * for a reel (consumer.ts, scriptReadyCheck). This comment previously pointed at
+ * `enqueueScriptsForReady`, which was never built: in the fan-out no script was ever
+ * enqueued at all (docs/reports/wrong-month-generated.md §5c).
  */
 import { and, eq, isNull, ne } from 'drizzle-orm';
 import { db, contentCyclePosts, POST_STATUS_DRAFT } from '@sprigly/db';
@@ -92,7 +96,10 @@ export async function startPhase2(clientId: string, cycleId: string): Promise<Ph
     result.captionsQueued++;
 
     if (HOOK_FORMATS.has(post.format)) {
-      const hook = await enqueueHookJob({ type: 'hook', clientId, cycleId, targetPostId: post.id });
+      // autoSelect: no human is here to choose, so the job persists its top candidate.
+      // Without it the hook is generated, billed and discarded, and the script that depends
+      // on it is never enqueued (docs/reports/wrong-month-generated.md §5b–5c).
+      const hook = await enqueueHookJob({ type: 'hook', clientId, cycleId, targetPostId: post.id, autoSelect: true });
       // A hook failure is NOT a post failure: the caption is the post, the hook is an
       // enhancement to it. Losing a hook must not mark the post broken.
       if (!('error' in hook)) result.hooksQueued++;
