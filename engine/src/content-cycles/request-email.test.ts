@@ -357,3 +357,27 @@ describe('runRequestEmail', () => {
     expect(transitionCycleMock).not.toHaveBeenCalled();
   });
 });
+
+
+// ── Client-identity paths are unaffected by the operator send identity ────────
+// request-email does not SEND — it creates a draft in the client's own mailbox for a human
+// to approve. That draft has to appear in THEIR Drafts, so it must keep using their tokens
+// even when an operator identity is configured for notifications
+// (docs/reports/operator-send-identity.md, Part 0b).
+
+describe('request-email keeps the CLIENT identity', () => {
+  it('drafts as the client even when OPERATOR_SEND_CLIENT_ID is set', async () => {
+    process.env['OPERATOR_SEND_CLIENT_ID'] = 'operator-client-id';
+    try {
+      const gmail = makeGmail();
+      await runRequestEmail(
+        CLIENT_ID, 'instagram', '2026-05',
+        makeDeps({ db: makeDefaultDb({ contentCycleSchedule: { day: 1, hour: 6 } }), gmailDraftService: gmail }),
+      );
+      expect(gmail.createDraft).toHaveBeenCalledTimes(1);
+      // First argument is the mailbox the draft lands in: the CLIENT's, never the operator's.
+      expect(gmail.createDraft.mock.calls[0]![0]).toBe(CLIENT_ID);
+      expect(gmail.createDraft.mock.calls[0]![0]).not.toBe('operator-client-id');
+    } finally { delete process.env['OPERATOR_SEND_CLIENT_ID']; }
+  });
+});
