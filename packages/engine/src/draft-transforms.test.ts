@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   applyLaunchArc, applyEvent, applyEmphasis, applyBeatEdit, applyIntent,
-  replacementCandidates, isReplaceable, resolveBeatRef, type TransformBeat,
+  replacementCandidates, isReplaceable, replacementTier, resolveBeatRef, type TransformBeat,
 } from './draft-transforms.js';
 import type { MonthScopedIntent } from './intake-classify.js';
 import type { BeatMeta } from '@sprigly/db';
@@ -45,11 +45,28 @@ describe('the replacement rule — what may be evicted, and in what order', () =
     expect(isReplaceable(beat('a', '2026-09-05', clientExperiment()))).toBe(false);
   });
 
-  it('protects a beat a previous client input created', () => {
+  // POLICY CHANGE (rehearsal fixes, commit 3): a beat an EARLIER SENTENCE created is no
+  // longer protected forever — it is tier 2, replaceable only once tiers 0-1 are gone. A
+  // beat the client placed BY HAND is still absolutely protected. The old rule starved the
+  // pool: every sentence's output immunised the month against the next sentence.
+  it('a previous input’s untouched beat is LAST RESORT, not protected', () => {
     const fromInput: BeatMeta = { slotType: 'proven', rationaleEvidence: { basis: 'client_input', reason: 'x' } as BeatMeta['rationaleEvidence'] };
-    expect(isReplaceable(beat('a', '2026-09-05', fromInput))).toBe(false);
+    expect(isReplaceable(beat('a', '2026-09-05', fromInput))).toBe(true);
+    expect(replacementTier(beat('a', '2026-09-05', fromInput))).toBe(2);
+  });
+
+  it('but a beat the client ADDED BY HAND is never replaceable', () => {
     const manuallyAdded: BeatMeta = { slotType: 'proven', rationaleEvidence: { basis: 'client_added' } };
     expect(isReplaceable(beat('b', '2026-09-06', manuallyAdded))).toBe(false);
+    expect(replacementTier(beat('b', '2026-09-06', manuallyAdded))).toBeNull();
+  });
+
+  it('and a previous input’s beat the client TOUCHED goes back to protected', () => {
+    const touchedInput: BeatMeta = {
+      slotType: 'proven', clientTouched: true,
+      rationaleEvidence: { basis: 'client_input', reason: 'x' } as BeatMeta['rationaleEvidence'],
+    };
+    expect(isReplaceable(beat('c', '2026-09-07', touchedInput))).toBe(false);
   });
 
   it('allows an ordinary observed beat', () => {
@@ -138,7 +155,8 @@ describe('applyLaunchArc', () => {
   it('does nothing, loudly, when every beat is protected', () => {
     const res = applyLaunchArc(launch(), [beat('c1', '2026-09-09', clientTouched())], MONTH);
     expect(res.ops).toEqual([]);
-    expect(res.note).toMatch(/added to your ideas instead/);
+    // The copy now names a remedy instead of only naming the refusal.
+    expect(res.note).toMatch(/add a day or drop something to make room/);
   });
 
   it('refuses without a date', () => {

@@ -50,11 +50,47 @@ const dateRangeSchema = z.object({
  * evidence. An intent that cannot point back at its cause is not traceable, and
  * traceability is the whole promise of this surface.
  */
+/**
+ * One post of an ENUMERATED series — the client listed the dates themselves.
+ *
+ * `subject` is per-instance because that is how clients actually write these: "every Friday
+ * in August: 7th — Maggie t-shirt; 14th — Lily tee" is four different posts, not one post
+ * repeated. Dropping the per-date subject would turn four planned products into four
+ * identical beats, which is the same information loss as not supporting series at all.
+ */
+const seriesInstanceSchema = z.object({
+  date:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  subject: z.string().min(1).max(200).nullable().optional(),
+});
+
+/**
+ * A series stated as a RULE rather than a list — "one post every 3 weeks from early August".
+ *
+ * `count` and `until` are both optional and both bounds: expansion stops at whichever comes
+ * first, and at the plan month's end regardless. Neither is required, because a client
+ * saying "every 3 weeks" usually means "until I say otherwise" — the month boundary is the
+ * honest default bound, not a guess at how long they meant.
+ */
+const recurrenceSchema = z.object({
+  startDate:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  intervalDays: z.number().int().min(1).max(366),
+  count:       z.number().int().min(1).max(60).nullable().optional(),
+  until:       z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+});
+
 export const monthScopedIntentSchema = z.object({
-  kind:       z.enum(['launch', 'event', 'emphasis', 'beat_edit', 'correction']),
+  kind:       z.enum(['launch', 'event', 'series', 'emphasis', 'beat_edit', 'correction']),
   subject:    z.string().min(1).max(200),
   sourceText: z.string().min(1),
   dateRange:  dateRangeSchema.nullable().optional(),
+  /**
+   * series only — the dates the client listed, in their order. Takes precedence over
+   * `recurrence` when both are present: an enumerated date is something the client stated,
+   * a computed one is something we inferred, and the stated thing wins.
+   */
+  instances:  z.array(seriesInstanceSchema).max(60).nullable().optional(),
+  /** series only — the rule, when they gave a cadence instead of a list. */
+  recurrence: recurrenceSchema.nullable().optional(),
   /** beat_edit only: which beat, in the client's words ("the Friday reel"). */
   beatRef:    z.string().max(200).nullable().optional(),
   /** beat_edit only: what to do with it. */
@@ -100,6 +136,7 @@ Decide ONE thing: is this about THIS MONTH's plan specifically, or is it a stand
 
 MONTH_SCOPED — act on the current draft now:
 - a launch, restock, event or campaign with a time attached ("the navy edit drops on the 28th")
+- a REPEATING run of posts ("every Friday in August", "one post every 3 weeks", "a weekly series")
 - a change to a specific planned post ("move the Friday reel to Saturday", "make the 3rd a carousel")
 - a shift of emphasis for THIS month ("more product this month", "less founder stuff in September")
 
@@ -110,13 +147,21 @@ EVERGREEN — a standing idea for the backlog:
 
 RULES:
 - If you are not sure, choose EVERGREEN. Being filed as an idea is easy to undo; changing a month the owner was happy with is not.
+- SERIES is any run of posts on a repeating pattern. "Every Friday", "one post every 3 weeks", "weekly", "monthly", "a mini-series" are ALWAYS kind=series and NEVER kind=launch. A series is a rhythm; a launch is one moment with a build-up. Do not turn a series into a launch because it has a start date.
+- For a series, prefer ENUMERATED dates. If the owner lists the dates ("7th, 14th, 21st, 28th"), return instances:[{date,subject}] with one entry per date, and put THAT DATE'S OWN subject on it (the specific product, theme or story they named for it). Only use recurrence:{startDate,intervalDays} when they give a cadence with no list ("every 3 weeks from the 1st"). If they give both a list and a cadence, the list wins — return instances and leave recurrence null.
 - CORRECTION is for fixing something already on the plan: "X is the 10th not the 1st", "actually the workshop is the 15th", "move the launch to the 3rd", "make the launch post a reel". Set kind=correction, correctionOf = the thing being corrected in the owner's words, and dateRange for a new date (or edit/editValue for a format change). A correction is NOT a new launch — do not use kind=launch to restate a date the owner is fixing.
 - Do NOT invent a date. Only set dateRange when a real date or clear window is stated. Resolve relative dates ("next Friday", "the 28th") against the PLAN MONTH you are given.
 - subject is a short noun phrase in the owner's own words. Do not embellish it.
 - sourceText is the owner's message, VERBATIM.
 
 Return ONE JSON object, no markdown, no code fences:
-{"scope":"month_scoped","intent":{"kind":"launch|event|emphasis|beat_edit|correction","subject":"","sourceText":"","dateRange":{"start":"YYYY-MM-DD","end":"YYYY-MM-DD"}|null,"beatRef":null,"edit":null,"editValue":null,"emphasis":null,"correctionOf":null}}
+{"scope":"month_scoped","intent":{"kind":"launch|event|series|emphasis|beat_edit|correction","subject":"","sourceText":"","dateRange":{"start":"YYYY-MM-DD","end":"YYYY-MM-DD"}|null,"instances":null,"recurrence":null,"beatRef":null,"edit":null,"editValue":null,"emphasis":null,"correctionOf":null}}
+
+For a series with listed dates:
+{"scope":"month_scoped","intent":{"kind":"series","subject":"Weekend Style Guide","sourceText":"","instances":[{"date":"YYYY-MM-DD","subject":"what that date is about"}],"recurrence":null,...}}
+
+For a series with a cadence and no list:
+{"scope":"month_scoped","intent":{"kind":"series","subject":"","sourceText":"","instances":null,"recurrence":{"startDate":"YYYY-MM-DD","intervalDays":21,"count":null,"until":null},...}}
 or
 {"scope":"evergreen"}`;
 
@@ -160,6 +205,14 @@ export function routeFromParsed(parsed: unknown, sourceText: string): IntakeRout
   }
   // A launch or event with no date has no anchor to place an arc against.
   if ((intent.data.kind === 'launch' || intent.data.kind === 'event') && !intent.data.dateRange) {
+    return { scope: 'evergreen', sourceText, reason: 'ambiguous' };
+  }
+  // A series needs a rhythm. Neither a list nor a rule means the model read "series" out of
+  // words like "mini-series" without any timing behind it — which is an idea for the
+  // backlog, not a run of dated posts. Filing it is right; inventing a cadence is not.
+  if (intent.data.kind === 'series'
+      && !(intent.data.instances && intent.data.instances.length > 0)
+      && !intent.data.recurrence) {
     return { scope: 'evergreen', sourceText, reason: 'ambiguous' };
   }
 
