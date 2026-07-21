@@ -41,10 +41,24 @@ export type BeatOp =
   | { op: 'remove'; id: string }
   | { op: 'update'; id: string; changes: { date?: string; format?: string; pillar?: string; title?: string }; beatMeta?: BeatMeta };
 
+/** A series instance that falls outside this plan month — handed back for the caller to file. */
+export interface DeferredInstance {
+  /** The date the client asked for, kept exactly. Filing it undated would lose the ask. */
+  date:    string;
+  subject: string;
+}
+
 export interface TransformResult {
   ops: BeatOp[];
   /** Why nothing (or less than asked) happened. Surfaced to the client, never swallowed. */
   note?: string;
+  /**
+   * Instances the transform deliberately did NOT place because they fall beyond the plan
+   * month. These are not failures and must not be silently dropped: the client asked for a
+   * September post and is entitled to have it survive somewhere they can see. The transform
+   * is pure, so it names them and the caller writes them to the backlog.
+   */
+  deferred?: DeferredInstance[];
 }
 
 // ── Protection and ranking ────────────────────────────────────────────────────
@@ -193,6 +207,128 @@ export function applyLaunchArc(intent: MonthScopedIntent, beats: TransformBeat[]
   return placed < LAUNCH_ARC.length
     ? { ops, note: `Added ${placed} of ${LAUNCH_ARC.length} posts for ${intent.subject} — the rest of the month is already spoken for.` }
     : { ops };
+}
+
+// ── Series ────────────────────────────────────────────────────────────────────
+
+/** Is this date inside the plan month? */
+function inMonth(date: string, month: string): boolean {
+  return date.slice(0, 7) === month;
+}
+
+/**
+ * Expand a series intent into the dates it actually asks for, in order, deduplicated.
+ *
+ * Enumerated instances WIN over a recurrence rule when both are present: a date the client
+ * listed is something they stated, a date we computed is something we inferred, and the
+ * stated thing outranks the inferred one. (The classifier is told the same, but a transform
+ * that trusts the prompt to have been obeyed is a transform with a silent failure mode.)
+ *
+ * Exported for tests: the expansion is the part worth pinning, because every wrong beat this
+ * transform could produce is a wrong date first.
+ */
+export function expandSeries(intent: MonthScopedIntent, month: string): DeferredInstance[] {
+  const subjectFor = (s: string | null | undefined, i: number, total: number): string =>
+    (s && s.trim()) ? s.trim() : (total > 1 ? `${intent.subject} — ${i + 1}` : intent.subject);
+
+  const listed = intent.instances ?? [];
+  if (listed.length > 0) {
+    const sorted = [...listed].sort((a, b) => a.date.localeCompare(b.date));
+    return sorted.map((inst, i) => ({ date: inst.date, subject: subjectFor(inst.subject, i, sorted.length) }));
+  }
+
+  const rec = intent.recurrence;
+  if (!rec) return [];
+
+  // Bound the expansion three ways — count, until, and the month end — and stop at whichever
+  // binds first. The month bound is the one that always exists: without it a client saying
+  // "every week, ongoing" would expand forever, and a loop whose only limit is the model's
+  // honesty is not a loop we should write.
+  const monthEnd = clampToMonth(`${month}-31`, month);
+  const hardEnd  = rec.until && rec.until < monthEnd ? rec.until : monthEnd;
+  const max      = Math.min(rec.count ?? 60, 60);
+
+  const out: DeferredInstance[] = [];
+  for (let i = 0, t = parse(rec.startDate); i < max && iso(t) <= hardEnd; i++, t += rec.intervalDays * dayMs) {
+    out.push({ date: iso(t), subject: '' });
+  }
+  // The subject pass runs after expansion so the ordinal reflects the real instance count.
+  return out.map((inst, i) => ({ ...inst, subject: subjectFor(null, i, out.length) }));
+}
+
+/**
+ * Place a series: ONE beat per instance, on the dates the client asked for.
+ *
+ * The failure this exists for: ivy-t's "one post every 3 weeks" and "every Friday in August"
+ * both became launch ARCS — a tease/launch/follow-up compressed into four days — because
+ * `launch` was the only intent kind that meant "several posts starting on a date"
+ * (docs/reports/ivy-t-rehearsal-failures.md F1). A series is a rhythm, not a moment. It gets
+ * no arc, no tease, and no offsets: the dates ARE the instruction.
+ *
+ * Instances beyond the plan month are NOT placed and NOT discarded — they come back as
+ * `deferred` for the caller to file, and the note says so, because a client who asked for a
+ * 4 September post deserves better than silence about it.
+ */
+export function applySeries(intent: MonthScopedIntent, beats: TransformBeat[], month: string): TransformResult {
+  const all = expandSeries(intent, month);
+  if (all.length === 0) {
+    return { ops: [], note: 'No dates were given for the series, so there was nothing to place.' };
+  }
+
+  const within  = all.filter((i) => inMonth(i.date, month));
+  const beyond  = all.filter((i) => !inMonth(i.date, month));
+  const deferNote = beyond.length > 0
+    ? ` ${beyond.length} post${beyond.length === 1 ? '' : 's'} fall${beyond.length === 1 ? 's' : ''} after this month — saved to your ideas for next time.`
+    : '';
+
+  if (within.length === 0) {
+    return {
+      ops: [], deferred: beyond,
+      note: `Every post in ${intent.subject} falls outside this month, so they were saved to your ideas for next time.`,
+    };
+  }
+
+  // One victim per instance, taken in the order the pool ranks them. Slot count never grows:
+  // if the pool runs out we place what we can and say so, rather than overflowing the month.
+  const pool = replacementCandidates(beats);
+  const ops: BeatOp[] = [];
+  const used = new Set<string>();
+  const placed: DeferredInstance[] = [];
+
+  for (const inst of within) {
+    const victim = pool.find((b) => !used.has(b.id));
+    if (!victim) break;
+    used.add(victim.id);
+    placed.push(inst);
+    ops.push({ op: 'remove', id: victim.id });
+    ops.push({
+      op: 'add',
+      date:   inst.date,
+      format: victim.format,
+      pillar: victim.pillar,
+      title:  inst.subject,
+      beatMeta: clientInputMeta(intent.sourceText),
+    });
+  }
+
+  if (placed.length === 0) {
+    return {
+      ops: [], deferred: beyond,
+      note: `Every beat this month is either yours or already earning its place, so ${intent.subject} was added to your ideas instead.`,
+    };
+  }
+
+  const short = within.length - placed.length;
+  const note = short > 0
+    ? `Added ${placed.length} of ${within.length} posts for ${intent.subject} — the rest of the month is already spoken for.${deferNote}`
+    : (deferNote ? `Added ${placed.length} post${placed.length === 1 ? '' : 's'} for ${intent.subject}.${deferNote}` : undefined);
+
+  // An instance we could not fit is deferred too: it was asked for and it did not land, so
+  // it belongs in the backlog with the out-of-month ones rather than vanishing.
+  const unplaced = within.slice(placed.length);
+  const deferred = [...unplaced, ...beyond];
+
+  return { ops, ...(note ? { note } : {}), ...(deferred.length > 0 ? { deferred } : {}) };
 }
 
 /** A single dated beat, same replacement rule. */
@@ -390,6 +526,7 @@ export function applyIntent(
   switch (intent.kind) {
     case 'launch':    return applyLaunchArc(intent, beats, month);
     case 'event':     return applyEvent(intent, beats, month);
+    case 'series':    return applySeries(intent, beats, month);
     case 'emphasis':  return applyEmphasis(intent, beats, today);
     case 'beat_edit': return applyBeatEdit(intent, beats, month);
     case 'correction':return applyCorrection(intent, beats, month);

@@ -184,6 +184,37 @@ async function saveToBacklog(clientId: string, cycleId: string, sourceText: stri
   return row?.id;
 }
 
+/**
+ * File the series instances that fall beyond this plan month.
+ *
+ * They are real asks with real dates ("Friday 4 September — long sleeve Orla"), so they keep
+ * their date in `relevant_from`: filing them as undated ideas would lose exactly the part the
+ * client was most specific about. `lifecycle: 'candidate'` matches the ordinary backlog, so
+ * they surface in the same list and the existing rescue tap can pull them into next month.
+ *
+ * Best-effort by design: a backlog write that fails must not roll back beats that were
+ * placed correctly. The receipt line still names them, so the client is told either way.
+ */
+async function saveDeferredInstances(
+  clientId: string, deferred: ReadonlyArray<{ date: string; subject: string }>,
+): Promise<number> {
+  if (deferred.length === 0) return 0;
+  try {
+    await db.insert(planInputs).values(deferred.map((d) => ({
+      clientId,
+      cycleId:      null,
+      type:         'idea',
+      content:      `${d.subject} (${d.date})`,
+      relevantFrom: d.date,
+      status:       'active',
+      source:       'web',
+      origin:       'client',
+      lifecycle:    'candidate',
+    })));
+    return deferred.length;
+  } catch { return 0; }
+}
+
 /** A stable-enough id for a receipt without pulling in a uuid dep on this path. */
 const receiptId = (at: number, sourceText: string): string =>
   `r-${at.toString(36)}-${Math.abs([...sourceText].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7)).toString(36)}`;
@@ -252,6 +283,9 @@ export async function applyIntakeToDraft(params: {
   // A transform that can do nothing files the input instead of dropping it. The client
   // typed something; it has to land somewhere they can see.
   if (result.ops.length === 0) {
+    // A series whose every instance fell outside the month produced no ops but still has
+    // dated asks to keep. File those as well as the input itself.
+    await saveDeferredInstances(clientId, result.deferred ?? []);
     const planInputId = await saveToBacklog(clientId, cycleId, sourceText);
     const application: DraftApplication = {
       ...base, scope: 'evergreen', reason: 'not_applicable', lines: [], changedIds: [],
@@ -264,6 +298,7 @@ export async function applyIntakeToDraft(params: {
 
   const nextPosition = Math.max(0, ...before.map((b) => b.position)) + 1;
   await writeOps(clientId, cycleId, cycle.channel, result.ops, nextPosition);
+  await saveDeferredInstances(clientId, result.deferred ?? []);
 
   const after = await loadTransformBeats(clientId, cycleId);
   const diff = diffBeats(before.map(toDiffBeat), after.map(toDiffBeat));

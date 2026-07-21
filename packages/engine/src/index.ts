@@ -86,10 +86,10 @@ export type { ApprovalError, ApprovalResult, ApproveDraftParams, ApprovalDb } fr
 export { classifyIntake, routeFromParsed, parseClassification, monthScopedIntentSchema, CLASSIFY_SYSTEM } from './intake-classify.js';
 export type { IntakeRouting, MonthScopedIntent, EvergreenReason, ClassifyParams } from './intake-classify.js';
 export {
-  applyIntent, applyLaunchArc, applyEvent, applyEmphasis, applyBeatEdit,
+  applyIntent, applyLaunchArc, applyEvent, applySeries, expandSeries, applyEmphasis, applyBeatEdit,
   replacementCandidates, byWeakestEvidence, isReplaceable, isClientTouched, isClientOriginated, resolveBeatRef,
 } from './draft-transforms.js';
-export type { TransformBeat, BeatOp, TransformResult } from './draft-transforms.js';
+export type { TransformBeat, BeatOp, TransformResult, DeferredInstance } from './draft-transforms.js';
 export { diffBeats, renderDiff, renderDelta, shortDate, isNoOp } from './draft-diff.js';
 export type { DiffBeat, BeatDelta, DraftDiff } from './draft-diff.js';
 
