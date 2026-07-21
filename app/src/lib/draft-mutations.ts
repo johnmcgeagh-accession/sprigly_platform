@@ -23,6 +23,7 @@ import {
 } from '@sprigly/db';
 import { loadDraftBeats } from '@/lib/plan';
 import { isEditableDate, editScopeToday } from '@/lib/edit-scope';
+import { recordActivity, USER_ACTOR } from '@/lib/activity';
 import type { DraftBeatView, PostFormat } from '@/lib/types';
 
 /** Formats a draft beat may take. 'email' is excluded: these are social beats, and the
@@ -74,6 +75,48 @@ const MESSAGES: Record<DraftMutationError, string> = {
 
 const fail = (error: DraftMutationError): DraftMutationResult => ({ ok: false, error, message: MESSAGES[error] });
 
+/**
+ * Record a draft mutation on the plan_activity ledger.
+ *
+ * OBSERVABILITY ONLY — nothing reads these to make a decision, and nothing should. They
+ * exist because a draft drop is a hard delete with no tombstone and these mutations wrote
+ * no trace at all: when six launch-arc beats vanished from cycle 040d6a1a before approval,
+ * the data could not say what removed them (docs/reports/wrong-month-generated.md §6).
+ *
+ * Best-effort. A ledger failure must never fail the mutation it describes — losing the
+ * record of an edit is bad; losing the edit is worse. Deliberately NOT inside the
+ * mutation's transaction for the same reason.
+ *
+ * Payload is minimal by intent: what the beat was, when it sat, and where it came from.
+ * The provenance (`basis`) is the field that would have answered the uat question fastest.
+ */
+async function recordBeatActivity(params: {
+  clientId: string; cycleId: string; postId: string | null;
+  action: 'beat_added' | 'beat_dropped' | 'beat_restored' | 'beat_moved' | 'beat_format_changed';
+  title: string; date: string; beatMeta: BeatMeta | null;
+  extra?: Record<string, unknown>;
+}): Promise<void> {
+  try {
+    const basis = (params.beatMeta?.rationaleEvidence as { basis?: unknown } | undefined)?.basis;
+    await recordActivity(db, {
+      clientId: params.clientId,
+      cycleId:  params.cycleId,
+      postId:   params.postId,
+      action:   params.action,
+      actor:    USER_ACTOR,          // every draft mutation is the client's own hand
+      payload: {
+        title: params.title,
+        date:  params.date,
+        basis: typeof basis === 'string' ? basis : null,
+        ...(params.extra ?? {}),
+      },
+    });
+  } catch { /* observability must never break the thing it observes */ }
+}
+
+const titleOf = (sourceMeta: Record<string, unknown> | null, pillar: string | null): string =>
+  typeof sourceMeta?.['title'] === 'string' ? (sourceMeta['title'] as string) : (pillar ?? '');
+
 /** The (id, client, cycle) scope every write carries — defence in depth, so a foreign id
  *  cannot mutate another client's row even if a check is missed upstream. */
 function scopedDraft(clientId: string, cycleId: string, postId: string) {
@@ -104,7 +147,7 @@ export async function cycleIsPreCutoff(cycleId: string): Promise<boolean> {
   return PRE_PLANNING_STATUSES.has(row.status);
 }
 
-interface MutableDraft { cycleId: string; scheduledDate: string; channel: string; position: number; pillar: string | null; beatMeta: BeatMeta | null }
+interface MutableDraft { cycleId: string; scheduledDate: string; channel: string; position: number; pillar: string | null; beatMeta: BeatMeta | null; sourceMeta: Record<string, unknown> | null }
 
 /**
  * Resolve a draft row this client may mutate, or the reason they may not.
@@ -123,6 +166,7 @@ async function requireDraftMutable(clientId: string, postId: string): Promise<Mu
       position:      contentCyclePosts.position,
       pillar:        contentCyclePosts.pillar,
       beatMeta:      contentCyclePosts.beatMeta,
+      sourceMeta:    contentCyclePosts.sourceMeta,
       status:        contentCyclePosts.status,
     })
     .from(contentCyclePosts)
@@ -136,7 +180,7 @@ async function requireDraftMutable(clientId: string, postId: string): Promise<Mu
   if (!row) return 'not_found';
   if (row.status !== POST_STATUS_DRAFT) return 'not_a_draft';
   if (!(await cycleIsPreCutoff(row.cycleId))) return 'cutoff_passed';
-  return { cycleId: row.cycleId, scheduledDate: row.scheduledDate, channel: row.channel, position: row.position, pillar: row.pillar, beatMeta: row.beatMeta };
+  return { cycleId: row.cycleId, scheduledDate: row.scheduledDate, channel: row.channel, position: row.position, pillar: row.pillar, beatMeta: row.beatMeta, sourceMeta: row.sourceMeta };
 }
 
 const isError = (v: MutableDraft | DraftMutationError): v is DraftMutationError => typeof v === 'string';
@@ -192,6 +236,11 @@ export async function moveBeat(
   await db.update(contentCyclePosts)
     .set({ scheduledDate: newDate, beatMeta: withClientTouched(ctx.beatMeta) })
     .where(scopedDraft(clientId, ctx.cycleId, postId));
+  await recordBeatActivity({
+    clientId, cycleId: ctx.cycleId, postId, action: 'beat_moved',
+    title: titleOf(ctx.sourceMeta, ctx.pillar), date: newDate, beatMeta: ctx.beatMeta,
+    extra: { from: ctx.scheduledDate },
+  });
   return { ok: true, beats: await loadDraftBeats(clientId, ctx.cycleId) };
 }
 
@@ -204,6 +253,11 @@ export async function swapFormat(clientId: string, postId: string, format: strin
   await db.update(contentCyclePosts)
     .set({ format, beatMeta: withClientTouched(ctx.beatMeta) })
     .where(scopedDraft(clientId, ctx.cycleId, postId));
+  await recordBeatActivity({
+    clientId, cycleId: ctx.cycleId, postId, action: 'beat_format_changed',
+    title: titleOf(ctx.sourceMeta, ctx.pillar), date: ctx.scheduledDate, beatMeta: ctx.beatMeta,
+    extra: { format },
+  });
   return { ok: true, beats: await loadDraftBeats(clientId, ctx.cycleId) };
 }
 
@@ -232,6 +286,13 @@ export async function dropBeat(clientId: string, postId: string): Promise<DraftM
     .limit(1);
 
   await db.delete(contentCyclePosts).where(scopedDraft(clientId, ctx.cycleId, postId));
+
+  await recordBeatActivity({
+    clientId, cycleId: ctx.cycleId, postId: null,     // the row is gone; FK is ON DELETE SET NULL
+    action: 'beat_dropped',
+    title: titleOf(row?.sourceMeta ?? null, row?.pillar ?? null),
+    date: row?.scheduledDate ?? ctx.scheduledDate, beatMeta: row?.beatMeta ?? ctx.beatMeta,
+  });
 
   const beats = await loadDraftBeats(clientId, ctx.cycleId);
   if (!row) return { ok: true, beats };
@@ -277,7 +338,7 @@ export async function restoreBeat(
   const vocab = await pillarVocab(clientId, cycle.channel);
   if (vocab.length === 0 || !vocab.includes(beat.pillar)) return fail('invalid_pillar');
 
-  await db.insert(contentCyclePosts).values({
+  const [restored] = await db.insert(contentCyclePosts).values({
     clientId, cycleId, channel: cycle.channel,
     scheduledDate: beat.date,
     format:        beat.format,
@@ -287,6 +348,11 @@ export async function restoreBeat(
     position:      beat.position,          // its own slot back, not the end of the list
     beatMeta:      beat.beatMeta,          // the evidence that justified it, intact
     sourceMeta:    { title: beat.title },  // its subject, not its pillar's name
+  }).returning({ id: contentCyclePosts.id });
+
+  await recordBeatActivity({
+    clientId, cycleId, postId: restored?.id ?? null, action: 'beat_restored',
+    title: beat.title, date: beat.date, beatMeta: beat.beatMeta,
   });
 
   return { ok: true, beats: await loadDraftBeats(clientId, cycleId) };
@@ -335,7 +401,7 @@ export async function addBeat(
     clientTouched: true,   // they placed it; no transform may quietly take the slot back
   };
 
-  await db.insert(contentCyclePosts).values({
+  const [added] = await db.insert(contentCyclePosts).values({
     clientId, cycleId, channel: cycle.channel,
     scheduledDate: spec.date,
     format:        spec.format,
@@ -345,6 +411,11 @@ export async function addBeat(
     position:      (maxRow?.position ?? -1) + 1,
     beatMeta,
     sourceMeta:    { title: spec.pillar },
+  }).returning({ id: contentCyclePosts.id });
+
+  await recordBeatActivity({
+    clientId, cycleId, postId: added?.id ?? null, action: 'beat_added',
+    title: spec.pillar, date: spec.date, beatMeta, extra: { format: spec.format },
   });
 
   return { ok: true, beats: await loadDraftBeats(clientId, cycleId) };

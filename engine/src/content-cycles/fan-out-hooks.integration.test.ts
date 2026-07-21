@@ -35,7 +35,11 @@ describe.skipIf(!TEST_DB || !TEST_REDIS)('fan-out hooks + scripts (integration)'
     hook        = await import('./hook.js');
     scriptReady = await import('./script-ready.js');
     planReady   = await import('./plan-ready.js');
-    q = new Queue('content-cycles', { connection: { url: TEST_REDIS! } });
+    // Its OWN queue name: plan-ready.integration.test.ts also drives 'content-cycles' on
+    // this Redis and obliterates between tests, so sharing the name makes the two files
+    // delete each other's jobs when vitest runs them in parallel. Nothing under test cares
+    // about the name — these helpers scan whatever queue they are handed.
+    q = new Queue(`content-cycles-fanout-${process.pid}`, { connection: { url: TEST_REDIS! } });
   });
   afterEach(async () => { await q.obliterate({ force: true }).catch(() => {}); });
   afterAll(async () => { await q?.close(); });

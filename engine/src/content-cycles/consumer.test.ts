@@ -30,6 +30,9 @@ vi.mock('../ig-producer.js', () => ({ runIgTrawlJob:        vi.fn() }));
 vi.mock('./stubs.js',   () => ({ requestEmailStub:          vi.fn() }));
 vi.mock('./scheduler.js',() => ({ runContentCycleTick:      vi.fn() }));
 vi.mock('./plan-ready.js',() => ({ settlePlanReady:          vi.fn() }));
+// The completed-handler runs the script-ready check BEFORE settling; without this the real
+// module reaches for a db these tests do not provide and the settlement never runs.
+vi.mock('./script-ready.js',() => ({ enqueueScriptIfReady:    vi.fn() }));
 
 import {
   createContentCycleConsumer,
@@ -43,6 +46,7 @@ import { runIgTrawlJob }              from '../ig-producer.js';
 import { requestEmailStub }           from './stubs.js';
 import { runContentCycleTick }        from './scheduler.js';
 import { settlePlanReady }            from './plan-ready.js';
+import { enqueueScriptIfReady }       from './script-ready.js';
 
 // ─── Shared setup ─────────────────────────────────────────────────────────────
 
@@ -52,6 +56,7 @@ const igTrawlMock         = runIgTrawlJob              as ReturnType<typeof vi.f
 const requestEmailMock    = requestEmailStub            as ReturnType<typeof vi.fn>;
 const schedulerTickMock   = runContentCycleTick         as ReturnType<typeof vi.fn>;
 const settleMock          = settlePlanReady             as ReturnType<typeof vi.fn>;
+const scriptReadyMock     = enqueueScriptIfReady        as ReturnType<typeof vi.fn>;
 
 const LOGGER        = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 const mockQueueAdd  = vi.fn().mockResolvedValue({ id: 'enqueued-job' });
@@ -335,7 +340,10 @@ describe('unknown job type', () => {
 describe('plan-ready settlement listeners', () => {
   const flush = () => new Promise((r) => setImmediate(r));
 
-  beforeEach(() => { settleMock.mockReset(); settleMock.mockResolvedValue('not_settled'); });
+  beforeEach(() => {
+    settleMock.mockReset(); settleMock.mockResolvedValue('not_settled');
+    scriptReadyMock.mockReset(); scriptReadyMock.mockResolvedValue(false);
+  });
 
   it('attaches to both completed and failed', () => {
     makeConsumer();
@@ -377,6 +385,18 @@ describe('plan-ready settlement listeners', () => {
     });
     await flush();
     expect(settleMock).toHaveBeenCalledWith(expect.anything(), MOCK_QUEUE, 'cyc-1', 'shape_cyc-1_post-1');
+  });
+
+  it('the script-ready check runs BEFORE settlement, or the email beats the last script', async () => {
+    const order: string[] = [];
+    scriptReadyMock.mockImplementation(async () => { order.push('script-ready'); return true; });
+    settleMock.mockImplementation(async () => { order.push('settle'); return 'not_settled'; });
+
+    makeConsumer();
+    capturedListeners['completed']!({ id: 'shape_cyc-1_post-1', data: { type: 'shape', cycleId: 'cyc-1', clientId: 'c1', targetPostId: 'post-1' } });
+    await flush();
+
+    expect(order).toEqual(['script-ready', 'settle']);
   });
 
   it('a settlement error never escapes the listener', async () => {
