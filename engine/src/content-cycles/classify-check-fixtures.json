@@ -1,0 +1,66 @@
+{
+  "planMonth": "2026-08",
+  "note": "Sentences the intake classifier must route correctly. Seeded from ivy-t's rehearsal (docs/reports/ivy-t-rehearsal-failures.md) plus the beat_spec/cadence contracts. `expect.kind` is the month-scoped intent kind; `expect.scope` is 'evergreen' for backlog cases. Add cases freely — the harness runs the REAL classifier (Bedrock spend) and prints actual-vs-expected. beat_spec rows that are date-leading are recognised by the deterministic pre-parse and cost nothing.",
+  "cases": [
+    {
+      "label": "series — Weekend Style Guide (enumerated Fridays)",
+      "text": "Weekend Style Guide every Friday in August: 7th — Maggie t-shirt grey marl; 14th — Lily tee and Sophie short co-ord; 21st — Emily sweatshirt in Midnight; 28th — Hannah t-shirt Navy.",
+      "expect": { "scope": "month_scoped", "kind": "series", "has": ["instances"] }
+    },
+    {
+      "label": "series — the mini-series (one every 3 weeks)",
+      "text": "New mini-series starting early August, one post every 3 weeks, hook 'What I am most proud of…' — each one sharing a specific aspect of the brand, fabrics, team, or Sally's own story.",
+      "expect": { "scope": "month_scoped", "kind": "series", "has": ["recurrence"] }
+    },
+    {
+      "label": "beat_spec — typed row (pre-parse, no spend)",
+      "text": "Sat 22 Aug Reel What I am most proud of… — part 2",
+      "expect": { "scope": "month_scoped", "kind": "beat_spec", "has": ["dateRange", "format"] }
+    },
+    {
+      "label": "beat_spec — phrased near-miss (model)",
+      "text": "add a reel on the 22nd called What I am most proud of part 2",
+      "expect": { "scope": "month_scoped", "kind": "beat_spec", "has": ["dateRange"] }
+    },
+    {
+      "label": "cadence — posts per week",
+      "text": "we want 7 posts a week",
+      "expect": { "scope": "month_scoped", "kind": "cadence", "has": ["postsPerWeek"] }
+    },
+    {
+      "label": "cadence — daily",
+      "text": "post every day",
+      "expect": { "scope": "month_scoped", "kind": "cadence", "has": ["postsPerWeek"] }
+    },
+    {
+      "label": "cadence — a stated ceiling is still a number",
+      "text": "no more than 4 a week please",
+      "expect": { "scope": "month_scoped", "kind": "cadence", "has": ["postsPerWeek"] }
+    },
+    {
+      "label": "correction — the Meadow candle launch date",
+      "text": "the Meadow candle launch is the 10th, not the 1st",
+      "expect": { "scope": "month_scoped", "kind": "correction", "has": ["correctionOf", "dateRange"] }
+    },
+    {
+      "label": "launch — a plain launch keeps its arc",
+      "text": "The Navy Edit launches on 28th August at 7pm.",
+      "expect": { "scope": "month_scoped", "kind": "launch", "has": ["dateRange"] }
+    },
+    {
+      "label": "event — a single dated moment",
+      "text": "We've got a pop-up in the shop on the 16th.",
+      "expect": { "scope": "month_scoped", "kind": "event", "has": ["dateRange"] }
+    },
+    {
+      "label": "evergreen — a pure idea, no timing",
+      "text": "we should do more behind-the-scenes content at some point",
+      "expect": { "scope": "evergreen" }
+    },
+    {
+      "label": "evergreen — the ambiguous founder story",
+      "text": "maybe we could share Sally's story sometime, could be nice",
+      "expect": { "scope": "evergreen" }
+    }
+  ]
+}
