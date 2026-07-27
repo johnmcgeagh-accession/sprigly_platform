@@ -86,6 +86,11 @@ export type { ApprovalError, ApprovalResult, ApproveDraftParams, ApprovalDb } fr
 export { classifyIntake, routeFromParsed, parseClassification, parseBeatSpec, monthScopedIntentSchema, CLASSIFY_SYSTEM } from './intake-classify.js';
 export type { IntakeRouting, MonthScopedIntent, EvergreenReason, ClassifyParams } from './intake-classify.js';
 export {
+  isDocumentShaped, decomposeInput, validateDecomposition, parseDecomposition,
+  orderIndices, tierOf, DECOMPOSE_SYSTEM,
+} from './brief.js';
+export type { Decomposition, DecomposeParams } from './brief.js';
+export {
   applyIntent, applyLaunchArc, applyEvent, applySeries, applyBeatSpec, applyCadence, expandSeries, applyEmphasis, applyBeatEdit,
   replacementCandidates, byWeakestEvidence, isReplaceable, replacementTier, isClientTouched, isClientOriginated,
   isClientAdded, isFromEarlierInput, POOL_EMPTY_NOTE, deriveTitle, resolveBeatRef,

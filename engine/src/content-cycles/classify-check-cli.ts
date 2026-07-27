@@ -23,7 +23,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createModelClientFromEnv } from '@sprigly/model-client';
-import { classifyIntake, parseBeatSpec, type IntakeRouting } from '@sprigly/engine';
+import { classifyIntake, parseBeatSpec, decomposeInput, isDocumentShaped, type IntakeRouting } from '@sprigly/engine';
 
 interface FixtureCase {
   label?: string;
@@ -31,7 +31,8 @@ interface FixtureCase {
   planMonth?: string;
   expect: { scope: 'month_scoped' | 'evergreen'; kind?: string; has?: string[] };
 }
-interface Fixture { planMonth?: string; cases: FixtureCase[] }
+interface BriefCase { label?: string; text: string; planMonth?: string }
+interface Fixture { planMonth?: string; cases: FixtureCase[]; briefs?: BriefCase[] }
 
 const args = process.argv.slice(2);
 const fixtureArg = args.find((a) => !a.startsWith('--'));
@@ -112,5 +113,31 @@ for (const c of fixture.cases) {
 
 console.log(lines.join('\n\n'));
 console.log(`\n${pass}/${pass + fail} passed  ·  ${spent} classify calls (Bedrock), ${preParsed} pre-parsed (no spend)  ·  fixture: ${fixturePath}`);
+
+// ── decompose-check: run the REAL decomposer over each full brief, print segments + kinds ────
+// The operator live-verifies decomposition the same way they verify classification. Each brief
+// is one decompose call plus one classify call per segment — deliberate Bedrock spend.
+let decomposeSpent = 0;
+for (const b of fixture.briefs ?? []) {
+  const planMonth = b.planMonth ?? defaultMonth;
+  console.log(`\n\n=== DECOMPOSE: ${b.label ?? b.text.slice(0, 48)} ===`);
+  console.log(`document-shaped: ${isDocumentShaped(b.text)}`);
+  const decomposition = await decomposeInput({ text: b.text, model, logger });
+  decomposeSpent++;
+  if (!decomposition) {
+    console.log('  decomposition FAILED the coverage contract (would fall back to the whole-input path)');
+    continue;
+  }
+  console.log(`  ${decomposition.segments.length} segments, ${decomposition.discarded.length} discarded:`);
+  for (const [n, seg] of decomposition.segments.entries()) {
+    const routing = await classifyIntake({ text: seg, planMonth, model, logger });
+    decomposeSpent++;
+    const kind = routing.scope === 'evergreen' ? `evergreen(${routing.reason})` : `month_scoped/${routing.intent.kind}`;
+    console.log(`   ${String(n + 1).padStart(2)}. [${kind}]  ${seg.slice(0, 80)}`);
+  }
+}
+if ((fixture.briefs ?? []).length > 0) {
+  console.log(`\n${decomposeSpent} decompose+classify calls (Bedrock) across ${(fixture.briefs ?? []).length} brief(s).`);
+}
 
 process.exit(fail > 0 ? 1 : 0);
