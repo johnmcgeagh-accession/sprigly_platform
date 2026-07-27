@@ -20,7 +20,7 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { getModelClient } from '@/lib/agent/model';
-import { applyIntakeToDraft, addBacklogItemToMonth, loadReceipts } from '@/lib/draft-apply';
+import { applyTextToDraft, addBacklogItemToMonth, loadReceipts } from '@/lib/draft-apply';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -65,7 +65,9 @@ export async function POST(req: Request) {
   const text = String(body['text'] ?? '').trim();
   if (!text) return NextResponse.json({ error: 'bad_request' }, { status: 400 });
 
-  const res = await applyIntakeToDraft({
+  // applyTextToDraft decides: a pasted DOCUMENT goes through the decomposer, a single
+  // instruction takes the existing path, byte-identical. The route stays thin.
+  const res = await applyTextToDraft({
     clientId: session.clientId, cycleId: session.cycleId, text, model: getModelClient(),
   });
   return res.ok

@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const h = vi.hoisted(() => ({
   session: null as { clientId: string; cycleId: string } | null,
-  applyIntakeToDraft: vi.fn(),
+  applyTextToDraft: vi.fn(),
   addBacklogItemToMonth: vi.fn(),
   loadReceipts: vi.fn(),
 }));
@@ -13,7 +13,7 @@ const h = vi.hoisted(() => ({
 vi.mock('@/lib/auth', () => ({ getSession: async () => h.session }));
 vi.mock('@/lib/agent/model', () => ({ getModelClient: () => ({ complete: async () => ({ content: '{}' }) }) }));
 vi.mock('@/lib/draft-apply', () => ({
-  applyIntakeToDraft:    (...a: unknown[]) => h.applyIntakeToDraft(...a),
+  applyTextToDraft:    (...a: unknown[]) => h.applyTextToDraft(...a),
   addBacklogItemToMonth: (...a: unknown[]) => h.addBacklogItemToMonth(...a),
   loadReceipts:          (...a: unknown[]) => h.loadReceipts(...a),
 }));
@@ -33,7 +33,7 @@ const post = (body: unknown) =>
 
 beforeEach(() => {
   h.session = { clientId: CLIENT, cycleId: CYCLE };
-  h.applyIntakeToDraft.mockReset().mockResolvedValue(APPLIED);
+  h.applyTextToDraft.mockReset().mockResolvedValue(APPLIED);
   h.addBacklogItemToMonth.mockReset().mockResolvedValue(APPLIED);
   h.loadReceipts.mockReset().mockResolvedValue([]);
 });
@@ -43,7 +43,7 @@ describe('auth', () => {
     h.session = null;
     expect((await GET()).status).toBe(401);
     expect((await post({ op: 'text', text: 'hello' })).status).toBe(401);
-    expect(h.applyIntakeToDraft).not.toHaveBeenCalled();
+    expect(h.applyTextToDraft).not.toHaveBeenCalled();
   });
 });
 
@@ -52,25 +52,25 @@ describe('op: text', () => {
     const res = await post({ op: 'text', text: 'The navy edit drops on the 28th' });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, application: APPLIED.application, beats: APPLIED.beats });
-    expect(h.applyIntakeToDraft).toHaveBeenCalledWith(expect.objectContaining({
+    expect(h.applyTextToDraft).toHaveBeenCalledWith(expect.objectContaining({
       clientId: CLIENT, cycleId: CYCLE, text: 'The navy edit drops on the 28th',
     }));
   });
 
   it('defaults to the text op when none is given', async () => {
     await post({ text: 'more product this month' });
-    expect(h.applyIntakeToDraft).toHaveBeenCalled();
+    expect(h.applyTextToDraft).toHaveBeenCalled();
   });
 
   it('takes identity from the SESSION, never the body', async () => {
     await post({ op: 'text', text: 'x', clientId: 'someone-else', cycleId: 'their-cycle' });
-    expect(h.applyIntakeToDraft).toHaveBeenCalledWith(expect.objectContaining({ clientId: CLIENT, cycleId: CYCLE }));
+    expect(h.applyTextToDraft).toHaveBeenCalledWith(expect.objectContaining({ clientId: CLIENT, cycleId: CYCLE }));
   });
 
   it('rejects empty or whitespace-only text before calling anything', async () => {
     expect((await post({ op: 'text', text: '   ' })).status).toBe(400);
     expect((await post({ op: 'text' })).status).toBe(400);
-    expect(h.applyIntakeToDraft).not.toHaveBeenCalled();
+    expect(h.applyTextToDraft).not.toHaveBeenCalled();
   });
 });
 
@@ -110,7 +110,7 @@ describe('validation and error mapping', () => {
     ['no_draft',      409],
     ['cutoff_passed', 409],
   ])('%s → %i, with the message passed through', async (error, status) => {
-    h.applyIntakeToDraft.mockResolvedValue({ ok: false, error, message: 'nope' });
+    h.applyTextToDraft.mockResolvedValue({ ok: false, error, message: 'nope' });
     const res = await post({ op: 'text', text: 'x' });
     expect(res.status).toBe(status);
     expect(await res.json()).toEqual({ ok: false, error, message: 'nope' });

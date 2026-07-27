@@ -21,8 +21,10 @@ import {
 } from '@sprigly/db';
 import {
   classifyIntake, applyIntent, diffBeats, renderDiff, isNoOp,
+  isDocumentShaped, decomposeInput, orderIndices,
   type IntakeRouting, type MonthScopedIntent, type TransformBeat, type BeatOp, type DiffBeat,
 } from '@sprigly/engine';
+import { createAuditLogger } from '@sprigly/audit';
 import { editScopeToday } from '@/lib/edit-scope';
 import { cycleIsPreCutoff } from '@/lib/draft-mutations';
 import { loadDraftBeats } from '@/lib/plan';
@@ -53,6 +55,37 @@ export interface DraftApplication {
    * way back (docs/reports/uat-findings-fixes.md, Commit 4).
    */
   planInputId?: string;
+  /** How many out-of-month dated asks this application deferred to next cycle (series). */
+  deferredCount?: number;
+  /**
+   * A BRIEF ROLLUP: when the client pastes a document, one receipt stands for the whole
+   * paste, with one item per decomposed segment. Present only on the rollup; a single-sentence
+   * receipt leaves it undefined and renders exactly as before.
+   */
+  items?:          BriefItem[];
+  /** Rollup only — segments found, and connective spans discarded. */
+  segmentCount?:   number;
+  discardedCount?: number;
+}
+
+/**
+ * One segment of a decomposed brief, and what became of it. The per-application diff record
+ * for that segment, preserved individually inside the rollup rather than flattened away.
+ */
+export interface BriefItem {
+  /** The segment, verbatim (trimmed). */
+  span:        string;
+  /** applied = it changed the month · idea = filed to the backlog · couldnt_apply = tried,
+   *  couldn't, filed with a rescue tap · noop = recorded, nothing to change (e.g. a cadence
+   *  floor already met). */
+  outcome:     'applied' | 'idea' | 'couldnt_apply' | 'noop';
+  /** The intent kind, when it was month-scoped — drives the rollup summary ("1 launch"). */
+  kind?:       string;
+  lines:       string[];
+  changedIds:  string[];
+  note?:       string;
+  planInputId?: string;
+  deferredCount?: number;
 }
 
 export type ApplyResult =
@@ -264,6 +297,10 @@ export async function applyIntakeToDraft(params: {
   routing?: IntakeRouting;
   now?:     Date;
   today?:   string;
+  /** Brief path: apply this ONE segment but do NOT persist its own top-level receipt — the
+   *  caller rolls every segment into a single combined receipt. Beats, backlog rows and the
+   *  cadence floor are still written; only the individual receipt is withheld. */
+  suppressReceipt?: boolean;
 }): Promise<ApplyResult> {
   const { clientId, cycleId, text, model } = params;
   const now = params.now ?? new Date();
@@ -295,7 +332,7 @@ export async function applyIntakeToDraft(params: {
       ...base, scope: 'evergreen', reason: routing.reason, lines: [], changedIds: [],
       ...(planInputId ? { planInputId } : {}),
     };
-    await persistReceipt(cycleId, application);
+    if (!params.suppressReceipt) await persistReceipt(cycleId, application);
     return { ok: true, application, beats: await loadDraftBeats(clientId, cycleId) };
   }
 
@@ -331,7 +368,7 @@ export async function applyIntakeToDraft(params: {
         ...base, scope: 'month_scoped', lines: renderDiff(diffC), changedIds: diffC.changedIds,
         ...(result.note ? { note: result.note } : {}),
       };
-      await persistReceipt(cycleId, application);
+      if (!params.suppressReceipt) await persistReceipt(cycleId, application);
       return { ok: true, application, beats: await loadDraftBeats(clientId, cycleId) };
     }
 
@@ -339,7 +376,7 @@ export async function applyIntakeToDraft(params: {
       ...base, scope: 'month_scoped', lines: [], changedIds: [],
       ...(result.note ? { note: result.note } : {}),
     };
-    await persistReceipt(cycleId, application);
+    if (!params.suppressReceipt) await persistReceipt(cycleId, application);
     return { ok: true, application, beats: await loadDraftBeats(clientId, cycleId) };
   }
 
@@ -353,20 +390,21 @@ export async function applyIntakeToDraft(params: {
   if (result.ops.length === 0) {
     // A series whose every instance fell outside the month produced no ops but still has
     // dated asks to keep. File those as well as the input itself.
-    await saveDeferredInstances(clientId, result.deferred ?? []);
+    const deferred0 = await saveDeferredInstances(clientId, result.deferred ?? []);
     const planInputId = await saveToBacklog(clientId, cycleId, sourceText);
     const application: DraftApplication = {
       ...base, scope: 'evergreen', reason: 'not_applicable', lines: [], changedIds: [],
       ...(result.note ? { note: result.note } : {}),
       ...(planInputId ? { planInputId } : {}),
+      ...(deferred0 > 0 ? { deferredCount: deferred0 } : {}),
     };
-    await persistReceipt(cycleId, application);
+    if (!params.suppressReceipt) await persistReceipt(cycleId, application);
     return { ok: true, application, beats: await loadDraftBeats(clientId, cycleId) };
   }
 
   const nextPosition = Math.max(0, ...before.map((b) => b.position)) + 1;
   await writeOps(clientId, cycleId, cycle.channel, result.ops, nextPosition);
-  await saveDeferredInstances(clientId, result.deferred ?? []);
+  const deferred = await saveDeferredInstances(clientId, result.deferred ?? []);
 
   const after = await loadTransformBeats(clientId, cycleId);
   const diff = diffBeats(before.map(toDiffBeat), after.map(toDiffBeat));
@@ -377,13 +415,143 @@ export async function applyIntakeToDraft(params: {
     lines: renderDiff(diff),
     changedIds: diff.changedIds,
     ...(result.note ? { note: result.note } : {}),
+    ...(deferred > 0 ? { deferredCount: deferred } : {}),
   };
   // A month-scoped intent that produced ops but no visible delta is worth recording as
   // such rather than showing an empty panel that implies something happened.
   if (isNoOp(diff) && !result.note) application.note = 'Nothing needed changing.';
 
-  await persistReceipt(cycleId, application);
+  if (!params.suppressReceipt) await persistReceipt(cycleId, application);
   return { ok: true, application, beats: await loadDraftBeats(clientId, cycleId) };
+}
+
+/**
+ * The one entry the route calls for a typed/pasted input.
+ *
+ * A pasted DOCUMENT (isDocumentShaped) goes through the decomposer; a single instruction takes
+ * the existing whole-input path, byte-identical. Kept here rather than in the route so the route
+ * does not import @sprigly/engine (whose index eagerly loads the db client).
+ */
+export async function applyTextToDraft(params: {
+  clientId: string;
+  cycleId:  string;
+  text:     string;
+  model:    Parameters<typeof classifyIntake>[0]['model'];
+  now?:     Date;
+  today?:   string;
+}): Promise<ApplyResult> {
+  return isDocumentShaped(params.text.trim())
+    ? applyBriefToDraft(params)
+    : applyIntakeToDraft(params);
+}
+
+/** Map one segment's application result into a rollup item. */
+function toBriefItem(span: string, routing: IntakeRouting, r: ApplyResult): BriefItem {
+  const trimmed = span.trim();
+  if (!r.ok) {
+    // A cycle-level refusal on a single segment (rare — cutoff is checked up front).
+    return { span: trimmed, outcome: 'couldnt_apply', lines: [], changedIds: [], note: r.message };
+  }
+  const a = r.application;
+  const kind = routing.scope === 'month_scoped' ? routing.intent.kind : undefined;
+  if (a.scope === 'evergreen') {
+    const outcome: BriefItem['outcome'] =
+      a.reason === 'couldnt_apply' || a.reason === 'not_applicable' ? 'couldnt_apply' : 'idea';
+    return {
+      span: trimmed, outcome, ...(kind ? { kind } : {}),
+      lines: [], changedIds: [],
+      ...(a.note ? { note: a.note } : {}),
+      ...(a.planInputId ? { planInputId: a.planInputId } : {}),
+      ...(a.deferredCount ? { deferredCount: a.deferredCount } : {}),
+    };
+  }
+  const outcome: BriefItem['outcome'] = a.lines.length > 0 ? 'applied' : 'noop';
+  return {
+    span: trimmed, outcome, ...(kind ? { kind } : {}),
+    lines: a.lines, changedIds: a.changedIds,
+    ...(a.note ? { note: a.note } : {}),
+    ...(a.deferredCount ? { deferredCount: a.deferredCount } : {}),
+  };
+}
+
+/**
+ * Apply a pasted DOCUMENT to a cycle's draft.
+ *
+ * Real clients paste briefs, not sentences. This splits the paste into VERBATIM segments (one
+ * model call), classifies each through the UNMODIFIED contract, applies the month-scoped ones
+ * in dependency order (launch → series → event/beat_spec → correction → emphasis → cadence
+ * last), and returns ONE combined receipt with a line per segment. Each segment's own diff
+ * record is preserved as a rollup item; the client sees the rollup.
+ *
+ * Partial failure is per-segment: a segment that cannot apply files itself to the backlog with
+ * a rescue tap, and the rest proceed — never all-or-nothing. If decomposition fails the coverage
+ * contract twice, it falls back to the whole-input path, which couldnt_applies exactly as today.
+ */
+export async function applyBriefToDraft(params: {
+  clientId: string;
+  cycleId:  string;
+  text:     string;
+  model:    Parameters<typeof classifyIntake>[0]['model'];
+  now?:     Date;
+  today?:   string;
+}): Promise<ApplyResult> {
+  const { clientId, cycleId, text, model } = params;
+  const now = params.now ?? new Date();
+  const today = params.today ?? editScopeToday();
+  const brief = text.trim();
+
+  const [cycle] = await db
+    .select({ id: contentCycles.id, cycleMonth: contentCycles.cycleMonth })
+    .from(contentCycles)
+    .where(and(eq(contentCycles.id, cycleId), eq(contentCycles.clientId, clientId)))
+    .limit(1);
+  if (!cycle) return { ok: false, error: 'no_cycle', message: 'We couldn’t find that month.' };
+
+  const y = Number(cycle.cycleMonth.slice(0, 4)), m = Number(cycle.cycleMonth.slice(5, 7));
+  const planMonth = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+
+  // Cutoff once, up front — it is a cycle fact, the same for every segment.
+  if (!(await cycleIsPreCutoff(cycleId))) {
+    return { ok: false, error: 'cutoff_passed', message: 'This month’s draft is closed for changes.' };
+  }
+
+  const audit = createAuditLogger(db);
+
+  // Decompose. A coverage-contract failure (twice) falls back to the whole-input path.
+  const decomposition = await decomposeInput({ text: brief, model, audit, clientId });
+  if (!decomposition) {
+    return applyIntakeToDraft({ clientId, cycleId, text: brief, model, now, today });
+  }
+  const { segments, discarded } = decomposition;
+
+  // Classify every segment through the UNMODIFIED contract — concurrent, each on the ledger.
+  const routings = await Promise.all(
+    segments.map((seg) => classifyIntake({ text: seg, planMonth, model, audit, clientId })),
+  );
+
+  // Apply in dependency order; each segment's own receipt suppressed, rolled up below.
+  const items: BriefItem[] = new Array<BriefItem>(segments.length);
+  for (const i of orderIndices(routings)) {
+    const r = await applyIntakeToDraft({
+      clientId, cycleId, text: segments[i]!, model, routing: routings[i]!, now, today, suppressReceipt: true,
+    });
+    items[i] = toBriefItem(segments[i]!, routings[i]!, r);
+  }
+
+  const changedIds = items.flatMap((it) => it.changedIds);
+  const rollup: DraftApplication = {
+    id: receiptId(now.getTime(), brief),
+    at: now.toISOString(),
+    sourceText: brief,
+    scope: items.some((it) => it.outcome === 'applied') ? 'month_scoped' : 'evergreen',
+    lines: [],
+    changedIds,
+    segmentCount: segments.length,
+    discardedCount: discarded.length,
+    items,
+  };
+  await persistReceipt(cycleId, rollup);
+  return { ok: true, application: rollup, beats: await loadDraftBeats(clientId, cycleId) };
 }
 
 /**
