@@ -22,6 +22,15 @@ import React, { useMemo, useRef, useState } from 'react';
 import type { DraftBeatView, PostFormat } from '@/lib/types';
 import { rationaleFor, slotLabel, assumptionPrompt } from '@/lib/draft-rationale';
 
+/** One segment of a decomposed brief, and what became of it. */
+export interface BriefItem {
+  span: string;
+  outcome: 'applied' | 'idea' | 'couldnt_apply' | 'noop';
+  kind?: string;
+  lines: string[]; changedIds: string[];
+  note?: string; planInputId?: string; deferredCount?: number;
+}
+
 /** A change receipt, as persisted on the cycle's intake record. */
 export interface DraftReceipt {
   id: string; at: string; sourceText: string;
@@ -29,6 +38,36 @@ export interface DraftReceipt {
   reason?: string; lines: string[]; changedIds: string[]; note?: string;
   /** The backlog row, when this receipt filed one — what the rescue tap acts on. */
   planInputId?: string;
+  /** A BRIEF ROLLUP: one line per decomposed segment. Present only on a rollup receipt. */
+  items?: BriefItem[];
+  segmentCount?: number; discardedCount?: number; deferredCount?: number;
+}
+
+/** Friendly plural label for a rollup summary chip. */
+function kindLabel(kind: string | undefined, outcome: BriefItem['outcome'], n: number): string {
+  const base =
+    outcome === 'idea' ? 'idea'
+    : outcome === 'couldnt_apply' ? 'couldn’t apply'
+    : kind === 'beat_spec' ? 'post'
+    : kind === 'cadence' ? 'cadence change'
+    : kind ?? 'change';
+  const plural = outcome === 'couldnt_apply' ? base : `${base}${n === 1 ? '' : 's'}`;
+  return `${n} ${plural}`;
+}
+
+/** Group a rollup's items into summary chips, in a stable order. */
+function summariseItems(items: BriefItem[]): string[] {
+  const counts = new Map<string, number>();
+  const order: string[] = [];
+  for (const it of items) {
+    const key = it.outcome === 'idea' || it.outcome === 'couldnt_apply' ? it.outcome : (it.kind ?? 'change');
+    if (!counts.has(key)) order.push(key);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return order.map((key) => {
+    const sample = items.find((it) => (it.outcome === 'idea' || it.outcome === 'couldnt_apply' ? it.outcome : (it.kind ?? 'change')) === key)!;
+    return kindLabel(sample.kind, sample.outcome, counts.get(key) ?? 0);
+  });
 }
 
 const C = {
@@ -267,12 +306,15 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
           </section>
         )}
 
-        {/* What changed — computed from row deltas, never narrated. Dismissible. */}
+        {/* What changed — computed from row deltas, never narrated. Dismissible. A pasted
+            brief renders as a rollup (receipt.items): one line per segment, each applied line
+            expandable to its diff, each idea/couldn't-apply line carrying the rescue tap. */}
         {receipt && (
-          <section aria-label={receipt.scope === 'evergreen' ? 'Saved to your ideas' : 'What changed'} style={{ background: C.navyLt, border: `1px solid ${C.line}`, borderRadius: 12, padding: '13px 14px', marginBottom: 16 }}>
+          <section aria-label={receipt.items ? 'What we found' : receipt.scope === 'evergreen' ? 'Saved to your ideas' : 'What changed'} style={{ background: C.navyLt, border: `1px solid ${C.line}`, borderRadius: 12, padding: '13px 14px', marginBottom: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
               <h2 style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: C.muted, margin: 0 }}>
-                {receipt.scope !== 'evergreen' ? 'What changed'
+                {receipt.items ? 'What we found'
+                  : receipt.scope !== 'evergreen' ? 'What changed'
                   : receipt.reason === 'couldnt_apply' ? 'We couldn’t apply this' : 'Saved to your ideas'}
               </h2>
               <button type="button" onClick={() => setReceipt(null)} aria-label="Dismiss what changed"
@@ -280,6 +322,61 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
                 Dismiss
               </button>
             </div>
+            {receipt.items ? (
+              <div style={{ margin: '8px 0 0' }} data-testid="brief-rollup">
+                <p style={{ fontSize: 14, lineHeight: 1.5, margin: 0 }}>
+                  We found {receipt.segmentCount} thing{receipt.segmentCount === 1 ? '' : 's'} in what you sent.
+                </p>
+                <div data-testid="brief-summary" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '9px 0 0' }}>
+                  {summariseItems(receipt.items).map((chip) => (
+                    <span key={chip} style={{ fontSize: 12.5, fontWeight: 700, color: C.muted, background: C.card, border: `1px solid ${C.line}`, borderRadius: 999, padding: '3px 9px' }}>{chip}</span>
+                  ))}
+                </div>
+                <ul style={{ listStyle: 'none', margin: '11px 0 0', padding: 0, display: 'grid', gap: 9 }}>
+                  {receipt.items.map((item, i) => (
+                    <li key={i} data-testid="brief-item" style={{ borderTop: `1px solid ${C.line}`, paddingTop: 9 }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                        <span aria-hidden style={{ fontSize: 13, fontWeight: 700, color: item.outcome === 'applied' ? C.coralDeep : item.outcome === 'couldnt_apply' ? C.coral : C.faint }}>
+                          {item.outcome === 'applied' ? '✓' : item.outcome === 'couldnt_apply' ? '!' : '·'}
+                        </span>
+                        <span style={{ fontSize: 13.5, color: C.navy, fontWeight: 600, lineHeight: 1.4 }}>
+                          {item.span.length > 90 ? `${item.span.slice(0, 90)}…` : item.span}
+                        </span>
+                      </div>
+                      {item.outcome === 'applied' && item.lines.length > 0 && (
+                        <details style={{ margin: '5px 0 0 20px' }}>
+                          <summary style={{ fontSize: 12.5, color: C.muted, cursor: 'pointer', minHeight: 24 }}>What changed</summary>
+                          <ul style={{ margin: '5px 0 0', paddingLeft: 18, display: 'grid', gap: 4 }}>
+                            {item.lines.map((line) => <li key={line} style={{ fontSize: 13.5, lineHeight: 1.4 }}>{line}</li>)}
+                          </ul>
+                        </details>
+                      )}
+                      {item.deferredCount ? (
+                        <p style={{ fontSize: 12.5, color: C.muted, margin: '5px 0 0 20px' }}>
+                          {item.deferredCount} saved for next month.
+                        </p>
+                      ) : null}
+                      {item.note && item.outcome !== 'applied' && (
+                        <p style={{ fontSize: 12.5, color: C.muted, margin: '5px 0 0 20px' }}>{item.note}</p>
+                      )}
+                      {(item.outcome === 'idea' || item.outcome === 'couldnt_apply') && item.planInputId && onAddToMonth && editable && (
+                        <button
+                          type="button" disabled={rescuing}
+                          data-testid="add-to-this-month"
+                          onClick={() => rescue(item.planInputId!)}
+                          style={{ font: 'inherit', fontSize: 13.5, fontWeight: 700, margin: '8px 0 0 20px', minHeight: 40,
+                            padding: '8px 13px', borderRadius: 10, border: `1.5px solid ${C.coral}`,
+                            background: C.coralLt, color: C.coralDeep, cursor: rescuing ? 'default' : 'pointer' }}
+                        >
+                          {rescuing ? 'Adding…' : 'Add to this month'}
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+            <>
             <p style={{ fontSize: 13, color: C.muted, fontStyle: 'italic', margin: '7px 0 0' }}>“{receipt.sourceText}”</p>
             {receipt.scope === 'evergreen' ? (
               <p style={{ fontSize: 14, lineHeight: 1.5, margin: '8px 0 0' }}>
@@ -314,6 +411,8 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
               >
                 {rescuing ? 'Adding…' : 'Add to this month'}
               </button>
+            )}
+            </>
             )}
           </section>
         )}

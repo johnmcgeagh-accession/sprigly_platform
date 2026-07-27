@@ -11,7 +11,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 vi.mock('@sprigly/db', () => ({ db: {}, contentCycles: {}, contentCyclePosts: {}, PRE_PLANNING_STATUSES: new Set<string>() }));
 vi.mock('@/lib/steps', () => ({ listStepsForPosts: async () => new Map() }));
 
-import { DraftPlanView } from './DraftPlanView';
+import { DraftPlanView, type DraftReceipt } from './DraftPlanView';
 import type { DraftBeatView } from '@/lib/types';
 
 const beat = (over: Partial<DraftBeatView> = {}): DraftBeatView => ({
@@ -305,5 +305,65 @@ describe('approval dialog copy', () => {
     const html = render();
     expect(html).toContain('We’ll write the captions, hooks and scripts.');
     expect(html).toContain('You can still change dates and formats afterwards.');
+  });
+});
+
+describe('the brief rollup receipt — one itemised panel for a pasted document', () => {
+  const rollup: DraftReceipt = {
+    id: 'r-brief', at: '2026-08-01T00:00:00Z',
+    sourceText: 'Navy Edit launches 28th. Weekend Style Guide every Friday. More behind-the-scenes. Something odd.',
+    scope: 'month_scoped', lines: [], changedIds: ['n1', 'n2'],
+    segmentCount: 4, discardedCount: 1,
+    items: [
+      { span: 'The Navy Edit launches on 28th August at 7pm.', outcome: 'applied', kind: 'launch',
+        lines: ['Added: Navy Edit — Tease, Sat 23 Aug', 'Added: Navy Edit — Launch, Thu 28 Aug'], changedIds: ['n1'] },
+      { span: 'Weekend Style Guide every Friday: 7th, 14th, 21st, 28th and 4 Sept', outcome: 'applied', kind: 'series',
+        lines: ['Added: Maggie t-shirt grey marl, Fri 7 Aug'], changedIds: ['n2'], deferredCount: 1 },
+      { span: 'we should do more behind-the-scenes', outcome: 'idea',
+        lines: [], changedIds: [], planInputId: 'pi-1' },
+      { span: 'pull the DMs from last week', outcome: 'couldnt_apply',
+        lines: [], changedIds: [], planInputId: 'pi-2', note: 'We couldn’t apply this.' },
+    ],
+  };
+
+  it('renders one panel headed “What we found”, with the count and per-kind summary', () => {
+    const html = render([beat()], { receipts: [rollup], editable: true, onAddToMonth: async () => ({ ok: true, beats: [] }) });
+    expect(html).toContain('What we found');
+    expect(html).toContain('We found 4 things in what you sent.');
+    // per-kind summary chips
+    expect(html).toContain('1 launch');
+    expect(html).toContain('1 series');
+    expect(html).toContain('1 idea');
+    expect(html).toContain('1 couldn’t apply');
+  });
+
+  it('lists every segment’s span, and expands applied ones to their diff', () => {
+    const html = render([beat()], { receipts: [rollup], editable: true, onAddToMonth: async () => ({ ok: true, beats: [] }) });
+    expect(html).toContain('The Navy Edit launches on 28th August at 7pm.');
+    expect(html).toContain('Weekend Style Guide every Friday');
+    expect(html).toContain('Added: Navy Edit — Launch, Thu 28 Aug');   // applied diff line
+    expect(html).toContain('What changed');                            // the expand affordance
+    expect(html).toContain('1 saved for next month.');                 // the deferral
+  });
+
+  it('carries the rescue tap on each idea / couldn’t-apply line', () => {
+    const html = render([beat()], { receipts: [rollup], editable: true, onAddToMonth: async () => ({ ok: true, beats: [] }) });
+    const taps = html.split('data-testid="add-to-this-month"').length - 1;
+    expect(taps).toBe(2);   // the idea and the couldn't-apply, NOT the two applied ones
+    expect(html).toContain('We couldn’t apply this.');
+  });
+
+  it('shows no rescue tap when the surface is not editable', () => {
+    const html = render([beat()], { receipts: [rollup], editable: false });
+    expect(html).not.toContain('data-testid="add-to-this-month"');
+  });
+
+  it('a single-sentence receipt (no items) still renders the plain panel', () => {
+    const single: DraftReceipt = { id: 'r1', at: '2026-08-01T00:00:00Z', sourceText: 'move the friday reel',
+      scope: 'month_scoped', lines: ['Moved: Friday reel'], changedIds: [] };
+    const html = render([beat()], { receipts: [single] });
+    expect(html).toContain('What changed');
+    expect(html).not.toContain('What we found');
+    expect(html).toContain('Moved: Friday reel');
   });
 });
