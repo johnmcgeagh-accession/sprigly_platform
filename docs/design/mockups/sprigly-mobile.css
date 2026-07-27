@@ -3,49 +3,50 @@
    Shared stylesheet. Static mockups only: no build step, no framework, no JS
    dependency. Open any sibling .html directly in a browser.
 
-   The brand system is LOCKED and reproduced here from app/tailwind.config.ts —
-   these are the same values the app resolves through its theme CSS variables.
-   Nothing in this file introduces a colour or a typeface the app does not have.
+   ROUND 2 (operator phone review). Three changes worth reading before the code:
 
-   Type: Fraunces for display moments only (the date numeral, the day header,
-   one or two headline moments). Inter for every piece of UI and body text.
-   Fraunces/Inter are self-hosted in the app via next/font; these files load no
-   external resources, so an unloaded Fraunces falls back to Georgia and an
-   unloaded Inter to the system UI sans. Judge weight and rhythm, not glyphs.
+   1. TYPE. UI and body text use the NATIVE stack. On the device this renders as
+      SF Pro Text, which is what makes an iOS app feel like an iOS app — a webfont
+      for UI is the single loudest "this is a website" signal. Fraunces survives
+      as two brand moments only: the Sprigly wordmark and the month title.
+      This supersedes round 1's Inter-for-UI rule.
+   2. FORMAT is an ICON, never a word chip. Words survive in aria-label/title.
+   3. Colour is still the locked brand system, reproduced from
+      app/tailwind.config.ts. Nothing here invents a token.
    =========================================================================== */
 
 :root {
   /* Accent (coral) */
   --coral-600: #E8705F;   /* primary: filled buttons, selected pill, dots     */
   --coral-700: #C4523F;   /* pressed / strong interactive                     */
-  --coral-800: #8A3323;   /* coral TEXT, and only ever on coral-100           */
+  --coral-800: #8A3323;   /* coral TEXT and icons, and only ever on coral-100 */
   --coral-100: #FADDD6;   /* tint fills                                       */
 
   /* Brand slate + neutrals */
-  --chrome:      #334155; /* primary text, dark surfaces                      */
-  --chrome-deep: #1E293B; /* sheets' dark furniture, toasts                   */
-  --muted:       #5C6470; /* secondary text — 5.98:1 on white                 */
-  --line:        #8F9296; /* the border token; used at alpha for hairlines    */
+  --chrome:      #334155;
+  --chrome-deep: #1E293B;
+  --muted:       #5C6470;
+  --line:        #8F9296;
   --line-soft:   #F4F5F6;
   --canvas:      #F2F3F5;
   --surface:     #FFFFFF;
-  --danger:      #B23A2E;
+  --danger:      #B23A2E;   /* operator-facing only — see the spec's G4 note   */
 
-  --hair:  rgb(143 146 150 / .30);   /* hairline: --line at rest             */
-  --hair2: rgb(143 146 150 / .55);   /* a border meant to be noticed         */
+  --hair:  rgb(143 146 150 / .30);
+  --hair2: rgb(143 146 150 / .55);
 
   --shadow-card:  0 1px 2px rgb(51 65 85 / .04), 0 6px 18px rgb(51 65 85 / .06);
   --shadow-sheet: 0 -18px 50px -12px rgb(51 65 85 / .28);
   --shadow-coral: 0 8px 20px -6px rgb(232 112 95 / .45);
 
-  --sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', sans-serif;
+  /* THE NATIVE STACK. No webfont for UI. */
+  --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, 'Segoe UI', Roboto, sans-serif;
+  /* Brand moments only: the wordmark and the month title. */
   --serif: 'Fraunces', Georgia, 'Times New Roman', serif;
 
   --r-card: 20px;
   --r-chip: 999px;
 }
-
-/* --- page scaffold (mockup chrome, NOT part of the design) ---------------- */
 
 * { box-sizing: border-box; }
 
@@ -58,460 +59,418 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* 1280 = three 390px frames + two 34px gutters, so a page never wraps its frames
-   and the heading, the frames and the provenance notes all share one left edge. */
-.sheet-note, .page-head { max-width: 1280px; margin: 0 auto; }
+/* --- page scaffold (review-document chrome, NOT the product surface) ------ */
+
+.page-head, .notes, .frames { max-width: 1280px; margin-left: auto; margin-right: auto; }
 
 .page-head { margin-bottom: 28px; }
-.page-head h1 {
-  font-family: var(--serif);
-  font-size: 30px; font-weight: 600; letter-spacing: -.01em;
-  margin: 0 0 6px;
-}
+.page-head h1 { font-family: var(--serif); font-size: 30px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 6px; }
 .page-head p { margin: 0; font-size: 14px; line-height: 1.55; color: var(--muted); max-width: 74ch; }
+.page-head p + p { margin-top: 9px; }
 .page-head a { color: var(--coral-800); }
 
 .crumbs { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; color: var(--muted); margin-bottom: 10px; }
 
-.frames { display: flex; flex-wrap: wrap; gap: 34px; justify-content: flex-start; align-items: flex-start; max-width: 1280px; margin: 0 auto; }
+.frames { display: flex; flex-wrap: wrap; gap: 34px; justify-content: flex-start; align-items: flex-start; }
 .frame-wrap { width: 390px; max-width: 100%; }
-.frame-label {
-  font-size: 12.5px; font-weight: 700; color: var(--chrome);
-  margin: 0 0 4px; letter-spacing: .01em;
-}
+.frame-label { font-size: 12.5px; font-weight: 700; color: var(--chrome); margin: 0 0 4px; }
 .frame-sub { font-size: 12.5px; line-height: 1.5; color: var(--muted); margin: 0 0 12px; }
 
-/* the phone */
 .phone {
-  width: 390px; max-width: 100%;
-  height: 844px;
+  width: 390px; max-width: 100%; height: 780px;
   background: var(--canvas);
   border-radius: 44px;
   box-shadow: 0 30px 60px -20px rgb(30 41 59 / .38), 0 0 0 1px rgb(30 41 59 / .06);
-  overflow: hidden;
-  position: relative;
+  overflow: hidden; position: relative;
   display: flex; flex-direction: column;
   font-size: 15px;
 }
-.phone.tall { height: 900px; }
+.phone.tall { height: 860px; }
+.phone.short { height: 620px; }
 
 .statusbar {
-  flex: none;
-  display: flex; align-items: center; justify-content: space-between;
+  flex: none; display: flex; align-items: center; justify-content: space-between;
   padding: 14px 30px 2px;
-  font-size: 13.5px; font-weight: 600; color: var(--chrome);
-  letter-spacing: .01em;
+  font-size: 13.5px; font-weight: 600; letter-spacing: .01em;
 }
-.statusbar .glyphs { font-size: 12px; letter-spacing: .12em; color: var(--chrome); }
+.statusbar .glyphs { font-size: 12px; letter-spacing: .12em; }
+
+/* --- icons ---------------------------------------------------------------- */
+
+.ic { width: 20px; height: 20px; display: block; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.ic.sm { width: 17px; height: 17px; }
+.ic.lg { width: 26px; height: 26px; }
+.ic.xl { width: 40px; height: 40px; }
+.ic.solid { fill: currentColor; stroke: none; }
+
+/* Format icon — the round-2 replacement for the word chip. Coral-800 on
+   coral-100: coral-600 on tint measures 2.35:1, below the 3:1 graphic floor. */
+.fmt {
+  width: 28px; height: 28px; flex: none; border-radius: 9px;
+  background: var(--coral-100); color: var(--coral-800);
+  display: flex; align-items: center; justify-content: center;
+}
+.fmt.plain { background: var(--line-soft); color: var(--muted); }
+.fmt.lg { width: 34px; height: 34px; border-radius: 11px; }
 
 /* --- app chrome ----------------------------------------------------------- */
 
-/* Minimal top bar. There is deliberately no global "Add to your plan" button
-   and no oversized month header — the month label IS the navigation. */
-.topbar {
-  flex: none;
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 20px 2px;
-}
+.topbar { flex: none; display: flex; align-items: center; justify-content: center; padding: 10px 20px 2px; }
 .brandmark { display: flex; align-items: center; gap: 7px; }
-.brandmark svg { width: 19px; height: 19px; display: block; }
-.brandmark span { font-size: 15px; font-weight: 800; letter-spacing: -.02em; color: var(--chrome); }
+.brandmark svg { width: 18px; height: 18px; display: block; }
+/* One of the two surviving Fraunces moments. */
+.brandmark span { font-family: var(--serif); font-size: 17px; font-weight: 600; letter-spacing: -.01em; color: var(--chrome); }
 
-.avatar {
-  width: 30px; height: 30px; border-radius: 999px;
-  background: linear-gradient(140deg, var(--coral-100), var(--coral-600));
-  color: #fff; font-size: 11.5px; font-weight: 800; letter-spacing: .02em;
-  display: flex; align-items: center; justify-content: center;
+/* The month row: ‹ › are the ONE lateral mechanism for months, and the title
+   is a button-shaped control so the overview is impossible to miss. */
+.monthrow { flex: none; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 14px 18px 4px; }
+.monthbtn {
+  display: inline-flex; align-items: center; gap: 8px;
+  min-height: 44px; padding: 8px 16px 8px 18px;
+  background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-chip);
+  box-shadow: var(--shadow-card); cursor: pointer;
+  font-family: var(--serif); font-size: 20px; font-weight: 600; letter-spacing: -.01em; color: var(--chrome);
 }
+.monthbtn .ic { color: var(--coral-600); width: 17px; height: 17px; stroke-width: 2.1; }
+.monthbtn .dot { width: 7px; height: 7px; border-radius: 999px; background: var(--coral-600); }
+.navbtn {
+  width: 38px; height: 38px; flex: none; border-radius: 999px;
+  border: 1px solid var(--hair); background: var(--surface); box-shadow: var(--shadow-card);
+  display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--chrome);
+}
+.navbtn[disabled] { opacity: .35; cursor: default; }
 
-/* The month label: small caps, tappable, opens the month overview. */
-.monthbar { flex: none; display: flex; justify-content: center; padding: 12px 20px 2px; }
-.month-label {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: none; border: 0; padding: 6px 4px; cursor: pointer;
-  font-family: var(--sans);
-  font-size: 12px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase;
-  color: var(--muted);
+.draftline { flex: none; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 20px 0; }
+.draftline .muted { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+
+.badge {
+  font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+  padding: 4px 8px; border-radius: var(--r-chip);
+  background: var(--coral-100); color: var(--coral-800);
 }
-.month-label .chev { color: var(--coral-600); font-size: 10px; transform: translateY(1px); }
-.month-label .draft-dot {
-  width: 6px; height: 6px; border-radius: 999px; background: var(--coral-600);
-  margin-left: 2px;
-}
+.badge.slate { background: var(--line-soft); color: var(--muted); }
 
 /* --- week strip ----------------------------------------------------------- */
 
-.weekstrip {
-  flex: none;
-  display: grid; grid-template-columns: repeat(7, 1fr);
-  gap: 2px; padding: 6px 12px 10px;
-}
+.weekstrip { flex: none; display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; padding: 12px 12px 10px; }
 .wday {
   background: none; border: 0; padding: 4px 0 8px; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; gap: 6px;
-  position: relative; border-radius: 16px;
-  font-family: var(--sans);
+  position: relative; border-radius: 16px; font-family: var(--sans);
 }
-.wday .dow {
-  font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
-  color: var(--muted);
-}
+.wday .dow { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 .wday .num {
   width: 34px; height: 34px; border-radius: 999px;
   display: flex; align-items: center; justify-content: center;
-  font-size: 16px; font-weight: 600; color: var(--chrome);
-  letter-spacing: -.01em;
+  font-size: 16px; font-weight: 600; color: var(--chrome); letter-spacing: -.01em;
 }
-/* selected day — the filled pill. White on coral-600 at 16px/600 clears the
-   14px+/500 floor the brand rule sets for white-on-coral. */
+/* White on coral-600 at 16px/600 — above the 14px+/500 floor. */
 .wday[aria-pressed="true"] .num { background: var(--coral-600); color: #fff; }
 .wday[aria-pressed="true"] .dow { color: var(--chrome); }
 .wday.today .num { box-shadow: inset 0 0 0 1.5px var(--coral-600); }
 .wday.today[aria-pressed="true"] .num { box-shadow: none; }
-.wday .pip {
-  position: absolute; bottom: 1px;
-  width: 5px; height: 5px; border-radius: 999px; background: var(--chrome);
-}
+.wday .pip { position: absolute; bottom: 1px; width: 5px; height: 5px; border-radius: 999px; background: var(--chrome); }
 .wday .pip.draft { background: var(--coral-600); }
 .wday[aria-pressed="true"] .pip { background: var(--chrome); }
 .wday.out .dow, .wday.out .num { color: rgb(92 100 112 / .45); }
 
 .weekrule { flex: none; height: 1px; background: var(--hair); margin: 0 20px; }
 
-/* --- the day feed --------------------------------------------------------- */
+/* --- the day panel -------------------------------------------------------- */
+/* Round 2: the strip SELECTS and the panel shows only that day. No week feed,
+   no scroll-spy, no adjacent days bleeding in from below. */
 
-.feed { flex: 1; overflow-y: auto; padding: 4px 0 40px; }
-.feed::-webkit-scrollbar { width: 0; }
+.panel { flex: 1; overflow-y: auto; padding: 16px 20px 30px; }
+.panel::-webkit-scrollbar { width: 0; }
 
-.day { padding: 14px 20px 2px; }
-.day + .day { padding-top: 20px; }
-
-/* The day header is the one place a big Fraunces numeral earns its keep. */
-.dayhead { display: flex; align-items: baseline; gap: 11px; margin-bottom: 12px; }
-.dayhead .numeral {
-  font-family: var(--serif);
-  font-size: 34px; line-height: .9; font-weight: 500; letter-spacing: -.02em;
-  color: var(--chrome);
-  font-variant-numeric: lining-nums;
-}
-.dayhead .stack { display: flex; flex-direction: column; gap: 2px; }
-.dayhead .dname {
-  font-family: var(--serif); font-size: 17px; font-weight: 500; color: var(--chrome);
-  line-height: 1.1;
-}
-.dayhead .dmeta { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .01em; }
+.dayhead { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+.dayhead .dname { font-size: 21px; font-weight: 700; letter-spacing: -.02em; color: var(--chrome); }
 .dayhead .spacer { flex: 1; }
-.dayhead .daycount {
-  font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
-  color: var(--muted);
-}
-/* Fraunces italic swash — used sparingly, one moment per screen at most. */
-em.swash { font-style: italic; font-variation-settings: "SOFT" 100, "opsz" 144; }
+.dayhead .daycount { font-size: 12.5px; font-weight: 600; color: var(--muted); }
 
-.day.dim .dayhead .numeral,
-.day.dim .dayhead .dname { color: rgb(51 65 85 / .55); }
-
-/* --- post / beat cards ---------------------------------------------------- */
+/* --- cards ---------------------------------------------------------------- */
 
 .card {
   display: block; width: 100%; text-align: left;
-  background: var(--surface);
-  border: 1px solid var(--hair);
-  border-radius: var(--r-card);
-  padding: 13px 14px 14px;
-  margin-bottom: 10px;
-  box-shadow: var(--shadow-card);
-  font-family: var(--sans); color: inherit; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-card);
+  padding: 13px 14px 14px; margin-bottom: 10px;
+  box-shadow: var(--shadow-card); font-family: var(--sans); color: inherit; cursor: pointer;
 }
 .card.draft { border-style: dashed; border-color: var(--hair2); box-shadow: none; }
 .card.changed { border-color: var(--coral-600); border-style: solid; background: #FFF9F8; }
 
-.cardtop { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; flex-wrap: wrap; }
+.cardtop { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; }
+.pillar { font-size: 12.5px; font-weight: 500; color: var(--muted); }
+.time { margin-left: auto; font-size: 12.5px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
 
-.chip {
-  font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
-  padding: 4px 8px; border-radius: 6px;
-  background: var(--coral-100); color: var(--coral-800);
-}
-.chip.plain { background: var(--line-soft); color: var(--muted); }
-.pillar { font-size: 12px; font-weight: 600; color: var(--muted); }
-.time {
-  margin-left: auto; font-size: 12px; font-weight: 700; color: var(--muted);
-  font-variant-numeric: tabular-nums; letter-spacing: .02em;
+.card h4 { margin: 0 0 5px; font-size: 16.5px; line-height: 1.3; font-weight: 600; letter-spacing: -.02em; color: var(--chrome); }
+.card p.teaser { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--muted); }
+.card p.excerpt {
+  margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--muted);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 
-.badge {
-  font-size: 10px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase;
-  padding: 3px 7px; border-radius: var(--r-chip);
-  background: var(--coral-100); color: var(--coral-800);
-}
-.badge.slate { background: var(--line-soft); color: var(--muted); }
-.badge.outline { background: transparent; color: var(--coral-800); box-shadow: inset 0 0 0 1px var(--coral-600); }
-
-.card h4 {
-  margin: 0 0 5px; font-size: 16.5px; line-height: 1.28; font-weight: 700;
-  letter-spacing: -.01em; color: var(--chrome);
-}
-.card p.teaser { margin: 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
-.card p.excerpt { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--muted);
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-
-.cardfoot { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.cardfoot { display: flex; align-items: center; gap: 8px; margin-top: 11px; }
 .statusdot { width: 6px; height: 6px; border-radius: 999px; background: var(--coral-600); }
-.statusline { font-size: 11.5px; font-weight: 700; letter-spacing: .04em; color: var(--muted); text-transform: uppercase; }
+.statusline { font-size: 12px; font-weight: 600; color: var(--muted); }
 
-/* Compact row — the 3+ posts-per-day density rule. */
+/* G4 — a post whose writing is still in flight. Quiet, never an error. */
+.card.onway { background: linear-gradient(180deg, #fff, #FCFCFD); }
+.card.onway p.teaser { color: var(--muted); }
+.waydots { display: inline-flex; gap: 3px; align-items: center; }
+.waydots i { width: 4px; height: 4px; border-radius: 999px; background: var(--coral-600); display: block; opacity: .35; }
+.waydots i:nth-child(2) { opacity: .6; }
+.waydots i:nth-child(3) { opacity: .9; }
+
+/* Compact row — the 3+ density rule. */
 .rowlist { border: 1px solid var(--hair); border-radius: var(--r-card); background: var(--surface); overflow: hidden; margin-bottom: 10px; box-shadow: var(--shadow-card); }
 .rowlist.draft { border-style: dashed; border-color: var(--hair2); box-shadow: none; background: rgb(255 255 255 / .82); }
 .row {
-  display: flex; align-items: center; gap: 10px;
-  width: 100%; text-align: left; background: none; border: 0; cursor: pointer;
-  padding: 12px 13px; min-height: 56px; font-family: var(--sans);
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  background: none; border: 0; cursor: pointer; padding: 12px 13px; min-height: 58px; font-family: var(--sans);
 }
 .row + .row { border-top: 1px solid var(--hair); }
-.row .rtime { font-size: 12px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; width: 40px; flex: none; }
-.row .rtitle {
-  flex: 1; min-width: 0; font-size: 14.5px; font-weight: 600; color: var(--chrome);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.row .rchev { flex: none; color: rgb(92 100 112 / .6); font-size: 15px; }
-.rowmore {
-  display: block; width: 100%; padding: 11px 13px; border: 0; border-top: 1px solid var(--hair);
-  background: none; cursor: pointer; font-family: var(--sans);
-  font-size: 13px; font-weight: 700; color: var(--muted); text-align: left;
-}
+.row .rtime { font-size: 12.5px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; width: 42px; flex: none; }
+.row .rtitle { flex: 1; min-width: 0; font-size: 14.5px; font-weight: 500; color: var(--chrome); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .rchev { flex: none; color: rgb(92 100 112 / .6); }
 
-/* Per-day add slot. This replaces the removed global "Add to your plan"
-   button and the old every-day dashed affordance on populated days. */
+/* Per-day add slot — the only add affordance. */
 .addslot {
   display: flex; align-items: center; gap: 8px; justify-content: center;
-  width: 100%; min-height: 46px; padding: 12px;
+  width: 100%; min-height: 48px; padding: 12px;
   border: 1px dashed var(--hair2); border-radius: 16px;
   background: rgb(255 255 255 / .55); cursor: pointer; font-family: var(--sans);
-  font-size: 13.5px; font-weight: 600; color: var(--muted);
-  margin-bottom: 10px;
+  font-size: 13.5px; font-weight: 500; color: var(--muted);
 }
-.addslot .plus { color: var(--coral-600); font-size: 16px; font-weight: 700; line-height: 1; }
-.addslot.slim { min-height: 40px; font-size: 13px; }
+.addslot .ic { color: var(--coral-600); }
 
-/* --- strips (assumptions, what-changed, draft framing) -------------------- */
+/* --- the draft CTA block (replaces "what we assumed") --------------------- */
 
-.strip {
-  margin: 0 20px 12px;
-  background: var(--surface);
-  border: 1px solid var(--hair);
-  border-radius: 16px;
-  padding: 12px 13px;
+.cta {
+  background: var(--surface); border: 1px solid var(--hair); border-radius: 22px;
+  padding: 18px 16px 16px; margin-bottom: 16px; box-shadow: var(--shadow-card);
+  text-align: center;
 }
+.cta h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; letter-spacing: -.02em; color: var(--chrome); }
+.cta p.nudge { margin: 0; font-size: 13px; line-height: 1.45; color: var(--muted); }
+.micbtn {
+  width: 76px; height: 76px; border-radius: 999px; border: 0; cursor: pointer;
+  margin: 15px auto 12px; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(150deg, var(--coral-600), var(--coral-700));
+  color: #fff; box-shadow: var(--shadow-coral);
+}
+.micbtn.big { width: 104px; height: 104px; }
+.micbtn[disabled] { background: var(--line-soft); color: var(--muted); box-shadow: none; cursor: default; }
+.typedlink {
+  background: none; border: 0; cursor: pointer; font-family: var(--sans);
+  font-size: 13.5px; font-weight: 600; color: var(--chrome); text-decoration: underline;
+  text-underline-offset: 3px; min-height: 40px; padding: 0 8px;
+}
+.typedfield {
+  display: flex; gap: 8px; align-items: stretch; margin-top: 12px;
+}
+.typedfield .box {
+  flex: 1; text-align: left; border: 1px solid var(--hair2); border-radius: 14px;
+  background: var(--surface); padding: 12px 13px; font-size: 14.5px; line-height: 1.45; color: var(--chrome);
+}
+.typedfield .box.empty { color: rgb(92 100 112 / .65); }
+.sendbtn {
+  flex: none; width: 48px; border-radius: 14px; border: 0; cursor: pointer;
+  background: var(--coral-600); color: #fff; display: flex; align-items: center; justify-content: center;
+}
+
+.examples { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 8px; }
+.examples li {
+  border: 1px solid var(--hair); border-radius: var(--r-chip); background: var(--surface);
+  padding: 11px 15px; font-size: 14px; color: var(--chrome); text-align: left;
+}
+.examples li::before { content: '“'; color: var(--coral-800); }
+.examples li::after { content: '”'; color: var(--coral-800); }
+
+/* --- experiment lightbulb + tooltip --------------------------------------- */
+
+.bulb {
+  width: 30px; height: 30px; border-radius: 999px; border: 0; cursor: pointer;
+  background: var(--coral-100); color: var(--coral-800);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.tooltip {
+  position: relative; margin: 8px 0 0; padding: 9px 11px;
+  background: var(--chrome-deep); color: #fff; border-radius: 11px;
+  font-size: 12.5px; line-height: 1.4; max-width: 250px;
+}
+.tooltip::before {
+  content: ''; position: absolute; top: -5px; right: 18px;
+  width: 10px; height: 10px; background: var(--chrome-deep); transform: rotate(45deg);
+}
+
+/* --- summary chip (what changed, collapsed) ------------------------------- */
+
+.sumbar {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  height: 48px; margin: 12px 20px 0; padding: 0 8px 0 14px;
+  background: var(--coral-100); border-radius: 15px;
+}
+.sumbar .txt { flex: 1; font-size: 13.5px; font-weight: 600; color: var(--coral-800); }
+.sumbar button {
+  width: 34px; height: 34px; flex: none; border: 0; border-radius: 10px; cursor: pointer;
+  background: transparent; color: var(--coral-800); display: flex; align-items: center; justify-content: center;
+}
+
+/* --- strips --------------------------------------------------------------- */
+
+.strip { margin: 0 0 12px; background: var(--surface); border: 1px solid var(--hair); border-radius: 16px; padding: 12px 13px; }
 .strip.tint { background: var(--coral-100); border-color: rgb(232 112 95 / .35); }
-.strip.dashed { border-style: dashed; border-color: var(--hair2); background: rgb(255 255 255 / .7); }
-.strip h3 {
-  margin: 0; font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
-  color: var(--muted);
-}
+.strip h3 { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 .strip.tint h3 { color: var(--coral-800); }
-.striptop { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .strip p { margin: 7px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--chrome); }
 .strip p.quiet { color: var(--muted); font-size: 12.5px; }
-.dismiss {
-  background: none; border: 0; cursor: pointer; font-family: var(--sans);
-  font-size: 12.5px; font-weight: 700; color: var(--muted); padding: 0; min-height: 24px;
-}
-
-.qlist { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
-.qrow { display: flex; align-items: center; gap: 8px; }
-.qrow .q { flex: 1; font-size: 13.5px; line-height: 1.45; color: var(--chrome); }
-.answer {
-  border: 0; border-radius: var(--r-chip); cursor: pointer; font-family: var(--sans);
-  font-size: 12.5px; font-weight: 700; padding: 8px 13px; min-height: 36px;
-  background: var(--coral-600); color: #fff; white-space: nowrap;
-}
-.answer.ghost { background: var(--surface); color: var(--chrome); box-shadow: inset 0 0 0 1px var(--hair2); }
 
 .difflist { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
-.difflist li { display: flex; gap: 8px; font-size: 13.5px; line-height: 1.45; }
-.difflist .mark { font-weight: 800; flex: none; width: 12px; }
-/* coral-800 not coral-700: these marks sit on coral-100, and coral text on tint is
-   coral-800 only (4.70:1). coral-700 on tint measures 3.54:1 — below AA for small text. */
-.difflist .mark.add { color: var(--coral-800); }
+.difflist li { display: flex; gap: 8px; font-size: 13.5px; line-height: 1.45; align-items: baseline; }
+.difflist .mark { font-weight: 700; flex: none; width: 12px; color: var(--coral-800); }
 .difflist .mark.move { color: var(--chrome); }
-.difflist .mark.swap { color: var(--muted); }
 
 .chiprow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
-.chiprow .sumchip {
-  font-size: 12px; font-weight: 700; color: var(--muted);
-  background: var(--line-soft); border-radius: var(--r-chip); padding: 4px 10px;
-}
+.chiprow .sumchip { font-size: 12px; font-weight: 600; color: var(--muted); background: var(--line-soft); border-radius: var(--r-chip); padding: 4px 10px; }
 
 /* --- month overview ------------------------------------------------------- */
 
-.monthnav {
-  flex: none; display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 18px 6px; gap: 8px;
-}
-.monthnav .mtitle {
-  font-family: var(--serif); font-size: 25px; font-weight: 500; letter-spacing: -.01em;
-  display: flex; align-items: center; gap: 9px;
-}
-.iconbtn {
-  width: 36px; height: 36px; flex: none; border-radius: 999px;
-  border: 1px solid var(--hair); background: var(--surface); cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  color: var(--chrome); font-size: 15px; box-shadow: var(--shadow-card);
-}
-.iconbtn[disabled] { opacity: .38; cursor: default; }
-
-.monthstrip {
-  flex: none; display: flex; gap: 7px; overflow-x: auto; padding: 6px 18px 12px;
-}
-.mpill {
-  flex: none; display: inline-flex; align-items: center; gap: 6px;
-  border-radius: var(--r-chip); border: 1px solid var(--hair);
-  background: var(--surface); cursor: pointer; font-family: var(--sans);
-  font-size: 13px; font-weight: 700; color: var(--muted); padding: 8px 14px; min-height: 38px;
-}
-.mpill[aria-current="true"] { background: var(--chrome); border-color: var(--chrome); color: #fff; }
-.mpill .mdot { width: 6px; height: 6px; border-radius: 999px; background: var(--coral-600); }
-
-.grid { padding: 4px 16px 0; }
-.gridhead {
-  display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; padding-bottom: 6px;
-}
-.gridhead span {
-  text-align: center; font-size: 10.5px; font-weight: 700; letter-spacing: .1em;
-  text-transform: uppercase; color: var(--muted);
-}
+.grid { padding: 10px 16px 0; }
+.gridhead { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; padding-bottom: 6px; }
+.gridhead span { text-align: center; font-size: 10.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 .gridbody { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
 .gcell {
-  aspect-ratio: 1 / 1.06;
-  border: 0; background: none; cursor: pointer; border-radius: 14px;
+  aspect-ratio: 1 / 1.06; border: 0; background: none; cursor: pointer; border-radius: 14px;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
   font-family: var(--sans); padding: 0;
 }
-.gcell .gnum { font-size: 15px; font-weight: 600; color: var(--chrome); letter-spacing: -.01em; }
+.gcell .gnum { font-size: 15px; font-weight: 500; color: var(--chrome); letter-spacing: -.01em; }
 .gcell.out .gnum { color: rgb(92 100 112 / .35); }
-.gcell.today .gnum { box-shadow: inset 0 0 0 1.5px var(--coral-600); border-radius: 999px; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; }
 .gcell[aria-current="true"] { background: var(--surface); box-shadow: var(--shadow-card); }
-.dots { display: flex; gap: 3px; height: 5px; align-items: center; }
+.dots { display: flex; gap: 3px; height: 6px; align-items: center; }
 .dots i { width: 5px; height: 5px; border-radius: 999px; display: block; }
 .dots i.draft { background: var(--coral-600); }
 .dots i.committed { background: var(--chrome); }
-.dots .plusn { font-size: 9.5px; font-weight: 800; color: var(--muted); line-height: 1; }
+/* "On its way" — a hollow ring, not a colour swap: a different state should be
+   a different shape, so it survives being read at a glance and in greyscale. */
+.dots i.onway { background: transparent; box-shadow: inset 0 0 0 1.5px var(--chrome); }
 
-.legend {
-  display: flex; gap: 16px; align-items: center; justify-content: center;
-  padding: 16px 18px 4px; font-size: 12px; color: var(--muted); font-weight: 600;
-}
+.legend { display: flex; gap: 16px; align-items: center; justify-content: center; padding: 16px 18px 4px; font-size: 12px; color: var(--muted); font-weight: 500; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .legend i { width: 6px; height: 6px; border-radius: 999px; display: block; }
+.legend i.ring { background: transparent; box-shadow: inset 0 0 0 1.5px var(--chrome); }
 
 /* --- bottom sheet --------------------------------------------------------- */
 
 .scrim { position: absolute; inset: 0; background: rgb(30 41 59 / .34); }
 .sheet {
   position: absolute; left: 0; right: 0; bottom: 0;
-  background: var(--surface);
-  border-radius: 26px 26px 0 0;
-  box-shadow: var(--shadow-sheet);
-  display: flex; flex-direction: column;
-  max-height: 88%;
+  background: var(--surface); border-radius: 26px 26px 0 0;
+  box-shadow: var(--shadow-sheet); display: flex; flex-direction: column; max-height: 88%;
 }
-.sheet.short { max-height: 62%; }
+.sheet.mid { max-height: 68%; }
+.sheet.low { max-height: 52%; }
 .grabber { flex: none; width: 38px; height: 5px; border-radius: 999px; background: rgb(143 146 150 / .45); margin: 9px auto 4px; }
-.sheethead { flex: none; padding: 6px 20px 12px; border-bottom: 1px solid var(--hair); }
-.sheethead .eyebrow { font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
-.sheethead h2 {
-  margin: 7px 0 0; font-family: var(--serif); font-size: 24px; line-height: 1.15;
-  font-weight: 500; letter-spacing: -.015em; color: var(--chrome);
+
+.sheethead { flex: none; padding: 6px 18px 14px; border-bottom: 1px solid var(--hair); }
+.sheettop { display: flex; align-items: flex-start; gap: 12px; }
+.sheettop .who { flex: 1; min-width: 0; }
+.sheethead h2 { margin: 0 0 4px; font-size: 20px; line-height: 1.25; font-weight: 700; letter-spacing: -.025em; color: var(--chrome); }
+.sheethead .meta { font-size: 13px; font-weight: 500; color: var(--muted); }
+.insights {
+  width: 34px; height: 34px; flex: none; border-radius: 999px; border: 1px solid var(--hair);
+  background: var(--surface); cursor: pointer; color: var(--chrome);
+  display: flex; align-items: center; justify-content: center;
 }
-.sheetbody { flex: 1; overflow-y: auto; padding: 4px 20px 18px; }
+.insights[aria-expanded="true"] { background: var(--coral-100); border-color: transparent; color: var(--coral-800); }
+
+/* Toggle tabs — caption / hook / script, caption default. */
+.tabs { flex: none; display: flex; gap: 4px; padding: 12px 18px 0; }
+.tab {
+  flex: 1; min-height: 38px; border-radius: 11px; cursor: pointer; font-family: var(--sans);
+  font-size: 13.5px; font-weight: 600; color: var(--muted);
+  background: var(--line-soft); border: 0;
+}
+.tab[aria-selected="true"] { background: var(--chrome); color: #fff; }
+.tab[disabled] { opacity: .4; cursor: default; }
+
+.sheetbody { flex: 1; overflow-y: auto; padding: 12px 18px 16px; }
 .sheetbody::-webkit-scrollbar { width: 0; }
-.sheetfoot { flex: none; padding: 12px 20px 26px; border-top: 1px solid var(--hair); background: var(--surface); }
 
-.srow {
-  display: flex; align-items: center; gap: 12px;
-  padding: 14px 0; border-bottom: 1px solid var(--hair);
-  min-height: 54px;
+.panelhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.panelhead .lbl { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.copyb {
+  min-height: 34px; padding: 0 11px; border-radius: 10px; border: 1px solid var(--hair);
+  background: var(--surface); cursor: pointer; font-family: var(--sans);
+  font-size: 12.5px; font-weight: 600; color: var(--chrome);
+  display: inline-flex; align-items: center; gap: 6px;
 }
-.srow:last-child { border-bottom: 0; }
-.srow .slabel { font-size: 13.5px; font-weight: 600; color: var(--muted); flex: none; width: 88px; }
-.srow .sval { flex: 1; font-size: 15px; font-weight: 600; color: var(--chrome); }
-.srow .sedit { font-size: 13px; font-weight: 700; color: var(--coral-800); background: var(--coral-100); border: 0; border-radius: var(--r-chip); padding: 7px 12px; min-height: 34px; cursor: pointer; font-family: var(--sans); }
 
-.section-eyebrow {
-  font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
-  color: var(--muted); margin: 18px 0 8px;
-}
 .prose { font-size: 14.5px; line-height: 1.62; color: var(--chrome); margin: 0; white-space: pre-wrap; }
-/* .prose keeps real newlines because captions and scripts depend on them; .quiet is
-   ordinary prose and must not inherit that, or its source wrapping shows on screen. */
 .prose.quiet { color: var(--muted); font-size: 13.5px; line-height: 1.55; white-space: normal; }
-.evidence {
-  background: var(--line-soft); border-radius: 14px; padding: 12px 13px;
-  font-size: 13.5px; line-height: 1.55; color: var(--chrome); margin: 0;
-}
+.evidence { background: var(--line-soft); border-radius: 14px; padding: 12px 13px; font-size: 13.5px; line-height: 1.55; color: var(--chrome); margin: 0; }
+.section-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 16px 0 8px; }
 
-.segmented { display: flex; gap: 6px; }
-.segmented button {
-  flex: 1; min-height: 42px; border-radius: 12px; cursor: pointer; font-family: var(--sans);
-  font-size: 13.5px; font-weight: 700; color: var(--chrome);
-  background: var(--surface); border: 1px solid var(--hair2);
+/* Action row — icons with short labels. */
+.acts { flex: none; display: flex; gap: 8px; padding: 12px 18px 26px; border-top: 1px solid var(--hair); background: var(--surface); }
+.act {
+  flex: 1; min-height: 62px; border-radius: 15px; cursor: pointer; font-family: var(--sans);
+  background: var(--surface); border: 1px solid var(--hair2); color: var(--chrome);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+  font-size: 12px; font-weight: 600;
 }
-.segmented button[aria-pressed="true"] { background: var(--coral-100); border-color: var(--coral-600); color: var(--coral-800); }
+.act .datenum { font-size: 9.5px; font-weight: 700; letter-spacing: .02em; }
+.act.warn { color: var(--danger); border-color: rgb(178 58 46 / .38); }
 
-.actions { display: grid; gap: 8px; }
-.actions .actrow { display: flex; gap: 8px; }
-.btn {
-  flex: 1; min-height: 48px; border-radius: 13px; border: 0; cursor: pointer;
-  font-family: var(--sans); font-size: 15px; font-weight: 700; letter-spacing: -.005em;
-  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-  background: var(--surface); color: var(--chrome); box-shadow: inset 0 0 0 1px var(--hair2);
-}
-/* White on coral-600 at 15px/700 — above the 14px+/500 floor. */
-.btn.primary { background: var(--coral-600); color: #fff; box-shadow: var(--shadow-coral); }
-.btn.danger { color: var(--danger); box-shadow: inset 0 0 0 1px rgb(178 58 46 / .4); }
-.btn.small { min-height: 42px; font-size: 14px; }
-
-.toast {
-  position: absolute; left: 50%; transform: translateX(-50%); bottom: 26px;
+/* Undo — TOP of the screen in round 2, so it can never sit over the action row. */
+.snack {
+  position: absolute; top: 46px; left: 16px; right: 16px; z-index: 30;
   background: var(--chrome-deep); color: #fff; border-radius: 14px;
   padding: 12px 15px; display: flex; align-items: center; gap: 14px;
-  font-size: 13.5px; font-weight: 600; box-shadow: 0 14px 34px rgb(30 41 59 / .3);
-  max-width: 340px;
+  font-size: 13.5px; font-weight: 500; box-shadow: 0 14px 34px rgb(30 41 59 / .3);
 }
-.toast button { background: none; border: 0; color: #fff; font-family: var(--sans); font-size: 13.5px; font-weight: 800; text-decoration: underline; cursor: pointer; }
+.snack button { margin-left: auto; background: none; border: 0; color: #fff; font-family: var(--sans); font-size: 13.5px; font-weight: 700; text-decoration: underline; cursor: pointer; }
 
-/* --- approval ------------------------------------------------------------- */
+/* --- buttons -------------------------------------------------------------- */
 
-.approve-wrap { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; padding: 20px; }
-.approve-card {
-  background: var(--surface); border: 1px solid var(--hair); border-radius: 24px;
-  padding: 20px 18px 18px; box-shadow: var(--shadow-card);
+.btn {
+  flex: 1; min-height: 50px; border-radius: 14px; border: 0; cursor: pointer;
+  font-family: var(--sans); font-size: 15px; font-weight: 600; letter-spacing: -.01em;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  background: var(--surface); color: var(--chrome); box-shadow: inset 0 0 0 1px var(--hair2);
 }
-.approve-card h2 {
-  font-family: var(--serif); font-size: 27px; line-height: 1.18; font-weight: 500;
-  letter-spacing: -.02em; margin: 0 0 10px; color: var(--chrome);
+/* White on coral-600 at 15px/600 — above the 14px+/500 floor. */
+.btn.primary { background: var(--coral-600); color: #fff; box-shadow: var(--shadow-coral); }
+
+/* The persistent approval control. */
+.fab {
+  position: absolute; right: 20px; bottom: 26px; z-index: 20;
+  width: 62px; height: 62px; border-radius: 999px; border: 0; cursor: pointer;
+  background: var(--coral-600); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 12px 26px -6px rgb(232 112 95 / .65);
 }
-.approve-card p { margin: 0 0 8px; font-size: 14.5px; line-height: 1.55; color: var(--chrome); }
-.approve-card p.quiet { color: var(--muted); font-size: 13px; line-height: 1.5; }
-.tally { list-style: none; margin: 12px 0 16px; padding: 0; display: grid; gap: 1px; background: var(--hair); border-radius: 14px; overflow: hidden; }
-.tally li { display: flex; align-items: baseline; gap: 10px; background: var(--surface); padding: 12px 13px; }
-.tally .n { font-family: var(--serif); font-size: 22px; font-weight: 500; color: var(--chrome); min-width: 30px; }
-.tally .what { font-size: 13.5px; line-height: 1.4; color: var(--muted); font-weight: 600; }
+.fab .ic { stroke-width: 2.4; }
+
+.tally { list-style: none; margin: 4px 0 16px; padding: 0; display: grid; gap: 1px; background: var(--hair); border-radius: 15px; overflow: hidden; }
+.tally li { display: flex; align-items: baseline; gap: 12px; background: var(--surface); padding: 13px 14px; }
+.tally .n { font-size: 20px; font-weight: 700; color: var(--chrome); min-width: 26px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.tally .what { font-size: 13.5px; line-height: 1.4; color: var(--muted); }
+
+.approve-wrap { padding: 16px 20px 20px; }
+.approve-card { background: var(--surface); border: 1px solid var(--hair); border-radius: 22px; padding: 18px 16px 16px; box-shadow: var(--shadow-card); }
+.approve-card h2 { font-size: 19px; line-height: 1.25; font-weight: 700; letter-spacing: -.025em; margin: 0 0 8px; color: var(--chrome); }
+.approve-card p { margin: 0 0 8px; font-size: 14px; line-height: 1.5; color: var(--chrome); }
+.approve-card p.quiet { color: var(--muted); font-size: 13px; }
 
 /* --- misc ----------------------------------------------------------------- */
 
-.hint {
-  margin: 14px 20px 0; font-size: 12px; line-height: 1.5; color: var(--muted);
-  border-left: 2px solid var(--coral-600); padding-left: 10px;
-}
+.hint { margin: 14px 0 0; font-size: 12px; line-height: 1.5; color: var(--muted); border-left: 2px solid var(--coral-600); padding-left: 10px; }
 
-.notes {
-  max-width: 1280px; margin: 34px auto 0;
-  background: var(--surface); border-radius: 18px; padding: 20px 22px;
-  box-shadow: var(--shadow-card);
-}
-.notes h2 { font-size: 13px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+.notes { margin-top: 34px; background: var(--surface); border-radius: 18px; padding: 20px 22px; box-shadow: var(--shadow-card); }
+.notes h2 { font-size: 13px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+.notes h2 + h2 { margin-top: 18px; }
 .notes ul { margin: 0; padding-left: 20px; display: grid; gap: 7px; }
 .notes li { font-size: 13.5px; line-height: 1.55; color: var(--chrome); }
 .notes code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: var(--line-soft); padding: 1px 5px; border-radius: 5px; }
@@ -521,5 +480,5 @@ em.swash { font-style: italic; font-variation-settings: "SOFT" 100, "opsz" 144; 
 
 @media (max-width: 480px) {
   body { padding: 20px 8px 40px; }
-  .phone { border-radius: 0; height: auto; min-height: 780px; box-shadow: none; }
+  .phone { border-radius: 0; height: auto; min-height: 720px; box-shadow: none; }
 }

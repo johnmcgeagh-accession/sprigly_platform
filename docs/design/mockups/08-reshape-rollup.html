@@ -3,23 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>7 — Reshape, itemised rollup · Sprigly mobile plan surface</title>
+<title>8 — Reshape, expanded rollup · Sprigly mobile plan surface</title>
 <link rel="stylesheet" href="sprigly-mobile.css">
 <style>
-  /* Page-local: the rollup list. Kept here rather than in the shared sheet because
-     nothing else in the surface uses it. */
-  .rollup { list-style: none; margin: 11px 0 0; padding: 0; }
-  .item { border-top: 1px solid var(--hair); padding: 10px 0 9px; }
-  .item:first-child { border-top: 0; }
+  /* Page-local: the itemised rollup. Nothing else in the surface uses it. */
+  .rollup { list-style: none; margin: 0; padding: 0; }
+  .item { border-top: 1px solid var(--hair); padding: 11px 0 10px; }
+  .item:first-child { border-top: 0; padding-top: 2px; }
   .itemhead { display: flex; gap: 9px; align-items: baseline; }
-  .itemhead .mk { font-size: 13px; font-weight: 800; flex: none; width: 12px; text-align: center; }
-  /* The rollup sits inside the coral-100 strip, so coral text here is coral-800 only. */
+  .itemhead .mk { font-size: 13px; font-weight: 700; flex: none; width: 12px; text-align: center; }
   .itemhead .mk.ok { color: var(--coral-800); }
   .itemhead .mk.idea { color: var(--muted); }
-  .itemhead .mk.warn { color: var(--danger); }
-  .itemhead .span { font-size: 13.5px; line-height: 1.42; font-weight: 600; color: var(--chrome); }
+  .itemhead .span { font-size: 13.5px; line-height: 1.42; font-weight: 500; color: var(--chrome); }
   .item details { margin: 5px 0 0 21px; }
-  .item summary { font-size: 12.5px; color: var(--muted); cursor: pointer; min-height: 24px; font-weight: 600; list-style: none; }
+  .item summary { font-size: 12.5px; color: var(--muted); cursor: pointer; min-height: 26px; font-weight: 600; list-style: none; }
   .item summary::-webkit-details-marker { display: none; }
   .item summary::before { content: '▸ '; color: var(--coral-800); }
   .item details[open] summary::before { content: '▾ '; }
@@ -27,21 +24,29 @@
   .item details li { font-size: 13px; line-height: 1.45; color: var(--chrome); }
   .item .note { font-size: 12.5px; color: var(--muted); margin: 5px 0 0 21px; }
   .item .rescue {
-    margin: 8px 0 0 21px; min-height: 38px; padding: 8px 13px; border-radius: 10px;
-    border: 1.5px solid var(--coral-600); background: var(--coral-100); color: var(--coral-800);
-    font-family: var(--sans); font-size: 13px; font-weight: 700; cursor: pointer;
+    margin: 8px 0 0 21px; min-height: 40px; padding: 9px 14px; border-radius: 11px;
+    border: 0; background: var(--coral-100); color: var(--coral-800);
+    font-family: var(--sans); font-size: 13px; font-weight: 600; cursor: pointer;
   }
 </style>
 </head>
 <body>
 
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+<symbol id="i-chev-down" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></symbol>
+<symbol id="i-chev-left" viewBox="0 0 24 24"><path d="M14.5 5.5l-7 6.5 7 6.5"/></symbol>
+<symbol id="i-chev-right" viewBox="0 0 24 24"><path d="M9.5 5.5l7 6.5-7 6.5"/></symbol>
+<symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+</defs></svg>
+
 <div class="page-head">
-  <div class="crumbs">Mockup 5 of 6 · rollup variant · <a href="06-reshape-after.html">← the single-sentence reshape</a> · <a href="index.html">all states</a></div>
-  <h1>Reshape moment — the itemised rollup</h1>
-  <p>Real clients paste briefs, not sentences. A document-shaped paste is split into its
-  instructions, each routed through the unmodified classifier, and the whole thing comes back as
-  <em>one</em> receipt with one line per segment. This is the same “what changed” strip in its
-  rollup mode — same component, keyed on <code>receipt.items</code>.</p>
+  <div class="crumbs">Mockup 6 of 7 · expanded panel · <a href="07-reshape-after.html">← the collapsed chip</a> · <a href="index.html">all states</a></div>
+  <h1>Reshape moment — the expanded rollup</h1>
+  <p>What the expand control on the summary chip slides up. Real clients paste briefs, not
+  sentences: a document-shaped paste is split into its instructions, each routed through the
+  unmodified classifier, and the whole thing comes back as <em>one</em> receipt with one line per
+  segment. Round 2 moves that list off the day and into a panel, so the chip above the week stays
+  48px whether the client said one thing or fourteen.</p>
 </div>
 
 <div class="frames">
@@ -63,35 +68,36 @@
         </svg>
         <span>Sprigly</span>
       </div>
-      <div class="avatar">IT</div>
     </div>
 
-    <div class="monthbar" style="flex-direction:column;gap:2px">
-      <button class="month-label" type="button">August 2026 <span class="chev">▼</span><span class="draft-dot"></span></button>
-      <div style="display:flex;align-items:center;gap:7px">
-        <span class="badge">Draft</span>
-        <span style="font-size:12px;color:var(--muted);font-weight:600">Not sent yet</span>
-      </div>
+    <div class="monthrow">
+      <button class="navbtn" type="button" aria-label="July"><svg class="ic sm"><use href="#i-chev-left"/></svg></button>
+      <button class="monthbtn" type="button" aria-haspopup="dialog">August 2026 <span class="dot"></span><svg class="ic"><use href="#i-chev-down"/></svg></button>
+      <button class="navbtn" type="button" aria-label="September" disabled><svg class="ic sm"><use href="#i-chev-right"/></svg></button>
     </div>
 
-    <div class="weekstrip" role="group" aria-label="Week of 27 July">
-      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Mon</span><span class="num">27</span></button>
-      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Tue</span><span class="num">28</span></button>
-      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Wed</span><span class="num">29</span></button>
-      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Thu</span><span class="num">30</span></button>
-      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Fri</span><span class="num">31</span></button>
-      <button class="wday" type="button" aria-pressed="true"><span class="dow">Sat</span><span class="num">1</span><span class="pip draft"></span></button>
-      <button class="wday" type="button" aria-pressed="false"><span class="dow">Sun</span><span class="num">2</span></button>
+    <div class="sumbar" role="status">
+      <span class="txt">8 applied · 6 saved</span>
+      <button type="button" aria-label="Hide what changed" aria-expanded="true"><svg class="ic sm"><use href="#i-chev-down"/></svg></button>
+      <button type="button" aria-label="Dismiss"><svg class="ic sm"><use href="#i-close"/></svg></button>
     </div>
-    <div class="weekrule"></div>
 
-    <div class="feed">
-      <section class="strip tint" style="margin-top:12px" aria-label="What we found">
-        <div class="striptop">
-          <h3>What we found</h3>
-          <button class="dismiss" type="button" style="color:var(--coral-800)">Dismiss</button>
+    <div class="panel" style="opacity:.3;pointer-events:none;padding-top:12px">
+      <div class="dayhead"><span class="dname">Saturday 1 August</span></div>
+    </div>
+
+    <div class="scrim"></div>
+    <div class="sheet" role="dialog" aria-label="What we found">
+      <div class="grabber"></div>
+
+      <div class="sheethead">
+        <div class="sheettop">
+          <div class="who">
+            <h2>We found 14 things in what you sent</h2>
+            <div class="meta">8 changed the month · 6 saved for later</div>
+          </div>
+          <button class="insights" type="button" aria-label="Close"><svg class="ic sm"><use href="#i-close"/></svg></button>
         </div>
-        <p style="color:var(--coral-800);font-weight:600">We found 14 things in what you sent.</p>
         <div class="chiprow">
           <span class="sumchip">1 launch</span>
           <span class="sumchip">2 series</span>
@@ -99,53 +105,49 @@
           <span class="sumchip">2 posts</span>
           <span class="sumchip">6 ideas</span>
         </div>
+      </div>
 
+      <div class="sheetbody">
         <ul class="rollup">
           <li class="item">
             <div class="itemhead"><span class="mk ok">✓</span><span class="span">The Navy Edit launches on 28th August at 7pm</span></div>
-            <details><summary>What changed</summary>
-              <ul><li>Added a launch arc — 3 beats around Fri 28 Aug</li></ul>
-            </details>
+            <details><summary>What changed</summary><ul><li>Added a launch build-up — 3 posts around Fri 28 Aug</li></ul></details>
           </li>
 
           <li class="item">
             <div class="itemhead"><span class="mk ok">✓</span><span class="span">Weekend Style Guide every Friday … 4th September</span></div>
-            <details><summary>What changed</summary>
-              <ul><li>Added 4 beats — Fri 7, 14, 21 and 28 Aug</li></ul>
-            </details>
+            <details><summary>What changed</summary><ul><li>Added 4 posts — Fri 7, 14, 21 and 28 Aug</li></ul></details>
             <p class="note">1 saved for next month — 4 Sep falls outside August.</p>
           </li>
 
           <li class="item">
             <div class="itemhead"><span class="mk ok">✓</span><span class="span">a mini-series … one post every three weeks</span></div>
-            <details><summary>What changed</summary>
-              <ul><li>Added 2 beats — Sat 1 Aug and Sat 22 Aug</li></ul>
-            </details>
+            <details><summary>What changed</summary><ul><li>Added 2 posts — Sat 1 Aug and Sat 22 Aug</li></ul></details>
           </li>
 
           <li class="item">
             <div class="itemhead"><span class="mk ok">✓</span><span class="span">On the 14th the stock leaves the factory</span></div>
-            <details><summary>What changed</summary><ul><li>Added 1 beat — Fri 14 Aug</li></ul></details>
+            <details><summary>What changed</summary><ul><li>Added 1 post — Fri 14 Aug</li></ul></details>
           </li>
 
           <li class="item">
             <div class="itemhead"><span class="mk ok">✓</span><span class="span">On the 15th … Portugal … summer shutdown</span></div>
-            <details><summary>What changed</summary><ul><li>Added 1 beat — Sat 15 Aug</li></ul></details>
+            <details><summary>What changed</summary><ul><li>Added 1 post — Sat 15 Aug</li></ul></details>
           </li>
 
           <li class="item">
             <div class="itemhead"><span class="mk ok">✓</span><span class="span">A throwback … given the heatwave</span></div>
-            <details><summary>What changed</summary><ul><li>Added 1 beat</li></ul></details>
+            <details><summary>What changed</summary><ul><li>Added 1 post</li></ul></details>
           </li>
 
           <li class="item">
             <div class="itemhead"><span class="mk ok">✓</span><span class="span">colour-reveal … on the 25th</span></div>
-            <details><summary>What changed</summary><ul><li>Added 1 beat — Tue 25 Aug</li></ul></details>
+            <details><summary>What changed</summary><ul><li>Added 1 post — Tue 25 Aug</li></ul></details>
           </li>
 
           <li class="item">
             <div class="itemhead"><span class="mk ok">✓</span><span class="span">who can guess which of the girls … navy</span></div>
-            <details><summary>What changed</summary><ul><li>Added 1 beat</li></ul></details>
+            <details><summary>What changed</summary><ul><li>Added 1 post</li></ul></details>
           </li>
 
           <li class="item">
@@ -183,26 +185,7 @@
             <p class="note">Noted for us to do — this one doesn’t change your plan.</p>
           </li>
         </ul>
-      </section>
-
-      <section class="day">
-        <div class="dayhead">
-          <span class="numeral">1</span>
-          <span class="stack"><span class="dname">Saturday</span><span class="dmeta">August</span></span>
-          <span class="spacer"></span>
-          <span class="daycount">2 beats</span>
-        </div>
-        <button class="card draft changed" type="button">
-          <div class="cardtop">
-            <span class="chip">Reel</span>
-            <span class="pillar">Understands Real Women</span>
-            <span class="badge">Just changed</span>
-          </div>
-          <h4>mini-series ‘What I am most proud of…’ — Tease</h4>
-          <p class="teaser">This came from what you told us: “a mini-series, one post every three
-          weeks”.</p>
-        </button>
-      </section>
+      </div>
     </div>
   </div>
 </div>
@@ -215,18 +198,19 @@
       fixture in <code>docs/reports/brief-decomposer.md</code> §COMMIT&nbsp;4 — Sally’s real August
       brief through the real decomposer, asserted at 8 month-scoped applications, 6 evergreen
       filings, exactly 1 next-cycle deferral, and one receipt line per segment.</li>
-    <li><strong>14, not 13.</strong> The prompt for this design session says “We found 13 things”;
-      the failure report describes ~13 distinct intents, and the decomposer’s own fixture splits
-      the brief into 14. The number on screen is whatever <code>receipt.segmentCount</code> is —
-      shown here as 14 because that is what the fixture produces.</li>
-    <li><strong>The per-item diff lines are reconstructions</strong>, not stored strings. The
-      fixture records beat counts and dates per segment (“applied: 4 beats · 1 deferred (4 Sep)”),
-      not the rendered <code>lines[]</code>. They are phrased here in the form the existing diff
-      renderer uses.</li>
+    <li><strong>14, not 13.</strong> The round-1 brief said “We found 13 things”; the failure
+      report describes ~13 distinct intents and the decomposer’s fixture splits the brief into 14.
+      The surface renders <code>receipt.segmentCount</code>, so it says 14.</li>
+    <li><strong>The chip’s counts are derived, the panel’s lines are reconstructions.</strong>
+      “8 applied · 6 saved” follows directly from the fixture’s assertions. The per-item diff
+      lines are phrased from the recorded post counts and dates — the rendered
+      <code>lines[]</code> strings are not stored.</li>
     <li><strong>Rescuing one item currently loses the rollup.</strong> The existing
-      <code>add_to_month</code> op returns a single receipt, which replaces the rollup in the
-      panel (<code>brief-decomposer.md</code> “Found, and left unfixed” §2). The mockup shows the
-      intended behaviour — item promoted in place, rollup kept — and the spec lists it as a gap.</li>
+      <code>add_to_month</code> op returns a single receipt, which replaces the rollup in the panel
+      (<code>brief-decomposer.md</code>, “Found, and left unfixed” §2). The mockup shows the
+      intended behaviour — item promoted in place, panel kept — and the spec lists it as a gap.</li>
+    <li><strong>Vocabulary.</strong> The fixture’s internal language is “beats”; every line here
+      says <em>posts</em>. See the spec’s terminology table.</li>
   </ul>
 </div>
 

@@ -3,20 +3,28 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>3 — Month overview · Sprigly mobile plan surface</title>
+<title>4 — Month overview · Sprigly mobile plan surface</title>
 <link rel="stylesheet" href="sprigly-mobile.css">
 </head>
 <body>
 
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+<symbol id="i-chev-down" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></symbol>
+<symbol id="i-chev-left" viewBox="0 0 24 24"><path d="M14.5 5.5l-7 6.5 7 6.5"/></symbol>
+<symbol id="i-chev-right" viewBox="0 0 24 24"><path d="M9.5 5.5l7 6.5-7 6.5"/></symbol>
+<symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+</defs></svg>
+
 <div class="page-head">
-  <div class="crumbs">Mockup 3 of 6 · <a href="index.html">all states</a></div>
+  <div class="crumbs">Mockup 4 of 7 · <a href="index.html">all states</a></div>
   <h1>Month overview</h1>
-  <p>Reached by tapping the small-caps month label. A compact grid with dot density per day —
-  coral for draft beats, slate for committed posts — over a month-name row that doubles as the
-  month picker: chevrons and swipe move between months, and a month holding a draft carries a
-  badge. Tapping any day drops back into that day’s view. This one control replaces the month
-  pills <em>and</em> closes the “October doesn’t show” class of bug: every month the client has
-  is named on screen, one tap away, instead of two blind “next” presses
+  <p>Opened by the month control in the day view’s top row. A compact grid with dot density per
+  day — coral for planned posts in a draft month, slate for posts in a committed one — under the
+  same month control that opened it. Tapping a day drops back into that day’s view.</p>
+  <p><strong>Round 2 changes here:</strong> the month pills are gone. There is now exactly one
+  lateral mechanism for months — the ‹ › arrows — and it is the same control in the day view and
+  here, so a client learns it once. That still closes the “October doesn’t show” class: every
+  month is one arrow-tap away with its name and its state visible, rather than two blind presses
   (<code>round-two-email-and-surface.md</code> §B4).</p>
 </div>
 
@@ -25,13 +33,13 @@
 <!-- ═══ FRAME A — draft month ═══════════════════════════════════════════════ -->
 <div class="frame-wrap">
   <p class="frame-label">A — October 2026, draft</p>
-  <p class="frame-sub">Ten coral dots on the ten drafted days. 1 October carries two, so it
-  shows two dots. The picker row names August, September and October; only October holds a draft.</p>
+  <p class="frame-sub">Ten coral dots on the ten planned days. 1 October carries two, so it shows
+  two. The draft state rides on the month control itself, where it also sits in the day view.</p>
 
   <div class="phone">
     <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
 
-    <div class="topbar">
+    <div class="topbar" style="justify-content:space-between">
       <div class="brandmark">
         <svg viewBox="0 0 100 110" fill="#E8705F" aria-hidden="true">
           <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
@@ -40,20 +48,16 @@
         </svg>
         <span>Sprigly</span>
       </div>
-      <button class="dismiss" type="button" style="font-size:14px">Done</button>
+      <button class="navbtn" type="button" aria-label="Close the month overview"><svg class="ic sm"><use href="#i-close"/></svg></button>
     </div>
 
-    <div class="monthnav">
-      <button class="iconbtn" type="button" aria-label="Previous month">‹</button>
-      <span class="mtitle">October 2026 <span class="badge">Draft</span></span>
-      <button class="iconbtn" type="button" aria-label="Next month" disabled>›</button>
+    <div class="monthrow">
+      <button class="navbtn" type="button" aria-label="September"><svg class="ic sm"><use href="#i-chev-left"/></svg></button>
+      <button class="monthbtn" type="button" aria-expanded="true">October 2026 <span class="dot"></span><svg class="ic"><use href="#i-chev-down"/></svg></button>
+      <button class="navbtn" type="button" aria-label="November" disabled><svg class="ic sm"><use href="#i-chev-right"/></svg></button>
     </div>
 
-    <div class="monthstrip" role="group" aria-label="Choose a month">
-      <button class="mpill" type="button">August</button>
-      <button class="mpill" type="button">September</button>
-      <button class="mpill" type="button" aria-current="true">October <span class="mdot"></span></button>
-    </div>
+    <div class="draftline"><span class="badge">Draft</span><span class="muted">Not sent yet</span></div>
 
     <div class="grid">
       <div class="gridhead"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
@@ -61,16 +65,16 @@
         <button class="gcell out" type="button"><span class="gnum">28</span><span class="dots"></span></button>
         <button class="gcell out" type="button"><span class="gnum">29</span><span class="dots"></span></button>
         <button class="gcell out" type="button"><span class="gnum">30</span><span class="dots"></span></button>
-        <button class="gcell" type="button" aria-label="1 October, 2 draft beats"><span class="gnum">1</span><span class="dots"><i class="draft"></i><i class="draft"></i></span></button>
-        <button class="gcell" type="button" aria-label="2 October, 1 draft beat"><span class="gnum">2</span><span class="dots"><i class="draft"></i></span></button>
-        <button class="gcell" type="button"><span class="gnum">3</span><span class="dots"></span></button>
-        <button class="gcell" type="button" aria-label="4 October, 1 draft beat"><span class="gnum">4</span><span class="dots"><i class="draft"></i></span></button>
+        <button class="gcell" type="button" aria-label="1 October, 2 planned posts"><span class="gnum">1</span><span class="dots"><i class="draft"></i><i class="draft"></i></span></button>
+        <button class="gcell" type="button" aria-label="2 October, 1 planned post"><span class="gnum">2</span><span class="dots"><i class="draft"></i></span></button>
+        <button class="gcell" type="button" aria-label="3 October, nothing planned"><span class="gnum">3</span><span class="dots"></span></button>
+        <button class="gcell" type="button" aria-label="4 October, 1 planned post"><span class="gnum">4</span><span class="dots"><i class="draft"></i></span></button>
 
         <button class="gcell" type="button"><span class="gnum">5</span><span class="dots"></span></button>
         <button class="gcell" type="button"><span class="gnum">6</span><span class="dots"></span></button>
         <button class="gcell" type="button"><span class="gnum">7</span><span class="dots"></span></button>
         <button class="gcell" type="button"><span class="gnum">8</span><span class="dots"></span></button>
-        <button class="gcell" type="button" aria-label="9 October, 1 draft beat"><span class="gnum">9</span><span class="dots"><i class="draft"></i></span></button>
+        <button class="gcell" type="button" aria-label="9 October, 1 planned post"><span class="gnum">9</span><span class="dots"><i class="draft"></i></span></button>
         <button class="gcell" type="button"><span class="gnum">10</span><span class="dots"></span></button>
         <button class="gcell" type="button"><span class="gnum">11</span><span class="dots"></span></button>
 
@@ -78,49 +82,47 @@
         <button class="gcell" type="button"><span class="gnum">13</span><span class="dots"></span></button>
         <button class="gcell" type="button"><span class="gnum">14</span><span class="dots"></span></button>
         <button class="gcell" type="button"><span class="gnum">15</span><span class="dots"></span></button>
-        <button class="gcell" type="button" aria-label="16 October, 1 draft beat"><span class="gnum">16</span><span class="dots"><i class="draft"></i></span></button>
+        <button class="gcell" type="button" aria-label="16 October, 1 planned post"><span class="gnum">16</span><span class="dots"><i class="draft"></i></span></button>
         <button class="gcell" type="button"><span class="gnum">17</span><span class="dots"></span></button>
         <button class="gcell" type="button"><span class="gnum">18</span><span class="dots"></span></button>
 
         <button class="gcell" type="button"><span class="gnum">19</span><span class="dots"></span></button>
         <button class="gcell" type="button"><span class="gnum">20</span><span class="dots"></span></button>
-        <button class="gcell" type="button" aria-label="21 October, 1 draft beat"><span class="gnum">21</span><span class="dots"><i class="draft"></i></span></button>
-        <button class="gcell" type="button" aria-label="22 October, 1 draft beat"><span class="gnum">22</span><span class="dots"><i class="draft"></i></span></button>
+        <button class="gcell" type="button" aria-label="21 October, 1 planned post"><span class="gnum">21</span><span class="dots"><i class="draft"></i></span></button>
+        <button class="gcell" type="button" aria-label="22 October, 1 planned post"><span class="gnum">22</span><span class="dots"><i class="draft"></i></span></button>
         <button class="gcell" type="button"><span class="gnum">23</span><span class="dots"></span></button>
         <button class="gcell" type="button"><span class="gnum">24</span><span class="dots"></span></button>
         <button class="gcell" type="button"><span class="gnum">25</span><span class="dots"></span></button>
 
         <button class="gcell" type="button"><span class="gnum">26</span><span class="dots"></span></button>
         <button class="gcell" type="button"><span class="gnum">27</span><span class="dots"></span></button>
-        <button class="gcell" type="button" aria-label="28 October, 1 draft beat"><span class="gnum">28</span><span class="dots"><i class="draft"></i></span></button>
-        <button class="gcell" type="button" aria-label="29 October, 1 draft beat"><span class="gnum">29</span><span class="dots"><i class="draft"></i></span></button>
+        <button class="gcell" type="button" aria-label="28 October, 1 planned post"><span class="gnum">28</span><span class="dots"><i class="draft"></i></span></button>
+        <button class="gcell" type="button" aria-label="29 October, 1 planned post"><span class="gnum">29</span><span class="dots"><i class="draft"></i></span></button>
         <button class="gcell" type="button"><span class="gnum">30</span><span class="dots"></span></button>
         <button class="gcell" type="button"><span class="gnum">31</span><span class="dots"></span></button>
         <button class="gcell out" type="button"><span class="gnum">1</span><span class="dots"></span></button>
       </div>
 
       <div class="legend">
-        <span><i style="background:var(--coral-600)"></i> Draft beat</span>
-        <span><i style="background:var(--chrome)"></i> Committed post</span>
+        <span><i style="background:var(--coral-600)"></i> Planned post</span>
       </div>
 
-      <p class="hint" style="margin-left:0;margin-right:0">10 beats drafted across October. Tap a
-      day to open it.</p>
+      <p class="hint">10 posts planned across October. Tap a day to open it.</p>
     </div>
   </div>
 </div>
 
-<!-- ═══ FRAME B — the same month, committed ═════════════════════════════════ -->
+<!-- ═══ FRAME B — committed month ═══════════════════════════════════════════ -->
 <div class="frame-wrap">
   <p class="frame-label">B — October 2026, after approval</p>
-  <p class="frame-sub">Identical grid, identical dates, slate dots. One post came back failed,
-  so its dot carries the danger colour — the month tells you where the hole is without opening
-  a day. The draft badge is gone from the title and from the picker pill.</p>
+  <p class="frame-sub">Identical grid, identical dates, slate dots. The one post still being
+  written is a hollow ring — a different shape, not a different colour, so it survives a glance
+  and greyscale. No red, and nothing asked of the client.</p>
 
   <div class="phone">
     <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
 
-    <div class="topbar">
+    <div class="topbar" style="justify-content:space-between">
       <div class="brandmark">
         <svg viewBox="0 0 100 110" fill="#E8705F" aria-hidden="true">
           <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
@@ -129,22 +131,16 @@
         </svg>
         <span>Sprigly</span>
       </div>
-      <button class="dismiss" type="button" style="font-size:14px">Done</button>
+      <button class="navbtn" type="button" aria-label="Close the month overview"><svg class="ic sm"><use href="#i-close"/></svg></button>
     </div>
 
-    <div class="monthnav">
-      <button class="iconbtn" type="button" aria-label="Previous month">‹</button>
-      <span class="mtitle">October 2026</span>
-      <button class="iconbtn" type="button" aria-label="Next month" disabled>›</button>
+    <div class="monthrow">
+      <button class="navbtn" type="button" aria-label="September"><svg class="ic sm"><use href="#i-chev-left"/></svg></button>
+      <button class="monthbtn" type="button" aria-expanded="true">October 2026 <svg class="ic"><use href="#i-chev-down"/></svg></button>
+      <button class="navbtn" type="button" aria-label="November" disabled><svg class="ic sm"><use href="#i-chev-right"/></svg></button>
     </div>
 
-    <div class="monthstrip" role="group" aria-label="Choose a month">
-      <button class="mpill" type="button">August</button>
-      <button class="mpill" type="button">September</button>
-      <button class="mpill" type="button" aria-current="true">October</button>
-    </div>
-
-    <div class="grid">
+    <div class="grid" style="padding-top:18px">
       <div class="gridhead"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
       <div class="gridbody">
         <button class="gcell out" type="button"><span class="gnum">28</span><span class="dots"></span></button>
@@ -153,7 +149,7 @@
         <button class="gcell" type="button" aria-current="true" aria-label="1 October, 2 posts"><span class="gnum">1</span><span class="dots"><i class="committed"></i><i class="committed"></i></span></button>
         <button class="gcell" type="button"><span class="gnum">2</span><span class="dots"><i class="committed"></i></span></button>
         <button class="gcell" type="button"><span class="gnum">3</span><span class="dots"></span></button>
-        <button class="gcell" type="button" aria-label="4 October, 1 post, generation failed"><span class="gnum">4</span><span class="dots"><i style="background:var(--danger);border-radius:2px;width:6px;height:6px"></i></span></button>
+        <button class="gcell" type="button" aria-label="4 October, 1 post, still being written"><span class="gnum">4</span><span class="dots"><i class="onway"></i></span></button>
 
         <button class="gcell" type="button"><span class="gnum">5</span><span class="dots"></span></button>
         <button class="gcell" type="button"><span class="gnum">6</span><span class="dots"></span></button>
@@ -189,12 +185,11 @@
       </div>
 
       <div class="legend">
-        <span><i style="background:var(--chrome)"></i> Committed post</span>
-        <span><i style="background:var(--danger);border-radius:2px;width:6px;height:6px"></i> Needs a retry</span>
+        <span><i style="background:var(--chrome)"></i> Post</span>
+        <span><i class="ring"></i> On its way</span>
       </div>
 
-      <p class="hint" style="margin-left:0;margin-right:0">10 posts across October. One caption
-      didn’t come back.</p>
+      <p class="hint">10 posts across October.</p>
     </div>
   </div>
 </div>
@@ -204,22 +199,22 @@
 <div class="notes">
   <h2>Where the content comes from, and what it needs that doesn’t exist</h2>
   <ul>
-    <li><strong>The ten dated beats</strong> are Earl of East’s approved October list
-      (<code>build-d-approval-phase2.md</code> §1); the 4 October failure is the real Bedrock
-      timeout recorded there. Frame&nbsp;A shows them pre-approval, Frame&nbsp;B post-approval —
-      same dates, because approval writes no structural change (0/10 drift).</li>
-    <li><strong>Three months in the picker</strong> — <code>[Aug, Sep, Oct]</code> is the cycle
-      list observed in <code>round-two-email-and-surface.md</code>. The pills name the month only;
-      no per-month post counts are claimed, because September’s is not recorded anywhere.</li>
-    <li><strong>The draft badge on a month pill has no field behind it.</strong>
-      <code>loadCycleList</code> already knows which cycles hold a reviewable draft — it uses
-      <code>cyclesWithReviewableDraft()</code> to decide whether a draft-only cycle qualifies for
-      the menu at all — but <code>CycleSummary</code> does not carry that fact to the client. One
-      boolean, listed in the spec’s gap table.</li>
-    <li><strong>Dot density across a whole month needs one read that does not exist.</strong>
-      <code>GET /api/plan</code> returns the viewed cycle’s posts; <code>GET /api/plan/draft</code>
-      returns one cycle’s beats. Painting dots for a month you have not opened means a per-day
-      count endpoint, or accepting that only the viewed month is dotted. Also in the gap table.</li>
+    <li><strong>The ten dated posts</strong> are Earl of East’s approved October list
+      (<code>build-d-approval-phase2.md</code> §1). Frame&nbsp;A shows them pre-approval,
+      frame&nbsp;B post-approval — same dates, because approval writes no structural change
+      (0/10 drift).</li>
+    <li><strong>The draft dot on the month control has no field behind it.</strong>
+      <code>loadCycleList</code> already calls <code>cyclesWithReviewableDraft()</code> — it uses
+      exactly this fact to decide whether a draft-only cycle qualifies for the menu — but
+      <code>CycleSummary</code> does not carry it to the client. Spec gap 2. Round 2 makes it
+      more load-bearing: with the pills gone, the month control is the only place a draft month
+      announces itself before you arrive on it.</li>
+    <li><strong>Dot density for a month you have not opened still needs a read that does not
+      exist.</strong> <code>GET /api/plan</code> serves the viewed cycle’s posts;
+      <code>GET /api/plan/draft</code> serves one cycle’s planned posts. Spec gap 3. With arrows
+      as the only month mechanism the honest fallback is to paint dots on arrival — the arrow
+      already triggers a <code>switchCycle</code> fetch, so there is no empty-grid flash to
+      design around.</li>
   </ul>
 </div>
 

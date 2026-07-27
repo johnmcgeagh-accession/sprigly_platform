@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>5 — Detail sheet · Sprigly mobile plan surface</title>
+<link rel="stylesheet" href="sprigly-mobile.css">
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+<symbol id="i-reel" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="3.5"/><path d="M10.3 9.2l5 2.8-5 2.8V9.2Z" fill="currentColor" stroke="none"/></symbol>
+<symbol id="i-carousel" viewBox="0 0 24 24"><rect x="7" y="3.5" width="13.5" height="13.5" rx="2.5"/><path d="M16.5 20.5H6a2.5 2.5 0 0 1-2.5-2.5V7.5"/></symbol>
+<symbol id="i-single" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 10.8v5.7M12 7.7v.3"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.5"/><path d="M15.5 5.5v-.5a2 2 0 0 0-2-2H6a2.5 2.5 0 0 0-2.5 2.5v7.5a2 2 0 0 0 2 2h.5"/></symbol>
+<symbol id="i-cal" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/></symbol>
+<symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z"/><path d="M18.6 15.6l.7 2.1 2.1.7-2.1.7-.7 2.1-.7-2.1-2.1-.7 2.1-.7.7-2.1Z"/></symbol>
+<symbol id="i-bin" viewBox="0 0 24 24"><path d="M4.5 6.5h15M9.5 6.5V4.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v2M6.5 6.5l1 13a1.5 1.5 0 0 0 1.5 1.4h6a1.5 1.5 0 0 0 1.5-1.4l1-13"/></symbol>
+<symbol id="i-send" viewBox="0 0 24 24"><path d="M4.5 12h14M12.5 6l6 6-6 6"/></symbol>
+<symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+</defs></svg>
+
+<div class="page-head">
+  <div class="crumbs">Mockup 5 of 7 · <a href="index.html">all states</a></div>
+  <h1>Detail sheet</h1>
+  <p>An iOS bottom sheet over the day view, restructured for round 2. The header carries title,
+  date and the format <em>icon</em> — display only; format is no longer changed from here. The
+  content is toggle tabs, caption first and default, each with a copy control, because copying a
+  caption out to post it elsewhere is the actual job. The reasoning moves behind an insights
+  icon: one tap to reveal, never in the way of the words the client came for.</p>
+  <p><strong>Also changed:</strong> per-post assumptions are gone — assumptions are a property of
+  the month, and they now live in the draft call-to-action block. The action row is three icons
+  with short labels. Undo renders at the <em>top</em>, so it can never sit over the action row it
+  is undoing.</p>
+</div>
+
+<div class="frames">
+
+<!-- ═══ FRAME A — committed post, caption tab ═══════════════════════════════ -->
+<div class="frame-wrap">
+  <p class="frame-label">A — committed post · caption (default)</p>
+  <p class="frame-sub">Format icon, title, date and time in the header. Caption / Hook / Script
+  as tabs; each carries its own copy button, so the client copies the field they want rather than
+  the whole sheet.</p>
+
+  <div class="phone tall">
+    <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
+    <div class="panel" style="opacity:.3;pointer-events:none">
+      <div class="dayhead"><span class="dname">Thursday 1 October</span><span class="spacer"></span><span class="daycount">2 posts</span></div>
+    </div>
+
+    <div class="scrim"></div>
+    <div class="sheet" role="dialog" aria-label="Wilderness candle relaunch — Launch">
+      <div class="grabber"></div>
+
+      <div class="sheethead">
+        <div class="sheettop">
+          <span class="fmt lg" title="Reel"><svg class="ic"><use href="#i-reel"/></svg><span class="sr">Reel</span></span>
+          <div class="who">
+            <h2>Wilderness candle relaunch — Launch</h2>
+            <div class="meta">Thursday 1 October · 6:00 · Home &amp; Space</div>
+          </div>
+          <button class="insights" type="button" aria-expanded="false" aria-label="Why this post is here">
+            <svg class="ic sm"><use href="#i-info"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="tabs" role="tablist">
+        <button class="tab" type="button" role="tab" aria-selected="true">Caption</button>
+        <button class="tab" type="button" role="tab" aria-selected="false">Hook</button>
+        <button class="tab" type="button" role="tab" aria-selected="false">Script</button>
+      </div>
+
+      <div class="sheetbody">
+        <div class="panelhead">
+          <span class="lbl">Caption</span>
+          <button class="copyb" type="button"><svg class="ic sm"><use href="#i-copy"/></svg> Copy</button>
+        </div>
+        <p class="prose">Wilderness is back.
+
+There is a particular quality to autumn light indoors, the way it sits low and golden across a room, making everything feel a little more considered, a little more still. Wilderness was made for exactly that.
+
+Cedarwood, damp earth, and the cold-clean note of open air brought inside. She fills a room without announcing herself, building quietly over the first hour until the whole space feels grounded and unhurried.
+
+Our Wilderness Soy Wax Candle is live now. Head to the link in bio.
+
+// #earlofeast #wilderness #homerituals #scentedcandle #ritualovertoutine</p>
+      </div>
+
+      <div class="acts">
+        <button class="act" type="button">
+          <svg class="ic sm"><use href="#i-cal"/></svg>
+          <span>Move</span><span class="datenum">1 OCT · 6:00</span>
+        </button>
+        <button class="act" type="button">
+          <svg class="ic sm solid"><use href="#i-sparkle"/></svg>
+          <span>Write again</span>
+        </button>
+        <button class="act warn" type="button">
+          <svg class="ic sm"><use href="#i-bin"/></svg>
+          <span>Delete</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ FRAME B — insights revealed + undo at top ═══════════════════════════ -->
+<div class="frame-wrap">
+  <p class="frame-label">B — insights revealed · undo at the top</p>
+  <p class="frame-sub">One tap on the insights icon and the reasoning appears above the tabs,
+  with the sample sizes stated. Undo sits at the top of the screen: in round 1 it was
+  bottom-anchored and landed directly on the action row.</p>
+
+  <div class="phone tall">
+    <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
+
+    <div class="snack">
+      <span>Moved to 22 October</span>
+      <button type="button">Undo</button>
+    </div>
+
+    <div class="panel" style="opacity:.3;pointer-events:none">
+      <div class="dayhead"><span class="dname">Wednesday 21 October</span></div>
+    </div>
+
+    <div class="scrim"></div>
+    <div class="sheet" role="dialog" aria-label="Quiet rituals, one by one">
+      <div class="grabber"></div>
+
+      <div class="sheethead">
+        <div class="sheettop">
+          <span class="fmt lg" title="Carousel"><svg class="ic"><use href="#i-carousel"/></svg><span class="sr">Carousel</span></span>
+          <div class="who">
+            <h2>Quiet rituals, one by one</h2>
+            <div class="meta">Wednesday 21 October · 19:00 · Everyday Ritual</div>
+          </div>
+          <button class="insights" type="button" aria-expanded="true" aria-label="Why this post is here">
+            <svg class="ic sm"><use href="#i-info"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div style="padding:12px 18px 0">
+        <div class="strip tint" style="margin-bottom:0">
+          <h3>Why this one is here</h3>
+          <p style="color:var(--coral-800)">Carousels average 70 likes and comments across your
+          last 8 posts; Everyday Ritual is about 20% of what you post.</p>
+          <p class="quiet" style="color:var(--coral-800)">Measured over 4 months of your feed —
+          2.24 posts a week, 31 posts in all. The pillar share is an even split across your five
+          pillars, because no weighting is on record for you yet.</p>
+        </div>
+      </div>
+
+      <div class="tabs" role="tablist">
+        <button class="tab" type="button" role="tab" aria-selected="true">Caption</button>
+        <button class="tab" type="button" role="tab" aria-selected="false">Hook</button>
+        <button class="tab" type="button" role="tab" aria-selected="false" disabled>Script</button>
+      </div>
+
+      <div class="sheetbody">
+        <div class="panelhead">
+          <span class="lbl">Caption</span>
+          <button class="copyb" type="button"><svg class="ic sm"><use href="#i-copy"/></svg> Copy</button>
+        </div>
+        <p class="prose">The ones that quietly hold the day together.
+
+Not the grand gestures, but the small, deliberate acts that mark the shift from one part of the day to the next. The incense lit before sitting down to work. The reed diffuser in the hallway that meets you when you come home. The candle that signals the evening has properly begun.</p>
+      </div>
+
+      <div class="acts">
+        <button class="act" type="button">
+          <svg class="ic sm"><use href="#i-cal"/></svg>
+          <span>Move</span><span class="datenum">21 OCT · 19:00</span>
+        </button>
+        <button class="act" type="button">
+          <svg class="ic sm solid"><use href="#i-sparkle"/></svg>
+          <span>Write again</span>
+        </button>
+        <button class="act warn" type="button">
+          <svg class="ic sm"><use href="#i-bin"/></svg>
+          <span>Delete</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ FRAME C — write again ═══════════════════════════════════════════════ -->
+<div class="frame-wrap">
+  <p class="frame-label">C — “Write again” · guided, never blind</p>
+  <p class="frame-sub">Write again opens a short prompt field rather than firing a regenerate.
+  This matches the API exactly: <code>POST /api/plan/shape</code> has always required an
+  <code>instruction</code> — there is no endpoint for a blind rewrite, so the round-1 button was
+  the thing that didn’t match, not the design.</p>
+
+  <div class="phone tall">
+    <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
+    <div class="panel" style="opacity:.3;pointer-events:none">
+      <div class="dayhead"><span class="dname">Thursday 1 October</span></div>
+    </div>
+
+    <div class="scrim"></div>
+    <div class="sheet mid" role="dialog" aria-label="Write this one again">
+      <div class="grabber"></div>
+
+      <div class="sheethead">
+        <div class="sheettop">
+          <span class="fmt lg" title="Reel"><svg class="ic"><use href="#i-reel"/></svg><span class="sr">Reel</span></span>
+          <div class="who">
+            <h2>Write this one again</h2>
+            <div class="meta">Wilderness candle relaunch — Launch</div>
+          </div>
+          <button class="insights" type="button" aria-label="Close"><svg class="ic sm"><use href="#i-close"/></svg></button>
+        </div>
+      </div>
+
+      <div class="sheetbody">
+        <p class="prose quiet">What should be different? We’ll keep the date, the format and the
+        pillar exactly as they are.</p>
+        <div class="typedfield">
+          <div class="box">Warmer, and mention the relaunch earlier</div>
+          <button class="sendbtn" type="button" aria-label="Send"><svg class="ic"><use href="#i-send"/></svg></button>
+        </div>
+        <ul class="examples" style="margin-top:14px">
+          <li>Shorter</li>
+          <li>Less product, more story</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ FRAME D — move: date + time ═════════════════════════════════════════ -->
+<div class="frame-wrap">
+  <p class="frame-label">D — “Move” · date and time together</p>
+  <p class="frame-sub">The calendar icon carries the current date, so the action row states where
+  the post is before you open anything. The picker edits date <em>and</em> posting time — which
+  is the part that needs an API that does not exist yet (spec gap 1, widened in round 2 from
+  read-only to read-and-write).</p>
+
+  <div class="phone tall">
+    <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
+    <div class="panel" style="opacity:.3;pointer-events:none">
+      <div class="dayhead"><span class="dname">Thursday 1 October</span></div>
+    </div>
+
+    <div class="scrim"></div>
+    <div class="sheet mid" role="dialog" aria-label="Move this post">
+      <div class="grabber"></div>
+
+      <div class="sheethead">
+        <div class="sheettop">
+          <div class="who">
+            <h2>Move to…</h2>
+            <div class="meta">Wilderness candle relaunch — Launch</div>
+          </div>
+          <button class="insights" type="button" aria-label="Close"><svg class="ic sm"><use href="#i-close"/></svg></button>
+        </div>
+      </div>
+
+      <div class="sheetbody">
+        <div class="gridhead" style="padding-top:4px"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+        <div class="gridbody">
+          <button class="gcell out" type="button"><span class="gnum">28</span></button>
+          <button class="gcell out" type="button"><span class="gnum">29</span></button>
+          <button class="gcell out" type="button"><span class="gnum">30</span></button>
+          <button class="gcell" type="button" aria-current="true"><span class="gnum">1</span></button>
+          <button class="gcell" type="button"><span class="gnum">2</span></button>
+          <button class="gcell" type="button"><span class="gnum">3</span></button>
+          <button class="gcell" type="button"><span class="gnum">4</span></button>
+          <button class="gcell" type="button"><span class="gnum">5</span></button>
+          <button class="gcell" type="button"><span class="gnum">6</span></button>
+          <button class="gcell" type="button"><span class="gnum">7</span></button>
+          <button class="gcell" type="button"><span class="gnum">8</span></button>
+          <button class="gcell" type="button"><span class="gnum">9</span></button>
+          <button class="gcell" type="button"><span class="gnum">10</span></button>
+          <button class="gcell" type="button"><span class="gnum">11</span></button>
+        </div>
+
+        <p class="section-eyebrow">Posting time</p>
+        <div class="tabs" style="padding:0">
+          <button class="tab" type="button" aria-selected="true">6:00</button>
+          <button class="tab" type="button" aria-selected="false">7:00</button>
+          <button class="tab" type="button" aria-selected="false">19:00</button>
+          <button class="tab" type="button" aria-selected="false">20:00</button>
+        </div>
+        <p class="prose quiet" style="margin-top:10px">Your usual slots. Tap and hold for any
+        other time.</p>
+      </div>
+
+      <div class="acts">
+        <button class="btn primary" type="button">Move it</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ FRAME E — draft variant ═════════════════════════════════════════════ -->
+<div class="frame-wrap">
+  <p class="frame-label">E — a planned post, before approval</p>
+  <p class="frame-sub">The same sheet with nothing written in it yet. There are no tabs to show,
+  so the sheet says why rather than showing three empty ones — and “Write again” is absent,
+  because there is nothing to write again.</p>
+
+  <div class="phone tall">
+    <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
+    <div class="panel" style="opacity:.3;pointer-events:none">
+      <div class="dayhead"><span class="dname">Wednesday 21 October</span><span class="spacer"></span><span class="daycount">1 planned post</span></div>
+    </div>
+
+    <div class="scrim"></div>
+    <div class="sheet mid" role="dialog" aria-label="Quiet rituals, one by one">
+      <div class="grabber"></div>
+
+      <div class="sheethead">
+        <div class="sheettop">
+          <span class="fmt lg" title="Carousel"><svg class="ic"><use href="#i-carousel"/></svg><span class="sr">Carousel</span></span>
+          <div class="who">
+            <h2>Quiet rituals, one by one</h2>
+            <div class="meta">Wednesday 21 October · 19:00 · Everyday Ritual</div>
+          </div>
+          <button class="insights" type="button" aria-expanded="false" aria-label="Why this post is here">
+            <svg class="ic sm"><use href="#i-info"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="sheetbody">
+        <span class="badge">Draft</span>
+        <p class="prose quiet" style="margin-top:10px">Nothing’s written yet. The caption, and the
+        hook for this carousel, get created when you approve the month.</p>
+        <p class="prose quiet" style="margin-top:10px">Until then you can move it, change your
+        mind about it, or tell us what it should be about.</p>
+      </div>
+
+      <div class="acts">
+        <button class="act" type="button">
+          <svg class="ic sm"><use href="#i-cal"/></svg>
+          <span>Move</span><span class="datenum">21 OCT · 19:00</span>
+        </button>
+        <button class="act warn" type="button">
+          <svg class="ic sm"><use href="#i-bin"/></svg>
+          <span>Delete</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /frames -->
+
+<div class="notes">
+  <h2>Where the content comes from</h2>
+  <ul>
+    <li><strong>The reel’s caption, hook and script and the carousel’s caption are verbatim</strong>
+      from <code>docs/reports/build-d-approval-phase2.md</code> §1 — including the corrupted final
+      hashtag <code>#ritualovertoutine</code>, which is real and still unfixed (§9.2 there). It is
+      left in: this sheet is exactly where a client would catch it.</li>
+    <li><strong>The insights copy</strong> is what <code>rationaleFor()</code> renders from that
+      post’s evidence, with the supporting line reading out the same object:
+      <code>avgEngagement 69.9 / posts 8</code>, <code>pillarShare 0.2</code>,
+      <code>cadenceBasis {postsPerWeek: 2.24, source:'observed', months: 4}</code>, 31 posts of
+      history (Build&nbsp;A §10).</li>
+    <li><strong>The posting-time options</strong> are the <code>PostingTimes</code> contract’s
+      documented example values, presented as “your usual slots”, which is what that named-slot
+      map (launch / morning / evening / wsg / sundayStyle) actually is.</li>
+  </ul>
+  <h2>Wiring these actions</h2>
+  <ul>
+    <li><strong>Write again → <code>POST /api/plan/shape {targetPostId, instruction}</code>.</strong>
+      Confirmed in <code>app/src/app/api/plan/shape/route.ts</code>: it 400s without an
+      instruction, gates on the post’s date via <code>gatePostEdit</code>, and enqueues a shape
+      job. It is <strong>metered</strong> — <code>getUsageForCycle</code> +
+      <code>isRewriteBlocked</code> can return <code>mode:'blocked'</code> with a summary
+      (“You’ve used all N AI changes this month…”). This sheet still has nowhere to render that;
+      it belongs in the prompt field, and it is on the spec’s gap list.</li>
+    <li><strong>Move → date is <code>PATCH /api/posts/:id {date}</code>, which exists; time has no
+      endpoint.</strong> Spec gap 1.</li>
+    <li><strong>Delete → <code>DELETE /api/posts/:id</code></strong> (soft) for a committed post;
+      <code>POST /api/plan/draft {op:'drop'}</code> for a planned one, which returns the whole
+      removed row so undo restores it verbatim rather than rebuilding a husk.</li>
+    <li><strong>Copy</strong> is <code>navigator.clipboard.writeText</code> — no API at all, which
+      is the point: the client’s job here is to get the words out of Sprigly and into Instagram.</li>
+  </ul>
+</div>
+
+</body>
+</html>

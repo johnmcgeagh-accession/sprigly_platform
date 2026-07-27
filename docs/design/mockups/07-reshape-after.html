@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>7 — Reshape, after · Sprigly mobile plan surface</title>
+<link rel="stylesheet" href="sprigly-mobile.css">
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+<symbol id="i-reel" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="3.5"/><path d="M10.3 9.2l5 2.8-5 2.8V9.2Z" fill="currentColor" stroke="none"/></symbol>
+<symbol id="i-single" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/></symbol>
+<symbol id="i-chev-down" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></symbol>
+<symbol id="i-chev-up" viewBox="0 0 24 24"><path d="M6 14.5l6-6 6 6"/></symbol>
+<symbol id="i-chev-left" viewBox="0 0 24 24"><path d="M14.5 5.5l-7 6.5 7 6.5"/></symbol>
+<symbol id="i-chev-right" viewBox="0 0 24 24"><path d="M9.5 5.5l7 6.5-7 6.5"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></symbol>
+<symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+</defs></svg>
+
+<div class="page-head">
+  <div class="crumbs">Mockup 6 of 7 · after · <a href="06-reshape-before.html">← before</a> · <a href="08-reshape-rollup.html">the expanded panel →</a> · <a href="index.html">all states</a></div>
+  <h1>Reshape moment — after</h1>
+  <p>Round 1 put the whole diff on screen as a panel above the day. Round 2 collapses it to a
+  <strong>fixed-height summary chip</strong> — a single 48px bar naming the counts, with an expand
+  control and a dismiss. The chip never grows, so a one-line change and a fourteen-item brief
+  cost the same vertical space, and the day underneath is never pushed off screen by a receipt.</p>
+  <p>The highlight state on changed posts is <strong>independent of the chip</strong>: dismissing
+  the summary does not un-mark what changed, and the marks persist until the next visit.</p>
+</div>
+
+<div class="frames">
+
+<!-- ═══ FRAME A ═════════════════════════════════════════════════════════════ -->
+<div class="frame-wrap">
+  <p class="frame-label">A — one sentence, one change</p>
+  <p class="frame-sub">The new post carries a solid coral edge among the dashed ones — the single
+  card on this surface that is not dashed, because it is the one that changed while you were
+  looking.</p>
+
+  <div class="phone tall">
+    <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
+
+    <div class="topbar">
+      <div class="brandmark">
+        <svg viewBox="0 0 100 110" fill="#E8705F" aria-hidden="true">
+          <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+          <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+          <line x1="50" y1="76" x2="50" y2="98" stroke="#E8705F" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+        <span>Sprigly</span>
+      </div>
+    </div>
+
+    <div class="monthrow">
+      <button class="navbtn" type="button" aria-label="September"><svg class="ic sm"><use href="#i-chev-left"/></svg></button>
+      <button class="monthbtn" type="button" aria-haspopup="dialog">October 2026 <span class="dot"></span><svg class="ic"><use href="#i-chev-down"/></svg></button>
+      <button class="navbtn" type="button" aria-label="November" disabled><svg class="ic sm"><use href="#i-chev-right"/></svg></button>
+    </div>
+
+    <div class="sumbar" role="status">
+      <span class="txt">1 added</span>
+      <button type="button" aria-label="Show what changed" aria-expanded="false"><svg class="ic sm"><use href="#i-chev-up"/></svg></button>
+      <button type="button" aria-label="Dismiss"><svg class="ic sm"><use href="#i-close"/></svg></button>
+    </div>
+
+    <div class="weekstrip" role="group" aria-label="Week of 28 September">
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Mon</span><span class="num">28</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Tue</span><span class="num">29</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Wed</span><span class="num">30</span></button>
+      <button class="wday" type="button" aria-pressed="true"><span class="dow">Thu</span><span class="num">1</span><span class="pip draft"></span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Fri</span><span class="num">2</span><span class="pip draft"></span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Sat</span><span class="num">3</span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Sun</span><span class="num">4</span><span class="pip draft"></span></button>
+    </div>
+    <div class="weekrule"></div>
+
+    <div class="panel">
+      <div class="dayhead">
+        <span class="dname">Thursday 1 October</span>
+        <span class="spacer"></span>
+        <span class="daycount">2 planned posts</span>
+      </div>
+
+      <button class="card draft changed" type="button">
+        <div class="cardtop">
+          <span class="fmt" title="Reel"><svg class="ic sm"><use href="#i-reel"/></svg><span class="sr">Reel</span></span>
+          <span class="pillar">Home &amp; Space</span>
+          <span class="badge" style="margin-left:auto">New</span>
+        </div>
+        <h4>Wilderness candle relaunch — Launch</h4>
+        <p class="teaser">From what you told us: “The Wilderness candle relaunches on the 24th,
+        can we build up to it?”</p>
+      </button>
+
+      <button class="card draft" type="button">
+        <div class="cardtop">
+          <span class="fmt" title="Single post"><svg class="ic sm"><use href="#i-single"/></svg><span class="sr">Single post</span></span>
+          <span class="pillar">Everyday Ritual</span>
+          <span class="time">7:00</span>
+        </div>
+        <h4>A small moment, made deliberate</h4>
+        <p class="teaser">Single posts average 38 likes and comments across your last 23 posts.</p>
+      </button>
+
+      <button class="addslot" type="button"><svg class="ic sm"><use href="#i-plus"/></svg> Plan a post for this day</button>
+    </div>
+
+    <button class="fab" type="button" aria-label="Ready to go — generate my plan"><svg class="ic lg"><use href="#i-check"/></svg></button>
+  </div>
+</div>
+
+<!-- ═══ FRAME B ═════════════════════════════════════════════════════════════ -->
+<div class="frame-wrap">
+  <p class="frame-label">B — a multi-post change, same chip</p>
+  <p class="frame-sub">A real launch arc: three posts added, three pillar posts replaced to pay
+  for them (ivy-t’s rehearsal receipt, <code>16:32:27.761Z</code>). Six diff lines, and the chip
+  is still 48px. It says <em>replaced</em>, not “changed”, because three posts were removed to
+  make room — softening that word would hide the cost of the sentence the client said.</p>
+
+  <div class="phone tall">
+    <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
+
+    <div class="topbar">
+      <div class="brandmark">
+        <svg viewBox="0 0 100 110" fill="#E8705F" aria-hidden="true">
+          <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+          <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+          <line x1="50" y1="76" x2="50" y2="98" stroke="#E8705F" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+        <span>Sprigly</span>
+      </div>
+    </div>
+
+    <div class="monthrow">
+      <button class="navbtn" type="button" aria-label="July"><svg class="ic sm"><use href="#i-chev-left"/></svg></button>
+      <button class="monthbtn" type="button" aria-haspopup="dialog">August 2026 <span class="dot"></span><svg class="ic"><use href="#i-chev-down"/></svg></button>
+      <button class="navbtn" type="button" aria-label="September" disabled><svg class="ic sm"><use href="#i-chev-right"/></svg></button>
+    </div>
+
+    <div class="sumbar" role="status">
+      <span class="txt">3 added · 3 replaced</span>
+      <button type="button" aria-label="Show what changed" aria-expanded="false"><svg class="ic sm"><use href="#i-chev-up"/></svg></button>
+      <button type="button" aria-label="Dismiss"><svg class="ic sm"><use href="#i-close"/></svg></button>
+    </div>
+
+    <div class="weekstrip" role="group" aria-label="Week of 27 July">
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Mon</span><span class="num">27</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Tue</span><span class="num">28</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Wed</span><span class="num">29</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Thu</span><span class="num">30</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Fri</span><span class="num">31</span></button>
+      <button class="wday" type="button" aria-pressed="true"><span class="dow">Sat</span><span class="num">1</span><span class="pip draft"></span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Sun</span><span class="num">2</span></button>
+    </div>
+    <div class="weekrule"></div>
+
+    <div class="panel">
+      <div class="dayhead">
+        <span class="dname">Saturday 1 August</span>
+        <span class="spacer"></span>
+        <span class="daycount">2 planned posts</span>
+      </div>
+
+      <button class="card draft changed" type="button">
+        <div class="cardtop">
+          <span class="fmt" title="Reel"><svg class="ic sm"><use href="#i-reel"/></svg><span class="sr">Reel</span></span>
+          <span class="pillar">Understands Real Women</span>
+          <span class="badge" style="margin-left:auto">New</span>
+        </div>
+        <h4>mini-series ‘What I am most proud of…’ — Tease</h4>
+        <p class="teaser">From what you told us: “a mini-series, one post every three weeks”.</p>
+      </button>
+
+      <button class="card draft changed" type="button">
+        <div class="cardtop">
+          <span class="fmt" title="Reel"><svg class="ic sm"><use href="#i-reel"/></svg><span class="sr">Reel</span></span>
+          <span class="pillar">Understands Real Women</span>
+          <span class="badge" style="margin-left:auto">New</span>
+        </div>
+        <h4>mini-series ‘What I am most proud of…’ — Launch</h4>
+        <p class="teaser">From what you told us: “a mini-series, one post every three weeks”.</p>
+      </button>
+
+      <button class="addslot" type="button"><svg class="ic sm"><use href="#i-plus"/></svg> Plan a post for this day</button>
+    </div>
+
+    <button class="fab" type="button" aria-label="Ready to go — generate my plan"><svg class="ic lg"><use href="#i-check"/></svg></button>
+  </div>
+</div>
+
+</div><!-- /frames -->
+
+<div class="notes">
+  <h2>What is recorded, and what is not</h2>
+  <ul>
+    <li><strong>Frame A’s chip reads “1 added” and no more.</strong> The Build&nbsp;D report records
+      the classifier’s output, the ten approved posts and zero structure drift — it does
+      <em>not</em> record the receipt lines that application produced. So the chip counts only the
+      delta the report establishes. A launch arc that balances its removes against its adds would
+      have produced replacements; none is claimed here because none is written down.</li>
+    <li><strong>Frame B is a verbatim receipt</strong> from
+      <code>docs/reports/ivy-t-rehearsal-failures.md</code> — three Added and three Replaced lines
+      with their real dates. It is also the case that makes the chip necessary: that receipt is
+      the misrouted series (F1), where the client asked for three posts three weeks apart and got
+      three inside four days at the cost of three pillar posts. A summary that names what it
+      replaced is how a client catches that before approving.</li>
+    <li><strong>The chip’s verbs are the receipt’s verbs</strong> — added, moved, replaced. The
+      round-2 brief suggested “changed” for the third; <em>replaced</em> is kept because the
+      difference between “this post was edited” and “this post was removed and another took its
+      slot” is exactly the thing a client needs to see.</li>
+    <li><strong>“New” marks and <code>changedIds</code>.</strong> The marker already exists —
+      <code>changedIds</code> on the receipt drives it, held in memory and gone on reload. Round 2
+      makes it independent of the chip, which is a client-side change only.</li>
+  </ul>
+</div>
+
+</body>
+</html>
