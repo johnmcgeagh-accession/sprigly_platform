@@ -12,11 +12,22 @@ import { contentCycles, contentCyclePosts } from '@sprigly/db';
 import { assembleShapeContext } from './planning.js';
 import type { PlanningDeps } from './planning.js';
 import { recordPlanActivity } from './ledger.js';
+import { extractDeliverable, hasDeliberativeMarkers } from './deliverable.js';
 
 const SCRIPT_WORKFLOW = 'plan_scripts';
 const SCRIPT_STEP     = 'generate';
 const SCRIPT_MODEL    = 'sonnet';
 const WORDS_PER_SECOND = 2.2;   // spoken-word budget guidance
+
+/** The response contract, enforced at the call site (not the mutable DB prompt) so it cannot
+ *  drift per client and needs no migration. The parser tolerates the model ignoring it. */
+const SCRIPT_OUTPUT_CONTRACT =
+  'OUTPUT CONTRACT: think first if you need to, then write the finished script AFTER a line that reads exactly ===SCRIPT===. ' +
+  'Only the text after that marker is kept. Put NO reasoning, word counts, or register notes inside the script, and write nothing after it — everything before the marker is discarded.';
+
+/** Sent on the one repair attempt when the first answer leaked its working notes. */
+const SCRIPT_REPAIR_REMINDER =
+  'Your previous answer let working notes into the script. Return ONLY the finished script after a line reading exactly ===SCRIPT===, with no word-count arithmetic, no "actually…"/"let me…" asides, and no commentary of any kind.';
 
 export interface ScriptJob {
   type:          'script';
@@ -54,31 +65,46 @@ export async function runScriptForPost(job: ScriptJob, deps: PlanningDeps): Prom
     `HOOK (use verbatim as the opening line):\n${post.hook}`,
     `CAPTION / IDEA:\n${post.caption}`,
     `TARGET LENGTH: ${job.lengthSeconds}s (~${targetWords} spoken words at ${WORDS_PER_SECOND} words/second — keep the whole script within that budget).`,
+    SCRIPT_OUTPUT_CONTRACT,
   ].join('\n\n');
 
-  const res = await model.complete({ model: SCRIPT_MODEL, system, messages: [{ role: 'user', content: user }], maxTokens: 1200, temperature: 0.6 });
+  // ── AUDIT: every call is on the cost-guard's ledger ────────────────────────
+  // hook and script spend was invisible to phase2-cost.ts until Build D — it reads audit_log
+  // on the assumption that every call site writes to it, and two did not. The structural cure
+  // is a Bedrock wrapper that writes the audit entry itself; until that lands (31 sites, many
+  // with no clientId — docs/reports/hardening-pre-uat.md §4), ANY new model call needs its own
+  // write. The repair call is a real Bedrock call, so it is audited too.
+  const complete = async (content: string) => {
+    const r = await model.complete({ model: SCRIPT_MODEL, system, messages: [{ role: 'user', content }], maxTokens: 1200, temperature: 0.6 });
+    try {
+      await deps.audit.logModelCall({
+        clientId: job.clientId, modelId: r.modelId, inputTokens: r.inputTokens, outputTokens: r.outputTokens,
+        action: 'content-cycle:script', metadata: { cycleId: job.cycleId, postId: job.targetPostId, lengthSeconds: job.lengthSeconds },
+      });
+    } catch (err) {
+      logger.warn({ ...logCtx, err: String(err) }, 'script: audit log failed — non-fatal');
+    }
+    return r;
+  };
 
-  // ── AUDIT: this call is on the cost-guard's ledger ─────────────────────────
-  // It was NOT, until Build D — hook and script spend was invisible to phase2-cost.ts,
-  // which reads audit_log on the assumption that every call site writes to it. Two did
-  // not. The structural cure is a Bedrock wrapper that writes the audit entry itself, so
-  // the assumption is true by construction rather than by everyone remembering.
-  //
-  // NOT DONE, deliberately: the hardening enumeration found 31 invocation sites across 6
-  // packages, many with no clientId in scope at all (CLIs, probes, the eval harness,
-  // workflow steps). Wrapping them is a real piece of work, not a hardening tweak.
-  // Backlogged with the full site list in docs/reports/hardening-pre-uat.md §4.
-  // Until then: ANY new model call needs its own audit write, like this one.
-  try {
-    await deps.audit.logModelCall({
-      clientId: job.clientId, modelId: res.modelId, inputTokens: res.inputTokens, outputTokens: res.outputTokens,
-      action: 'content-cycle:script', metadata: { cycleId: job.cycleId, postId: job.targetPostId, lengthSeconds: job.lengthSeconds },
-    });
-  } catch (err) {
-    logger.warn({ ...logCtx, err: String(err) }, 'script: audit log failed — non-fatal');
-  }
-  const scriptText = res.content.trim();
+  // Deliverables contain deliverables only. Keep the text after ===SCRIPT===, discard the
+  // reasoning before it, and check what survives for leaked working notes. If reasoning bled
+  // INTO the script, repair once with a stricter reminder; if it is still contaminated, FLAG
+  // it (a loud failure) rather than store the transcript as the client's script.
+  let res = await complete(user);
+  let scriptText = extractDeliverable(res.content, 'SCRIPT');
   if (!scriptText) throw new Error('script: model returned an empty script');
+
+  if (hasDeliberativeMarkers(scriptText)) {
+    logger.warn({ ...logCtx }, 'script: working notes leaked into the deliverable — repairing once');
+    res = await complete(`${user}\n\n${SCRIPT_REPAIR_REMINDER}`);
+    scriptText = extractDeliverable(res.content, 'SCRIPT');
+    if (!scriptText || hasDeliberativeMarkers(scriptText)) {
+      // Never store contaminated output. Fail loudly instead: the script field stays empty
+      // (regenerable from the surface) and the failure is visible in the job and the logs.
+      throw new Error('script: the model kept leaking its reasoning into the script — withheld rather than stored');
+    }
+  }
 
   await db.update(contentCyclePosts)
     .set({ script: scriptText, scriptLengthSeconds: job.lengthSeconds })

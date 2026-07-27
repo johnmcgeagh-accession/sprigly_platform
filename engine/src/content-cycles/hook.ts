@@ -13,6 +13,7 @@ import { contentCycles, contentCyclePosts, hookPatterns } from '@sprigly/db';
 import { recordPlanActivity } from './ledger.js';
 import { assembleShapeContext } from './planning.js';
 import type { PlanningDeps } from './planning.js';
+import { hasDeliberativeMarkers } from './deliverable.js';
 
 const HOOK_WORKFLOW = 'plan_hooks';
 const HOOK_STEP     = 'generate';
@@ -135,7 +136,9 @@ export async function runHookForPost(job: HookJob, deps: PlanningDeps): Promise<
   } catch (err) {
     deps.logger.warn({ cycleId: job.cycleId, err: String(err) }, 'hook: audit log failed — non-fatal');
   }
-  const candidates = parseHooks(res.content).slice(0, CANDIDATE_COUNT);
+  // A hook that carries the model's working notes ("let me…", word-count asides) is not a hook.
+  // Drop contaminated candidates before the top one can be auto-selected and stored.
+  const candidates = parseHooks(res.content).filter((h) => !hasDeliberativeMarkers(h)).slice(0, CANDIDATE_COUNT);
   if (candidates.length === 0) throw new Error('hook: model returned no usable hooks');
 
   // FAN-OUT: keep the top candidate. Ranked first by the same prompt that produced them,
