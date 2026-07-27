@@ -16,7 +16,7 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import {
   clientChannels, clientConfigs, clientPlanningConfig, clientProductCatalogue, contentCycles,
-  contentCyclePosts, igPosts, voiceSnapshots, POST_STATUS_DRAFT,
+  contentCyclePosts, igPosts, voiceSnapshots, POST_STATUS_DRAFT, PRE_PLANNING_STATUSES,
   type NewContentCyclePostRow,
 } from '@sprigly/db';
 import {
@@ -109,6 +109,31 @@ export interface AssembleAndPersistResult {
 }
 
 /**
+ * Refuse assembly outside the pre-planning window.
+ *
+ * Assembly is a PRE-PLANNING act: it proposes a month the client has not seen. Building a draft
+ * into a cycle that has moved past planning (workbook_built, generating, scheduled-and-approved,
+ * …) writes status='draft' rows into a month whose surface renders them UNEDITABLE — the
+ * rehearsal did exactly this, assembling into workbook_built and producing a dead surface with
+ * no editable controls (docs/reports/ivy-t-rehearsal-failures.md F3). PRE_PLANNING_STATUSES is
+ * the same set every draft mutation and the intake route gate on, so "can this month still be
+ * shaped" cannot come to mean two different things in two places.
+ *
+ * Pure and exported so both branches are testable without a database. Throws — the Ask-touch
+ * caller already catches a throw and degrades to the ordinary Ask email (consumer.ts), and the
+ * CLI surfaces it.
+ */
+export function assertCycleAssemblable(status: string): void {
+  if (!PRE_PLANNING_STATUSES.has(status)) {
+    throw new Error(
+      `draft-plan: cycle status is '${status}', which is past planning — a draft can only be ` +
+      `assembled while the cycle is pre-planning (${[...PRE_PLANNING_STATUSES].join(', ')}). ` +
+      `Reset the cycle first: pnpm --filter @sprigly/worker cycle-reset <cycleId>.`,
+    );
+  }
+}
+
+/**
  * Assemble a draft for `cycleId` and persist its beats as status='draft' rows.
  *
  * Replaces any existing draft rows for the cycle (a re-run supersedes its own previous
@@ -128,12 +153,16 @@ export async function assembleAndPersistDraft(
 
   const [cycle] = await db
     .select({ id: contentCycles.id, clientId: contentCycles.clientId, channel: contentCycles.channel,
-              cycleMonth: contentCycles.cycleMonth, structuredBrief: contentCycles.structuredBrief,
-              intakeJson: contentCycles.intakeJson })
+              cycleMonth: contentCycles.cycleMonth, status: contentCycles.status,
+              structuredBrief: contentCycles.structuredBrief, intakeJson: contentCycles.intakeJson })
     .from(contentCycles)
     .where(and(eq(contentCycles.id, params.cycleId), eq(contentCycles.clientId, params.clientId)))
     .limit(1);
   if (!cycle) throw new Error(`draft-plan: cycle ${params.cycleId} not found for client ${params.clientId}`);
+
+  // Refuse to assemble into a cycle that has moved past planning — the draft rows would render
+  // an uneditable surface. Named status, named remedy. (See assertCycleAssemblable.)
+  assertCycleAssemblable(cycle.status);
 
   const { clientId, channel } = cycle;
   const month = nextMonth(cycle.cycleMonth);          // the cycle plans the month AFTER its own

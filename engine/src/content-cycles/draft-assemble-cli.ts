@@ -37,7 +37,7 @@ import { createAuditLogger } from '@sprigly/audit';
 import { DbPromptResolver } from '@sprigly/prompts';
 import { createEncryptionProvider } from '@sprigly/oauth-tokens';
 import { env } from '../env.js';
-import { assembleAndPersistDraft, draftFlowEnabled, autoApproveAndGenerate } from './draft-plan.js';
+import { assembleAndPersistDraft, draftFlowEnabled, autoApproveAndGenerate, type AssembleAndPersistResult } from './draft-plan.js';
 
 const args    = process.argv.slice(2);
 const cycleId = args.find((a) => !a.startsWith('--'));
@@ -85,7 +85,14 @@ if (!(await draftFlowEnabled(deps, cycle!.clientId))) {
   );
 }
 
-const result = await assembleAndPersistDraft({ clientId: cycle!.clientId, cycleId }, deps);
+// A cycle past planning is refused by assertCycleAssemblable (draft-plan.ts): assembling into
+// it would write draft rows the surface renders uneditable. Surface that refusal as a clean
+// operator message rather than a stack trace — it names the status and the reset command.
+const result: AssembleAndPersistResult = await assembleAndPersistDraft({ clientId: cycle!.clientId, cycleId }, deps)
+  .catch(async (err): Promise<never> => {
+    await fail(err instanceof Error ? err.message : String(err));   // exits the process
+    throw err;                                                       // unreachable; satisfies never
+  });
 
 let approval: { approved: number; captionsQueued: number } | undefined;
 if (autoApprove) {
