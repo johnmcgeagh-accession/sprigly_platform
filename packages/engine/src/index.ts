@@ -83,10 +83,10 @@ export { approveDraftCore, POST_STATUS_GENERATING, APPROVAL_MESSAGES } from './d
 export type { ApprovalError, ApprovalResult, ApproveDraftParams, ApprovalDb } from './draft-approval-core.js';
 
 // ── Intake routing + reshaping (Build C) ─────────────────────────────────────
-export { classifyIntake, routeFromParsed, parseClassification, monthScopedIntentSchema, CLASSIFY_SYSTEM } from './intake-classify.js';
+export { classifyIntake, routeFromParsed, parseClassification, parseBeatSpec, monthScopedIntentSchema, CLASSIFY_SYSTEM } from './intake-classify.js';
 export type { IntakeRouting, MonthScopedIntent, EvergreenReason, ClassifyParams } from './intake-classify.js';
 export {
-  applyIntent, applyLaunchArc, applyEvent, applySeries, expandSeries, applyEmphasis, applyBeatEdit,
+  applyIntent, applyLaunchArc, applyEvent, applySeries, applyBeatSpec, expandSeries, applyEmphasis, applyBeatEdit,
   replacementCandidates, byWeakestEvidence, isReplaceable, replacementTier, isClientTouched, isClientOriginated,
   isClientAdded, isFromEarlierInput, POOL_EMPTY_NOTE, deriveTitle, resolveBeatRef,
 } from './draft-transforms.js';

@@ -549,6 +549,58 @@ export function applySeries(intent: MonthScopedIntent, beats: TransformBeat[], m
   return { ops, ...(full ? { note: full } : {}), ...(deferred.length > 0 ? { deferred } : {}) };
 }
 
+// ── Beat spec (a typed calendar row) ────────────────────────────────────────────
+
+/** The formats a beat may take. Format vocab is fixed, not per-client, so the check needs
+ *  no config read. */
+const BEAT_SPEC_FORMATS = new Set(['reel', 'carousel', 'single']);
+
+/**
+ * The month's commonest format as it stands — the honest default for a typed row that gave a
+ * date and a title but no format. Ties break reel > carousel > single, a fixed order so the
+ * same month always resolves the same way. Undefined only when the month is empty.
+ */
+function commonestFormat(beats: TransformBeat[]): string | undefined {
+  const counts = new Map<string, number>();
+  for (const b of beats) if (BEAT_SPEC_FORMATS.has(b.format)) counts.set(b.format, (counts.get(b.format) ?? 0) + 1);
+  if (counts.size === 0) return undefined;
+  const order = ['reel', 'carousel', 'single'];
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || order.indexOf(a[0]) - order.indexOf(b[0]))[0]?.[0];
+}
+
+/**
+ * Place a beat the client TYPED as a calendar row.
+ *
+ * Not a reshape. A typed row is the client's own hand, so it ADDS a slot rather than
+ * displacing one — the count grows because they asked for one more post, exactly as the
+ * Build B add affordance grows it. There is no pool consulted and nothing is ever replaced.
+ *
+ * The title is VERBATIM: deriveTitle exists to shorten prose the model echoed into a subject,
+ * but a beat_spec title was typed to BE the title, so shortening it would throw away the
+ * client's own label. Format is what they named (vocab-checked), else the month's commonest,
+ * else `single` as the last-resort floor. No pillar is claimed — they named none, and
+ * inventing one would poison the pillar weights the assembler reads. The beat is marked
+ * `client_added` and `clientTouched`, the same provenance the manual add carries, so no later
+ * transform may quietly take the slot back.
+ */
+export function applyBeatSpec(intent: MonthScopedIntent, beats: TransformBeat[], month: string): TransformResult {
+  if (!intent.dateRange) return { ops: [], note: 'No date was given, so there was nowhere to place the post.' };
+  const title = intent.subject.trim();
+  if (!title) return { ops: [], note: 'No title was given for the post.' };
+
+  const date = clampToMonth(intent.dateRange.start, month);
+  const named = intent.format && BEAT_SPEC_FORMATS.has(intent.format) ? intent.format : undefined;
+  const format = named ?? commonestFormat(beats) ?? 'single';
+
+  const beatMeta: BeatMeta = {
+    slotType: 'proven',
+    rationaleEvidence: { basis: 'client_added' },
+    clientTouched: true,
+  };
+  return { ops: [{ op: 'add', date, format, pillar: '', title, beatMeta }] };
+}
+
 /** A single dated beat, same replacement rule. */
 export function applyEvent(intent: MonthScopedIntent, beats: TransformBeat[], month: string): TransformResult {
   if (!intent.dateRange) return { ops: [], note: 'No date was given, so there was nowhere to put it.' };
@@ -749,6 +801,7 @@ export function applyIntent(
     case 'launch':    return applyLaunchArc(intent, beats, month);
     case 'event':     return applyEvent(intent, beats, month);
     case 'series':    return applySeries(intent, beats, month);
+    case 'beat_spec': return applyBeatSpec(intent, beats, month);
     case 'emphasis':  return applyEmphasis(intent, beats, today);
     case 'beat_edit': return applyBeatEdit(intent, beats, month);
     case 'correction':return applyCorrection(intent, beats, month);

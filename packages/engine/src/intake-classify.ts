@@ -79,10 +79,16 @@ const recurrenceSchema = z.object({
 });
 
 export const monthScopedIntentSchema = z.object({
-  kind:       z.enum(['launch', 'event', 'series', 'emphasis', 'beat_edit', 'correction']),
+  kind:       z.enum(['launch', 'event', 'series', 'beat_spec', 'emphasis', 'beat_edit', 'correction']),
   subject:    z.string().min(1).max(200),
   sourceText: z.string().min(1),
   dateRange:  dateRangeSchema.nullable().optional(),
+  /**
+   * beat_spec only — the format the client named for this one post ("a reel on the 22nd").
+   * Absent when they named a date and a title but no format; the transform fills it from the
+   * month's commonest format then, rather than guessing.
+   */
+  format:     z.enum(['reel', 'carousel', 'single']).nullable().optional(),
   /**
    * series only — the dates the client listed, in their order. Takes precedence over
    * `recurrence` when both are present: an enumerated date is something the client stated,
@@ -149,13 +155,17 @@ RULES:
 - If you are not sure, choose EVERGREEN. Being filed as an idea is easy to undo; changing a month the owner was happy with is not.
 - SERIES is any run of posts on a repeating pattern. "Every Friday", "one post every 3 weeks", "weekly", "monthly", "a mini-series" are ALWAYS kind=series and NEVER kind=launch. A series is a rhythm; a launch is one moment with a build-up. Do not turn a series into a launch because it has a start date.
 - For a series, prefer ENUMERATED dates. If the owner lists the dates ("7th, 14th, 21st, 28th"), return instances:[{date,subject}] with one entry per date, and put THAT DATE'S OWN subject on it (the specific product, theme or story they named for it). Only use recurrence:{startDate,intervalDays} when they give a cadence with no list ("every 3 weeks from the 1st"). If they give both a list and a cadence, the list wins — return instances and leave recurrence null.
+- BEAT_SPEC is a single dated post the owner has SPELLED OUT — one date, an optional format, and a title, with no build-up and no repeat. "add a reel on the 22nd called What I am most proud of part 2", "a carousel on the 14th: Weekend Style Guide". Set kind=beat_spec, dateRange for the single date (start=end), format when they named one ("reel"/"carousel"/"single"), and subject = the title they gave, VERBATIM. It is NOT a launch (no tease/follow-up) and NOT a series (it happens once). Most typed rows are caught before you see them; use beat_spec for the ones phrased as a short request.
 - CORRECTION is for fixing something already on the plan: "X is the 10th not the 1st", "actually the workshop is the 15th", "move the launch to the 3rd", "make the launch post a reel". Set kind=correction, correctionOf = the thing being corrected in the owner's words, and dateRange for a new date (or edit/editValue for a format change). A correction is NOT a new launch — do not use kind=launch to restate a date the owner is fixing.
 - Do NOT invent a date. Only set dateRange when a real date or clear window is stated. Resolve relative dates ("next Friday", "the 28th") against the PLAN MONTH you are given.
 - subject is a short noun phrase in the owner's own words. Do not embellish it.
 - sourceText is the owner's message, VERBATIM.
 
 Return ONE JSON object, no markdown, no code fences:
-{"scope":"month_scoped","intent":{"kind":"launch|event|series|emphasis|beat_edit|correction","subject":"","sourceText":"","dateRange":{"start":"YYYY-MM-DD","end":"YYYY-MM-DD"}|null,"instances":null,"recurrence":null,"beatRef":null,"edit":null,"editValue":null,"emphasis":null,"correctionOf":null}}
+{"scope":"month_scoped","intent":{"kind":"launch|event|series|beat_spec|emphasis|beat_edit|correction","subject":"","sourceText":"","dateRange":{"start":"YYYY-MM-DD","end":"YYYY-MM-DD"}|null,"format":null,"instances":null,"recurrence":null,"beatRef":null,"edit":null,"editValue":null,"emphasis":null,"correctionOf":null}}
+
+For a single spelled-out post:
+{"scope":"month_scoped","intent":{"kind":"beat_spec","subject":"What I am most proud of part 2","sourceText":"","dateRange":{"start":"YYYY-MM-DD","end":"YYYY-MM-DD"},"format":"reel","instances":null,"recurrence":null,...}}
 
 For a series with listed dates:
 {"scope":"month_scoped","intent":{"kind":"series","subject":"Weekend Style Guide","sourceText":"","instances":[{"date":"YYYY-MM-DD","subject":"what that date is about"}],"recurrence":null,...}}
@@ -215,10 +225,80 @@ export function routeFromParsed(parsed: unknown, sourceText: string): IntakeRout
       && !intent.data.recurrence) {
     return { scope: 'evergreen', sourceText, reason: 'ambiguous' };
   }
+  // A beat_spec is a typed calendar row — it needs a date to place it. The title (subject)
+  // is already required by the schema; without a date there is nowhere to put the post, so
+  // it is filed rather than dropped on the month at a guessed date.
+  if (intent.data.kind === 'beat_spec' && !intent.data.dateRange) {
+    return { scope: 'evergreen', sourceText, reason: 'ambiguous' };
+  }
 
   // Trust the model for meaning, never for provenance: sourceText is overwritten with the
   // text we actually received, so a receipt can never quote words the client did not send.
   return { scope: 'month_scoped', intent: { ...intent.data, sourceText }, sourceText };
+}
+
+// ── Deterministic beat_spec pre-parse ───────────────────────────────────────────
+
+const MONTHS: Record<string, number> = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+  jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+};
+
+/**
+ * A typed calendar ROW: an optional weekday, a day, a month name, an optional format word,
+ * then the title. Date-leading by construction — there is no verb before the date to make it
+ * a request. "Sat 22 Aug Reel What I am most proud of… — part 2" is this shape.
+ */
+const BEAT_SPEC_RE =
+  /^(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]{3,9})\.?(?:\s+(reels?|carousels?|singles?))?\s+(\S[\s\S]*?)\s*$/i;
+
+/** A title that opens with one of these is a request ("move the reel…"), not a row title —
+ *  let the model classify it rather than titling a beat with an instruction. */
+const INTENT_VERB_RE = /^(?:move|add|make|change|swap|remove|drop|delete|shift|reschedule|turn|set|put)\b/i;
+
+/**
+ * Recognise a typed calendar row without the model.
+ *
+ * The rehearsal showed operators typing ROWS, not requests, and two of them bounced to the
+ * ideas backlog twice (docs/reports/ivy-t-rehearsal-failures.md). A date-leading
+ * [date][format?][title] line is not a question to route — it is a beat to place, literally:
+ * the given date, the named format (or the month's commonest, decided later by the transform),
+ * and the title VERBATIM. So it short-circuits the one model call entirely.
+ *
+ * Conservative on purpose: no leading date, no real month, an empty title, or a title that
+ * opens with an instruction verb all return null and fall through to the model. This claims
+ * only the inputs it is certain about; the model (and then the asymmetry rule) owns the rest.
+ *
+ * Pure and exported so the contract is testable without a model call. `planMonth` supplies the
+ * year — a typed row names a day and a month, never a year.
+ */
+export function parseBeatSpec(text: string, planMonth: string): MonthScopedIntent | null {
+  const line = text.trim();
+  if (!line || /\n/.test(line)) return null;         // a paragraph is a message, not a row
+
+  const m = BEAT_SPEC_RE.exec(line);
+  if (!m) return null;
+
+  const day = Number(m[1]);
+  const month = MONTHS[m[2]!.slice(0, 3).toLowerCase()];
+  if (!month || day < 1 || day > 31) return null;
+
+  const title = (m[4] ?? '').trim();
+  if (!title || INTENT_VERB_RE.test(title)) return null;
+
+  const year = Number(planMonth.slice(0, 4));
+  const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+  const fmtRaw = m[3]?.toLowerCase().replace(/s$/, '');
+  const format = fmtRaw === 'reel' || fmtRaw === 'carousel' || fmtRaw === 'single' ? fmtRaw : null;
+
+  return {
+    kind: 'beat_spec',
+    subject: title,
+    sourceText: line,
+    dateRange: { start: date, end: date },
+    ...(format ? { format } : {}),
+  };
 }
 
 export interface ClassifyParams {
@@ -239,6 +319,15 @@ export async function classifyIntake(params: ClassifyParams): Promise<IntakeRout
   const { text, planMonth, model, modelName = 'sonnet', logger, audit, clientId } = params;
   const sourceText = text.trim();
   if (!sourceText) return { scope: 'evergreen', sourceText, reason: 'validation_failed' };
+
+  // A typed calendar row is applied literally, without a model call. The deterministic
+  // pre-parse runs FIRST: a date-leading [date][format?][title] line is a beat to place, not
+  // a request to interpret, so it never reaches Bedrock.
+  const spec = parseBeatSpec(sourceText, planMonth);
+  if (spec) {
+    logger?.info({ planMonth, kind: 'beat_spec', preParsed: true }, 'intake-classify: typed row pre-parsed — no model call');
+    return { scope: 'month_scoped', intent: spec, sourceText };
+  }
 
   const user = [
     `PLAN MONTH: ${planMonth} (resolve any relative date against this month)`,
