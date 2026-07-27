@@ -29,7 +29,11 @@ interface FixtureCase {
   label?: string;
   text: string;
   planMonth?: string;
-  expect: { scope: 'month_scoped' | 'evergreen'; kind?: string; has?: string[] };
+  /** Classify this case WITH the brief framing (as a decomposed segment would be). */
+  decomposeContext?: boolean;
+  /** kindOneOf pins "any of these kinds is correct" — e.g. event OR beat_spec for a fully
+   *  specified single post — without a single-value kind forcing a false fail. */
+  expect: { scope: 'month_scoped' | 'evergreen'; kind?: string; kindOneOf?: string[]; has?: string[] };
 }
 interface BriefCase { label?: string; text: string; planMonth?: string }
 interface Fixture { planMonth?: string; cases: FixtureCase[]; briefs?: BriefCase[] }
@@ -90,21 +94,26 @@ for (const c of fixture.cases) {
   const wasPreParsed = parseBeatSpec(c.text, planMonth) !== null;
   if (wasPreParsed) preParsed++; else spent++;
 
-  const routing = await classifyIntake({ text: c.text, planMonth, model, logger });
+  const routing = await classifyIntake({ text: c.text, planMonth, model, logger,
+    ...(c.decomposeContext ? { context: 'brief_segment' as const } : {}) });
 
   const actualScope = routing.scope;
   const actualKind = routing.scope === 'month_scoped' ? routing.intent.kind : null;
 
   const scopeOk = actualScope === c.expect.scope;
-  const kindOk = c.expect.kind === undefined || actualKind === c.expect.kind;
+  const kindOk = c.expect.kindOneOf
+    ? actualKind !== null && c.expect.kindOneOf.includes(actualKind)
+    : c.expect.kind === undefined || actualKind === c.expect.kind;
   const missing = missingExpectedFields(routing, c.expect.has);
   const ok = scopeOk && kindOk && missing.length === 0;
   ok ? pass++ : fail++;
 
-  const expected = c.expect.scope === 'evergreen' ? 'evergreen' : `month_scoped/${c.expect.kind ?? '(any)'}`;
+  const expectedKind = c.expect.kindOneOf ? `(${c.expect.kindOneOf.join('|')})` : (c.expect.kind ?? '(any)');
+  const expected = c.expect.scope === 'evergreen' ? 'evergreen' : `month_scoped/${expectedKind}`;
   const actual = actualScope === 'evergreen' ? 'evergreen' : `month_scoped/${actualKind}`;
+  const tag = wasPreParsed ? '[pre-parse] ' : c.decomposeContext ? '[brief]     ' : '[model]     ';
   lines.push(
-    `${ok ? '  PASS' : '✗ FAIL'}  ${wasPreParsed ? '[pre-parse]' : '[model]   '}  ${(c.label ?? c.text).slice(0, 56).padEnd(56)}` +
+    `${ok ? '  PASS' : '✗ FAIL'}  ${tag} ${(c.label ?? c.text).slice(0, 56).padEnd(56)}` +
     `\n          expect: ${expected}` +
     `\n          actual: ${actual}   ${fieldsOf(routing)}` +
     (missing.length > 0 ? `\n          MISSING expected field(s): ${missing.join(', ')}` : ''),
@@ -130,7 +139,8 @@ for (const b of fixture.briefs ?? []) {
   }
   console.log(`  ${decomposition.segments.length} segments, ${decomposition.discarded.length} discarded:`);
   for (const [n, seg] of decomposition.segments.entries()) {
-    const routing = await classifyIntake({ text: seg, planMonth, model, logger });
+    // Classify WITH the brief framing — exactly as the production decompose path does.
+    const routing = await classifyIntake({ text: seg, planMonth, model, logger, context: 'brief_segment' });
     decomposeSpent++;
     const kind = routing.scope === 'evergreen' ? `evergreen(${routing.reason})` : `month_scoped/${routing.intent.kind}`;
     console.log(`   ${String(n + 1).padStart(2)}. [${kind}]  ${seg.slice(0, 80)}`);

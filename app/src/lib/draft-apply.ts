@@ -525,8 +525,10 @@ export async function applyBriefToDraft(params: {
   const { segments, discarded } = decomposition;
 
   // Classify every segment through the UNMODIFIED contract — concurrent, each on the ledger.
+  // context:'brief_segment' gives the model the framing the split removed (a segment read in
+  // isolation loses that it is a post request from a brief); the direct path never sets it.
   const routings = await Promise.all(
-    segments.map((seg) => classifyIntake({ text: seg, planMonth, model, audit, clientId })),
+    segments.map((seg) => classifyIntake({ text: seg, planMonth, model, audit, clientId, context: 'brief_segment' })),
   );
 
   // Apply in dependency order; each segment's own receipt suppressed, rolled up below.

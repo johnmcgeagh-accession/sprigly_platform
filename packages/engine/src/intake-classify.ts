@@ -143,6 +143,21 @@ export type EvergreenReason =
   | 'couldnt_apply'          // two extraction attempts failed — filed, and the client is TOLD
   | 'model_error';           // the call itself failed
 
+/**
+ * Framing for a segment that came from the DECOMPOSER — one item lifted out of a pasted brief.
+ *
+ * Added to the user message on the brief path ONLY; the direct single-sentence path never sees
+ * it, so its prompt stays byte-identical. It exists because a span read in isolation loses the
+ * frame the whole brief gave it: "On the 14th the stock leaves the factory" reads as a fact on
+ * its own, but in a brief it is a post request; and "launch" is matching vocabulary, not always
+ * a product launching. The framing restores the frame the split removed.
+ */
+export const BRIEF_SEGMENT_FRAMING = `CONTEXT: this is ONE item taken from a client's content brief — a list of things they want posted this month. Treat each item as a REQUEST FOR CONTENT unless it clearly is not one. A plain statement of fact in a brief ("On the 14th the stock leaves the factory") is a request to post about that, on that date. A dated item is about THIS MONTH (month-scoped) unless the date is plainly in the past.
+
+LAUNCH vs EVENT — read this before choosing kind=launch: launch means a PRODUCT or COLLECTION is launching and wants a build-up arc (tease → launch → follow-up). A single requested post that merely MENTIONS a launch or its build-up is NOT a launch — it is an event (or beat_spec if it fully specifies one post). Examples:
+- "The Navy Edit launches on the 28th" → kind=launch (the product is launching).
+- "In the Navy Edit build-up, a colour-reveal post on the 25th, guess the main colour" → kind=event (one post inside the build-up, not the launch itself).`;
+
 export const CLASSIFY_SYSTEM = `You route a single message from a small brand's owner about their social media content plan.
 
 Decide ONE thing: is this about THIS MONTH's plan specifically, or is it a standing idea for later?
@@ -327,6 +342,12 @@ export interface ClassifyParams {
   logger?:   Logger;
   audit?:    AuditLogger;
   clientId?: string;
+  /**
+   * Set to 'brief_segment' when this text is one segment from the DECOMPOSER, so the model is
+   * told the framing the split removed. Omitted on the direct single-sentence path, which keeps
+   * its prompt byte-identical. See BRIEF_SEGMENT_FRAMING.
+   */
+  context?:  'brief_segment';
 }
 
 /**
@@ -334,7 +355,7 @@ export interface ClassifyParams {
  * an input the client typed must always land somewhere.
  */
 export async function classifyIntake(params: ClassifyParams): Promise<IntakeRouting> {
-  const { text, planMonth, model, modelName = 'sonnet', logger, audit, clientId } = params;
+  const { text, planMonth, model, modelName = 'sonnet', logger, audit, clientId, context } = params;
   const sourceText = text.trim();
   if (!sourceText) return { scope: 'evergreen', sourceText, reason: 'validation_failed' };
 
@@ -347,7 +368,10 @@ export async function classifyIntake(params: ClassifyParams): Promise<IntakeRout
     return { scope: 'month_scoped', intent: spec, sourceText };
   }
 
+  // The framing is added ONLY for a decomposed brief segment. With no context the array is
+  // exactly the direct-path message it has always been — byte-identical.
   const user = [
+    ...(context === 'brief_segment' ? [BRIEF_SEGMENT_FRAMING, ''] : []),
     `PLAN MONTH: ${planMonth} (resolve any relative date against this month)`,
     '',
     'OWNER’S MESSAGE:',

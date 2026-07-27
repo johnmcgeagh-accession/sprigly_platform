@@ -61,6 +61,30 @@
       "label": "evergreen — the ambiguous founder story",
       "text": "maybe we could share Sally's story sometime, could be nice",
       "expect": { "scope": "evergreen" }
+    },
+    {
+      "label": "decompose — factory stock (a stated fact that is a post request)",
+      "text": "On the 14th the stock leaves the factory for our next drop.",
+      "decomposeContext": true,
+      "expect": { "scope": "month_scoped", "kind": "event", "has": ["dateRange"] }
+    },
+    {
+      "label": "decompose — Portugal shutdown (a stated fact that is a post request)",
+      "text": "On the 15th our factory in Portugal starts its annual summer shutdown.",
+      "decomposeContext": true,
+      "expect": { "scope": "month_scoped", "kind": "event", "has": ["dateRange"] }
+    },
+    {
+      "label": "decompose — a build-up post that MENTIONS a launch (not a launch itself)",
+      "text": "In the Navy Edit build-up, a colour-reveal post asking who can guess the main colour, on the 25th.",
+      "decomposeContext": true,
+      "expect": { "scope": "month_scoped", "kindOneOf": ["event", "beat_spec"], "has": ["dateRange"] }
+    },
+    {
+      "label": "decompose — the throwback (no explicit date → evergreen, the correct default)",
+      "text": "A throwback post using the video of Sally fitting the pre-production long sleeve, given the heatwave.",
+      "decomposeContext": true,
+      "expect": { "scope": "evergreen" }
     }
   ],
   "briefs": [
