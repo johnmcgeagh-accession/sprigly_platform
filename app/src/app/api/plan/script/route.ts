@@ -1,6 +1,7 @@
 /**
- * POST /api/plan/script — enqueue reel-script generation for one post. Requires the post
- * to have a hook + caption (422 otherwise) and be a reel (422). Body: { targetPostId,
+ * POST /api/plan/script — enqueue combined hook+script generation for one reel. The job
+ * writes the hook AND the script as one coherent pair, so it needs only a caption (the
+ * subject), not a pre-existing hook. Reel-only (422 otherwise). Body: { targetPostId,
  * lengthSeconds }. Returns { mode: 'pending', jobId }; the client polls /api/jobs/:id.
  */
 import { NextResponse } from 'next/server';
@@ -35,7 +36,8 @@ export async function POST(req: Request) {
   const post = posts.find((p) => p.id === targetPostId);
   if (!post) return NextResponse.json({ error: 'not_found' }, { status: 404 });
   if (post.format !== 'reel') return NextResponse.json({ error: 'format_unsupported' }, { status: 422 });
-  if (!post.hook || !post.caption) return NextResponse.json({ error: 'hook_required' }, { status: 422 });
+  // The combined job writes the hook itself; only the caption (the subject) is required.
+  if (!post.caption) return NextResponse.json({ error: 'caption_required' }, { status: 422 });
 
   const r = await enqueueScriptJob({ type: 'script', clientId: session.clientId, cycleId, targetPostId, lengthSeconds });
   if ('error' in r) return NextResponse.json({ error: r.error }, { status: 503 });

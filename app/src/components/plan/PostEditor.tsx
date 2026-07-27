@@ -210,45 +210,43 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
         className="min-h-[200px] w-full resize-y rounded-2xl border border-line p-4 text-[15.5px] leading-relaxed text-slate-700 outline-none focus:border-coral"
       />
 
-      {/* script (reels) — needs a hook + caption first. Generate lives on the header row
+      {/* script (reels) — one action writes a coherent hook + script together, so it needs
+          only a caption (no pre-existing hook). Generate lives on the header row
           (right-aligned, matching Hook); the length picker stays below. Autosaves. */}
       {showScript && (
         <div className="mt-[26px]" data-testid="script-section">
           <div className="mb-[9px] flex items-center justify-between gap-3">
             <span className="text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-700">Script</span>
-            {!!editable && post.hook && (
+            {!!editable && (
               <button data-testid="generate-script" onClick={() => data.generateScript(post.id, len)} disabled={scriptGenerating || !caption.trim()}
                 className={SECONDARY_BTN}>
-                <SparkIcon className="h-3.5 w-3.5" />{scriptGenerating ? 'Writing…' : post.script ? 'Regenerate script' : 'Generate script'}
+                <SparkIcon className="h-3.5 w-3.5" />{scriptGenerating ? 'Writing…' : post.script ? 'Regenerate hook & script' : 'Generate hook & script'}
               </button>
             )}
           </div>
-          {!post.hook ? (
-            <div className="rounded-xl border border-dashed border-line p-3.5 text-[13.5px] text-muted" data-testid="script-needs-hook">
-              Add or generate a <b className="font-bold text-slate-700">hook</b> first. The script opens on it.
+          <div className="mb-2.5 flex items-center gap-2" data-testid="script-length">
+            <span className="mr-1 text-[11.5px] font-bold text-muted">Length</span>
+            {[15, 30, 60, 90].map((s) => (
+              <button key={s} data-testid={`length-${s}`} onClick={() => setLen(s)} aria-pressed={len === s}
+                className={`rounded-full px-3 py-1.5 text-[12.5px] font-bold ${len === s ? 'bg-slate-700 text-white' : 'border border-line text-slate-600 hover:bg-line-soft'}`}>{s}s</button>
+            ))}
+          </div>
+          {!caption.trim() && !post.script && (
+            <div className="rounded-xl border border-dashed border-line p-3.5 text-[13.5px] text-muted" data-testid="script-needs-caption">
+              Write the <b className="font-bold text-slate-700">caption</b> first — the hook and script are built around it.
             </div>
-          ) : (
-            <>
-              <div className="mb-2.5 flex items-center gap-2" data-testid="script-length">
-                <span className="mr-1 text-[11.5px] font-bold text-muted">Length</span>
-                {[15, 30, 60, 90].map((s) => (
-                  <button key={s} data-testid={`length-${s}`} onClick={() => setLen(s)} aria-pressed={len === s}
-                    className={`rounded-full px-3 py-1.5 text-[12.5px] font-bold ${len === s ? 'bg-slate-700 text-white' : 'border border-line text-slate-600 hover:bg-line-soft'}`}>{s}s</button>
-                ))}
-              </div>
-              {scriptErr && (
-                <div data-testid="script-error" role="alert" className="mt-2 text-[12.5px] font-semibold text-danger">
-                  {scriptErr} <button onClick={() => data.generateScript(post.id, len)} className="font-extrabold underline">Retry</button>
-                </div>
-              )}
-              {post.script && (
-                <textarea
-                  data-testid="editor-script" aria-label="Script" value={script} onChange={(e) => setScript(e.target.value)}
-                  onFocus={() => { focus.current.script = true; }} onBlur={() => { focus.current.script = false; scriptAuto.flush(); }} readOnly={!editable}
-                  className="mt-2.5 min-h-[170px] w-full resize-y rounded-2xl border border-line p-4 text-[14px] leading-relaxed text-slate-700 outline-none focus:border-coral disabled:opacity-60"
-                />
-              )}
-            </>
+          )}
+          {scriptErr && (
+            <div data-testid="script-error" role="alert" className="mt-2 text-[12.5px] font-semibold text-danger">
+              {scriptErr} <button onClick={() => data.generateScript(post.id, len)} className="font-extrabold underline">Retry</button>
+            </div>
+          )}
+          {post.script && (
+            <textarea
+              data-testid="editor-script" aria-label="Script" value={script} onChange={(e) => setScript(e.target.value)}
+              onFocus={() => { focus.current.script = true; }} onBlur={() => { focus.current.script = false; scriptAuto.flush(); }} readOnly={!editable}
+              className="mt-2.5 min-h-[170px] w-full resize-y rounded-2xl border border-line p-4 text-[14px] leading-relaxed text-slate-700 outline-none focus:border-coral disabled:opacity-60"
+            />
           )}
         </div>
       )}

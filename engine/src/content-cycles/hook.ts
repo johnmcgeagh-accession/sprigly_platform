@@ -13,6 +13,7 @@ import { contentCycles, contentCyclePosts, hookPatterns } from '@sprigly/db';
 import { recordPlanActivity } from './ledger.js';
 import { assembleShapeContext } from './planning.js';
 import type { PlanningDeps } from './planning.js';
+import { hasDeliberativeMarkers } from './deliverable.js';
 
 const HOOK_WORKFLOW = 'plan_hooks';
 const HOOK_STEP     = 'generate';
@@ -59,6 +60,23 @@ function selectPatterns<T>(all: T[], n: number, rnd: () => number): T[] {
   return pool.slice(0, n);
 }
 
+/**
+ * The hook-pattern block the model works from, for a given format. Extracted so the combined
+ * reel generation (script.ts) grounds its hook in the SAME patterns the standalone hook job
+ * does — a reel's hook must not be written from a different playbook depending on which path
+ * produced it. Throws when the format takes no hooks or no active patterns match.
+ */
+export async function hookPatternBlock(db: PlanningDeps['db'], format: string): Promise<string> {
+  const tag = FORMAT_TAG[format];
+  if (!tag) throw new Error(`hook: format ${format} does not support hooks`);
+  const active = await db.select().from(hookPatterns).where(eq(hookPatterns.active, true));
+  const matching = active.filter((p) => (p.formats ?? []).includes(tag));
+  if (matching.length === 0) throw new Error(`hook: no active patterns for format ${tag}`);
+  return selectPatterns(matching, PATTERN_SAMPLE, Math.random)
+    .map((p, i) => `${i + 1}. [${p.category}] STRUCTURE: ${p.pattern}\n   (illustration only — imitate the STRUCTURE, never this content: "${p.example}")`)
+    .join('\n');
+}
+
 /** Parse the model output into hook strings — JSON `{"hooks":[…]}` first, else lines. */
 function parseHooks(content: string): string[] {
   try {
@@ -88,21 +106,13 @@ export async function runHookForPost(job: HookJob, deps: PlanningDeps): Promise<
     eq(contentCyclePosts.clientId, job.clientId),
   )).limit(1);
   if (!post) throw new Error(`hook: post ${job.targetPostId} not found`);
-  const tag = FORMAT_TAG[post.format];
-  if (!tag) throw new Error(`hook: format ${post.format} does not support hooks`);
 
   // Client voice context (reused as-is — client/cycle-scoped).
   const ctx = await assembleShapeContext(cycle, deps);
 
-  // Active patterns matching this format; random sample (analytics seam above).
-  const active = await db.select().from(hookPatterns).where(eq(hookPatterns.active, true));
-  const matching = active.filter((p) => (p.formats ?? []).includes(tag));
-  if (matching.length === 0) throw new Error(`hook: no active patterns for format ${tag}`);
-  const chosen = selectPatterns(matching, PATTERN_SAMPLE, Math.random);
-
-  const patternBlock = chosen
-    .map((p, i) => `${i + 1}. [${p.category}] STRUCTURE: ${p.pattern}\n   (illustration only — imitate the STRUCTURE, never this content: "${p.example}")`)
-    .join('\n');
+  // Active patterns matching this format; random sample (analytics seam above). Shared with
+  // the combined reel generation so a hook is written from the same playbook either way.
+  const patternBlock = await hookPatternBlock(db, post.format);
 
   const system = await prompts.resolve(job.clientId, HOOK_WORKFLOW, HOOK_STEP);
   const user = [
@@ -135,7 +145,9 @@ export async function runHookForPost(job: HookJob, deps: PlanningDeps): Promise<
   } catch (err) {
     deps.logger.warn({ cycleId: job.cycleId, err: String(err) }, 'hook: audit log failed — non-fatal');
   }
-  const candidates = parseHooks(res.content).slice(0, CANDIDATE_COUNT);
+  // A hook that carries the model's working notes ("let me…", word-count asides) is not a hook.
+  // Drop contaminated candidates before the top one can be auto-selected and stored.
+  const candidates = parseHooks(res.content).filter((h) => !hasDeliberativeMarkers(h)).slice(0, CANDIDATE_COUNT);
   if (candidates.length === 0) throw new Error('hook: model returned no usable hooks');
 
   // FAN-OUT: keep the top candidate. Ranked first by the same prompt that produced them,

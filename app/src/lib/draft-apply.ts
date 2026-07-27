@@ -157,6 +157,37 @@ async function persistReceipt(cycleId: string, application: DraftApplication): P
     .where(eq(contentCycles.id, cycleId));
 }
 
+/**
+ * Record a client-stated cadence FLOOR on the cycle's intake record.
+ *
+ * Stored on content_cycles.intake_json, not a new column: intake_json is ALREADY the cycle's
+ * intake record (it holds the receipts), a cadence floor IS an intake instruction scoped to
+ * this cycle, and the worker assembler reads it back from here on every re-assembly
+ * (draft-plan.ts). A dedicated column would need a migration and buy queryability nothing yet
+ * uses — this is the smallest honest home. `...intake` preserves the receipts alongside it.
+ */
+async function persistCadenceFloor(cycleId: string, intent: MonthScopedIntent, at: string): Promise<void> {
+  const [cycle] = await db
+    .select({ intakeJson: contentCycles.intakeJson })
+    .from(contentCycles)
+    .where(eq(contentCycles.id, cycleId))
+    .limit(1);
+  const intake = (cycle?.intakeJson ?? {}) as Record<string, unknown>;
+  const floor = {
+    ...(typeof intent.postsPerWeek === 'number' ? { postsPerWeek: intent.postsPerWeek } : {}),
+    ...(typeof intent.postsPerMonth === 'number' ? { postsPerMonth: intent.postsPerMonth } : {}),
+    at, sourceText: intent.sourceText,
+  };
+  await db.update(contentCycles)
+    .set({ intakeJson: { ...intake, cadenceFloor: floor } as unknown, updatedAt: new Date() })
+    .where(eq(contentCycles.id, cycleId));
+}
+
+const describeStoredCadence = (i: MonthScopedIntent): string =>
+  typeof i.postsPerWeek === 'number' ? `${i.postsPerWeek} posts a week`
+  : typeof i.postsPerMonth === 'number' ? `${i.postsPerMonth} posts this month`
+  : 'your cadence';
+
 /** Read the receipts back, newest first. */
 export async function loadReceipts(cycleId: string): Promise<DraftApplication[]> {
   const [cycle] = await db
@@ -273,6 +304,43 @@ export async function applyIntakeToDraft(params: {
   // refuse it: the month is being acted on and is no longer the client's to reshape.
   if (!(await cycleIsPreCutoff(cycleId))) {
     return { ok: false, error: 'cutoff_passed', message: 'This month’s draft is closed for changes.' };
+  }
+
+  // ── Cadence: record the floor, then top up a live draft ──────────────────────
+  // A cadence is not a reshape of existing beats — it may ADD to reach a floor, and a
+  // decrease legitimately changes nothing while still being recorded. So it does not share
+  // the generic "no ops → backlog" path below: the floor is stored either way, and the client
+  // is told, never filed as an idea.
+  if (routing.intent.kind === 'cadence') {
+    await persistCadenceFloor(cycleId, routing.intent, now.toISOString());
+    const beforeC = await loadTransformBeats(clientId, cycleId);
+
+    // Top up only a LIVE draft. With no draft yet, the floor is recorded for the worker
+    // assembler and there is nothing to add to — assembling a month from zero here would
+    // bypass the Build A history read the worker does properly.
+    const result = beforeC.length > 0
+      ? applyIntent(routing.intent, beforeC, planMonth, today)
+      : { ops: [] as BeatOp[], note: `Recorded ${describeStoredCadence(routing.intent)} — I’ll hold your month to it when it’s drafted.` };
+
+    if (result.ops.length > 0) {
+      const nextPosition = Math.max(0, ...beforeC.map((b) => b.position)) + 1;
+      await writeOps(clientId, cycleId, cycle.channel, result.ops, nextPosition);
+      const afterC = await loadTransformBeats(clientId, cycleId);
+      const diffC = diffBeats(beforeC.map(toDiffBeat), afterC.map(toDiffBeat));
+      const application: DraftApplication = {
+        ...base, scope: 'month_scoped', lines: renderDiff(diffC), changedIds: diffC.changedIds,
+        ...(result.note ? { note: result.note } : {}),
+      };
+      await persistReceipt(cycleId, application);
+      return { ok: true, application, beats: await loadDraftBeats(clientId, cycleId) };
+    }
+
+    const application: DraftApplication = {
+      ...base, scope: 'month_scoped', lines: [], changedIds: [],
+      ...(result.note ? { note: result.note } : {}),
+    };
+    await persistReceipt(cycleId, application);
+    return { ok: true, application, beats: await loadDraftBeats(clientId, cycleId) };
   }
 
   const before = await loadTransformBeats(clientId, cycleId);

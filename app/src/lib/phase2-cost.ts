@@ -33,8 +33,8 @@ import { db, auditLog, contentCycles, contentCyclePosts } from '@sprigly/db';
 export const PHASE2_ACTIONS = [
   'content-cycle:planning-repair',   // caption generation + gate/critic regenerations
   'content-cycle:planning-critic',   // critic judgements
-  'content-cycle:hook',              // hook candidates (instrumented in Build D)
-  'content-cycle:script',            // reel scripts (instrumented in Build D)
+  'content-cycle:hook',              // carousel hook candidates (instrumented in Build D)
+  'content-cycle:script',            // reel hook+script combined call (instrumented in Build D)
 ] as const;
 
 export interface Phase2Cost {
