@@ -103,8 +103,10 @@ export async function runScriptForPost(job: ScriptJob, deps: PlanningDeps): Prom
     const r = await model.complete({ model: SCRIPT_MODEL, system, messages: [{ role: 'user', content }], maxTokens: 1400, temperature: 0.6 });
     try {
       await deps.audit.logModelCall({
+        // Kept as 'content-cycle:script' — this is still the reel's script job (it now also
+        // produces the hook), and phase2-cost.ts counts spend by this exact action string.
         clientId: job.clientId, modelId: r.modelId, inputTokens: r.inputTokens, outputTokens: r.outputTokens,
-        action: 'content-cycle:reel', metadata: { cycleId: job.cycleId, postId: job.targetPostId, lengthSeconds: job.lengthSeconds },
+        action: 'content-cycle:script', metadata: { cycleId: job.cycleId, postId: job.targetPostId, lengthSeconds: job.lengthSeconds, combined: true },
       });
     } catch (err) {
       logger.warn({ ...logCtx, err: String(err) }, 'script: audit log failed — non-fatal');

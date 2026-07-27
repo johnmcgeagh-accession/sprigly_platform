@@ -12,6 +12,7 @@
 | 4 | `73bf1f7` | feat: a reel's hook and script are one coherent pair |
 | 5 | `c91ed57` | fix: a draft is assembled pre-planning or not at all |
 | 6 | `a527383` | feat: classify-check — demonstrate the classifier, don't argue it |
+| 4a | (tip) | fix: the combined reel call stays on the cost guard's ledger (follow-up to 4) |
 
 **Suites:** engine **324** (was 296: +16 beat_spec, +12 cadence), all green.
 Worker offline unit suites green (deliverable **8**, draft-plan-guard **3**, consumer **25**);
@@ -180,6 +181,9 @@ that job runs).
 
 Halved for the common case. Trade-off: a reel's hook and script now succeed or fail together —
 a withheld pair leaves the reel with neither, regenerable from the surface.
+
+The combined call keeps the audit action `content-cycle:script` (commit 4a) — `phase2-cost.ts`
+counts phase-2 spend by that exact string, so the one call is still on the cost guard's ledger.
 
 ---
 
