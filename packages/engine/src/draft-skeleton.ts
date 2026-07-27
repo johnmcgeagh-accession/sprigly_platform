@@ -134,12 +134,38 @@ export function slotCountFor(month: string, postsPerWeek: number): number {
   return Math.max(1, Math.min(daysInMonth(month), Math.round(postsPerWeek * weeks)));
 }
 
+/**
+ * Turn a client-stated cadence into a month slot-count FLOOR.
+ *
+ * A weekly figure is scaled to the month's real week-count; a monthly figure is taken as-is.
+ * When both are given the larger wins — a floor is the smallest number the client will accept,
+ * so the more demanding of two stated floors is the binding one. Clamped to what the month can
+ * physically hold, so "50 a week" cannot ask for more posts than there are days.
+ */
+export function cadenceFloorSlots(
+  month: string, cadence: { postsPerWeek?: number | null | undefined; postsPerMonth?: number | null | undefined },
+): number {
+  const cap = daysInMonth(month);
+  const fromWeek  = typeof cadence.postsPerWeek === 'number' && cadence.postsPerWeek > 0
+    ? slotCountFor(month, cadence.postsPerWeek) : 0;
+  const fromMonth = typeof cadence.postsPerMonth === 'number' && cadence.postsPerMonth > 0
+    ? Math.min(cap, cadence.postsPerMonth) : 0;
+  return Math.min(cap, Math.max(fromWeek, fromMonth));
+}
+
 export interface BuildSkeletonParams {
   month:       string;              // 'YYYY-MM' being planned
   history:     HistoryObservation;
   pillars:     PillarWeights;
   /** Cadence from client_planning_config, used only when history cannot supply one. */
   configPostsPerWeek?: number | null;
+  /**
+   * A client-stated cadence FLOOR (from a `kind:'cadence'` intake), as a month slot count.
+   * The month is assembled to AT LEAST this many slots: a client telling us "7 a week"
+   * outranks what their history happened to show. Never lowers the count — an instruction is
+   * a floor, not a target. Clamped to the month's day-count downstream, same as any cadence.
+   */
+  floorSlots?: number | null;
 }
 
 /**
@@ -151,7 +177,7 @@ export interface BuildSkeletonParams {
  * as an observed one.
  */
 export function buildSkeleton(params: BuildSkeletonParams): Skeleton {
-  const { month, history, pillars, configPostsPerWeek } = params;
+  const { month, history, pillars, configPostsPerWeek, floorSlots } = params;
 
   const thin = history.totalPosts < DRAFT_MIN_POSTS;
   const noPillars = pillars.weights.length === 0;
@@ -173,7 +199,11 @@ export function buildSkeleton(params: BuildSkeletonParams): Skeleton {
     months: history.cadence.months,
   };
 
-  const slotCount = slotCountFor(month, postsPerWeek);
+  // The observed/config cadence sets the count, then a client-stated floor raises it — never
+  // lowers it — and the month's day-count caps it. A floor is the one signal that outranks
+  // history: the client told us how much they want, and that beats what they used to do.
+  const floor = typeof floorSlots === 'number' && floorSlots > 0 ? Math.min(daysInMonth(month), floorSlots) : 0;
+  const slotCount = Math.max(slotCountFor(month, postsPerWeek), floor);
 
   const dates   = spreadDates(month, slotCount, reason ? [] : history.cadence.weekdays);
   const formats = spreadFormats(reason ? [] : history.formats, slotCount);

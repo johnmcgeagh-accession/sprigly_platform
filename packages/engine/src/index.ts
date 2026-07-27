@@ -86,7 +86,7 @@ export type { ApprovalError, ApprovalResult, ApproveDraftParams, ApprovalDb } fr
 export { classifyIntake, routeFromParsed, parseClassification, parseBeatSpec, monthScopedIntentSchema, CLASSIFY_SYSTEM } from './intake-classify.js';
 export type { IntakeRouting, MonthScopedIntent, EvergreenReason, ClassifyParams } from './intake-classify.js';
 export {
-  applyIntent, applyLaunchArc, applyEvent, applySeries, applyBeatSpec, expandSeries, applyEmphasis, applyBeatEdit,
+  applyIntent, applyLaunchArc, applyEvent, applySeries, applyBeatSpec, applyCadence, expandSeries, applyEmphasis, applyBeatEdit,
   replacementCandidates, byWeakestEvidence, isReplaceable, replacementTier, isClientTouched, isClientOriginated,
   isClientAdded, isFromEarlierInput, POOL_EMPTY_NOTE, deriveTitle, resolveBeatRef,
 } from './draft-transforms.js';
@@ -97,7 +97,7 @@ export type { DiffBeat, BeatDelta, DraftDiff } from './draft-diff.js';
 // ── Draft-plan assembly (Build A) ────────────────────────────────────────────
 export { observeHistory, observeCadence, observeFormats } from './draft-history.js';
 export type { HistoryPost, HistoryObservation, CadenceObservation, FormatObservation } from './draft-history.js';
-export { buildSkeleton, spreadDates, spreadFormats, slotCountFor, DRAFT_MIN_POSTS } from './draft-skeleton.js';
+export { buildSkeleton, spreadDates, spreadFormats, slotCountFor, cadenceFloorSlots, DRAFT_MIN_POSTS } from './draft-skeleton.js';
 export type { Skeleton, SkeletonSlot, BuildSkeletonParams } from './draft-skeleton.js';
 export { allocateSlots, rankCandidates } from './draft-allocator.js';
 export type { ExperimentCandidate, AllocatedSlot } from './draft-allocator.js';

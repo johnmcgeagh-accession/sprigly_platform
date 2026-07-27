@@ -79,7 +79,7 @@ const recurrenceSchema = z.object({
 });
 
 export const monthScopedIntentSchema = z.object({
-  kind:       z.enum(['launch', 'event', 'series', 'beat_spec', 'emphasis', 'beat_edit', 'correction']),
+  kind:       z.enum(['launch', 'event', 'series', 'beat_spec', 'cadence', 'emphasis', 'beat_edit', 'correction']),
   subject:    z.string().min(1).max(200),
   sourceText: z.string().min(1),
   dateRange:  dateRangeSchema.nullable().optional(),
@@ -89,6 +89,13 @@ export const monthScopedIntentSchema = z.object({
    * month's commonest format then, rather than guessing.
    */
   format:     z.enum(['reel', 'carousel', 'single']).nullable().optional(),
+  /**
+   * cadence only — how many posts the client wants. At least one of the two is required (the
+   * route rejects a cadence with neither). Both are FLOORS: the assembler tops the month up to
+   * meet them and never removes to fall below them.
+   */
+  postsPerWeek:  z.number().int().min(1).max(14).nullable().optional(),
+  postsPerMonth: z.number().int().min(1).max(62).nullable().optional(),
   /**
    * series only — the dates the client listed, in their order. Takes precedence over
    * `recurrence` when both are present: an enumerated date is something the client stated,
@@ -155,6 +162,7 @@ RULES:
 - If you are not sure, choose EVERGREEN. Being filed as an idea is easy to undo; changing a month the owner was happy with is not.
 - SERIES is any run of posts on a repeating pattern. "Every Friday", "one post every 3 weeks", "weekly", "monthly", "a mini-series" are ALWAYS kind=series and NEVER kind=launch. A series is a rhythm; a launch is one moment with a build-up. Do not turn a series into a launch because it has a start date.
 - For a series, prefer ENUMERATED dates. If the owner lists the dates ("7th, 14th, 21st, 28th"), return instances:[{date,subject}] with one entry per date, and put THAT DATE'S OWN subject on it (the specific product, theme or story they named for it). Only use recurrence:{startDate,intervalDays} when they give a cadence with no list ("every 3 weeks from the 1st"). If they give both a list and a cadence, the list wins — return instances and leave recurrence null.
+- CADENCE is a target NUMBER of posts, not a specific post: "we want 7 posts a week", "post daily", "at least 20 this month", "no more than 4 a week". Set kind=cadence, postsPerWeek for a weekly figure ("daily" = 7) and/or postsPerMonth for a monthly one. It carries no date and no title. "post more" or "we should post more often" with NO number is NOT cadence — that is an emphasis or an idea. The figure is a floor the owner is setting on the month; extract it, do not judge it.
 - BEAT_SPEC is a single dated post the owner has SPELLED OUT — one date, an optional format, and a title, with no build-up and no repeat. "add a reel on the 22nd called What I am most proud of part 2", "a carousel on the 14th: Weekend Style Guide". Set kind=beat_spec, dateRange for the single date (start=end), format when they named one ("reel"/"carousel"/"single"), and subject = the title they gave, VERBATIM. It is NOT a launch (no tease/follow-up) and NOT a series (it happens once). Most typed rows are caught before you see them; use beat_spec for the ones phrased as a short request.
 - CORRECTION is for fixing something already on the plan: "X is the 10th not the 1st", "actually the workshop is the 15th", "move the launch to the 3rd", "make the launch post a reel". Set kind=correction, correctionOf = the thing being corrected in the owner's words, and dateRange for a new date (or edit/editValue for a format change). A correction is NOT a new launch — do not use kind=launch to restate a date the owner is fixing.
 - Do NOT invent a date. Only set dateRange when a real date or clear window is stated. Resolve relative dates ("next Friday", "the 28th") against the PLAN MONTH you are given.
@@ -162,10 +170,13 @@ RULES:
 - sourceText is the owner's message, VERBATIM.
 
 Return ONE JSON object, no markdown, no code fences:
-{"scope":"month_scoped","intent":{"kind":"launch|event|series|beat_spec|emphasis|beat_edit|correction","subject":"","sourceText":"","dateRange":{"start":"YYYY-MM-DD","end":"YYYY-MM-DD"}|null,"format":null,"instances":null,"recurrence":null,"beatRef":null,"edit":null,"editValue":null,"emphasis":null,"correctionOf":null}}
+{"scope":"month_scoped","intent":{"kind":"launch|event|series|beat_spec|cadence|emphasis|beat_edit|correction","subject":"","sourceText":"","dateRange":{"start":"YYYY-MM-DD","end":"YYYY-MM-DD"}|null,"format":null,"postsPerWeek":null,"postsPerMonth":null,"instances":null,"recurrence":null,"beatRef":null,"edit":null,"editValue":null,"emphasis":null,"correctionOf":null}}
 
 For a single spelled-out post:
 {"scope":"month_scoped","intent":{"kind":"beat_spec","subject":"What I am most proud of part 2","sourceText":"","dateRange":{"start":"YYYY-MM-DD","end":"YYYY-MM-DD"},"format":"reel","instances":null,"recurrence":null,...}}
+
+For a posting-cadence target:
+{"scope":"month_scoped","intent":{"kind":"cadence","subject":"7 posts a week","sourceText":"","postsPerWeek":7,"postsPerMonth":null,...}}
 
 For a series with listed dates:
 {"scope":"month_scoped","intent":{"kind":"series","subject":"Weekend Style Guide","sourceText":"","instances":[{"date":"YYYY-MM-DD","subject":"what that date is about"}],"recurrence":null,...}}
@@ -229,6 +240,13 @@ export function routeFromParsed(parsed: unknown, sourceText: string): IntakeRout
   // is already required by the schema; without a date there is nowhere to put the post, so
   // it is filed rather than dropped on the month at a guessed date.
   if (intent.data.kind === 'beat_spec' && !intent.data.dateRange) {
+    return { scope: 'evergreen', sourceText, reason: 'ambiguous' };
+  }
+  // A cadence needs a NUMBER — "post more" without a figure is an emphasis, not a floor.
+  // Neither field set means the model read "cadence" out of a vague ask; file it.
+  if (intent.data.kind === 'cadence'
+      && !(typeof intent.data.postsPerWeek === 'number')
+      && !(typeof intent.data.postsPerMonth === 'number')) {
     return { scope: 'evergreen', sourceText, reason: 'ambiguous' };
   }
 

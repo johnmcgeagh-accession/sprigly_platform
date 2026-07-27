@@ -21,7 +21,8 @@ import {
 } from '@sprigly/db';
 import {
   assembleDraft, applyPhrasing, phraseDraftTitles, loadDurableInputs, readDraftFlowFlag,
-  approveDraftCore, STALE_TRAWL_DAYS, type DraftPlan, type ExperimentCandidate, type HistoryPost,
+  approveDraftCore, cadenceFloorSlots, STALE_TRAWL_DAYS,
+  type DraftPlan, type ExperimentCandidate, type HistoryPost,
 } from '@sprigly/engine';
 import type { Pillar } from '@sprigly/engine';
 import type { Queue } from 'bullmq';
@@ -127,7 +128,8 @@ export async function assembleAndPersistDraft(
 
   const [cycle] = await db
     .select({ id: contentCycles.id, clientId: contentCycles.clientId, channel: contentCycles.channel,
-              cycleMonth: contentCycles.cycleMonth, structuredBrief: contentCycles.structuredBrief })
+              cycleMonth: contentCycles.cycleMonth, structuredBrief: contentCycles.structuredBrief,
+              intakeJson: contentCycles.intakeJson })
     .from(contentCycles)
     .where(and(eq(contentCycles.id, params.cycleId), eq(contentCycles.clientId, params.clientId)))
     .limit(1);
@@ -178,6 +180,13 @@ export async function assembleAndPersistDraft(
   const briefSchedule = (cycle.structuredBrief as { schedule?: unknown[]; products?: unknown[] } | null);
   const hasBriefedLaunch = Array.isArray(briefSchedule?.products) && briefSchedule.products.length > 0;
 
+  // A client-stated cadence floor (kind:'cadence' intake) lives on intake_json — the same
+  // cycle-scoped intake record the receipts do (draft-apply.ts). It outranks observed cadence:
+  // a client telling us "7 a week" beats what their history happened to show. Read here so
+  // EVERY re-assembly for this cycle honours the floor, not just the one that set it.
+  const cadenceFloor = ((cycle.intakeJson ?? {}) as { cadenceFloor?: { postsPerWeek?: number | null; postsPerMonth?: number | null } }).cadenceFloor;
+  const floorSlots = cadenceFloor ? cadenceFloorSlots(month, cadenceFloor) : 0;
+
   const draft = assembleDraft({
     clientId, cycleId: cycle.id, channel, month, posts,
     pillars: (planConfig?.pillars ?? []) as unknown as Pillar[],
@@ -185,6 +194,7 @@ export async function assembleAndPersistDraft(
     hasCatalogue: !!catalogue,
     hasBriefedLaunch,
     configPostsPerWeek: chan?.postsPerWeek ?? null,
+    ...(floorSlots > 0 ? { floorSlots } : {}),
     ...(stale ? { staleTrawlWarning: stale } : {}),
   });
 

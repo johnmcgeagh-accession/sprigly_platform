@@ -27,8 +27,10 @@
  *
  * Pure. Takes rows, returns a plan of row operations. The caller does the writing.
  */
-import type { BeatMeta } from '@sprigly/db';
+import type { BeatMeta, BeatRationaleEvidence } from '@sprigly/db';
 import type { MonthScopedIntent } from './intake-classify.js';
+import { cadenceFloorSlots } from './draft-skeleton.js';
+import { spreadPillars } from './pillar-weights.js';
 
 /** The subset of a draft row these transforms reason about. */
 export interface TransformBeat {
@@ -601,6 +603,117 @@ export function applyBeatSpec(intent: MonthScopedIntent, beats: TransformBeat[],
   return { ops: [{ op: 'add', date, format, pillar: '', title, beatMeta }] };
 }
 
+// ── Cadence (a stated posts-per-week / posts-per-month floor) ────────────────────
+
+/** Every ISO date in a plan month, ascending. */
+function datesInMonth(month: string): string[] {
+  const y = Number(month.slice(0, 4)), m = Number(month.slice(5, 7));
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return Array.from({ length: last }, (_, i) => `${month}-${String(i + 1).padStart(2, '0')}`);
+}
+
+/** Occurrence shares of a field across beats, normalised — the observed weight the month
+ *  already carries, reused so a top-up follows the same mix rather than inventing one. */
+function distribution(values: string[]): Array<{ name: string; share: number }> {
+  const counts = new Map<string, number>();
+  for (const v of values) if (v) counts.set(v, (counts.get(v) ?? 0) + 1);
+  const total = [...counts.values()].reduce((s, n) => s + n, 0);
+  if (total === 0) return [];
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([name, n]) => ({ name, share: n / total }));
+}
+
+/**
+ * The `n` thinnest days: fewest beats first, and among those the widest gaps. Deterministic —
+ * same month and beats give the same days. A top-up fills the emptiest stretches of the month
+ * so the added posts spread the plan out rather than stacking onto days that already have one.
+ */
+function thinnestDays(month: string, beats: TransformBeat[], n: number): string[] {
+  const dates = datesInMonth(month);
+  const idx   = new Map(dates.map((d, i) => [d, i]));
+  const count = new Map<string, number>(dates.map((d) => [d, 0]));
+  for (const b of beats) if (count.has(b.date)) count.set(b.date, count.get(b.date)! + 1);
+
+  const chosen: string[] = [];
+  for (let k = 0; k < n; k++) {
+    let best = dates[0]!;
+    let bestKey: [number, number] = [Infinity, Infinity];
+    for (const d of dates) {
+      const c = count.get(d)!;
+      let dist = dates.length;              // distance to the nearest OCCUPIED day
+      for (const [e, ec] of count) if (ec > 0 && e !== d) dist = Math.min(dist, Math.abs(idx.get(e)! - idx.get(d)!));
+      const key: [number, number] = [c, -dist];   // fewest beats, then widest gap
+      if (key[0] < bestKey[0] || (key[0] === bestKey[0] && key[1] < bestKey[1])) { bestKey = key; best = d; }
+    }
+    count.set(best, count.get(best)! + 1);
+    chosen.push(best);
+  }
+  return chosen.sort();
+}
+
+/** Say the target back the way the client stated it — the receipt quotes their own units. */
+function describeCadence(intent: MonthScopedIntent): string {
+  if (typeof intent.postsPerWeek === 'number')  return `${intent.postsPerWeek} a week`;
+  if (typeof intent.postsPerMonth === 'number') return `${intent.postsPerMonth} this month`;
+  return 'your cadence';
+}
+
+/**
+ * Apply a stated cadence FLOOR to the month.
+ *
+ * A floor — never a target, never a cap. When the client asks for MORE than the month holds,
+ * top it up now: place the gap's worth of beats on the thinnest days, taking format and pillar
+ * from the mix the month already shows (its observed weights) and carrying the real observed
+ * engagement for each format where the month has one — copied from a live beat, never invented.
+ * Every added beat is the client's input, quoted.
+ *
+ * Nothing is ever removed. A cadence that is a DECREASE, or one already met, adds nothing and
+ * says so — the floor is recorded for future assembly, and the client is left to drop what they
+ * don't want, because removing their posts for them is not ours to do.
+ */
+export function applyCadence(intent: MonthScopedIntent, beats: TransformBeat[], month: string): TransformResult {
+  const floor  = cadenceFloorSlots(month, intent);
+  const have   = beats.length;
+  const gap    = floor - have;
+  const target = describeCadence(intent);
+
+  if (gap <= 0) {
+    return {
+      ops: [],
+      note: `Recorded ${target} as your floor. You have ${have} post${have === 1 ? '' : 's'} this month — I only ever add to reach a floor, never remove, so drop the ones you don’t want.`,
+    };
+  }
+
+  const days    = thinnestDays(month, beats, gap);
+  const formats = spreadPillars(distribution(beats.map((b) => b.format)), gap);
+  const pillars = spreadPillars(distribution(beats.map((b) => b.pillar)), gap);
+
+  const feByFormat = new Map<string, BeatRationaleEvidence['formatEngagement']>();
+  for (const b of beats) {
+    const fe = b.beatMeta?.rationaleEvidence?.formatEngagement;
+    if (fe && !feByFormat.has(fe.format)) feByFormat.set(fe.format, fe);
+  }
+
+  const ops: BeatOp[] = days.map((date, i) => {
+    const format = formats[i] ?? commonestFormat(beats) ?? 'single';
+    const pillar = pillars[i] ?? '';
+    const fe = feByFormat.get(format);
+    const beatMeta: BeatMeta = {
+      slotType: 'proven',
+      rationaleEvidence: {
+        basis: 'client_input',
+        reason: intent.sourceText,
+        ...(fe ? { formatEngagement: fe } : {}),
+      } as BeatMeta['rationaleEvidence'],
+    };
+    const label = `${format.charAt(0).toUpperCase()}${format.slice(1)}`;
+    return { op: 'add', date, format, pillar, title: pillar ? `${pillar} — ${label}` : label, beatMeta };
+  });
+
+  return { ops, note: `Added ${gap} post${gap === 1 ? '' : 's'} to reach ${target}, as you asked.` };
+}
+
 /** A single dated beat, same replacement rule. */
 export function applyEvent(intent: MonthScopedIntent, beats: TransformBeat[], month: string): TransformResult {
   if (!intent.dateRange) return { ops: [], note: 'No date was given, so there was nowhere to put it.' };
@@ -802,6 +915,7 @@ export function applyIntent(
     case 'event':     return applyEvent(intent, beats, month);
     case 'series':    return applySeries(intent, beats, month);
     case 'beat_spec': return applyBeatSpec(intent, beats, month);
+    case 'cadence':   return applyCadence(intent, beats, month);
     case 'emphasis':  return applyEmphasis(intent, beats, today);
     case 'beat_edit': return applyBeatEdit(intent, beats, month);
     case 'correction':return applyCorrection(intent, beats, month);

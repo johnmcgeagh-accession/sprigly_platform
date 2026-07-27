@@ -132,6 +132,9 @@ export interface AssembleDraftParams {
   hasCatalogue: boolean;
   hasBriefedLaunch: boolean;
   configPostsPerWeek?: number | null;
+  /** A client-stated cadence floor (kind:'cadence'), as a month slot count. Raises the slot
+   *  count when the client asked for more than history would produce; never lowers it. */
+  floorSlots?: number | null;
   staleTrawlWarning?: string | undefined;
 }
 
@@ -142,7 +145,7 @@ export interface AssembleDraftParams {
 export function assembleDraft(params: AssembleDraftParams): DraftPlan {
   const {
     clientId, cycleId, channel, month, posts, pillars, candidates, temperature,
-    hasCatalogue, hasBriefedLaunch, configPostsPerWeek, staleTrawlWarning,
+    hasCatalogue, hasBriefedLaunch, configPostsPerWeek, floorSlots, staleTrawlWarning,
   } = params;
 
   const history = observeHistory(posts);
@@ -150,6 +153,7 @@ export function assembleDraft(params: AssembleDraftParams): DraftPlan {
   const skeleton = buildSkeleton({
     month, history, pillars: weights,
     ...(configPostsPerWeek !== undefined ? { configPostsPerWeek } : {}),
+    ...(floorSlots !== undefined ? { floorSlots } : {}),
   });
 
   const allocation = allocateSlots(skeleton.slots.length, temperature, candidates);
