@@ -1,11 +1,11 @@
 /**
- * script-ready.ts — enqueue a reel's script once its hook AND caption have both landed.
+ * script-ready.ts — enqueue a reel's combined hook+script job once its CAPTION has landed.
  *
- * Why the worker owns this. A script needs both (the API route refuses without them —
- * `api/plan/script/route.ts:37`), and in the fan-out the shape and hook jobs for a post are
- * enqueued together and race. Neither one can know it was the last to finish, so neither
- * can enqueue the script on its own. The worker checks after each of them completes and
- * enqueues when the pair is complete — whichever order they arrived in.
+ * A reel's hook and script are now generated together in one job (script.ts), so the only
+ * precondition is the caption — the subject the pair is about. In the fan-out the caption
+ * comes from the shape job; the worker checks after that completes and enqueues the combined
+ * job. (Before the merge this waited on hook AND caption, because the hook was a separate job
+ * that raced the caption; the combined job writes the hook itself, so the wait is gone.)
  *
  * `phase2.ts` previously deferred this to a client-side `enqueueScriptsForReady`, which was
  * never built. The result was that no script was ever enqueued in the fan-out at all
@@ -27,8 +27,10 @@ export const DEFAULT_SCRIPT_SECONDS = 30;
 export const scriptJobId = (cycleId: string, postId: string): string => `script_${cycleId}_${postId}`;
 
 /**
- * Enqueue the script for `postId` if — and only if — it is a reel that now has both a hook
- * and a caption and no script yet.
+ * Enqueue the combined hook+script job for `postId` if — and only if — it is a reel that has
+ * a caption and no script yet. The job writes the hook itself, so a pre-existing hook is not a
+ * precondition; a script already present means it (and its hook) were written, so we never pay
+ * twice.
  *
  * Returns whether a job was enqueued, so the caller can order a settlement check AFTER it:
  * settling first would declare the month ready while a script was about to be queued.
@@ -59,7 +61,7 @@ export async function enqueueScriptIfReady(
 
   if (!post) return false;
   if (post.format !== 'reel') return false;              // scripts are a reel affordance
-  if (!post.hook || !post.caption) return false;         // the other half has not landed yet
+  if (!post.caption) return false;                       // the subject has not landed yet
   if (post.script) return false;                         // already written — never pay twice
 
   try {

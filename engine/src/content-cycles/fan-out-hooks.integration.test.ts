@@ -1,11 +1,12 @@
 /**
- * fan-out-hooks.integration.test.ts — the approval fan-out leaves every eligible post with
- * a hook, and every reel with a script queued behind it.
+ * fan-out-hooks.integration.test.ts — the approval fan-out leaves every carousel with a hook
+ * and every reel with a combined hook+script job queued behind it.
  *
  * The defect: hook.ts returned candidates and wrote nothing, which is right interactively
  * and fatal in the fan-out — 7 hook jobs ran and were billed for cycle 040d6a1a, and every
- * hook stayed null. Scripts are gated on a hook existing, so none were ever enqueued
- * (docs/reports/wrong-month-generated.md §5b–5c).
+ * hook stayed null. Scripts were then gated on a hook existing, so none were ever enqueued
+ * (docs/reports/wrong-month-generated.md §5b–5c). Reels now generate hook+script together in
+ * one job (script.ts), so a reel needs only a caption to enqueue, and gets no separate hook job.
  *
  * Requires Postgres AND Redis; skipped cleanly without TEST_DATABASE_URL / TEST_REDIS_URL.
  */
@@ -119,22 +120,24 @@ describe.skipIf(!TEST_DB || !TEST_REDIS)('fan-out hooks + scripts (integration)'
     expect(act).toEqual([{ action: 'hook_saved', origin: 'agent' }]);
   }, 60_000);
 
-  it('SCRIPT CHAIN: a reel with hook + caption enqueues a script; nothing else does', async () => {
+  it('SCRIPT CHAIN: a reel with a CAPTION enqueues the combined job; no-caption/carousel/done does not', async () => {
     const { clientId, cycleId } = await fixture();
-    const ready   = await addPost(clientId, cycleId, 'reel',     { caption: 'c', hook: 'h' });
-    const noHook  = await addPost(clientId, cycleId, 'reel',     { caption: 'c' });
-    const noCap   = await addPost(clientId, cycleId, 'reel',     { hook: 'h' });
-    const carousel= await addPost(clientId, cycleId, 'carousel', { caption: 'c', hook: 'h' });
-    const done    = await addPost(clientId, cycleId, 'reel',     { caption: 'c', hook: 'h', script: 'already written' });
+    // The combined job WRITES the hook, so a caption is the only precondition — a reel with a
+    // caption and no hook now enqueues, where before it did not.
+    const withHook = await addPost(clientId, cycleId, 'reel',     { caption: 'c', hook: 'h' });
+    const capOnly  = await addPost(clientId, cycleId, 'reel',     { caption: 'c' });
+    const noCap    = await addPost(clientId, cycleId, 'reel',     { hook: 'h' });
+    const carousel = await addPost(clientId, cycleId, 'carousel', { caption: 'c', hook: 'h' });
+    const done     = await addPost(clientId, cycleId, 'reel',     { caption: 'c', hook: 'h', script: 'already written' });
 
-    expect(await scriptReady.enqueueScriptIfReady({ db, logger: LOGGER }, q, clientId, cycleId, ready)).toBe(true);
-    expect(await scriptReady.enqueueScriptIfReady({ db, logger: LOGGER }, q, clientId, cycleId, noHook)).toBe(false);
+    expect(await scriptReady.enqueueScriptIfReady({ db, logger: LOGGER }, q, clientId, cycleId, withHook)).toBe(true);
+    expect(await scriptReady.enqueueScriptIfReady({ db, logger: LOGGER }, q, clientId, cycleId, capOnly)).toBe(true);
     expect(await scriptReady.enqueueScriptIfReady({ db, logger: LOGGER }, q, clientId, cycleId, noCap)).toBe(false);
     expect(await scriptReady.enqueueScriptIfReady({ db, logger: LOGGER }, q, clientId, cycleId, carousel)).toBe(false);
     expect(await scriptReady.enqueueScriptIfReady({ db, logger: LOGGER }, q, clientId, cycleId, done)).toBe(false);
 
-    const ids = (await q.getJobs(['waiting', 'delayed', 'active'])).map((j: Any) => j.id);
-    expect(ids).toEqual([scriptReady.scriptJobId(cycleId, ready)]);
+    const ids = (await q.getJobs(['waiting', 'delayed', 'active'])).map((j: Any) => j.id).sort();
+    expect(ids).toEqual([scriptReady.scriptJobId(cycleId, withHook), scriptReady.scriptJobId(cycleId, capOnly)].sort());
   }, 60_000);
 
   it('SCRIPT CHAIN is idempotent — a second check does not queue a second paid job', async () => {
@@ -161,27 +164,33 @@ describe.skipIf(!TEST_DB || !TEST_REDIS)('fan-out hooks + scripts (integration)'
     expect(await planReady.isCycleSettled(db, q, cycleId)).toBe(false);
   }, 60_000);
 
-  it('POST-FAN-OUT STATE: every carousel and reel has a hook; every reel has a script queued', async () => {
+  it('POST-FAN-OUT STATE: carousels get a hook now; reels get a combined script job queued (hook comes from it)', async () => {
     const { clientId, cycleId } = await fixture();
     const formats = ['carousel', 'reel', 'single', 'reel', 'carousel'];
     const ids: string[] = [];
     for (const f of formats) ids.push(await addPost(clientId, cycleId, f, { caption: 'a caption' }));
 
-    // The fan-out: a hook job per eligible post, in autoSelect mode.
+    // The fan-out: a standalone hook job for each CAROUSEL; each reel gets its combined
+    // hook+script job enqueued once its caption is present (no separate reel hook job).
     for (let i = 0; i < formats.length; i++) {
-      if (formats[i] === 'single') continue;
-      await hook.runHookForPost({ type: 'hook', clientId, cycleId, targetPostId: ids[i]!, autoSelect: true }, deps());
-      await scriptReady.enqueueScriptIfReady({ db, logger: LOGGER }, q, clientId, cycleId, ids[i]!);
+      if (formats[i] === 'carousel') {
+        await hook.runHookForPost({ type: 'hook', clientId, cycleId, targetPostId: ids[i]!, autoSelect: true }, deps());
+      } else if (formats[i] === 'reel') {
+        await scriptReady.enqueueScriptIfReady({ db, logger: LOGGER }, q, clientId, cycleId, ids[i]!);
+      }
     }
 
+    // Carousels have their hook. Reels do NOT yet — theirs is written when the queued combined
+    // job runs (not executed here). Singles never have one.
     const rows = await sql<Any[]>`
       SELECT format, (hook IS NOT NULL) AS has_hook FROM content_cycle_posts
       WHERE cycle_id = ${cycleId} ORDER BY format, id`;
     for (const r of rows) {
       expect({ format: r.format, has_hook: r.has_hook })
-        .toEqual({ format: r.format, has_hook: r.format !== 'single' });
+        .toEqual({ format: r.format, has_hook: r.format === 'carousel' });
     }
 
+    // Every reel has exactly one combined script job queued.
     const queued = (await q.getJobs(['waiting', 'delayed', 'active'])).map((j: Any) => j.id).sort();
     const expected = formats
       .map((f, i) => (f === 'reel' ? scriptReady.scriptJobId(cycleId, ids[i]!) : null))

@@ -4,9 +4,10 @@
  * One job per post, through the SHIPPED per-post path. Nothing here is new machinery:
  *   caption → enqueueShape  → shape.ts (assembleShapeContext → regeneratePost → gate →
  *                             critic → catalogue), which writes caption + status ONLY
- *   hook    → enqueueHookJob   → hook.ts   (reels + carousels)
- *   script  → enqueueScriptJob → script.ts (reels only, needs a hook and caption first),
- *             enqueued by the WORKER once both have landed (consumer.ts scriptReadyCheck)
+ *   hook    → enqueueHookJob   → hook.ts   (CAROUSELS only — reels get their hook from the
+ *                             combined script job below)
+ *   script  → script.ts (reels only) writes hook AND script together, enqueued by the WORKER
+ *             once the CAPTION lands (consumer.ts → enqueueScriptIfReady)
  *
  * ── Structure is immutable by construction, not by care ──────────────────────
  * shape.ts writes `{ caption, status }` and nothing else, and the structural fields inside
@@ -20,11 +21,11 @@
  * retry. Ten good posts and one broken one is a month the client can work with; a blocked
  * cycle is not.
  *
- * Ordering matters for reels: a script needs a hook AND a caption, and those two jobs race.
- * So scripts are not enqueued here — the worker enqueues one when the last of the pair lands
- * for a reel (consumer.ts, scriptReadyCheck). This comment previously pointed at
- * `enqueueScriptsForReady`, which was never built: in the fan-out no script was ever
- * enqueued at all (docs/reports/wrong-month-generated.md §5c).
+ * Ordering matters for reels: the combined hook+script job needs the caption. So scripts are
+ * not enqueued here — the worker enqueues one when a reel's caption lands (consumer.ts →
+ * enqueueScriptIfReady). This comment previously pointed at `enqueueScriptsForReady`, which was
+ * never built: in the fan-out no script was ever enqueued at all
+ * (docs/reports/wrong-month-generated.md §5c).
  */
 import { and, eq, isNull, ne } from 'drizzle-orm';
 import { db, contentCyclePosts, POST_STATUS_DRAFT } from '@sprigly/db';
@@ -32,8 +33,16 @@ import { enqueueShape, enqueueHookJob } from '@/lib/queue';
 import { POST_STATUS_GENERATING } from '@/lib/draft-approval';
 import { recordPhase2Run, type Phase2Cost } from '@/lib/phase2-cost';
 
-/** Hooks apply to reels and carousels (Phase 0 I-3; PostEditor.tsx:93 "product decision"). */
-const HOOK_FORMATS = new Set(['reel', 'carousel']);
+/**
+ * Which formats get a STANDALONE hook job in the fan-out.
+ *
+ * Carousels only. A reel's hook is now written by its combined hook+script job (script.ts),
+ * enqueued by the worker once the caption lands (script-ready.ts) — so a reel that also got a
+ * standalone hook job would have its hook written twice, incoherently. Carousels have no script
+ * to cohere with, so they keep the standalone hook. (The interactive hook picker still offers
+ * candidates for either format — this is only about the automatic fan-out.)
+ */
+const HOOK_FORMATS = new Set(['carousel']);
 
 /** The instruction that drives caption generation for an approved beat.
  *

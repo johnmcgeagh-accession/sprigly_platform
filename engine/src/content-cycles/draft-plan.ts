@@ -358,7 +358,10 @@ export async function autoApproveAndGenerate(
         source: 'web',
       }, { jobId: `shape_${cycleId}_${post.id}`, ...GENERATION_JOB_OPTIONS });
       captionsQueued++;
-      if (post.format === 'reel' || post.format === 'carousel') {
+      // Carousels get a standalone hook job. Reels do NOT — their hook is written by the
+      // combined hook+script job (script.ts), which the worker enqueues once the caption lands
+      // (enqueueScriptIfReady). A reel with both would have its hook written twice, incoherently.
+      if (post.format === 'carousel') {
         // autoSelect: same reason as the app fan-out — nobody is here to pick a candidate.
         await queue.add('hook', { type: 'hook', clientId, cycleId, targetPostId: post.id, autoSelect: true },
           { jobId: `hook_${cycleId}_${post.id}`, ...GENERATION_JOB_OPTIONS });

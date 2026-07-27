@@ -8,16 +8,21 @@
  *
  * ── Why "no posts generating" is NOT the predicate ───────────────────────────────────
  *
- * The fan-out enqueues a shape job AND a hook job per eligible post, in parallel
- * (draft-plan.ts:316-324, phase2.ts:84-97). Only shape writes status: shape.ts:160 moves
- * the post 'generating' → 'new'. hook.ts and script.ts write their own fields and NEVER
- * touch status. So the moment every shape job finishes, every post reads 'new' while the
- * hook jobs are still queued — a post-status-only predicate would fire the email while
- * half the reels still have no hook.
+ * The fan-out enqueues a shape (caption) job per eligible post, plus a hook job for each
+ * CAROUSEL; each reel's hook+script is then written by one combined 'script' job the worker
+ * enqueues after that reel's caption lands (script-ready.ts). Only shape writes status:
+ * shape.ts moves the post 'generating' → 'new'. hook.ts and script.ts write their own fields
+ * and NEVER touch status. So the moment every shape job finishes, every post reads 'new' while
+ * hook jobs and reel script jobs are still queued — a post-status-only predicate would fire the
+ * email while half the reels have no script yet.
  *
  * The predicate is therefore both halves:
  *   1. no live post still in 'generating'  (the DB half)
  *   2. no pending shape/hook/script job keyed to this cycle  (the queue half)
+ *
+ * The combined reel job is a 'script' job, so it is already one of GENERATION_JOB_KINDS: a reel
+ * whose combined job is queued keeps the cycle unsettled until that job finishes — exactly the
+ * guarantee the old separate script job gave, with one job type instead of two.
  *
  * 'generation_failed' settles. It is terminal — nothing retries it, the post is
  * client-visible with its error, and a month with one broken caption is still a month the

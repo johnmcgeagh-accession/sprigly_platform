@@ -1,8 +1,9 @@
 /**
  * phase2.test.ts — the fan-out.
  *
- * The properties worth pinning: one job per post, hooks only where they apply, and — the
- * one that matters most — a single failure lands on ONE post rather than blocking the month.
+ * The properties worth pinning: one job per post, a standalone hook only for carousels (a
+ * reel's hook comes from its combined script job), and — the one that matters most — a single
+ * failure lands on ONE post rather than blocking the month.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -72,12 +73,12 @@ describe('startPhase2 — one job per post', () => {
     expect(h.enqueueShape).toHaveBeenCalledTimes(3);
   });
 
-  it('queues hooks for reels and carousels ONLY', async () => {
+  it('queues a standalone hook for CAROUSELS only — a reel gets its hook from the combined script job', async () => {
     h.posts = [post('a', 'single'), post('b', 'carousel'), post('c', 'reel')];
     const res = await startPhase2(CLIENT, CYCLE);
-    expect(res.hooksQueued).toBe(2);
+    expect(res.hooksQueued).toBe(1);
     const targets = h.enqueueHookJob.mock.calls.map((c) => (c[0] as { targetPostId: string }).targetPostId);
-    expect(targets.sort()).toEqual(['b', 'c']);
+    expect(targets.sort()).toEqual(['b']);       // NOT 'c' — the reel
   });
 
   it('names the slot in the caption instruction, without restating what the row carries', async () => {
@@ -91,7 +92,7 @@ describe('startPhase2 — one job per post', () => {
   });
 
   it('records the fan-out shape for the cost guard', async () => {
-    h.posts = [post('a', 'reel'), post('b', 'single')];
+    h.posts = [post('a', 'carousel'), post('b', 'single')];
     await startPhase2(CLIENT, CYCLE);
     expect(h.logged[0]).toMatchObject({ cycleId: CYCLE, postsTotal: 2, captionsQueued: 2, hooksQueued: 1, enqueueFailures: 0 });
   });
@@ -126,7 +127,7 @@ describe('partial failure — the month is never all-or-nothing', () => {
   });
 
   it('a HOOK failure is not a post failure — the caption is the post', async () => {
-    h.posts = [post('a', 'reel')];
+    h.posts = [post('a', 'carousel')];           // carousels still get a standalone hook job
     h.enqueueHookJob.mockResolvedValue({ error: 'redis unavailable' });
     const res = await startPhase2(CLIENT, CYCLE);
     expect(res.captionsQueued).toBe(1);
