@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2 — Day view, draft month · Sprigly mobile plan surface</title>
+<link rel="stylesheet" href="sprigly-mobile.css">
+</head>
+<body>
+
+<div class="page-head">
+  <div class="crumbs">Mockup 2 of 6 · <a href="index.html">all states</a></div>
+  <h1>Day view — draft month</h1>
+  <p>The same skeleton as the committed day view, in a provisional skin: dashed card borders,
+  a coral DRAFT badge, “not sent yet” framing. Beat cards carry format, pillar, title and a
+  one-line rationale teaser — the full rationale with its sample sizes lives in the detail sheet.
+  Assumptions sit in a compact dismissible strip above the day, and each one is answerable in
+  place rather than “reply to our email”.</p>
+</div>
+
+<div class="frames">
+
+<!-- ═══ FRAME A — Earl of East, October draft ═══════════════════════════════ -->
+<div class="frame-wrap">
+  <p class="frame-label">A — Earl of East · October 2026 draft · Thu 1 Oct</p>
+  <p class="frame-sub">Five pillars, ten beats. The 1 October reel came from the client’s own
+  sentence; every other beat cites measured engagement.</p>
+
+  <div class="phone tall">
+    <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
+
+    <div class="topbar">
+      <div class="brandmark">
+        <svg viewBox="0 0 100 110" fill="#E8705F" aria-hidden="true">
+          <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+          <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+          <line x1="50" y1="76" x2="50" y2="98" stroke="#E8705F" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+        <span>Sprigly</span>
+      </div>
+      <div class="avatar">EE</div>
+    </div>
+
+    <div class="monthbar" style="flex-direction:column;gap:2px">
+      <button class="month-label" type="button">October 2026 <span class="chev">▼</span><span class="draft-dot"></span></button>
+      <div style="display:flex;align-items:center;gap:7px">
+        <span class="badge">Draft</span>
+        <span style="font-size:12px;color:var(--muted);font-weight:600">Not sent yet</span>
+      </div>
+    </div>
+
+    <div class="weekstrip" role="group" aria-label="Week of 28 September">
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Mon</span><span class="num">28</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Tue</span><span class="num">29</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Wed</span><span class="num">30</span></button>
+      <button class="wday" type="button" aria-pressed="true" aria-label="Thursday 1 October, 2 beats"><span class="dow">Thu</span><span class="num">1</span><span class="pip draft"></span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Fri</span><span class="num">2</span><span class="pip draft"></span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Sat</span><span class="num">3</span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Sun</span><span class="num">4</span><span class="pip draft"></span></button>
+    </div>
+    <div class="weekrule"></div>
+
+    <div class="feed">
+
+      <!-- Assumptions: compact, dismissible, answerable in place. -->
+      <section class="strip dashed" style="margin-top:12px" aria-label="What we assumed">
+        <div class="striptop">
+          <h3>What we assumed</h3>
+          <button class="dismiss" type="button">Dismiss</button>
+        </div>
+        <ul class="qlist">
+          <li class="qrow">
+            <span class="q">We’ve assumed nothing’s launching this month — anything coming up?</span>
+            <button class="answer" type="button">Answer</button>
+          </li>
+          <li>
+            <div class="qrow" style="margin-bottom:7px">
+              <span class="q">We’ve split the month evenly across your pillars — want to weight it differently?</span>
+            </div>
+            <div style="display:flex;gap:7px">
+              <span style="flex:1;display:flex;align-items:center;border:1px solid var(--hair2);border-radius:12px;padding:10px 12px;background:var(--surface);font-size:14px;color:var(--chrome)">More Home &amp; Space, less Workshops</span>
+              <button class="answer" type="button">Send</button>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <section class="day">
+        <div class="dayhead">
+          <span class="numeral">1</span>
+          <span class="stack">
+            <span class="dname">Thursday</span>
+            <span class="dmeta">October</span>
+          </span>
+          <span class="spacer"></span>
+          <span class="daycount">2 beats</span>
+        </div>
+
+        <button class="card draft" type="button">
+          <div class="cardtop">
+            <span class="chip">Reel</span>
+            <span class="pillar">Home &amp; Space</span>
+            <span class="time">6:00</span>
+          </div>
+          <h4>Wilderness candle relaunch — Launch</h4>
+          <p class="teaser">This came from what you told us: “The Wilderness candle relaunches
+          on the 24th, can we build up to it?”</p>
+        </button>
+
+        <button class="card draft" type="button">
+          <div class="cardtop">
+            <span class="chip">Single</span>
+            <span class="pillar">Everyday Ritual</span>
+            <span class="time">7:00</span>
+          </div>
+          <h4>A small moment, made deliberate</h4>
+          <p class="teaser">Single posts average 38 likes and comments across your last 23 posts;
+          Everyday Ritual is about 20% of what you post.</p>
+        </button>
+
+        <button class="addslot" type="button"><span class="plus">＋</span> Add a beat to this day</button>
+      </section>
+
+      <section class="day dim">
+        <div class="dayhead">
+          <span class="numeral">2</span>
+          <span class="stack">
+            <span class="dname">Friday</span>
+            <span class="dmeta">October</span>
+          </span>
+          <span class="spacer"></span>
+          <span class="daycount">1 beat</span>
+        </div>
+
+        <button class="card draft" type="button">
+          <div class="cardtop">
+            <span class="chip">Single</span>
+            <span class="pillar">Everyday Ritual</span>
+            <span class="time">19:00</span>
+          </div>
+          <h4>Everyday Ritual — Single</h4>
+          <p class="teaser">Single posts average 38 likes and comments across your last 23 posts;
+          Everyday Ritual is about 20% of what you post.</p>
+        </button>
+
+        <button class="addslot slim" type="button"><span class="plus">＋</span> Add a beat to this day</button>
+      </section>
+
+      <section class="day dim">
+        <div class="dayhead">
+          <span class="numeral">3</span>
+          <span class="stack">
+            <span class="dname">Saturday</span>
+            <span class="dmeta">October</span>
+          </span>
+          <span class="spacer"></span>
+          <span class="daycount">Nothing drafted</span>
+        </div>
+        <button class="addslot" type="button"><span class="plus">＋</span> Add a beat to this day</button>
+      </section>
+
+      <section class="day dim">
+        <div class="dayhead">
+          <span class="numeral">4</span>
+          <span class="stack">
+            <span class="dname">Sunday</span>
+            <span class="dmeta">October</span>
+          </span>
+          <span class="spacer"></span>
+          <span class="daycount">1 beat</span>
+        </div>
+        <button class="card draft" type="button">
+          <div class="cardtop">
+            <span class="chip">Carousel</span>
+            <span class="pillar">Home &amp; Space</span>
+            <span class="time">20:00</span>
+          </div>
+          <h4>Home &amp; Space — Carousel</h4>
+          <p class="teaser">Carousels average 70 likes and comments across your last 8 posts;
+          Home &amp; Space is about 20% of what you post.</p>
+        </button>
+        <button class="addslot slim" type="button"><span class="plus">＋</span> Add a beat to this day</button>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<!-- ═══ FRAME B — ivy-t density ═════════════════════════════════════════════ -->
+<div class="frame-wrap">
+  <p class="frame-label">B — ivy-t · August 2026 draft · Mon 3 Aug · 3 beats</p>
+  <p class="frame-sub">Seven pillars, 21 draft beats, and three beats stacked on one day. This
+  is the density rule doing its job: at three or more, cards become compact rows — time, title,
+  chevron — and format, pillar and rationale move into the detail sheet. The titles are the real
+  ones, including the input-echo defect (F2 in the rehearsal report): a 390px row has to survive
+  a 200-character “title”.</p>
+
+  <div class="phone tall">
+    <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
+
+    <div class="topbar">
+      <div class="brandmark">
+        <svg viewBox="0 0 100 110" fill="#E8705F" aria-hidden="true">
+          <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+          <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+          <line x1="50" y1="76" x2="50" y2="98" stroke="#E8705F" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+        <span>Sprigly</span>
+      </div>
+      <div class="avatar">IT</div>
+    </div>
+
+    <div class="monthbar" style="flex-direction:column;gap:2px">
+      <button class="month-label" type="button">August 2026 <span class="chev">▼</span><span class="draft-dot"></span></button>
+      <div style="display:flex;align-items:center;gap:7px">
+        <span class="badge">Draft</span>
+        <span style="font-size:12px;color:var(--muted);font-weight:600">Not sent yet</span>
+      </div>
+    </div>
+
+    <div class="weekstrip" role="group" aria-label="Week of 3 August">
+      <button class="wday" type="button" aria-pressed="true" aria-label="Monday 3 August, 3 beats"><span class="dow">Mon</span><span class="num">3</span><span class="pip draft"></span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Tue</span><span class="num">4</span><span class="pip draft"></span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Wed</span><span class="num">5</span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Thu</span><span class="num">6</span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Fri</span><span class="num">7</span><span class="pip draft"></span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Sat</span><span class="num">8</span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Sun</span><span class="num">9</span></button>
+    </div>
+    <div class="weekrule"></div>
+
+    <div class="feed">
+
+      <section class="strip dashed" style="margin-top:12px" aria-label="What we assumed">
+        <div class="striptop">
+          <h3>What we assumed</h3>
+          <button class="dismiss" type="button">Dismiss</button>
+        </div>
+        <ul class="qlist">
+          <li class="qrow">
+            <span class="q">We haven’t named specific products — want particular ones featured?</span>
+            <button class="answer" type="button">Answer</button>
+          </li>
+        </ul>
+      </section>
+
+      <section class="day">
+        <div class="dayhead">
+          <span class="numeral">3</span>
+          <span class="stack">
+            <span class="dname">Monday</span>
+            <span class="dmeta">August</span>
+          </span>
+          <span class="spacer"></span>
+          <span class="daycount">3 beats</span>
+        </div>
+
+        <div class="rowlist draft">
+          <button class="row" type="button">
+            <span class="rtime">7:00</span>
+            <span class="rtitle">14th August — the stock leaves the factory for our next drop. Tease it: can you…</span>
+            <span class="rchev">›</span>
+          </button>
+          <button class="row" type="button">
+            <span class="rtime">13:00</span>
+            <span class="rtitle">15th August — our factory in Portugal starts its annual summer shutdown until 7t…</span>
+            <span class="rchev">›</span>
+          </button>
+          <button class="row" type="button">
+            <span class="rtime">19:00</span>
+            <span class="rtitle">In the Navy Edit build-up, include colour-reveal content — who can guess the mai…</span>
+            <span class="rchev">›</span>
+          </button>
+        </div>
+
+        <button class="addslot" type="button"><span class="plus">＋</span> Add a beat to this day</button>
+
+        <p class="hint" style="margin-left:0;margin-right:0">Three beats in a day is a scheduling
+        question, not a reading one. Rows keep the whole day inside one thumb-length; the sheet
+        carries format, pillar and the reason.</p>
+      </section>
+
+      <section class="day dim">
+        <div class="dayhead">
+          <span class="numeral">4</span>
+          <span class="stack">
+            <span class="dname">Tuesday</span>
+            <span class="dmeta">August</span>
+          </span>
+          <span class="spacer"></span>
+          <span class="daycount">1 beat</span>
+        </div>
+        <button class="card draft" type="button">
+          <div class="cardtop">
+            <span class="chip">Reel</span>
+            <span class="pillar">Understands Real Women</span>
+            <span class="time">19:00</span>
+          </div>
+          <h4>mini-series ‘What I am most proud of…’ — Launch</h4>
+          <p class="teaser">This came from what you told us: “a mini-series, one post every three
+          weeks”.</p>
+        </button>
+        <button class="addslot slim" type="button"><span class="plus">＋</span> Add a beat to this day</button>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<!-- ═══ FRAME C — the experiment slot ═══════════════════════════════════════ -->
+<div class="frame-wrap">
+  <p class="frame-label">C — the experiment badge</p>
+  <p class="frame-sub">Reproduces the beat Build&nbsp;B’s own rendered draft carried the
+  <em>Something new</em> badge on. Proven beats carry no badge — the default needs no label.
+  No live client has an experiment slot today (the temperature dial resolves to nothing:
+  Build&nbsp;A §9), so this is the one state shown from a system render rather than a client’s
+  month.</p>
+
+  <div class="phone" style="height:430px">
+    <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
+    <div class="feed" style="padding-top:16px">
+      <section class="day">
+        <div class="dayhead">
+          <span class="numeral">4</span>
+          <span class="stack">
+            <span class="dname">Friday</span>
+            <span class="dmeta">September</span>
+          </span>
+          <span class="spacer"></span>
+          <span class="daycount">1 beat</span>
+        </div>
+        <button class="card draft" type="button">
+          <div class="cardtop">
+            <span class="chip">Reel</span>
+            <span class="pillar">Home &amp; Space</span>
+            <span class="badge outline">Something new</span>
+          </div>
+          <h4>A room that breathes</h4>
+          <p class="teaser">This came from an idea you sent us.</p>
+        </button>
+
+        <button class="card draft" type="button">
+          <div class="cardtop">
+            <span class="chip">Carousel</span>
+            <span class="pillar">Brand Story &amp; Culture</span>
+          </div>
+          <h4>Where it all started</h4>
+          <p class="teaser">Carousels average 70 likes and comments across your last 8 posts;
+          Brand Story &amp; Culture is about 20% of what you post.</p>
+        </button>
+      </section>
+    </div>
+  </div>
+</div>
+
+</div><!-- /frames -->
+
+<div class="notes">
+  <h2>Where the content comes from</h2>
+  <ul>
+    <li><strong>Earl of East’s October beats, dates, formats and pillars</strong> — the approved
+      list in <code>docs/reports/build-d-approval-phase2.md</code> §1, shown at their pre-approval
+      draft stage. Two titles are the assembler’s deterministic fallback form because the report
+      elides them.</li>
+    <li><strong>Every engagement figure is the measured one</strong>: carousels 69.9 over n=8,
+      single posts 38.2 over n=23, pillar share 0.2 on the <code>equal</code> basis — Build&nbsp;A
+      §10, cross-validated against the Phase&nbsp;0 SQL. The rationale sentences are exactly what
+      <code>draft-rationale.ts</code> renders from that evidence.</li>
+    <li><strong>The 1 October reel’s teaser is not what ships today.</strong> That beat’s evidence
+      basis is <code>client_input</code>, and <code>rationaleFor()</code> has no branch for it —
+      it falls through to <code>''</code>, so a beat that came from the client’s own sentence
+      currently shows no reason at all. The copy shown here is the intended sentence; adding the
+      branch is on the spec’s gap list.</li>
+    <li><strong>ivy-t</strong> — 21 draft beats, 0 committed, on cycle <code>1b925191…</code>
+      (<code>docs/reports/ivy-t-rehearsal-failures.md</code>). The three 3 August titles are
+      verbatim from that report, clipping included. Their format and pillar are not recorded
+      anywhere in the report, which is why the density rule’s compact row does not claim them.
+      The seven configured pillars are from
+      <code>docs/calibration/ivy-t-2026-07/DIFF-SUMMARY.md</code>.</li>
+    <li><strong>Posting times</strong> are the <code>PostingTimes</code> contract’s documented
+      example values, not a stored client config. See the spec’s “does not exist yet” list.</li>
+  </ul>
+</div>
+
+</body>
+</html>

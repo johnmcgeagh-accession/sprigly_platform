@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sprigly — mobile plan surface mockups</title>
+<link rel="stylesheet" href="sprigly-mobile.css">
+<style>
+  .cards { max-width: 1280px; margin: 0 auto; display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .linkcard {
+    display: block; background: var(--surface); border-radius: 18px; padding: 18px 20px;
+    box-shadow: var(--shadow-card); text-decoration: none; color: inherit;
+    border: 1px solid transparent;
+  }
+  .linkcard:hover { border-color: var(--coral-600); }
+  .linkcard .n { font-family: var(--serif); font-size: 26px; font-weight: 500; color: var(--coral-600); line-height: 1; }
+  .linkcard h3 { margin: 8px 0 5px; font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+  .linkcard p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <div class="crumbs">Sprigly · design session · 27 July 2026</div>
+  <h1>Mobile plan surface — <em class="swash">mockups</em></h1>
+  <p>Static mockups for the redesigned client plan surface: iOS-native, day-focused, mobile-first,
+  in Sprigly’s locked brand system. Spec and wiring:
+  <a href="../mobile-plan-surface.md">docs/design/mobile-plan-surface.md</a>.</p>
+  <p style="margin-top:10px">No build step and no external resources — open any file directly.
+  Fraunces and Inter are self-hosted in the app but not embedded here, so display type falls back
+  to Georgia and UI type to the system sans. Judge weight, rhythm and hierarchy, not glyph shapes.
+  All content is real client data; every page ends with a note saying exactly where each figure
+  came from and which pieces are reconstructions.</p>
+</div>
+
+<div class="cards">
+  <a class="linkcard" href="01-day-committed.html">
+    <span class="n">1</span>
+    <h3>Day view — committed month</h3>
+    <p>Week strip, selected day, post cards with format, pillar, time and status. Per-day add
+    slots replace the global button. Earl of East, October 2026.</p>
+  </a>
+  <a class="linkcard" href="02-day-draft.html">
+    <span class="n">2</span>
+    <h3>Day view — draft month</h3>
+    <p>Same skeleton, provisional skin. Rationale teasers, the experiment badge, answerable
+    assumptions, and the ivy-t density case: three beats on one day.</p>
+  </a>
+  <a class="linkcard" href="03-month-overview.html">
+    <span class="n">3</span>
+    <h3>Month overview</h3>
+    <p>Dot-density grid over a month-name row that doubles as the picker. Closes the
+    “October doesn’t show” navigability class.</p>
+  </a>
+  <a class="linkcard" href="04-detail-sheet.html">
+    <span class="n">4</span>
+    <h3>Detail sheet</h3>
+    <p>iOS bottom sheet, two variants: a draft beat with its full evidence, and a committed post
+    with caption, hook, script and regenerate.</p>
+  </a>
+  <a class="linkcard" href="05-reshape-before.html">
+    <span class="n">5a</span>
+    <h3>Reshape — before</h3>
+    <p>The month as assembled, with the client’s sentence typed and not yet sent.</p>
+  </a>
+  <a class="linkcard" href="06-reshape-after.html">
+    <span class="n">5b</span>
+    <h3>Reshape — after</h3>
+    <p>The diff landing: highlighted beats and a “what changed” strip naming added, moved and
+    replaced against the client’s own words.</p>
+  </a>
+  <a class="linkcard" href="07-reshape-rollup.html">
+    <span class="n">5c</span>
+    <h3>Reshape — itemised rollup</h3>
+    <p>“We found 14 things in what you sent.” Sally’s pasted brief, one line per segment,
+    each expandable to its diff.</p>
+  </a>
+  <a class="linkcard" href="08-approval.html">
+    <span class="n">6</span>
+    <h3>Approval</h3>
+    <p>Beat count, honest consequence copy, one clear action — plus the thin-month variant, where
+    two beats must not read as a broken ten.</p>
+  </a>
+</div>
+
+<div class="notes">
+  <h2>Reading these</h2>
+  <ul>
+    <li>Every frame is 390px wide — an iPhone 14/15 logical viewport. Two or three frames sit
+      side by side on a desktop screen; on a narrow screen they stack and the frame drops its
+      rounded shell.</li>
+    <li>Nothing here is interactive. Buttons, sheets and toasts are rendered in the state being
+      reviewed. The only live behaviour anywhere is the <code>&lt;details&gt;</code> expansion in
+      the rollup, which is native HTML.</li>
+    <li>The brand system is reproduced from <code>app/tailwind.config.ts</code>, not re-invented:
+      coral 600 <code>#E8705F</code> / 700 <code>#C4523F</code> / 800 <code>#8A3323</code> /
+      100 <code>#FADDD6</code>, brand slate <code>#334155</code>, muted <code>#5C6470</code>,
+      line <code>#8F9296</code>, canvas <code>#F2F3F5</code>. Coral is never used for small text;
+      coral text appears only on coral-100. White on coral-600 appears only at 15px/700.</li>
+  </ul>
+</div>
+
+</body>
+</html>

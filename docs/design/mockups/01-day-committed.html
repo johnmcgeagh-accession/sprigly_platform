@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1 — Day view, committed month · Sprigly mobile plan surface</title>
+<link rel="stylesheet" href="sprigly-mobile.css">
+</head>
+<body>
+
+<div class="page-head">
+  <div class="crumbs">Mockup 1 of 6 · <a href="index.html">all states</a></div>
+  <h1>Day view — committed month</h1>
+  <p>Earl of East, October 2026, after approval. Real data: the ten beats approved in the
+  Build&nbsp;D dogfood run, with their generated captions, hooks and scripts. Small-caps month
+  label (tap → month overview), horizontal week strip with the selected day as a filled coral
+  pill, the day’s posts below as cards. No global “Add to your plan” button: adding is a
+  per-day slot that appears on every editable day, under whatever that day already holds.</p>
+</div>
+
+<div class="frames">
+
+<!-- ═══ FRAME A — the selected day holds two posts ═══════════════════════════ -->
+<div class="frame-wrap">
+  <p class="frame-label">A — Thu 1 October · 2 posts</p>
+  <p class="frame-sub">Two posts on a day still render as full cards (density rule: 1–2 full,
+  3+ compact). The second card shows the format chip, pillar, posting time and caption excerpt.</p>
+
+  <div class="phone">
+    <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
+
+    <div class="topbar">
+      <div class="brandmark">
+        <svg viewBox="0 0 100 110" fill="#E8705F" aria-hidden="true">
+          <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+          <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+          <line x1="50" y1="76" x2="50" y2="98" stroke="#E8705F" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+        <span>Sprigly</span>
+      </div>
+      <div class="avatar">EE</div>
+    </div>
+
+    <div class="monthbar">
+      <button class="month-label" type="button">October 2026 <span class="chev">▼</span></button>
+    </div>
+
+    <div class="weekstrip" role="group" aria-label="Week of 28 September">
+      <button class="wday out" type="button" aria-pressed="false" aria-label="Monday 28 September, no posts"><span class="dow">Mon</span><span class="num">28</span></button>
+      <button class="wday out" type="button" aria-pressed="false" aria-label="Tuesday 29 September, no posts"><span class="dow">Tue</span><span class="num">29</span></button>
+      <button class="wday out" type="button" aria-pressed="false" aria-label="Wednesday 30 September, no posts"><span class="dow">Wed</span><span class="num">30</span></button>
+      <button class="wday" type="button" aria-pressed="true" aria-label="Thursday 1 October, 2 posts"><span class="dow">Thu</span><span class="num">1</span><span class="pip"></span></button>
+      <button class="wday" type="button" aria-pressed="false" aria-label="Friday 2 October, 1 post"><span class="dow">Fri</span><span class="num">2</span><span class="pip"></span></button>
+      <button class="wday" type="button" aria-pressed="false" aria-label="Saturday 3 October, no posts"><span class="dow">Sat</span><span class="num">3</span></button>
+      <button class="wday" type="button" aria-pressed="false" aria-label="Sunday 4 October, 1 post"><span class="dow">Sun</span><span class="num">4</span><span class="pip"></span></button>
+    </div>
+    <div class="weekrule"></div>
+
+    <div class="feed">
+
+      <section class="day">
+        <div class="dayhead">
+          <span class="numeral">1</span>
+          <span class="stack">
+            <span class="dname">Thursday</span>
+            <span class="dmeta">October</span>
+          </span>
+          <span class="spacer"></span>
+          <span class="daycount">2 posts</span>
+        </div>
+
+        <button class="card" type="button">
+          <div class="cardtop">
+            <span class="chip">Reel</span>
+            <span class="pillar">Home &amp; Space</span>
+            <span class="time">6:00</span>
+          </div>
+          <h4>Wilderness candle relaunch — Launch</h4>
+          <p class="excerpt">Wilderness is back. There is a particular quality to autumn light
+          indoors, the way it sits low and golden across a room, making everything feel a little
+          more considered…</p>
+          <div class="cardfoot">
+            <span class="badge slate">Hook</span>
+            <span class="badge slate">Script</span>
+            <span class="spacer" style="flex:1"></span>
+            <span class="statusdot"></span><span class="statusline">New</span>
+          </div>
+        </button>
+
+        <button class="card" type="button">
+          <div class="cardtop">
+            <span class="chip">Single</span>
+            <span class="pillar">Everyday Ritual</span>
+            <span class="time">7:00</span>
+          </div>
+          <h4>A small moment, made deliberate</h4>
+          <p class="excerpt">Caption written — 274 characters. Tap to read it, edit it, or ask
+          for a different one.</p>
+          <div class="cardfoot">
+            <span class="statusdot"></span><span class="statusline">New</span>
+          </div>
+        </button>
+
+        <button class="addslot" type="button"><span class="plus">＋</span> Plan a post for this day</button>
+      </section>
+
+      <section class="day dim">
+        <div class="dayhead">
+          <span class="numeral">2</span>
+          <span class="stack">
+            <span class="dname">Friday</span>
+            <span class="dmeta">October</span>
+          </span>
+          <span class="spacer"></span>
+          <span class="daycount">1 post</span>
+        </div>
+
+        <button class="card" type="button">
+          <div class="cardtop">
+            <span class="chip">Single</span>
+            <span class="pillar">Everyday Ritual</span>
+            <span class="time">19:00</span>
+          </div>
+          <h4>Everyday Ritual — Single</h4>
+          <p class="excerpt">Caption written — 705 characters.</p>
+          <div class="cardfoot">
+            <span class="statusdot"></span><span class="statusline">New</span>
+          </div>
+        </button>
+
+        <button class="addslot slim" type="button"><span class="plus">＋</span> Plan a post for this day</button>
+      </section>
+
+      <section class="day dim">
+        <div class="dayhead">
+          <span class="numeral">3</span>
+          <span class="stack">
+            <span class="dname">Saturday</span>
+            <span class="dmeta">October</span>
+          </span>
+          <span class="spacer"></span>
+          <span class="daycount">Nothing planned</span>
+        </div>
+        <button class="addslot" type="button"><span class="plus">＋</span> Plan a post for this day</button>
+      </section>
+
+      <section class="day dim">
+        <div class="dayhead">
+          <span class="numeral">4</span>
+          <span class="stack">
+            <span class="dname">Sunday</span>
+            <span class="dmeta">October</span>
+          </span>
+          <span class="spacer"></span>
+          <span class="daycount">1 post</span>
+        </div>
+
+        <button class="card" type="button">
+          <div class="cardtop">
+            <span class="chip">Carousel</span>
+            <span class="pillar">Home &amp; Space</span>
+            <span class="time">20:00</span>
+          </div>
+          <h4>Home &amp; Space — Carousel</h4>
+          <p class="teaser" style="color:var(--danger);font-weight:600">The caption didn’t come
+          back. Tap to try again — the hook is already written.</p>
+          <div class="cardfoot">
+            <span class="badge slate">Hook</span>
+            <span class="spacer" style="flex:1"></span>
+            <span class="statusline" style="color:var(--danger)">Needs a retry</span>
+          </div>
+        </button>
+
+        <button class="addslot slim" type="button"><span class="plus">＋</span> Plan a post for this day</button>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<!-- ═══ FRAME B — an empty selected day ═════════════════════════════════════ -->
+<div class="frame-wrap">
+  <p class="frame-label">B — Sat 3 October selected · empty day</p>
+  <p class="frame-sub">An empty day is not a dead end and not an apology. One open slot,
+  the same control that sits under every populated day — so “add” is always in the same place
+  relative to the day you are looking at.</p>
+
+  <div class="phone">
+    <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
+
+    <div class="topbar">
+      <div class="brandmark">
+        <svg viewBox="0 0 100 110" fill="#E8705F" aria-hidden="true">
+          <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+          <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+          <line x1="50" y1="76" x2="50" y2="98" stroke="#E8705F" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+        <span>Sprigly</span>
+      </div>
+      <div class="avatar">EE</div>
+    </div>
+
+    <div class="monthbar">
+      <button class="month-label" type="button">October 2026 <span class="chev">▼</span></button>
+    </div>
+
+    <div class="weekstrip" role="group" aria-label="Week of 28 September">
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Mon</span><span class="num">28</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Tue</span><span class="num">29</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Wed</span><span class="num">30</span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Thu</span><span class="num">1</span><span class="pip"></span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Fri</span><span class="num">2</span><span class="pip"></span></button>
+      <button class="wday" type="button" aria-pressed="true"><span class="dow">Sat</span><span class="num">3</span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Sun</span><span class="num">4</span><span class="pip"></span></button>
+    </div>
+    <div class="weekrule"></div>
+
+    <div class="feed">
+      <section class="day">
+        <div class="dayhead">
+          <span class="numeral">3</span>
+          <span class="stack">
+            <span class="dname">Saturday</span>
+            <span class="dmeta">October</span>
+          </span>
+          <span class="spacer"></span>
+          <span class="daycount">Nothing planned</span>
+        </div>
+        <button class="addslot" type="button"><span class="plus">＋</span> Plan a post for this day</button>
+      </section>
+
+      <section class="day dim">
+        <div class="dayhead">
+          <span class="numeral">4</span>
+          <span class="stack">
+            <span class="dname">Sunday</span>
+            <span class="dmeta">October</span>
+          </span>
+          <span class="spacer"></span>
+          <span class="daycount">1 post</span>
+        </div>
+        <button class="card" type="button">
+          <div class="cardtop">
+            <span class="chip">Carousel</span>
+            <span class="pillar">Home &amp; Space</span>
+            <span class="time">20:00</span>
+          </div>
+          <h4>Home &amp; Space — Carousel</h4>
+          <p class="teaser" style="color:var(--danger);font-weight:600">The caption didn’t come
+          back. Tap to try again — the hook is already written.</p>
+          <div class="cardfoot">
+            <span class="badge slate">Hook</span>
+            <span class="spacer" style="flex:1"></span>
+            <span class="statusline" style="color:var(--danger)">Needs a retry</span>
+          </div>
+        </button>
+        <button class="addslot slim" type="button"><span class="plus">＋</span> Plan a post for this day</button>
+      </section>
+
+      <section class="day dim">
+        <div class="dayhead">
+          <span class="numeral">5</span>
+          <span class="stack">
+            <span class="dname">Monday</span>
+            <span class="dmeta">October</span>
+          </span>
+          <span class="spacer"></span>
+          <span class="daycount">Nothing planned</span>
+        </div>
+        <button class="addslot" type="button"><span class="plus">＋</span> Plan a post for this day</button>
+      </section>
+    </div>
+  </div>
+</div>
+
+</div><!-- /frames -->
+
+<div class="notes">
+  <h2>Where the content comes from</h2>
+  <ul>
+    <li><strong>Beats, formats, pillars, dates, statuses and caption lengths</strong> are the ten
+      posts verified in <code>docs/reports/build-d-approval-phase2.md</code> §1 — Earl of East,
+      October 2026, zero structure drift across phase 2. The 4 October carousel really is in
+      <code>generation_failed</code> with a hook and no caption.</li>
+    <li><strong>The reel’s caption excerpt</strong> is the first lines of the real generated
+      caption in that same report. Nothing here was written for the mockup.</li>
+    <li><strong>Two titles are the assembler’s deterministic fallback form</strong>
+      (<em>Everyday Ritual — Single</em>, <em>Home &amp; Space — Carousel</em>) because the report
+      elides those two beats’ phrased titles. They are shown in the shape the fallback produces
+      rather than invented.</li>
+    <li><strong>Posting times</strong> are the documented example values on the
+      <code>PostingTimes</code> contract (<code>packages/engine/src/types.ts</code>:
+      launch 6am, morning 7am, evening 7pm, sundayStyle 8pm). No reader surfaces a client’s
+      stored <code>posting_times</code> to the app today — see the spec’s “does not exist yet”
+      list.</li>
+  </ul>
+</div>
+
+</body>
+</html>

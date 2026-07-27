@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>4 — Detail sheet · Sprigly mobile plan surface</title>
+<link rel="stylesheet" href="sprigly-mobile.css">
+</head>
+<body>
+
+<div class="page-head">
+  <div class="crumbs">Mockup 4 of 6 · <a href="index.html">all states</a></div>
+  <h1>Detail sheet</h1>
+  <p>An iOS bottom sheet over the day view. Two variants of one component: a draft beat, and a
+  committed post. The draft variant is where the full deterministic rationale lives — with its
+  sample sizes, so the client can judge the evidence rather than take the sentence on trust.</p>
+</div>
+
+<div class="frames">
+
+<!-- ═══ FRAME A — draft beat ════════════════════════════════════════════════ -->
+<div class="frame-wrap">
+  <p class="frame-label">A — draft beat · 21 October, carousel</p>
+  <p class="frame-sub">Date and format are editable in place. The rationale is templated over
+  structured evidence — no model runs at render time — and the sample sizes are stated because
+  “carousels do well” and “carousels average 70 across 8 posts” are different claims.</p>
+
+  <div class="phone tall">
+    <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
+
+    <div class="topbar">
+      <div class="brandmark">
+        <svg viewBox="0 0 100 110" fill="#E8705F" aria-hidden="true">
+          <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+          <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+          <line x1="50" y1="76" x2="50" y2="98" stroke="#E8705F" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+        <span>Sprigly</span>
+      </div>
+      <div class="avatar">EE</div>
+    </div>
+    <div class="monthbar"><button class="month-label" type="button">October 2026 <span class="chev">▼</span><span class="draft-dot"></span></button></div>
+    <div class="weekstrip">
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Mon</span><span class="num">19</span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Tue</span><span class="num">20</span></button>
+      <button class="wday" type="button" aria-pressed="true"><span class="dow">Wed</span><span class="num">21</span><span class="pip draft"></span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Thu</span><span class="num">22</span><span class="pip draft"></span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Fri</span><span class="num">23</span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Sat</span><span class="num">24</span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Sun</span><span class="num">25</span></button>
+    </div>
+    <div class="weekrule"></div>
+    <div class="feed"></div>
+
+    <div class="scrim"></div>
+    <div class="sheet" role="dialog" aria-label="Quiet rituals, one by one">
+      <div class="grabber"></div>
+      <div class="sheethead">
+        <div style="display:flex;align-items:center;gap:7px">
+          <span class="badge">Draft</span>
+          <span class="eyebrow" style="letter-spacing:.06em">Everyday Ritual</span>
+        </div>
+        <h2>Quiet rituals, one&nbsp;by&nbsp;one</h2>
+      </div>
+
+      <div class="sheetbody">
+        <div class="srow">
+          <span class="slabel">Date</span>
+          <span class="sval">Wed 21 October</span>
+          <button class="sedit" type="button">Change</button>
+        </div>
+        <div class="srow">
+          <span class="slabel">Format</span>
+          <span class="sval">Carousel</span>
+          <button class="sedit" type="button">Swap</button>
+        </div>
+        <div class="srow">
+          <span class="slabel">Pillar</span>
+          <span class="sval">Everyday Ritual</span>
+        </div>
+
+        <p class="section-eyebrow">Why this beat is here</p>
+        <p class="evidence">Carousels average 70 likes and comments across your last 8 posts;
+        Everyday Ritual is about 20% of what you post.</p>
+        <p class="prose quiet" style="margin-top:10px">Measured over 4 months of your feed —
+        2.24 posts a week, 31 posts in all. The pillar share is an even split across your five
+        pillars, because no weighting is on record for you yet.</p>
+
+        <p class="section-eyebrow">What we assumed for this month</p>
+        <ul class="qlist">
+          <li class="qrow">
+            <span class="q">We’ve assumed nothing’s launching this month — anything coming up?</span>
+            <button class="answer ghost" type="button">Answer</button>
+          </li>
+          <li class="qrow">
+            <span class="q">We’ve split the month evenly across your pillars — want to weight it differently?</span>
+            <button class="answer ghost" type="button">Answer</button>
+          </li>
+        </ul>
+
+        <p class="section-eyebrow">Format</p>
+        <div class="segmented">
+          <button type="button" aria-pressed="false">Single</button>
+          <button type="button" aria-pressed="true">Carousel</button>
+          <button type="button" aria-pressed="false">Reel</button>
+        </div>
+      </div>
+
+      <div class="sheetfoot">
+        <div class="actions">
+          <div class="actrow">
+            <button class="btn" type="button">Move to another day</button>
+          </div>
+          <div class="actrow">
+            <button class="btn danger small" type="button">Remove this beat</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast"><span>Beat removed</span><button type="button">Undo</button></div>
+  </div>
+</div>
+
+<!-- ═══ FRAME B — committed post ════════════════════════════════════════════ -->
+<div class="frame-wrap">
+  <p class="frame-label">B — committed post · 1 October, reel</p>
+  <p class="frame-sub">Same sheet, different payload: caption, hook and script where they exist,
+  and a per-post regenerate. Date and format stay editable right up until the post’s own date —
+  the sheet says so rather than implying the month is locked.</p>
+
+  <div class="phone tall">
+    <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
+
+    <div class="topbar">
+      <div class="brandmark">
+        <svg viewBox="0 0 100 110" fill="#E8705F" aria-hidden="true">
+          <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+          <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+          <line x1="50" y1="76" x2="50" y2="98" stroke="#E8705F" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+        <span>Sprigly</span>
+      </div>
+      <div class="avatar">EE</div>
+    </div>
+    <div class="monthbar"><button class="month-label" type="button">October 2026 <span class="chev">▼</span></button></div>
+    <div class="weekstrip">
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Mon</span><span class="num">28</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Tue</span><span class="num">29</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Wed</span><span class="num">30</span></button>
+      <button class="wday" type="button" aria-pressed="true"><span class="dow">Thu</span><span class="num">1</span><span class="pip"></span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Fri</span><span class="num">2</span><span class="pip"></span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Sat</span><span class="num">3</span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Sun</span><span class="num">4</span><span class="pip"></span></button>
+    </div>
+    <div class="weekrule"></div>
+    <div class="feed"></div>
+
+    <div class="scrim"></div>
+    <div class="sheet" role="dialog" aria-label="Wilderness candle relaunch — Launch">
+      <div class="grabber"></div>
+      <div class="sheethead">
+        <div style="display:flex;align-items:center;gap:7px">
+          <span class="chip">Reel</span>
+          <span class="eyebrow" style="letter-spacing:.06em">Home &amp; Space</span>
+        </div>
+        <h2>Wilderness candle relaunch — Launch</h2>
+      </div>
+
+      <div class="sheetbody">
+        <div class="srow">
+          <span class="slabel">Date</span>
+          <span class="sval">Thu 1 October</span>
+          <button class="sedit" type="button">Change</button>
+        </div>
+        <div class="srow">
+          <span class="slabel">Format</span>
+          <span class="sval">Reel</span>
+          <button class="sedit" type="button">Swap</button>
+        </div>
+        <div class="srow">
+          <span class="slabel">Posting</span>
+          <span class="sval">6:00</span>
+        </div>
+
+        <p class="section-eyebrow">Hook</p>
+        <p class="prose">What autumn light taught us about how a room should smell.</p>
+
+        <p class="section-eyebrow">Caption</p>
+        <p class="prose">Wilderness is back.
+
+There is a particular quality to autumn light indoors, the way it sits low and golden across a room, making everything feel a little more considered, a little more still. Wilderness was made for exactly that.
+
+Cedarwood, damp earth, and the cold-clean note of open air brought inside. She fills a room without announcing herself, building quietly over the first hour until the whole space feels grounded and unhurried.
+
+Our Wilderness Soy Wax Candle is live now. Head to the link in bio.
+
+// #earlofeast #wilderness #homerituals #scentedcandle #ritualovertoutine</p>
+
+        <p class="section-eyebrow">Script</p>
+        <p class="prose">HOOK: What autumn light taught us about how a room should smell.
+
+BEAT 1 (0–8s) — That low, golden quality it has — the way it makes a room feel still. (slow pan across a sunlit interior, dust motes, warm shadows)
+
+BEAT 2 (8–18s) — Wilderness is cedarwood, damp earth, cold-clean air — building quietly until the whole space feels grounded. (close on candle flame, soft focus)
+
+BEAT 3 (18–26s) — She doesn’t announce herself. She just settles. (wide shot, room held in amber afternoon light)
+
+CTA: Our Wilderness Soy Wax Candle is live now — link in bio. (product close-up)</p>
+
+        <p class="prose quiet" style="margin-top:16px">Dates and formats stay yours to change,
+        right up until this post’s own date.</p>
+      </div>
+
+      <div class="sheetfoot">
+        <div class="actions">
+          <div class="actrow">
+            <button class="btn" type="button">Move to another day</button>
+            <button class="btn" type="button">Write it again</button>
+          </div>
+          <div class="actrow">
+            <button class="btn danger small" type="button">Remove this post</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /frames -->
+
+<div class="notes">
+  <h2>Where the content comes from</h2>
+  <ul>
+    <li><strong>The caption, hook and script are verbatim</strong> from the generated post in
+      <code>docs/reports/build-d-approval-phase2.md</code> §1 — including the corrupted final
+      hashtag <code>#ritualovertoutine</code>, which is real and still unfixed (§9.2 of that
+      report). It is left in rather than tidied: the sheet is the surface where a client would
+      catch it.</li>
+    <li><strong>The draft beat’s rationale sentence</strong> is exactly what
+      <code>rationaleFor()</code> renders from that beat’s evidence. The supporting line beneath
+      it reads out the same evidence object: <code>avgEngagement 69.9 / posts 8</code>,
+      <code>pillarShare 0.2</code>, <code>cadenceBasis {postsPerWeek: 2.24, source: 'observed',
+      months: 4}</code>, 31 posts of history (Build&nbsp;A §10).</li>
+    <li><strong>“Write it again” is the existing per-post shape path</strong>
+      (<code>POST /api/plan/shape</code>), which is metered — the monthly AI-change limit applies
+      and the surface must be able to say so. The sheet has no place for that message yet; it is
+      in the spec’s gap table.</li>
+    <li><strong>Answering an assumption from the sheet</strong> routes through
+      <code>POST /api/plan/draft/apply</code> as ordinary text. Nothing records that an assumption
+      <em>was</em> answered, so it will reappear on the next load — also in the gap table.</li>
+  </ul>
+</div>
+
+</body>
+</html>

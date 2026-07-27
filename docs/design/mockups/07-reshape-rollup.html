@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>7 — Reshape, itemised rollup · Sprigly mobile plan surface</title>
+<link rel="stylesheet" href="sprigly-mobile.css">
+<style>
+  /* Page-local: the rollup list. Kept here rather than in the shared sheet because
+     nothing else in the surface uses it. */
+  .rollup { list-style: none; margin: 11px 0 0; padding: 0; }
+  .item { border-top: 1px solid var(--hair); padding: 10px 0 9px; }
+  .item:first-child { border-top: 0; }
+  .itemhead { display: flex; gap: 9px; align-items: baseline; }
+  .itemhead .mk { font-size: 13px; font-weight: 800; flex: none; width: 12px; text-align: center; }
+  /* The rollup sits inside the coral-100 strip, so coral text here is coral-800 only. */
+  .itemhead .mk.ok { color: var(--coral-800); }
+  .itemhead .mk.idea { color: var(--muted); }
+  .itemhead .mk.warn { color: var(--danger); }
+  .itemhead .span { font-size: 13.5px; line-height: 1.42; font-weight: 600; color: var(--chrome); }
+  .item details { margin: 5px 0 0 21px; }
+  .item summary { font-size: 12.5px; color: var(--muted); cursor: pointer; min-height: 24px; font-weight: 600; list-style: none; }
+  .item summary::-webkit-details-marker { display: none; }
+  .item summary::before { content: '▸ '; color: var(--coral-800); }
+  .item details[open] summary::before { content: '▾ '; }
+  .item details ul { margin: 6px 0 0; padding-left: 16px; display: grid; gap: 4px; }
+  .item details li { font-size: 13px; line-height: 1.45; color: var(--chrome); }
+  .item .note { font-size: 12.5px; color: var(--muted); margin: 5px 0 0 21px; }
+  .item .rescue {
+    margin: 8px 0 0 21px; min-height: 38px; padding: 8px 13px; border-radius: 10px;
+    border: 1.5px solid var(--coral-600); background: var(--coral-100); color: var(--coral-800);
+    font-family: var(--sans); font-size: 13px; font-weight: 700; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <div class="crumbs">Mockup 5 of 6 · rollup variant · <a href="06-reshape-after.html">← the single-sentence reshape</a> · <a href="index.html">all states</a></div>
+  <h1>Reshape moment — the itemised rollup</h1>
+  <p>Real clients paste briefs, not sentences. A document-shaped paste is split into its
+  instructions, each routed through the unmodified classifier, and the whole thing comes back as
+  <em>one</em> receipt with one line per segment. This is the same “what changed” strip in its
+  rollup mode — same component, keyed on <code>receipt.items</code>.</p>
+</div>
+
+<div class="frames">
+<div class="frame-wrap">
+  <p class="frame-label">ivy-t · Sally’s August brief · 14 segments</p>
+  <p class="frame-sub">~700 words in, fourteen lines out. Applied lines expand to their diff;
+  ideas carry a one-tap “Add to this month”. Nothing is silently demoted — a segment that only
+  reached the ideas list says so on its own line.</p>
+
+  <div class="phone tall">
+    <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
+
+    <div class="topbar">
+      <div class="brandmark">
+        <svg viewBox="0 0 100 110" fill="#E8705F" aria-hidden="true">
+          <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+          <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+          <line x1="50" y1="76" x2="50" y2="98" stroke="#E8705F" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+        <span>Sprigly</span>
+      </div>
+      <div class="avatar">IT</div>
+    </div>
+
+    <div class="monthbar" style="flex-direction:column;gap:2px">
+      <button class="month-label" type="button">August 2026 <span class="chev">▼</span><span class="draft-dot"></span></button>
+      <div style="display:flex;align-items:center;gap:7px">
+        <span class="badge">Draft</span>
+        <span style="font-size:12px;color:var(--muted);font-weight:600">Not sent yet</span>
+      </div>
+    </div>
+
+    <div class="weekstrip" role="group" aria-label="Week of 27 July">
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Mon</span><span class="num">27</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Tue</span><span class="num">28</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Wed</span><span class="num">29</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Thu</span><span class="num">30</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Fri</span><span class="num">31</span></button>
+      <button class="wday" type="button" aria-pressed="true"><span class="dow">Sat</span><span class="num">1</span><span class="pip draft"></span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Sun</span><span class="num">2</span></button>
+    </div>
+    <div class="weekrule"></div>
+
+    <div class="feed">
+      <section class="strip tint" style="margin-top:12px" aria-label="What we found">
+        <div class="striptop">
+          <h3>What we found</h3>
+          <button class="dismiss" type="button" style="color:var(--coral-800)">Dismiss</button>
+        </div>
+        <p style="color:var(--coral-800);font-weight:600">We found 14 things in what you sent.</p>
+        <div class="chiprow">
+          <span class="sumchip">1 launch</span>
+          <span class="sumchip">2 series</span>
+          <span class="sumchip">3 events</span>
+          <span class="sumchip">2 posts</span>
+          <span class="sumchip">6 ideas</span>
+        </div>
+
+        <ul class="rollup">
+          <li class="item">
+            <div class="itemhead"><span class="mk ok">✓</span><span class="span">The Navy Edit launches on 28th August at 7pm</span></div>
+            <details><summary>What changed</summary>
+              <ul><li>Added a launch arc — 3 beats around Fri 28 Aug</li></ul>
+            </details>
+          </li>
+
+          <li class="item">
+            <div class="itemhead"><span class="mk ok">✓</span><span class="span">Weekend Style Guide every Friday … 4th September</span></div>
+            <details><summary>What changed</summary>
+              <ul><li>Added 4 beats — Fri 7, 14, 21 and 28 Aug</li></ul>
+            </details>
+            <p class="note">1 saved for next month — 4 Sep falls outside August.</p>
+          </li>
+
+          <li class="item">
+            <div class="itemhead"><span class="mk ok">✓</span><span class="span">a mini-series … one post every three weeks</span></div>
+            <details><summary>What changed</summary>
+              <ul><li>Added 2 beats — Sat 1 Aug and Sat 22 Aug</li></ul>
+            </details>
+          </li>
+
+          <li class="item">
+            <div class="itemhead"><span class="mk ok">✓</span><span class="span">On the 14th the stock leaves the factory</span></div>
+            <details><summary>What changed</summary><ul><li>Added 1 beat — Fri 14 Aug</li></ul></details>
+          </li>
+
+          <li class="item">
+            <div class="itemhead"><span class="mk ok">✓</span><span class="span">On the 15th … Portugal … summer shutdown</span></div>
+            <details><summary>What changed</summary><ul><li>Added 1 beat — Sat 15 Aug</li></ul></details>
+          </li>
+
+          <li class="item">
+            <div class="itemhead"><span class="mk ok">✓</span><span class="span">A throwback … given the heatwave</span></div>
+            <details><summary>What changed</summary><ul><li>Added 1 beat</li></ul></details>
+          </li>
+
+          <li class="item">
+            <div class="itemhead"><span class="mk ok">✓</span><span class="span">colour-reveal … on the 25th</span></div>
+            <details><summary>What changed</summary><ul><li>Added 1 beat — Tue 25 Aug</li></ul></details>
+          </li>
+
+          <li class="item">
+            <div class="itemhead"><span class="mk ok">✓</span><span class="span">who can guess which of the girls … navy</span></div>
+            <details><summary>What changed</summary><ul><li>Added 1 beat</li></ul></details>
+          </li>
+
+          <li class="item">
+            <div class="itemhead"><span class="mk idea">·</span><span class="span">breakdown of how our sweatshirts are made</span></div>
+            <p class="note">Kept for later rather than changing August.</p>
+            <button class="rescue" type="button">Add to this month</button>
+          </li>
+
+          <li class="item">
+            <div class="itemhead"><span class="mk idea">·</span><span class="span">life is busy and clothes should be simple</span></div>
+            <p class="note">Kept for later rather than changing August.</p>
+            <button class="rescue" type="button">Add to this month</button>
+          </li>
+
+          <li class="item">
+            <div class="itemhead"><span class="mk idea">·</span><span class="span">our organic cotton staples</span></div>
+            <p class="note">Kept for later rather than changing August.</p>
+            <button class="rescue" type="button">Add to this month</button>
+          </li>
+
+          <li class="item">
+            <div class="itemhead"><span class="mk idea">·</span><span class="span">the simple things that just work</span></div>
+            <p class="note">Kept for later rather than changing August.</p>
+            <button class="rescue" type="button">Add to this month</button>
+          </li>
+
+          <li class="item">
+            <div class="itemhead"><span class="mk idea">·</span><span class="span">we never use polyester</span></div>
+            <p class="note">Kept for later rather than changing August.</p>
+            <button class="rescue" type="button">Add to this month</button>
+          </li>
+
+          <li class="item">
+            <div class="itemhead"><span class="mk idea">·</span><span class="span">pull the DMs from last week</span></div>
+            <p class="note">Noted for us to do — this one doesn’t change your plan.</p>
+          </li>
+        </ul>
+      </section>
+
+      <section class="day">
+        <div class="dayhead">
+          <span class="numeral">1</span>
+          <span class="stack"><span class="dname">Saturday</span><span class="dmeta">August</span></span>
+          <span class="spacer"></span>
+          <span class="daycount">2 beats</span>
+        </div>
+        <button class="card draft changed" type="button">
+          <div class="cardtop">
+            <span class="chip">Reel</span>
+            <span class="pillar">Understands Real Women</span>
+            <span class="badge">Just changed</span>
+          </div>
+          <h4>mini-series ‘What I am most proud of…’ — Tease</h4>
+          <p class="teaser">This came from what you told us: “a mini-series, one post every three
+          weeks”.</p>
+        </button>
+      </section>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="notes">
+  <h2>Where the content comes from</h2>
+  <ul>
+    <li><strong>All fourteen segments, their kinds and their outcomes</strong> are the acceptance
+      fixture in <code>docs/reports/brief-decomposer.md</code> §COMMIT&nbsp;4 — Sally’s real August
+      brief through the real decomposer, asserted at 8 month-scoped applications, 6 evergreen
+      filings, exactly 1 next-cycle deferral, and one receipt line per segment.</li>
+    <li><strong>14, not 13.</strong> The prompt for this design session says “We found 13 things”;
+      the failure report describes ~13 distinct intents, and the decomposer’s own fixture splits
+      the brief into 14. The number on screen is whatever <code>receipt.segmentCount</code> is —
+      shown here as 14 because that is what the fixture produces.</li>
+    <li><strong>The per-item diff lines are reconstructions</strong>, not stored strings. The
+      fixture records beat counts and dates per segment (“applied: 4 beats · 1 deferred (4 Sep)”),
+      not the rendered <code>lines[]</code>. They are phrased here in the form the existing diff
+      renderer uses.</li>
+    <li><strong>Rescuing one item currently loses the rollup.</strong> The existing
+      <code>add_to_month</code> op returns a single receipt, which replaces the rollup in the
+      panel (<code>brief-decomposer.md</code> “Found, and left unfixed” §2). The mockup shows the
+      intended behaviour — item promoted in place, rollup kept — and the spec lists it as a gap.</li>
+  </ul>
+</div>
+
+</body>
+</html>
