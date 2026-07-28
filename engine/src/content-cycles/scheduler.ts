@@ -520,6 +520,18 @@ export async function runContentCycleTick(params: {
    * The daily cadence IS the backoff — there is no retry machinery behind this.
    */
   sweepPlanReady?: () => Promise<unknown>;
+  /**
+   * Retry pass for posts whose caption generation ran out of BullMQ retries (spec gap 7).
+   *
+   * Injected for the same reason its sibling is: the sweep needs the queue and the
+   * generation instruction, and the scheduler keeps no dependency on either. Absent ⇒ no
+   * sweep, and the tick behaves exactly as before.
+   *
+   * This is the half that makes the redesign's "on its way" honest. The client no longer has
+   * a retry button, so something has to do the retrying — and what it cannot recover has to
+   * reach an operator instead.
+   */
+  sweepFailedGenerations?: () => Promise<unknown>;
 }): Promise<void> {
   const { db, queue, logger } = params;
   const now = params.now ?? new Date();
@@ -539,6 +551,14 @@ export async function runContentCycleTick(params: {
   if (params.sweepPlanReady) {
     try { await params.sweepPlanReady(); }
     catch (err) { logger.warn({ err: String(err) }, 'content-cycle-scheduler: plan-ready sweep failed (non-fatal)'); }
+  }
+
+  // Then the generation retry arm, for the same reason and on the same terms: a caption that
+  // ran out of BullMQ attempts overnight gets another go before the tick spends time on new
+  // work. Best-effort — a sweep failure must never stop the tick's real work.
+  if (params.sweepFailedGenerations) {
+    try { await params.sweepFailedGenerations(); }
+    catch (err) { logger.warn({ err: String(err) }, 'content-cycle-scheduler: generation sweep failed (non-fatal)'); }
   }
 
   const enabledRows = await db

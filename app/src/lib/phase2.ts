@@ -17,9 +17,12 @@
  *
  * ── Partial failure ──────────────────────────────────────────────────────────
  * A month is not all-or-nothing. Each post is its own job; a failure lands that ONE post in
- * 'generation_failed' with the reason on source_meta, and the surface offers a per-post
- * retry. Ten good posts and one broken one is a month the client can work with; a blocked
- * cycle is not.
+ * 'generation_failed' with the reason on source_meta. Ten good posts and one broken one is a
+ * month the client can work with; a blocked cycle is not.
+ *
+ * The CLIENT-facing half of that changed with gap 7: there is no per-post retry button any
+ * more. The daily sweep re-enqueues a failed post twice (generation-sweep.ts), and one it
+ * cannot recover surfaces in admin instead. The client reads "on its way" throughout.
  *
  * Ordering matters for reels: the combined hook+script job needs the caption. So scripts are
  * not enqueued here — the worker enqueues one when a reel's caption lands (consumer.ts →
@@ -29,6 +32,7 @@
  */
 import { and, eq, isNull, ne } from 'drizzle-orm';
 import { db, contentCyclePosts, POST_STATUS_DRAFT } from '@sprigly/db';
+import { captionInstruction } from '@sprigly/engine/generation-recovery';
 import { enqueueShape, enqueueHookJob } from '@/lib/queue';
 import { POST_STATUS_GENERATING } from '@/lib/draft-approval';
 import { recordPhase2Run, type Phase2Cost } from '@/lib/phase2-cost';
@@ -44,15 +48,9 @@ import { recordPhase2Run, type Phase2Cost } from '@/lib/phase2-cost';
  */
 const HOOK_FORMATS = new Set(['carousel']);
 
-/** The instruction that drives caption generation for an approved beat.
- *
- *  Deliberately spare. The beat already carries its date, format and pillar, and
- *  assembleShapeContext supplies voice, catalogue and competitor context. Restating those
- *  here would give the model two sources for the same facts and a chance to disagree with
- *  itself. The one thing it needs that the row does not carry is what this slot is FOR. */
-function captionInstruction(title: string, pillar: string): string {
-  return `Write the caption for this post. It is the "${title}" slot in this month's plan${pillar ? `, under the ${pillar} pillar` : ''}. Keep it to that subject.`;
-}
+// captionInstruction moved to @sprigly/engine. The failed-generation sweep (gap 7) runs in
+// the WORKER and re-enqueues the same job, so the instruction has callers on both sides of
+// the app/worker boundary — and two copies of a prompt is two prompts.
 
 export interface Phase2Result {
   captionsQueued: number;
@@ -65,10 +63,8 @@ export interface Phase2Result {
  *
  * Enqueues rather than generates: the worker owns concurrency (2, consumer.ts:233), so a
  * 30-beat month cannot stampede Bedrock however fast this loop runs. Shape/hook/script jobs
- * carry `attempts: 1` (queue.ts:87, :130, :188) — no BullMQ-level retry, because a failed
- * generation is usually a bad response rather than a flaky connection, and silently paying
- * for three identical attempts is worse than surfacing one failure the client can retry
- * deliberately.
+ * carry GENERATION_JOB_OPTIONS — three attempts, exponential from 5s — and beyond those, two
+ * passes of the daily sweep. Nine paid attempts is the ceiling for one caption.
  */
 export async function startPhase2(clientId: string, cycleId: string): Promise<Phase2Result> {
   const posts = await db

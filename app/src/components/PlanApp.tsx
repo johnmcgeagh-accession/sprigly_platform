@@ -5,6 +5,7 @@ import { Film, Images, Image as ImageIcon, Mail, CalendarDays, List, Sparkles, P
 import type { PlanPost, PostFormat, PostStatus, ShapeResult, UsageSnapshot, CycleSummary } from '@/lib/types';
 import type { ProposalView } from '@/lib/agent/types';
 import type { NoteView } from '@/lib/agent/notes';
+import { isOnTheWay, ON_THE_WAY_LABEL, ON_THE_WAY_TEASER, ON_THE_WAY_BODY, ON_THE_WAY_ARIA } from '@/lib/generation-state';
 
 /** The /api/plan/agent turn response. Mutations arrive as proposals to review —
  *  nothing is applied on the turn itself. */
@@ -282,22 +283,9 @@ export default function PlanApp({ clientName, posts: initial, cycles, homeCycleI
     } catch { flash('Network error — please try again.'); }
   }
 
-  /** Retry a failed async generation: re-run using the preserved instruction. */
-  async function retryGeneration(id: string): Promise<void> {
-    if (readOnly) return;
-    try {
-      const res = await fetch(`/api/posts/${id}/retry-generation`, { method: 'POST' });
-      if (!res.ok) { flash('Could not retry that — please try again.'); return; }
-      const r = (await res.json()) as { mode?: string; summary?: string; jobId?: string };
-      if (r.mode === 'blocked') { flash(r.summary ?? 'You’ve reached this month’s AI-change limit.'); await reloadPlan(); await refreshUsage(); return; }
-      if (r.mode === 'pending' && r.jobId) {
-        await reloadPlan();               // show the 'writing…' state
-        await pollOne(r.jobId);
-        await reloadPlan();               // show the filled caption (or failed state)
-        await refreshUsage();
-      }
-    } catch { flash('Network error — please try again.'); }
-  }
+  // The client-facing retry of a generation is GONE (spec G4). Nothing here restarts one:
+  // the daily sweep does, twice, and a post it cannot recover becomes an operator item.
+  // /api/posts/:id/retry-generation still exists as a route; no client surface calls it.
 
   /** Poll one shape job until it settles; swap in the fresh posts on done. */
   async function pollOne(jobId: string): Promise<void> {
@@ -399,7 +387,7 @@ export default function PlanApp({ clientName, posts: initial, cycles, homeCycleI
           <section style={{ flex: 1, padding: '28px 30px 132px' }}>
             {readOnly
               ? <ReadOnlyDetail post={sel} />
-              : <Detail post={sel} busy={busy} rewriting={rewritingId === sel?.id} onSetFormat={setFormat} onSaveCaption={saveCaption} onRemove={remove} onRevert={revert} onShape={shapePost} onRetry={retryGeneration} />}
+              : <Detail post={sel} busy={busy} rewriting={rewritingId === sel?.id} onSetFormat={setFormat} onSaveCaption={saveCaption} onRemove={remove} onRevert={revert} onShape={shapePost} />}
           </section>
         )}
       </div>
@@ -412,7 +400,7 @@ export default function PlanApp({ clientName, posts: initial, cycles, homeCycleI
             </div>
             {readOnly
               ? <ReadOnlyDetail post={sel} />
-              : <Detail post={sel} busy={busy} rewriting={rewritingId === sel?.id} onSetFormat={setFormat} onSaveCaption={saveCaption} onRemove={remove} onRevert={revert} onShape={shapePost} onRetry={retryGeneration} />}
+              : <Detail post={sel} busy={busy} rewriting={rewritingId === sel?.id} onSetFormat={setFormat} onSaveCaption={saveCaption} onRemove={remove} onRevert={revert} onShape={shapePost} />}
           </div>
         </div>
       )}
@@ -532,12 +520,11 @@ function SprigRow({ post, first, last, selected, onClick }: { post: VPost; first
           <span style={{ color: C.line }}>·</span>
           <span style={{ color: C.muted }}>{post.pillar}</span>
         </div>
-        {post.status === 'generating'
-          ? <p style={{ margin: 0, fontSize: 13, color: C.coralDeep, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              <span className="spin" style={{ width: 12, height: 12, border: '2px solid #FFD9D4', borderTopColor: C.coralDeep, borderRadius: '50%', display: 'inline-block' }} /> Sprigly is writing this…
-            </p>
-          : post.status === 'generation_failed'
-          ? <p style={{ margin: 0, fontSize: 13, color: '#B42318' }}>Couldn’t write this one — open it to retry.</p>
+        {/* G4: 'generating' and 'generation_failed' read the same to a client — the words are
+            not here yet, and nothing is being asked of them. The sweep is what makes that true
+            (lib/generation-state.ts). The real status stays on the row for the operator. */}
+        {isOnTheWay(post.status)
+          ? <p style={{ margin: 0, fontSize: 13, color: C.muted }} aria-label={ON_THE_WAY_ARIA}>{ON_THE_WAY_TEASER}</p>
           : <p style={{ margin: 0, fontSize: 13.5, color: C.muted, lineHeight: 1.45, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{post.caption.replace(/\n+/g, ' ')}</p>}
       </div>
     </button>
@@ -546,11 +533,10 @@ function SprigRow({ post, first, last, selected, onClick }: { post: VPost; first
 
 /* ---------------- detail (editable) ---------------- */
 
-function Detail({ post, busy, rewriting, onSetFormat, onSaveCaption, onRemove, onRevert, onShape, onRetry }: {
+function Detail({ post, busy, rewriting, onSetFormat, onSaveCaption, onRemove, onRevert, onShape }: {
   post: VPost | null; busy: boolean; rewriting: boolean;
   onSetFormat: (id: string, f: PostFormat) => void; onSaveCaption: (id: string, c: string) => void;
   onRemove: (id: string) => void; onRevert: (id: string) => void; onShape: (id: string, instruction: string) => void;
-  onRetry: (id: string) => void;
 }) {
   const [draft, setDraft] = useState('');
   const [shapeText, setShapeText] = useState('');
@@ -572,23 +558,23 @@ function Detail({ post, busy, rewriting, onSetFormat, onSaveCaption, onRemove, o
         <span style={{ color: C.line }}>·</span>
         <span style={{ fontFamily: display, fontSize: 16, color: C.navy }}>{`${WK[post.date.getDay()]} ${MONTHS[post.date.getMonth()]} ${post.date.getDate()}`}</span>
         <StatusTag status={post.status} />
-        {post.status !== 'planned' && post.status !== 'generating' && post.status !== 'generation_failed' && <button onClick={() => onRevert(post.id)} disabled={busy} style={{ marginLeft: 'auto', ...textBtn }}><Undo2 size={13} /> Revert</button>}
+        {post.status !== 'planned' && !isOnTheWay(post.status) && <button onClick={() => onRevert(post.id)} disabled={busy} style={{ marginLeft: 'auto', ...textBtn }}><Undo2 size={13} /> Revert</button>}
       </div>
 
-      {post.status === 'generating' ? (
-        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 12, color: C.coralDeep, fontSize: 14, background: C.coralLt, borderRadius: 14, padding: '22px 18px' }}>
-          <span className="spin" style={{ width: 17, height: 17, border: '2px solid #FFD9D4', borderTopColor: C.coralDeep, borderRadius: '50%', display: 'inline-block', flex: '0 0 auto' }} />
+      {isOnTheWay(post.status) ? (
+        /* ONE state, not two. The client is never shown the generation error, and never
+           handed the job of restarting it — the sweep does that, and what it cannot recover
+           reaches an operator instead (admin → Failed Posts). */
+        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 12, color: C.navy, fontSize: 14, background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, padding: '22px 18px' }}>
+          <span aria-hidden="true" style={{ display: 'inline-flex', gap: 3, flex: '0 0 auto' }}>
+            <i style={{ width: 5, height: 5, borderRadius: '50%', background: C.coralDeep, opacity: .3, display: 'block' }} />
+            <i style={{ width: 5, height: 5, borderRadius: '50%', background: C.coralDeep, opacity: .6, display: 'block' }} />
+            <i style={{ width: 5, height: 5, borderRadius: '50%', background: C.coralDeep, opacity: 1, display: 'block' }} />
+          </span>
           <div>
-            <div style={{ fontWeight: 600 }}>Sprigly is writing this post…</div>
-            {post.pendingInstruction && <div style={{ fontSize: 12.5, color: C.muted, marginTop: 3 }}>“{post.pendingInstruction}”</div>}
+            <div style={{ fontWeight: 600 }}>{ON_THE_WAY_LABEL}</div>
+            <div style={{ fontSize: 12.5, color: C.muted, marginTop: 3 }}>{ON_THE_WAY_BODY}</div>
           </div>
-        </div>
-      ) : post.status === 'generation_failed' ? (
-        <div style={{ marginTop: 8, border: '1px solid #F3C9C4', background: '#FEF3F2', borderRadius: 14, padding: '18px' }}>
-          <div style={{ fontWeight: 600, color: '#B42318', fontSize: 14.5 }}>That one didn’t come through</div>
-          <p style={{ fontSize: 13, color: C.muted, margin: '6px 0 0' }}>{post.generationError || 'Generation didn’t complete.'}</p>
-          {post.pendingInstruction && <p style={{ fontSize: 13.5, color: C.navy, margin: '12px 0 0' }}>You asked for: “{post.pendingInstruction}”</p>}
-          <button onClick={() => onRetry(post.id)} disabled={busy} style={{ ...primaryBtn, padding: '0 16px', height: 38, marginTop: 14, opacity: busy ? 0.5 : 1 }}><Sparkles size={15} /> Try again</button>
         </div>
       ) : (
       <>
@@ -982,8 +968,9 @@ function Toggle({ active, onClick, icon: Icon, label }: { active: boolean; onCli
 function StatusTag({ status }: { status: PostStatus }) {
   if (status === 'edited') return <Tag bg={C.tagBg} fg={C.muted}>edited</Tag>;
   if (status === 'new') return <Tag bg={C.coralLt} fg={C.coralDeep}>new</Tag>;
-  if (status === 'generating') return <Tag bg={C.coralLt} fg={C.coralDeep}>writing…</Tag>;
-  if (status === 'generation_failed') return <Tag bg="#FCE4E4" fg="#B42318">needs a retry</Tag>;
+  // Both in-flight statuses carry the SAME tag. A client has no use for which of our
+  // processes runs next, and 'needs a retry' asked them for something nobody wants from them.
+  if (isOnTheWay(status)) return <Tag bg={C.coralLt} fg={C.coralDeep}>on its way</Tag>;
   return null;
 }
 function Tag({ children, bg, fg }: { children: React.ReactNode; bg: string; fg: string }) {

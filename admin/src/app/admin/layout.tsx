@@ -15,6 +15,9 @@ const navItems = [
   { href: '/admin/email-templates', label: 'Client Emails' },
   { href: '/admin/themes', label: 'Themes' },
   { href: '/admin/gmail-errors',  label: 'Gmail Errors' },
+  // Gap 7's operator half. The client surface offers no retry, so this is the only place a
+  // post whose generation ran out of attempts is visible at all.
+  { href: '/admin/failed-posts',  label: 'Failed Posts' },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

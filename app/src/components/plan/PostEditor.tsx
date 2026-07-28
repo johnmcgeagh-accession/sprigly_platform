@@ -312,7 +312,10 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
           {data.shapeErrors.get(post.id) ? (
             <div data-testid="shape-error" role="alert" className="mt-3.5 flex items-center gap-3 text-[12.5px] leading-relaxed text-danger">
               <span>{data.shapeErrors.get(post.id)}</span>
-              <button data-testid="shape-retry" onClick={() => data.retryShape(post.id)} className="font-extrabold text-slate-700 underline">Retry</button>
+              {/* "Send it again", not "Retry". This is the client's own instruction not having
+                  landed — a thing they asked for, offered back to them — never a report that our
+                  generation broke. Retry vocabulary belongs to neither. */}
+              <button data-testid="shape-retry" onClick={() => data.retryShape(post.id)} className="font-extrabold text-slate-700 underline">Send it again</button>
             </div>
           ) : (
             <p data-testid="shape-note" className="mt-3.5 text-[12.5px] leading-relaxed text-muted">
