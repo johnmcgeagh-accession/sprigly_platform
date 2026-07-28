@@ -1,0 +1,32 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "system-ui",
+        "createdAt": "2026-07-28T08:57:21.859Z",
+        "reason": "native stack chosen deliberately for iOS-native platform feel; reviewed by operator across three rounds."
+      },
+      {
+        "rule": "overused-font",
+        "value": "-apple-system",
+        "createdAt": "2026-07-28T08:57:21.887Z",
+        "reason": "native stack chosen deliberately for iOS-native platform feel; reviewed by operator across three rounds."
+      },
+      {
+        "rule": "overused-font",
+        "value": "blinkmacsystemfont",
+        "createdAt": "2026-07-28T08:57:21.912Z",
+        "reason": "native stack chosen deliberately for iOS-native platform feel; reviewed by operator across three rounds."
+      },
+      {
+        "rule": "overused-font",
+        "value": "sf pro text",
+        "createdAt": "2026-07-28T08:57:21.938Z",
+        "reason": "native stack chosen deliberately for iOS-native platform feel; reviewed by operator across three rounds."
+      }
+    ]
+  }
+}
