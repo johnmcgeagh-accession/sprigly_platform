@@ -83,9 +83,12 @@ export function PlanShell({
       <div className="flex flex-none items-center gap-1.5 px-[18px] pt-3">
         <div className="flex items-center gap-1">
           <ArrowBtn dir="prev" onClick={onPrevMonth} />
-          <span data-testid="month-title" className="whitespace-nowrap text-[20px] font-bold tracking-[-.03em] text-chrome">
+          {/* The month IS the page's subject, so it is the h1. That gives the surface a clean
+              ladder — h1 month, h2 day, h3 section, h4 card — where the old one started at h4
+              and had no top level at all. The wordmark is a mark, not a heading. */}
+          <h1 data-testid="month-title" className="whitespace-nowrap text-[20px] font-bold tracking-[-.03em] text-chrome">
             {monthLabel}
-          </span>
+          </h1>
           <ArrowBtn dir="next" onClick={onNextMonth} />
         </div>
         <span className="flex-1" />

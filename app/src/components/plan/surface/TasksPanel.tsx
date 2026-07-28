@@ -51,7 +51,12 @@ export function TasksPanel({ data, onOpen }: { data: PlanData; onOpen: (postId: 
           {items.map((t) => (
             <div
               key={t.item.step.id} data-testid="task-row"
-              className={`mb-2 flex min-h-[56px] items-center gap-3 rounded-[14px] border bg-surface px-[13px] py-3 shadow-card ${t.bucket === 'overdue' ? 'border-line/30 border-l-[3px] border-l-danger' : 'border-line/30'}`}
+              // NO coloured left stripe. It is the most recognisable tell of a templated UI,
+              // and the detector flags the inline-style form of it — the Tailwind form is the
+              // same pattern with the same problem, so it goes too. Late is carried by the
+              // WORD 'Late' in danger, which is a stronger channel than a 3px edge and does not
+              // depend on colour vision. The row itself just gets a firmer hairline.
+              className={`mb-2 flex min-h-[56px] items-center gap-3 rounded-[14px] border bg-surface px-[13px] py-3 shadow-card ${t.bucket === 'overdue' ? 'border-line/55' : 'border-line/30'}`}
             >
               <button
                 type="button" data-testid="task-check" aria-label={`Mark "${t.item.step.label}" done`}

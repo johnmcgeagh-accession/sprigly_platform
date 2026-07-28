@@ -361,7 +361,9 @@ function TasksView({ data, onSelect }: { data: PlanData; onSelect: (id: string) 
 function RetryPane({ testid, label, onRetry }: { testid: string; label: string; onRetry: () => void }) {
   return (
     <div data-testid={testid} role="alert" className="rounded-xl border border-line bg-surface p-4 text-[13.5px] text-slate-600 shadow-card">
-      {label} <button onClick={onRetry} className="font-extrabold text-slate-700 underline">Retry</button>
+      {/* "Try again", not "Retry" (§7 / G4). A load that did not arrive is the client asking
+          again for something they asked for; the vocabulary of OUR failure stays operator-side. */}
+      {label} <button onClick={onRetry} className="font-extrabold text-slate-700 underline">Try again</button>
     </div>
   );
 }

@@ -179,7 +179,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
           />
           {hookErr && (
             <div data-testid="hook-error" role="alert" className="mt-2 text-[12.5px] font-semibold text-danger">
-              {hookErr} <button onClick={() => data.generateHooks(post.id)} className="font-extrabold underline">Retry</button>
+              {hookErr} <button onClick={() => data.generateHooks(post.id)} className="font-extrabold underline">Try again</button>
             </div>
           )}
           {hookCandidates.length > 0 && (
@@ -238,7 +238,7 @@ export function PostEditor({ post, data, onClose }: { post: PlanPost; data: Plan
           )}
           {scriptErr && (
             <div data-testid="script-error" role="alert" className="mt-2 text-[12.5px] font-semibold text-danger">
-              {scriptErr} <button onClick={() => data.generateScript(post.id, len)} className="font-extrabold underline">Retry</button>
+              {scriptErr} <button onClick={() => data.generateScript(post.id, len)} className="font-extrabold underline">Try again</button>
             </div>
           )}
           {post.script && (

@@ -165,7 +165,8 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
     // position and all. Rebuilding it from {date, format, pillar} turned a launch beat into
     // a subjectless husk (docs/reports/uat-findings-fixes.md, Part 0).
     const restore = res.dropped
-      ? { label: 'Beat removed', op: { op: 'restore', beat: res.dropped } as Record<string, unknown> }
+      // "Post removed", never "Beat removed" (§7). This string is rendered in the undo bar.
+      ? { label: 'Post removed', op: { op: 'restore', beat: res.dropped } as Record<string, unknown> }
       : undoOp;
     if (restore) { undo.current = restore; setUndoLabel(restore.label); } else { undo.current = null; setUndoLabel(null); }
   }
