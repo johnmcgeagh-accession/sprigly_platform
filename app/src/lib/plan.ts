@@ -15,6 +15,7 @@ import type { ContentCyclePostRow } from '@sprigly/db';
 import { db, contentCycles, contentCyclePosts, clientPlanningConfig, excludeDraftPosts, POST_STATUS_DRAFT, PRE_PLANNING_STATUSES } from '@sprigly/db';
 import type { BeatMeta } from '@sprigly/db';
 import { listStepsForPosts } from '@/lib/steps';
+import { normalisePostingTime } from '@/lib/posting-time';
 import { nextMonth } from '@/lib/cycle-nav';
 import { resolveSurfaceKind, mayHaveDraftSurface, type SurfaceKind } from '@/lib/surface-state';
 import { cycleIsPreCutoff } from '@/lib/draft-mutations';
@@ -117,8 +118,9 @@ function toPlanPost(r: ContentCyclePostRow, stepsByPost: Map<string, PostStepVie
     pendingInstruction: metaStr(r.sourceMeta, 'pendingInstruction'),
     generationError:    metaStr(r.sourceMeta, 'generationError'),
     // Gap 1 (read): the planning path writes this; until now nothing read it back.
-    postingTime:        normaliseTime(metaStr(r.sourceMeta, 'postingTime')),
+    postingTime:        normalisePostingTime(metaStr(r.sourceMeta, 'postingTime')),
     title:              metaStr(r.sourceMeta, 'title'),
+    rationale:          metaStr(r.sourceMeta, 'competitorInsight'),
   };
 }
 
@@ -176,20 +178,7 @@ export async function loadCrossMonthPosts(
   return rows.map((r) => toPlanPost(r, stepsByPost));
 }
 
-/**
- * 'HH:MM' or null. source_meta is not validated anywhere, and the planning path has written
- * '6:00', '06:00' and '18.00' at different times, so this normalises rather than trusting it —
- * a malformed value renders as no time at all, which is honest, instead of as garbage on a card.
- */
-export function normaliseTime(raw: string | null): string | null {
-  if (!raw) return null;
-  const m = /^(\d{1,2})[:.](\d{2})$/.exec(raw.trim());
-  if (!m) return null;
-  const h = Number(m[1]);
-  const min = Number(m[2]);
-  if (!Number.isInteger(h) || h < 0 || h > 23 || min < 0 || min > 59) return null;
-  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
-}
+export { normalisePostingTime, isClockTime } from '@/lib/posting-time';
 
 /** Read a string field off a post's source_meta jsonb (null if absent/non-string). */
 function metaStr(sourceMeta: unknown, key: string): string | null {

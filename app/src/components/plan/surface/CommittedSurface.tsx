@@ -34,10 +34,14 @@ import { WeekStrip, type DayMark } from './WeekStrip';
 import { MonthGrid } from './MonthGrid';
 import { DayPanel } from './DayPanel';
 import { TasksPanel } from './TasksPanel';
-import { defaultDayFor, monthOf, monthTitle, monthGrid } from './dates';
+import { DetailSheet } from './DetailSheet';
+import { MoveSheet } from './MoveSheet';
+import { Snackbar, type UndoState } from './Snackbar';
+import { defaultDayFor, monthOf, monthTitle, monthGrid, shortDate } from './dates';
 import { isOnTheWay } from '@/lib/generation-state';
 import { orphanPosts } from '@/lib/cycle-nav';
 import { lateCount } from '../derive';
+import { cardText } from './card-text';
 
 export function CommittedSurface({ data }: { data: PlanData }) {
   const viewedCycle = data.cycles.find((c) => c.cycleId === data.viewedCycleId);
@@ -46,6 +50,8 @@ export function CommittedSurface({ data }: { data: PlanData }) {
   const [view, setView] = useState<PlanView>('day');
   const [selected, setSelected] = useState(() => defaultDayFor(month, data.today, data.calendarPosts.map((p) => p.date)));
   const [openId, setOpenId] = useState<string | null>(null);
+  const [moveId, setMoveId] = useState<string | null>(null);
+  const [undo, setUndo] = useState<UndoState | null>(null);
 
   // Re-anchor the selection when the MONTH changes, not on every render: switching to October
   // while standing on 3 September has to move, and an unrelated post edit must not.
@@ -76,6 +82,51 @@ export function CommittedSurface({ data }: { data: PlanData }) {
   const markFor = useCallback((iso: string): DayMark => marksFor(iso)[0] ?? 'none', [marksFor]);
 
   const timeOf = useCallback((p: PlanPost) => p.postingTime ?? '', []);
+
+  // A post opened from any view — including one dated in another month and shown here by date.
+  const openPost = data.calendarPosts.find((p) => p.id === openId) ?? null;
+  const movePost = data.calendarPosts.find((p) => p.id === moveId) ?? null;
+
+  /** The client's OWN posting labels, from the posts already loaded. Not a config read: nothing
+   *  surfaces client_planning_config.posting_times, and offering values from a contract's
+   *  documentation as if they were theirs is what the mockups did. */
+  const knownTimes = useMemo(
+    () => [...new Set(data.calendarPosts.map((p) => p.postingTime).filter((t): t is string => !!t))],
+    [data.calendarPosts],
+  );
+
+  /**
+   * Move, and say where it went (gap 11).
+   *
+   * A cross-month move works — the route gates on date, not on month — but nothing named the
+   * destination, so a 31 October post moved to 3 November simply vanished from the month the
+   * client was looking at. The snackbar names the date, and names the MONTH when the move
+   * crossed one, which is precisely when the post leaves the screen.
+   */
+  const doMove = (post: PlanPost, toDate: string, toTime: string) => {
+    const fromDate = post.date;
+    const fromTime = post.postingTime ?? '';
+    setMoveId(null);
+    setOpenId(null);
+    data.reschedule(post.id, toDate, toTime);
+    const crossed = monthOf(toDate) !== monthOf(fromDate);
+    setUndo({
+      message: crossed
+        ? `Moved to ${shortDate(toDate)} — that’s in ${monthTitle(monthOf(toDate)).split(' ')[0]}.`
+        : `Moved to ${shortDate(toDate)}.`,
+      // Undo is ONE slot over ONE mutation: put the date and the time back. There is no
+      // inverse of anything larger, and offering one would be offering something imaginary.
+      onUndo: () => data.reschedule(post.id, fromDate, fromTime),
+    });
+  };
+
+  const doDelete = (post: PlanPost) => {
+    setOpenId(null);
+    void data.removePost(post.id);
+    // No undo: DELETE is a soft delete server-side, but no route un-deletes, so an Undo here
+    // would be a button that cannot do what it says. The statement stands without one.
+    setUndo({ message: 'Removed it.' });
+  };
 
   // ‹ › walk the client's sibling cycles. Disabled (not silently absent) at either end.
   const sorted = useMemo(() => [...data.cycles].sort((a, b) => a.displayMonth.localeCompare(b.displayMonth)), [data.cycles]);
@@ -123,6 +174,25 @@ export function CommittedSurface({ data }: { data: PlanData }) {
       tasksDot={lateCount(data.posts, data.today) > 0}
       onToday={goToday}
       todayEnabled={todayEnabled}
+      topSlot={<Snackbar state={undo} onDismiss={() => setUndo(null)} />}
+      overlays={<>
+        <DetailSheet
+          post={openPost} data={data} rationale={openPost?.rationale ?? ''}
+          onClose={() => setOpenId(null)}
+          onMove={() => { if (openPost) setMoveId(openPost.id); }}
+          onDelete={() => { if (openPost) doDelete(openPost); }}
+        />
+        {movePost && (
+          <MoveSheet
+            open onClose={() => setMoveId(null)}
+            postDate={movePost.date} postTime={movePost.postingTime ?? null}
+            postHeading={cardText(movePost).heading}
+            knownTimes={knownTimes}
+            canMoveTo={data.canEdit}
+            onMove={(d, t) => doMove(movePost, d, t)}
+          />
+        )}
+      </>}
       strip={view === 'day' ? (
         <WeekStrip
           selected={selected} today={data.today} month={month}
@@ -149,9 +219,6 @@ export function CommittedSurface({ data }: { data: PlanData }) {
         <MonthGrid month={month} selected={selected} today={data.today} marksFor={marksFor} onPick={pickFromGrid} footer={monthFooter} />
       )}
       {view === 'tasks' && <TasksPanel data={data} onOpen={setOpenId} />}
-      {/* The detail sheet lands in its own commit; until then a card tap selects without
-          opening, which is why openId is held here rather than in the panel. */}
-      <span className="sr-only" data-testid="selected-post">{openId ?? ''}</span>
     </PlanShell>
   );
 }

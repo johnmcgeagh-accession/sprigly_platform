@@ -13,6 +13,7 @@ import { loadPlanPosts } from '@/lib/plan';
 import { resolveRevert } from '@/lib/revert';
 import { recordActivity, USER_ACTOR, type ActivityActor, type ActivityAction } from '@/lib/activity';
 import { isEditableDate, canAddPost, editScopeToday } from '@/lib/edit-scope';
+import { normalisePostingTime } from '@/lib/posting-time';
 import type { ShapeResult, PostFormat } from '@/lib/types';
 
 const FORMATS = new Set<PostFormat>(['reel', 'carousel', 'single', 'email']);
@@ -56,6 +57,15 @@ export interface PostPatch {
   hook?:     string;   // reel/carousel hook — free-text edit or a picked candidate (Stage 6)
   script?:   string;   // reel script — free-text edit of the generated script (Stage 6)
   scriptLengthSeconds?: number;  // 15|30|60|90
+  /**
+   * Gap 1, the WRITE half — 'HH:MM'.
+   *
+   * There is no posting_time column, and adding one would be a schema change for a value the
+   * planning path has always written to `source_meta.postingTime`. This writes the same key
+   * the same way, so the surface reads back exactly what the planner wrote and one field has
+   * one home. An empty string clears it.
+   */
+  postingTime?: string;
 }
 
 /** PATCH a post: date / format / pillar / position / caption. Flips status to
@@ -82,6 +92,16 @@ export async function patchPost(clientId: string, cycleId: string, postId: strin
   if (typeof patch.hook === 'string')     set.hook = patch.hook;
   if (typeof patch.script === 'string')   set.script = patch.script;
   if (typeof patch.scriptLengthSeconds === 'number' && [15, 30, 60, 90].includes(patch.scriptLengthSeconds)) set.scriptLengthSeconds = patch.scriptLengthSeconds;
+  // Posting time rides on source_meta, MERGED rather than replaced: the same blob carries
+  // title, pendingInstruction, generationError and the sweep count, and none of them is this
+  // write's business. A malformed value is refused rather than stored — the reader would drop
+  // it anyway, and storing it would leave the row disagreeing with every surface.
+  if (typeof patch.postingTime === 'string') {
+    const t = patch.postingTime.trim() === '' ? null : normalisePostingTime(patch.postingTime);
+    if (t !== null || patch.postingTime.trim() === '') {
+      set.sourceMeta = { ...((row.sourceMeta ?? {}) as Record<string, unknown>), postingTime: t };
+    }
+  }
 
   // Ledger action reflects the primary field changed, so the history reads legibly.
   const action: ActivityAction =
@@ -91,17 +111,20 @@ export async function patchPost(clientId: string, cycleId: string, postId: strin
     : patch.script !== undefined  ? 'script_saved'
     : patch.format !== undefined  ? 'format_changed'
     : patch.position !== undefined ? 'reordered'
+    // A time change is a reschedule with the date left alone — the ledger should read that way.
+    : patch.postingTime !== undefined ? 'rescheduled'
     : 'post_updated';
   const payload: Record<string, unknown> = {};
   if (patch.date !== undefined)   { payload['from'] = row.scheduledDate; payload['to'] = patch.date; }
   if (patch.format !== undefined) { payload['fromFormat'] = row.format; payload['toFormat'] = patch.format; }
+  if (patch.postingTime !== undefined) { payload['fromTime'] = (row.sourceMeta as Record<string, unknown> | null)?.['postingTime'] ?? null; payload['toTime'] = patch.postingTime; }
 
   await db.transaction(async (tx) => {
     await tx.update(contentCyclePosts).set(set).where(scopedPost(clientId, cycleId, postId));
     await recordActivity(tx, { clientId, cycleId, postId, action, actor, payload });
   });
 
-  const what = patch.date ? 'Moved it.' : patch.format ? 'Changed the format.' : patch.caption !== undefined ? 'Saved your caption.' : patch.hook !== undefined ? 'Hook saved.' : patch.script !== undefined ? 'Script saved.' : patch.position !== undefined ? 'Reordered.' : 'Updated.';
+  const what = patch.date ? 'Moved it.' : patch.postingTime !== undefined ? 'Time changed.' : patch.format ? 'Changed the format.' : patch.caption !== undefined ? 'Saved your caption.' : patch.hook !== undefined ? 'Hook saved.' : patch.script !== undefined ? 'Script saved.' : patch.position !== undefined ? 'Reordered.' : 'Updated.';
   return applied(clientId, cycleId, [postId], what);
 }
 

@@ -265,16 +265,25 @@ export function usePlanData(init: PlanDataInit) {
     setPosts((cur) => cur.map((p) => (p.id === id ? { ...p, date } : p)));
     setCrossMonthPosts((cur) => cur.map((p) => (p.id === id ? { ...p, date } : p)));
   }, []);
-  const reschedule = useCallback((id: string, dateIso: string) => {
+  /** Move a post. `time` ('HH:MM', or '' to clear) rides along when the move sheet changed it —
+   *  one PATCH, so a date-and-time move is one ledger row and one undoable act, not two. */
+  const reschedule = useCallback((id: string, dateIso: string, time?: string) => {
+    // planMoveGuard folds four refusals into one null: read-only, already-pending, unknown
+    // post, and same-day. Only the LAST of those is wrong for a time-only change — moving a
+    // post to the day it is already on is a no-op, but changing its time on that day is not.
+    // So the two hard refusals are re-checked explicitly rather than smuggled past the guard.
+    if (readOnly || pendingRef.current.has(id)) return;
     const guard = planMoveGuard(id, dateIso, [...posts, ...crossMonthPosts], pendingRef.current, readOnly);
-    if (!guard) return;                                                       // read-only / pending / no-op
-    const { prevDate } = guard;
+    if (!guard && time === undefined) return;                                 // same day, no time → nothing to do
+    const prevDate = guard?.prevDate ?? dateIso;
     applyLocalDate(id, dateIso);                                              // optimistic: move now
     setPending((s) => s.add(id));
     void (async () => {
       let ok = false;
       try {
-        const res = await fetch(`/api/posts/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ date: dateIso }) });
+        const body: Record<string, string> = { date: dateIso };
+        if (time !== undefined) body['postingTime'] = time;
+        const res = await fetch(`/api/posts/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
         ok = res.ok;
         if (!ok) flash('Couldn’t move that. Please try again.');
       } catch { flash('Network error. Please try again.'); }

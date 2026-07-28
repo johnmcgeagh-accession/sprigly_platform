@@ -95,12 +95,12 @@ export interface PlanPost {
   pendingInstruction?: string | null;
   generationError?:    string | null;
   /**
-   * The slot this post is scheduled into — 'HH:MM', or null.
+   * When this post goes out, as a LABEL — '06:00', or 'Evening', or null.
    *
-   * Spec gap 1, the read half. The value has always existed on `source_meta.postingTime`,
-   * written by the planning path, and no reader surfaced it: the mockups' times were the
-   * PostingTimes contract's documented EXAMPLE values, not a client's. Cards, the day rows and
-   * the sheet header all state a time, so they read this one.
+   * Spec gap 1, the read half. The value has always existed on `source_meta.postingTime` and
+   * no reader surfaced it, so every time in the mockups was the PostingTimes contract's
+   * documented example rather than a client's. The live rows hold both clock forms and named
+   * slots (see normalisePostingTime), which is why this is a label and not a time.
    */
   postingTime?: string | null;
   /**
@@ -110,6 +110,12 @@ export interface PlanPost {
    * not just the caption's first sentence repeated above the caption.
    */
   title?: string | null;
+  /**
+   * Why this post is in the plan — `source_meta.competitorInsight`, the sentence the planner
+   * wrote about the slot. Present on every generated post; the sheet puts it behind the
+   * insights toggle, and shows no toggle at all when it is empty.
+   */
+  rationale?: string | null;
 }
 
 // ── Draft beats (Build B) ─────────────────────────────────────────────────────
