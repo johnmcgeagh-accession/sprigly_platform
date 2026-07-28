@@ -843,16 +843,48 @@ Not a commitment — the shape of the work, so the sequencing is reviewable alon
 Two constraints on shipping the round-5 ramp, recorded here because they gate the build rather
 than the design.
 
-**The ramp needs a theme before any client sees it.** The values in §6b are not the active theme.
-Shipping them means creating a **“Sprigly Mint”** theme in admin → Themes from DESIGN.md's tier
-table, and activating it **on uat first**. The live app stays on **Teal v1** until that has been
-reviewed. Nothing in the client code changes for this — the whole point of the token contract is
-that the theme is data, so the surface repaints on the next load with no rebuild
-(`app/src/lib/theme.ts`).
+**The ramp needs a theme before any client sees it.** Shipping it means creating a **“Sprigly
+Mint”** theme in admin → Themes and activating it **on uat first**. The live app stays on **Teal
+v1** until reviewed.
 
-Activation is AA-gated in admin on tint/text pairs. The §6b table is the evidence that gate needs:
-the two pairs it checks — `accent-800` on `accent-100` (6.67) and `chrome-deep` on `accent-600`
-(5.60) — both clear.
+| Token | Sprigly Mint |
+|---|---|
+| `accent100` | `#E3F3F0` |
+| `accent600` | `#4DB0A0` |
+| **`accent650`** | **`#43998B`** |
+| `accent700` | `#327267` |
+| `accent800` | `#285C54` |
+| `chrome` / `chromeDeep` | `#334155` / `#1E293B` |
+| `muted` / `line` / `lineSoft` | `#5C6470` / `#8F9296` / `#F4F5F6` |
+| `canvas` / `surface` | `#F2F3F5` / `#FFFFFF` |
+| `danger` | `#B23A2E` |
+
+### The gate check — answered
+
+I read the gate rather than assuming it. `activateTheme`
+(`admin/src/app/admin/themes/actions.ts`) calls `themeActivatable`
+(`packages/engine/src/contrast.ts`), and that function **blocks on exactly one pair**:
+
+> `accent-800` on `accent-100` ≥ 4.5:1 — *“a theme whose tint/text pairing fails AA is BLOCKED and
+> never activated.”*
+
+**Sprigly Mint: `#285C54` on `#E3F3F0` = 6.67:1. The gate passes. The theme is activatable, and
+`accent-650` does not need the gate's list amended** — the gate never looks at it.
+
+`computeThemeContrast` also *reports* six further rows (white on 600, white on 700, 600 on surface,
+border on surface, white on chrome, chrome-soft on chrome). Those are surfaced in admin for the
+operator to read; none of them blocks. So white-on-650 at 3.40 cannot prevent activation.
+
+**Two things it does mean for the build**, neither of them blocking:
+
+1. **`accent-650` cannot be stored yet.** `ThemeTokens` and `THEME_TOKEN_KEYS` in `contrast.ts` are
+   a fixed list of fourteen keys with no `accent650`, and `theme.ts`'s `VAR` map has no entry for
+   it. Until both are extended plus the admin editor column, `--t-accent-650` would never be
+   injected and the client surface would fall back. **This is the one code change the ramp
+   actually requires.** The same is true of `accent-500`.
+2. **Admin's reported table will not mention 650**, so an operator reading it sees no row for the
+   deviation. Worth adding to `computeThemeContrast`'s rows when the token lands, so the 3.40 is
+   visible where the decision is made rather than only here.
 
 **Repo brand assets stay coral, deliberately.** Everything in `studio/svg_logos/`, plus
 `app/src/app/icon.svg` and `site/public/favicon.svg`, is `#E87766` and **must not be changed in

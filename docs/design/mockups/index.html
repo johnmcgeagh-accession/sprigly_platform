@@ -11,7 +11,7 @@
     box-shadow: var(--shadow-card); text-decoration: none; color: inherit; border: 1px solid transparent; }
   .linkcard:hover { border-color: var(--t-accent-600); }
   .linkcard .n { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 30px;
-    padding: 0 8px; border-radius: 999px; background: var(--t-accent-600); color: var(--t-chrome-deep);
+    padding: 0 8px; border-radius: 999px; background: var(--t-accent-650); color: #fff;
     font-size: 13.5px; font-weight: 700; letter-spacing: -.01em; }
   .linkcard h3 { margin: 10px 0 5px; font-size: 17px; font-weight: 700; letter-spacing: -.02em; }
   .linkcard p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--t-muted); }
@@ -22,7 +22,7 @@
 <body>
 
 <div class="page-head">
-  <div class="crumbs">Sprigly · design session · round 5 · 28 July 2026</div>
+  <div class="crumbs">Sprigly · design session · round 5.1 · 28 July 2026</div>
   <h1>Mobile plan surface — mockups</h1>
   <p>Static mockups for the redesigned client plan surface: iOS-native, day-focused, mobile-first.
   Spec and wiring: <a href="../mobile-plan-surface.md">docs/design/mobile-plan-surface.md</a>.
@@ -97,9 +97,9 @@
     <li><strong>The ramp comes from the logo.</strong> The mark is <code>#4DB0A0</code>, and its apparent
       second tone is the same colour at the <code>opacity="0.78"</code> the SVG already carries. One
       identity tone, not two. Every tier is that hue and saturation at a different lightness, so the
-      ramp and the mark cannot drift. The ink rule falls out of it: <em>tiers 100–600 take
-      chrome-deep, tiers 700–800 take white, no tier takes both</em> — chrome-deep goes 5.60 → 2.60
-      across that boundary while white goes 2.61 → 5.62.</li>
+      ramp and the mark cannot drift. <strong>Filled controls carry white on
+      <code>accent-650</code></strong> (#43998B, 3.40:1) — the lightest value on that hue clearing
+      3:1 with margin. <code>accent-600</code> stays non-text identity: dots, glow, waveform.</li>
     <li><strong>No serif anywhere.</strong> Round 2 kept Fraunces for the wordmark and month title;
       it was never loaded, so both rendered as Georgia. Everything is the native stack now.</li>
     <li><strong>A floating bottom nav</strong> — a segmented pill carrying <em>Day · Month · Tasks</em>
@@ -115,7 +115,8 @@
   <div class="swatches">
     <span class="sw" style="background:var(--t-accent-100);color:var(--t-accent-800)">accent-100<br>#E3F3F0 · tint</span>
     <span class="sw" style="background:var(--t-accent-500);color:var(--t-chrome-deep)">accent-500<br>#74C1B5 · 6.99</span>
-    <span class="sw" style="background:var(--t-accent-600);color:var(--t-chrome-deep)">accent-600<br>#4DB0A0 · 5.60 ✓ logo</span>
+    <span class="sw" style="background:var(--t-accent-600);color:var(--t-chrome-deep)">accent-600<br>#4DB0A0 · identity, non-text</span>
+    <span class="sw" style="background:var(--t-accent-650);color:#fff">accent-650<br>#43998B · 3.40 ✓ fills</span>
     <span class="sw" style="background:var(--t-accent-700);color:#fff">accent-700<br>#327267 · 5.62</span>
     <span class="sw" style="background:var(--t-accent-800);color:#fff">accent-800<br>#285C54 · 7.64</span>
   </div>

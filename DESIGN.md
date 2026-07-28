@@ -4,6 +4,7 @@ description: An iOS-native, day-focused plan surface for phone review, painted e
 colors:
   accent-500: "#74C1B5"
   accent-600: "#4DB0A0"
+  accent-650: "#43998B"
   accent-700: "#327267"
   accent-800: "#285C54"
   accent-100: "#E3F3F0"
@@ -91,8 +92,8 @@ spacing:
   lg: "20px"
 components:
   button-primary:
-    backgroundColor: "{colors.accent-600}"
-    textColor: "{colors.chrome-deep}"
+    backgroundColor: "{colors.accent-650}"
+    textColor: "{colors.surface}"
     rounded: "{rounded.md}"
     padding: "0 18px"
     height: "50px"
@@ -102,13 +103,13 @@ components:
     rounded: "{rounded.md}"
     height: "50px"
   nav-mic:
-    backgroundColor: "{colors.accent-600}"
-    textColor: "{colors.chrome-deep}"
+    backgroundColor: "{colors.accent-650}"
+    textColor: "{colors.surface}"
     rounded: "{rounded.pill}"
     size: "56px"
   nav-pill-active:
-    backgroundColor: "{colors.accent-600}"
-    textColor: "{colors.chrome-deep}"
+    backgroundColor: "{colors.accent-650}"
+    textColor: "{colors.surface}"
     rounded: "{rounded.pill}"
     height: "44px"
   card:
@@ -117,8 +118,8 @@ components:
     rounded: "{rounded.lg}"
     padding: "13px 14px 14px"
   badge:
-    backgroundColor: "{colors.accent-600}"
-    textColor: "{colors.chrome-deep}"
+    backgroundColor: "{colors.accent-650}"
+    textColor: "{colors.surface}"
     rounded: "{rounded.pill}"
     padding: "4px 9px"
   badge-quiet:
@@ -127,8 +128,8 @@ components:
     rounded: "{rounded.pill}"
     padding: "4px 9px"
   day-selected:
-    backgroundColor: "{colors.accent-600}"
-    textColor: "{colors.chrome-deep}"
+    backgroundColor: "{colors.accent-650}"
+    textColor: "{colors.surface}"
     rounded: "{rounded.pill}"
     size: "34px"
   action-button:
@@ -172,35 +173,59 @@ lightness, so the ramp and the mark cannot drift apart.
 | Tier | Value | Job |
 |---|---|---|
 | `accent-100` | `#E3F3F0` | tint |
-| `accent-500` | `#74C1B5` | the mark's lighter leaf — light fills, non-text vivid |
-| `accent-600` | **`#4DB0A0`** | **the logo tone.** Identity fills |
-| `accent-700` | `#327267` | fills that must carry white |
+| `accent-500` | `#74C1B5` | the mark's lighter leaf — non-text vivid |
+| `accent-600` | **`#4DB0A0`** | **the logo tone.** Non-text identity: dots, glow, waveform |
+| `accent-650` | **`#43998B`** | **filled controls + white ink** |
+| `accent-700` | `#327267` | dense-text surfaces |
 | `accent-800` | `#285C54` | accent text |
 
-**The ink rule, re-derived from that ramp.** The crossover between 600 and 700 is sharp enough
-that no judgement call is needed:
+### The ink rule
 
-> **Tiers 100–600 take `chrome-deep` ink. Tiers 700–800 take white. No tier takes both.**
+> **Filled controls: `accent-650` + white (3.40:1).** `accent-600` remains non-text identity
+> (dots, glow, waveform). `700`/`800` are unchanged, for dense-text surfaces.
 
-`chrome-deep` goes 5.60 → 2.60 across that boundary; white goes 2.61 → 5.62. Round 4 had banned
-dark ink on 600 after it read muddy — but that verdict was against `#14B8A6`, a heavily saturated
-mid-tone (S≈80%). On this softer mint (S 39%) dark ink reads crisp, which was checked on screen
-and not only in the ratio.
+**This is an operator-recorded deviation below AA-normal, not an oversight.** Rounds 3, 4 and 5
+each tried a different answer to "what ink goes on a green fill" — chrome-deep on 600, then white
+on 700, then chrome-deep on 600 again — and the operator has now ruled the same way three times:
+**filled green controls carry white.** `accent-650` is the tier that makes that as defensible as
+it can be: the lightest value on the logo's hue and saturation that still clears the 3:1 graphic
+floor **with margin**. The literal lightest (`#47A394`, 3.03) rendered white visibly thin and left
+no headroom at all.
+
+The deviation is scoped and justified on three grounds, all of which have to hold:
+
+1. **The labels are short and bold** — `Day`, `Month`, `Tasks`, `Generate`, `DRAFT`, `NEW`, a day
+   numeral. None is reading matter; all are ≥13px at weight 700, and several are 16px.
+2. **Platform-feel precedent.** iOS system buttons ship white-on-green at roughly **2.2:1**. At
+   3.40 this surface is materially better than the convention it is deliberately imitating.
+3. **It is never the only channel.** Selection is also carried by fill-vs-none, position and
+   `aria-selected`; the badge's meaning is also carried by the dashed card it sits on.
+
+**Where it does not apply.** Any surface carrying *sentences* — captions, rationales, receipts,
+prose of any kind — uses `chrome`/`muted` on `surface`, or `accent-800` on `accent-100` at 6.67.
+The deviation buys short labels on fills and nothing else.
+
+**On registering this with the detector:** there is nothing to suppress today. The static detector
+ships **no contrast rule** — verified, `detect.mjs` contains zero occurrences of the string — so
+contrast is only evaluated on rendered-URL scans, which these file-based mockups never trigger. An
+ignore registered now would be against an invented rule id and would read as coverage that does not
+exist. **If a contrast finding does appear** (most likely a URL scan of the built app), scope the
+ignore to these components only — `.navpill`, `.navmic`, `.readypill`, `.wday .num`, `.badge`,
+`.sumbar`, `.btn.primary`, `.shapefoot .submit` — with the reason above. Never blanket.
 
 Measured pairs:
 
 | Pair | Ratio | Verdict |
 |---|---|---|
-| `chrome-deep` on `accent-100` | 12.78 | ✅ |
-| `chrome-deep` on `accent-500` | **6.99** | ✅ light fills |
-| `chrome-deep` on `accent-600` | **5.60** | ✅ **the identity pairing** |
-| `accent-800` on `accent-100` | 6.67 | ✅ accent text on tint |
+| **white on `accent-650`** | **3.40** | ⚠️ **filled controls only** — scoped deviation above |
+| `accent-800` on `accent-100` | **6.67** | ✅ **the admin activation gate's one check** |
 | `accent-800` on `surface` | 7.64 | ✅ accent text on white |
 | `accent-700` on `surface` | 5.62 | ✅ |
-| white on `accent-700` | **5.62** | ✅ when a fill must carry white |
+| white on `accent-700` | 5.62 | ✅ dense-text surfaces |
 | white on `accent-800` | 7.64 | ✅ |
-| white on `accent-600` | 2.61 | ❌ never |
-| `chrome-deep` on `accent-700` | 2.60 | ❌ never |
+| `chrome-deep` on `accent-100` | 12.78 | ✅ |
+| white on `accent-600` | 2.61 | ❌ — which is why 650 exists |
+| white on `accent-500` | 2.09 | ❌ never |
 | `accent-600` on `surface` / `canvas` | 2.61 / 2.35 | ❌ never as text or a meaningful glyph |
 | white on `danger` | 5.94 | ✅ the Delete button |
 | `border` on `surface` | 3.13 | ✅ hairlines only (graphic floor) |
@@ -377,8 +402,9 @@ space. Expands into a panel; dismiss removes the chip and never the highlights.
 
 **Don't**
 
-- Don't put white text or a meaningful glyph on `accent-600` (2.61:1). White needs a 700-tier fill.
-- Don't put `chrome-deep` on a 700- or 800-tier fill (2.60:1). Those tiers take white.
+- Don't put white on `accent-600` (2.61:1) or `accent-500` (2.09:1). Filled controls use `650`.
+- Don't put `chrome-deep` on any green fill. That answer was tried and ruled against three times.
+- Don't extend the 3.40 deviation past short bold labels on filled controls. Sentences never.
 - Don't invent a second identity tone. The mark's two tones are one colour and an opacity.
 - Don't use accent for small text on white. Accent text exists only as `accent-800` on
   `accent-100`.
