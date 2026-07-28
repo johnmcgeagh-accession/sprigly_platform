@@ -9,7 +9,10 @@ interface ContrastRow { pair: string; ratio: number; passesAA: boolean; passesLa
 
 /** The swatches to preview per theme (token key → label). */
 const SWATCHES: { key: string; label: string }[] = [
-  { key: 'accent600', label: 'Accent 600' }, { key: 'accent700', label: 'Accent 700' },
+  // 500 and 650 render '—' on a theme that has none, which is the honest signal that the
+  // client surface will fall back for them rather than that they are black.
+  { key: 'accent500', label: 'Accent 500' },
+  { key: 'accent600', label: 'Accent 600' }, { key: 'accent650', label: 'Accent 650' }, { key: 'accent700', label: 'Accent 700' },
   { key: 'accent800', label: 'Accent 800' }, { key: 'accent100', label: 'Accent 100' },
   { key: 'chrome', label: 'Chrome' }, { key: 'chromeDeep', label: 'Chrome deep' },
   { key: 'canvas', label: 'Canvas' }, { key: 'surface', label: 'Surface' }, { key: 'line', label: 'Border' },

@@ -94,6 +94,22 @@ export interface PlanPost {
   // generates/regenerates this post, and the last generation error (if failed).
   pendingInstruction?: string | null;
   generationError?:    string | null;
+  /**
+   * The slot this post is scheduled into — 'HH:MM', or null.
+   *
+   * Spec gap 1, the read half. The value has always existed on `source_meta.postingTime`,
+   * written by the planning path, and no reader surfaced it: the mockups' times were the
+   * PostingTimes contract's documented EXAMPLE values, not a client's. Cards, the day rows and
+   * the sheet header all state a time, so they read this one.
+   */
+  postingTime?: string | null;
+  /**
+   * The slot title the assembler gave this post — 'Wilderness candle relaunch — Launch', or
+   * its deterministic fallback form 'Pillar — Format'. Lives on `source_meta.title`, is what
+   * the caption instruction names, and had no reader until the card needed a heading that is
+   * not just the caption's first sentence repeated above the caption.
+   */
+  title?: string | null;
 }
 
 // ── Draft beats (Build B) ─────────────────────────────────────────────────────

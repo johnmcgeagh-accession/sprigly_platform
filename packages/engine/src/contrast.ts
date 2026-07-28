@@ -10,14 +10,28 @@
 
 export interface ThemeTokens {
   accent600: string; accent700: string; accent800: string; accent100: string;
+  /**
+   * The two tiers the round-5 ramp added, both OPTIONAL — every theme stored before them
+   * (Sprigly Coral, Teal v1) lacks both, and requiring them would make those themes
+   * un-activatable overnight.
+   *
+   * accent650 is the filled-control tier: the lightest value on the identity's hue and
+   * saturation that still carries WHITE over the 3:1 graphic floor with margin. accent500 is
+   * the mark's lighter leaf — non-text vivid, and dark ink on it.
+   *
+   * Neither is gate-checked. The gate is one pair (accent-800 on accent-100) and these are
+   * not it; 650's white pairing is a recorded, component-scoped deviation below AA-normal, so
+   * it is REPORTED in the contrast table and never allowed to block. See DESIGN.md.
+   */
+  accent500?: string; accent650?: string;
   ink: string; muted: string; line: string; lineSoft: string; danger: string;
   chrome: string; chromeDeep: string; chromeSoft: string;
   canvas: string; surface: string;
 }
 
-/** Ordered token keys — the ~15. */
+/** Ordered token keys — the ~15, plus the two optional round-5 tiers. */
 export const THEME_TOKEN_KEYS: (keyof ThemeTokens)[] = [
-  'accent600', 'accent700', 'accent800', 'accent100',
+  'accent500', 'accent600', 'accent650', 'accent700', 'accent800', 'accent100',
   'ink', 'muted', 'line', 'lineSoft', 'danger',
   'chrome', 'chromeDeep', 'chromeSoft', 'canvas', 'surface',
 ];
@@ -59,6 +73,10 @@ export function computeThemeContrast(t: ThemeTokens): ThemeContrast {
   };
   const rows: ContrastRow[] = [
     row('white on accent-600', '#FFFFFF', t.accent600),
+    // Reported ONLY when the theme carries the tier. An absent row is not a silent pass —
+    // it means the theme has no 650, so the app falls back and there is nothing to report.
+    ...(t.accent650 ? [row('white on accent-650 (filled controls)', '#FFFFFF', t.accent650)] : []),
+    ...(t.accent500 ? [row('chrome-deep on accent-500', t.chromeDeep, t.accent500)] : []),
     row('white on accent-700', '#FFFFFF', t.accent700),
     row('accent-800 on accent-100 (tint/text)', t.accent800, t.accent100),
     row('accent-600 on surface', t.accent600, t.surface),

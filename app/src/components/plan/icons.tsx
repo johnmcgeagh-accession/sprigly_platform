@@ -8,14 +8,21 @@ const svg = (children: React.ReactNode, vb = '0 0 24 24') => ({ className }: P) 
   <svg viewBox={vb} fill="none" className={className} aria-hidden="true">{children}</svg>
 );
 
-/** The real Sprigly mark (design/reference → studio/svg_logos/sprigly-mark-coral.svg):
- *  two curved leaves meeting at a pointed top, stem below. Brand coral (non-text). */
+/**
+ * The real Sprigly mark: two curved leaves meeting at a pointed top, stem below.
+ *
+ * TOKENS ONLY. This used to paint `#E8705F` twice, which is exactly what made the round-2
+ * mockups un-reskinnable — the one element on the surface that is unambiguously the brand was
+ * the one element the theme could not reach. It is `currentColor` now, so the caller's text
+ * class (which resolves to `--t-accent-600`) drives it. The second leaf is NOT a second
+ * colour: it is the same tone at opacity .78, which is the whole basis of the round-5 ramp.
+ */
 export function SprigMark({ className }: P) {
   return (
-    <svg viewBox="0 0 100 110" fill="#E8705F" className={className} aria-hidden="true">
+    <svg viewBox="0 0 100 110" fill="currentColor" className={className} aria-hidden="true">
       <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z" />
       <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity="0.78" />
-      <line x1="50" y1="76" x2="50" y2="98" stroke="#E8705F" strokeWidth="2.5" strokeLinecap="round" />
+      <line x1="50" y1="76" x2="50" y2="98" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
     </svg>
   );
 }

@@ -64,7 +64,7 @@ export function PlanDesktop({ data }: { data: PlanData }) {
     <div className="flex h-screen flex-col bg-bg text-slate-700" data-testid="plan-desktop">
       {/* topbar */}
       <header className="flex h-[66px] flex-none items-center justify-between border-b border-line bg-surface px-7">
-        <div className="flex items-center gap-2.5"><SprigMark className="h-[26px] w-[26px]" /><span className="font-logo text-[22px] font-extrabold tracking-tight text-coral-heading">Sprigly</span></div>
+        <div className="flex items-center gap-2.5"><SprigMark className="h-[26px] w-[26px] text-coral-600" /><span className="font-logo text-[22px] font-extrabold tracking-tight text-coral-heading">Sprigly</span></div>
         <span className="text-[12.5px] font-semibold text-muted">Plan workspace</span>
       </header>
 

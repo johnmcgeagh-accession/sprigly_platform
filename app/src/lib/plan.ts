@@ -116,6 +116,9 @@ function toPlanPost(r: ContentCyclePostRow, stepsByPost: Map<string, PostStepVie
     overlay:     r.overlay ?? null,
     pendingInstruction: metaStr(r.sourceMeta, 'pendingInstruction'),
     generationError:    metaStr(r.sourceMeta, 'generationError'),
+    // Gap 1 (read): the planning path writes this; until now nothing read it back.
+    postingTime:        normaliseTime(metaStr(r.sourceMeta, 'postingTime')),
+    title:              metaStr(r.sourceMeta, 'title'),
   };
 }
 
@@ -171,6 +174,21 @@ export async function loadCrossMonthPosts(
 
   const stepsByPost = await listStepsForPosts(rows.map((r) => r.id));
   return rows.map((r) => toPlanPost(r, stepsByPost));
+}
+
+/**
+ * 'HH:MM' or null. source_meta is not validated anywhere, and the planning path has written
+ * '6:00', '06:00' and '18.00' at different times, so this normalises rather than trusting it —
+ * a malformed value renders as no time at all, which is honest, instead of as garbage on a card.
+ */
+export function normaliseTime(raw: string | null): string | null {
+  if (!raw) return null;
+  const m = /^(\d{1,2})[:.](\d{2})$/.exec(raw.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isInteger(h) || h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
 }
 
 /** Read a string field off a post's source_meta jsonb (null if absent/non-string). */

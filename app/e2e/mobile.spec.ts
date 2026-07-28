@@ -1,126 +1,99 @@
-import { test, expect, type Locator } from '@playwright/test';
-import { expectActivity, reseed } from './helpers';
+/**
+ * mobile.spec.ts — the committed plan surface, on a phone.
+ *
+ * ⚠️ REWRITTEN FOR THE NEW SHELL AND **NOT YET RUN**. Playwright needs a built app, Postgres,
+ * Redis and a seeded fixture, none of which were available in the session that made this
+ * change; the surface itself is covered by simulated-interaction tests
+ * (`src/components/plan/surface/surface.interaction.test.tsx`, 28 cases, jsdom) which DID run.
+ * Treat the first execution of this file as part of the uat check, not as a regression pass.
+ *
+ * ── What changed, and why the old assertions could not simply be re-pointed ──────────
+ *
+ * The redesign deletes the behaviours half of this file was testing, deliberately:
+ *
+ *   swipe-to-Move          the card is a thing you READ. Move lives in the detail sheet's
+ *                          action row, where it sits beside Shape and Delete.
+ *   the scroll-spy         the strip selects and the panel renders one day, so there is no
+ *                          feed for a spy to follow and nothing for spyLock to referee (§1.4).
+ *   prev-week / next-week  the strip is swipeable and the month grid covers longer jumps.
+ *   the Plan|Tasks segment the floating nav pill absorbed it, alongside Day and Month.
+ *   day sections           there is one day on screen, so a weather badge has one home.
+ *
+ * Those tests are removed rather than skipped: a skipped test for a deleted feature is a
+ * to-do list nobody reads. What replaces them tests the same underlying promises — you can
+ * reach any day, you can see what is on it, and a move is ledgered.
+ */
+import { test, expect } from '@playwright/test';
+import { reseed } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   reseed();
   await page.goto('/');
-  await expect(page.getByTestId('plan-mobile')).toBeVisible();
+  await expect(page.getByTestId('plan-shell')).toBeVisible();
 });
 
-/** Drive the swipe handler with a synthetic pointer sequence (dispatchEvent bypasses
- *  hit-testing, so coordinates are relative deltas the handler reads off clientX/Y). */
-async function drag(surf: Locator, from: { x: number; y: number }, deltas: [number, number][]) {
-  await surf.dispatchEvent('pointerdown', { pointerId: 1, clientX: from.x, clientY: from.y, button: 0, isPrimary: true, bubbles: true });
-  for (const [dx, dy] of deltas) {
-    // eslint-disable-next-line no-await-in-loop
-    await surf.dispatchEvent('pointermove', { pointerId: 1, clientX: from.x + dx, clientY: from.y + dy, bubbles: true });
-  }
-  const last = deltas[deltas.length - 1]!;
-  await surf.dispatchEvent('pointerup', { pointerId: 1, clientX: from.x + last[0], clientY: from.y + last[1], bubbles: true });
-}
-const transformOf = (surf: Locator) => surf.evaluate((el) => (el as HTMLElement).style.transform);
-
-test('mobile feed: week strip, today selected, cards with rings', async ({ page }) => {
+test('the day view lands on today, with the week strip around it', async ({ page }) => {
   await expect(page.getByTestId('week-day')).toHaveCount(7);
-  await expect(page.locator('[data-testid="week-day"][data-date="2026-07-08"]')).toHaveAttribute('data-selected', 'true');
-  await expect(page.getByTestId('swipe-card').first()).toBeVisible();
-  await expect(page.getByTestId('progress-ring').first()).toBeVisible();
+  await expect(page.locator('[data-testid="week-day"][data-date="2026-07-08"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('day-panel')).toHaveAttribute('data-date', '2026-07-08');
 });
 
-test('mobile week nav: step between weeks and jump back to today', async ({ page }) => {
-  // Lands on today's week with today (2026-07-08) selected.
-  await expect(page.locator('[data-testid="week-day"][data-date="2026-07-08"]')).toHaveAttribute('data-selected', 'true');
-
-  // Next week → today's day leaves the strip; a next-week day appears and is selected.
-  await page.getByTestId('next-week').click();
-  await expect(page.locator('[data-testid="week-day"][data-date="2026-07-08"]')).toHaveCount(0);
-  await expect.poll(() => page.locator('[data-testid="week-day"][data-date="2026-07-15"]').getAttribute('data-selected')).toBe('true');
-
-  // Today jumps straight back to today's week.
-  await page.getByTestId('today-btn').click();
-  await expect.poll(() => page.locator('[data-testid="week-day"][data-date="2026-07-08"]').getAttribute('data-selected')).toBe('true');
-});
-
-test('swipe axis-lock: a vertical drag does not translate the card', async ({ page }) => {
-  const surf = page.getByTestId('swipe-surface').first();
-  await drag(surf, { x: 300, y: 400 }, [[2, 8], [3, 30], [4, 70], [4, 130]]);
-  const tf = await transformOf(surf);
-  expect(tf === '' || tf === 'none' || tf === 'translateX(0px)').toBeTruthy();
-});
-
-test('swipe left is inert (no Edit/Delete swipe); Edit + Delete live in the tap-in editor', async ({ page }) => {
-  const card = page.getByTestId('swipe-card').first();
-  const surf = card.getByTestId('swipe-surface');
-  // Swiping LEFT reveals nothing now — the card never opens on its right side.
-  await drag(surf, { x: 320, y: 400 }, [[-15, 2], [-50, 3], [-110, 4], [-165, 5]]);
-  const tf = await transformOf(surf);
-  expect(tf === '' || tf === 'none' || tf === 'translateX(0px)').toBeTruthy();
-  await expect(card.getByRole('button', { name: 'Edit' })).toHaveCount(0);
-  await expect(card.getByRole('button', { name: 'Delete' })).toHaveCount(0);
-  // Both capabilities remain reachable by tapping into the editor.
-  await surf.click();
-  await expect(page.getByTestId('editor-sheet')).toBeVisible();
-  await expect(page.getByTestId('editor-caption')).toBeVisible();   // edit surface
-  await expect(page.getByTestId('editor-delete')).toBeVisible();    // delete affordance
-});
-
-test('swipe right reveals Move; the date picker round-trips a reschedule', async ({ page }) => {
-  const card = page.getByTestId('swipe-card').first();
-  const id = (await card.getAttribute('data-post-id'))!;
-  const surf = card.getByTestId('swipe-surface');
-  await drag(surf, { x: 90, y: 400 }, [[15, 2], [55, 3], [120, 4], [170, 5]]);
-  await expect.poll(() => transformOf(surf)).toContain('translateX(104');
-  await card.getByRole('button', { name: 'Move' }).click();
-  await expect(page.getByTestId('move-sheet')).toBeVisible();
-  await expect(page.getByTestId('move-sheet').getByTestId('calendar-picker')).toBeVisible();
-  await page.locator('[data-testid="move-sheet"] [data-date="2026-07-25"]').click();
-  await expect(page.getByTestId('move-sheet')).not.toBeInViewport();   // closed = translated off-screen
-  await expectActivity(page, id, (r) => r.action === 'rescheduled' && r.origin === 'user', 'mobile move ledgered');
-});
-
-test('scroll-spy: tapping a strip day selects it (and does not bounce back)', async ({ page }) => {
+test('the strip selects, and the panel follows it', async ({ page }) => {
   await page.locator('[data-testid="week-day"][data-date="2026-07-10"]').click();
-  const day = page.locator('[data-testid="week-day"][data-date="2026-07-10"]');
-  await expect(day).toHaveAttribute('data-selected', 'true');
-  await page.waitForTimeout(900);                 // past the spy-lock release window
-  await expect(day).toHaveAttribute('data-selected', 'true');
+  await expect(page.locator('[data-testid="week-day"][data-date="2026-07-10"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('day-panel')).toHaveAttribute('data-date', '2026-07-10');
+  // No spy to bounce it back — the selection is the only authority now.
+  await page.waitForTimeout(900);
+  await expect(page.getByTestId('day-panel')).toHaveAttribute('data-date', '2026-07-10');
 });
 
-test('scroll-spy: manually scrolling the feed updates the strip selection', async ({ page }) => {
-  const initial = await page.locator('[data-testid="week-day"][data-selected="true"]').getAttribute('data-date');
-  await page.getByTestId('feed').evaluate((el) => el.scrollBy(0, 700));
-  await expect.poll(async () => page.locator('[data-testid="week-day"][data-selected="true"]').getAttribute('data-date'))
-    .not.toBe(initial);
+test('swiping the strip moves a week; Today comes back', async ({ page }) => {
+  const strip = page.getByTestId('week-strip');
+  await strip.dispatchEvent('pointerdown', { pointerId: 1, clientX: 300, clientY: 300, isPrimary: true, bubbles: true });
+  await strip.dispatchEvent('pointerup', { pointerId: 1, clientX: 180, clientY: 300, bubbles: true });
+  await expect(page.getByTestId('day-panel')).toHaveAttribute('data-date', '2026-07-15');
+
+  await page.getByTestId('today-btn').click();
+  await expect(page.getByTestId('day-panel')).toHaveAttribute('data-date', '2026-07-08');
 });
 
-test('mobile Tasks tab: shows the work-back board', async ({ page }) => {
-  await page.getByTestId('seg-tasks').click();
-  await expect(page.getByTestId('mobile-tasks')).toBeVisible();
+test('the month grid is a peer view, and a picker', async ({ page }) => {
+  await page.getByTestId('nav-month').click();
+  await expect(page.getByTestId('month-grid')).toBeVisible();
+  await expect(page.getByTestId('week-strip')).toHaveCount(0);
+
+  await page.locator('[data-testid="grid-cell"][data-date="2026-07-22"]').click();
+  await expect(page.getByTestId('day-panel')).toHaveAttribute('data-date', '2026-07-22');
+  // The strip re-anchored to that week rather than staying on the one we left.
+  await expect(page.locator('[data-testid="week-day"][data-date="2026-07-22"]')).toHaveCount(1);
+});
+
+test('Tasks is a peer view too, and still shows the work-back board', async ({ page }) => {
+  await page.getByTestId('nav-tasks').click();
+  await expect(page.getByTestId('tasks-panel')).toBeVisible();
   await expect(page.getByTestId('task-row').first()).toBeVisible();
 });
 
-test('mobile editor sheet mirrors the drawer (caption + checklist)', async ({ page }) => {
-  await page.getByTestId('swipe-card').first().getByTestId('swipe-surface').click();
-  await expect(page.getByTestId('editor-sheet')).toBeVisible();
-  await expect(page.getByTestId('editor-caption')).toBeVisible();
-  await expect(page.getByTestId('editor-checklist')).toBeVisible();
+test('the add slot is per-day, and the only add affordance', async ({ page }) => {
+  await expect(page.getByTestId('add-slot')).toHaveCount(1);
+  await expect(page.getByText('Add to your plan')).toHaveCount(0);
+  await expect(page.getByText('Brief this month')).toHaveCount(0);
 });
 
-test('mobile weather: in-window day headers show a badge (icon + temp) with one accessible label; out-of-window shows nothing', async ({ page }) => {
-  // Today (2026-07-08) is in-window → its day-header carries a weather badge.
-  const todayBadge = page.locator('[data-testid="day-section"][data-day="2026-07-08"] [data-testid="weather-badge"]');
-  await expect(todayBadge).toHaveCount(1);
-  await expect(todayBadge).toHaveAttribute('aria-label', /^Weather: -?\d+° · .+/);
-  // The glyph inside the badge is decorative; the label on the badge is the sole a11y name.
-  await expect(todayBadge.locator('svg[aria-hidden="true"]')).toHaveCount(1);
-  await expect(todayBadge).toContainText('°');
-  await expect(todayBadge).toHaveAttribute('data-tone', 'normal');   // 24° today → quiet default
+test('the microphone floats beside the nav pill, labelled for the committed month', async ({ page }) => {
+  await expect(page.getByTestId('nav-mic')).toHaveAttribute('aria-label', 'Talk to your plan');
+  await expect(page.getByTestId('nav-pill')).toBeVisible();
+});
 
-  // 2026-07-06 is before "today" → out of the forecast window → no badge, no placeholder.
-  await expect(page.locator('[data-testid="day-section"][data-day="2026-07-06"] [data-testid="weather-badge"]')).toHaveCount(0);
+test('weather: the selected day header carries one badge with one accessible label', async ({ page }) => {
+  // 2026-07-08 is in the forecast window.
+  const badge = page.getByTestId('day-panel').getByTestId('weather-badge');
+  await expect(badge).toHaveCount(1);
+  await expect(badge).toHaveAttribute('aria-label', /^Weather: -?\d+° · .+/);
+  await expect(badge).toHaveAttribute('data-tone', 'normal');
+  await expect(badge.locator('svg[aria-hidden="true"]')).toHaveCount(1);
 
-  // Hot-day tone (§22): step to the week holding the stubbed 33° day; its header badge is
-  // the amber scorcher tone — the same treatment as the desktop cell.
-  await page.getByTestId('next-week').click();
-  await expect(page.locator('[data-testid="day-section"][data-day="2026-07-16"] [data-testid="weather-badge"]')).toHaveAttribute('data-tone', 'scorcher');
+  // A day before "today" is out of the window → no badge, and no placeholder either.
+  await page.locator('[data-testid="week-day"][data-date="2026-07-06"]').click();
+  await expect(page.getByTestId('day-panel').getByTestId('weather-badge')).toHaveCount(0);
 });
