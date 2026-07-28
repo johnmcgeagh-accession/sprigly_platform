@@ -29,12 +29,29 @@ export interface ThemeTokens {
   canvas: string; surface: string;
 }
 
-/** Ordered token keys — the ~15, plus the two optional round-5 tiers. */
+/**
+ * Ordered token keys — the ~15, plus the two optional round-5 tiers.
+ *
+ * THIS IS THE LIST. The client's `theme.ts` VAR map injects exactly these as `--t-*`, and the
+ * admin create form offers exactly these as inputs. A tier that is in one and not the others is
+ * a tier an operator cannot set and the app therefore falls back for — silently, which is how
+ * Sprigly Mint became uncreatable. `theme-var-parity.test.ts` in the app pins the first pairing;
+ * the admin form derives its fields from here rather than restating them.
+ */
 export const THEME_TOKEN_KEYS: (keyof ThemeTokens)[] = [
   'accent500', 'accent600', 'accent650', 'accent700', 'accent800', 'accent100',
   'ink', 'muted', 'line', 'lineSoft', 'danger',
   'chrome', 'chromeDeep', 'chromeSoft', 'canvas', 'surface',
 ];
+
+/**
+ * Tiers a theme MAY omit, and every theme stored before round 5 does.
+ *
+ * Omission is not a defect: `buildThemeVars` skips a key the theme does not carry, so nothing
+ * is injected for it and Tailwind's own fallback applies. Teal v1 and Sprigly Coral both render
+ * exactly as they did. Everything else is required — a theme missing `surface` is not a theme.
+ */
+export const OPTIONAL_THEME_TOKEN_KEYS: readonly (keyof ThemeTokens)[] = ['accent500', 'accent650'];
 
 const HEX = /^#([0-9a-fA-F]{6})$/;
 

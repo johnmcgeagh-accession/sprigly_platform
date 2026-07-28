@@ -4,6 +4,7 @@ export const revalidate = 0;
 import { db, themes } from '@sprigly/db';
 import { desc } from 'drizzle-orm';
 import { ActivateButton } from './ActivateButton';
+import { ThemeForm } from './ThemeForm';
 
 interface ContrastRow { pair: string; ratio: number; passesAA: boolean; passesLarge: boolean }
 
@@ -33,6 +34,11 @@ export default async function ThemesPage() {
         the layout root — a switch repaints on next load, no deploy). Activation is blocked for a theme whose
         tint/text pairing fails AA.
       </p>
+
+      {/* The create affordance. Until this, every row in the table below arrived through
+          migration 0079's seed, so "create the theme in admin" named a screen that did not
+          exist. New themes are stored INACTIVE — activation stays the separate press it was. */}
+      <ThemeForm prefill={(rows.find((t) => t.isActive)?.tokens ?? rows[0]?.tokens ?? {}) as Record<string, string>} />
 
       <div className="flex flex-col gap-5">
         {rows.map((t) => {

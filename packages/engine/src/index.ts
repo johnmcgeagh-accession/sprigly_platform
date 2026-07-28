@@ -135,5 +135,5 @@ export { previewBrief, EMPTY_PREVIEW, PREVIEW_MIN_CHARS } from './brief-preview.
 export type { BriefPreview, PreviewItem, PreviewDate, PreviewDurable, PreviewBriefParams } from './brief-preview.js';
 
 // Platform theming (admin-managed, global) — contrast maths + the activation gate.
-export { luminance, contrastRatio, computeThemeContrast, themeActivatable, THEME_TOKEN_KEYS } from './contrast.js';
+export { luminance, contrastRatio, computeThemeContrast, themeActivatable, THEME_TOKEN_KEYS, OPTIONAL_THEME_TOKEN_KEYS } from './contrast.js';
 export type { ThemeTokens, ThemeContrast, ContrastRow } from './contrast.js';

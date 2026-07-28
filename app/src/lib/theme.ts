@@ -7,8 +7,16 @@
 import { db, themes } from '@sprigly/db';
 import { eq } from 'drizzle-orm';
 
-/** token key → CSS custom property. */
-const VAR: Record<string, string> = {
+/**
+ * token key → CSS custom property.
+ *
+ * EXPORTED so `theme.test.ts` can assert it against `THEME_TOKEN_KEYS`. The two lists are the
+ * same contract read from two ends — this map decides what gets injected, and the admin create
+ * form derives its inputs from `THEME_TOKEN_KEYS`. A tier in one and not the other is a tier an
+ * operator cannot set and the app silently falls back for, which is exactly how Sprigly Mint
+ * became uncreatable.
+ */
+export const VAR: Record<string, string> = {
   // accent500 / accent650 are the round-5 ramp's two extra tiers. Optional on the theme row:
   // buildThemeVars skips any key the theme does not carry, so a theme without them injects
   // nothing for them and Tailwind's fallback applies — which is exactly the pre-ramp render.

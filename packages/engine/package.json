@@ -29,6 +29,10 @@
     "./generation-recovery": {
       "import": "./dist/generation-recovery.js",
       "types": "./dist/generation-recovery.d.ts"
+    },
+    "./contrast": {
+      "import": "./dist/contrast.js",
+      "types": "./dist/contrast.d.ts"
     }
   },
   "scripts": {
