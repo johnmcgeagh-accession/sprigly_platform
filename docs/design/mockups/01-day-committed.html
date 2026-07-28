@@ -15,6 +15,7 @@
 <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="M14.5 5.5l-7 6.5 7 6.5"/></symbol>
 <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="M9.5 5.5l7 6.5-7 6.5"/></symbol>
 <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></symbol>
+<symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></symbol>
 <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.5"/><path d="M15.5 5.5v-.5a2 2 0 0 0-2-2H6a2.5 2.5 0 0 0-2.5 2.5v7.5a2 2 0 0 0 2 2h.5"/></symbol>
 <symbol id="i-plan" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/><path d="M7.5 13.5h4"/></symbol>
 <symbol id="i-tasks" viewBox="0 0 24 24"><path d="M4 7.5l2 2 3.5-3.5M4 16.5l2 2 3.5-3.5M13 8h7M13 17h7"/></symbol>
@@ -28,6 +29,10 @@
   switcher: wordmark left, then <strong>‹ October 2026 ›</strong> with a <strong>Week | Month</strong>
   segmented control, Today right-aligned above the strip, and a persistent
   <strong>bottom tab bar</strong>.</p>
+  <p><strong>The FAB is the microphone here too.</strong> On a committed month it means
+  <em>talk to your plan</em> and runs the existing post-cutoff agent path — which raises
+  proposals the client approves rather than changing the month directly. Same gesture as the
+  draft mic, different consequence.</p>
   <p>Colour is now token-driven. Every value reads a <code>--t-*</code> custom property with the
   same name <code>theme.ts</code> injects, so these files demonstrate the active theme —
   <strong>Teal v1</strong> — rather than hard-coding one. The vivid pass shows up here in the
@@ -127,6 +132,7 @@
       <button class="addslot" type="button"><svg class="ic sm"><use href="#i-plus"/></svg> Plan a post for this day</button>
     </div>
 
+    <button class="fab" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     <nav class="tabbar" role="tablist" aria-label="Sections">
       <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
       <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
@@ -191,6 +197,7 @@
       <button class="addslot" type="button"><svg class="ic sm"><use href="#i-plus"/></svg> Plan a post for this day</button>
     </div>
 
+    <button class="fab" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     <nav class="tabbar" role="tablist" aria-label="Sections">
       <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
       <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
@@ -269,6 +276,7 @@
       <button class="addslot" type="button"><svg class="ic sm"><use href="#i-plus"/></svg> Plan a post for this day</button>
     </div>
 
+    <button class="fab" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     <nav class="tabbar" role="tablist" aria-label="Sections">
       <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
       <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
@@ -300,7 +308,14 @@
       read as a document. The wordmark now falls back to the native stack.</li>
     <li><strong>Format is the icons v2 set</strong>, screenshot-tested at 17px before adoption.</li>
     <li><strong>Copy moved onto the card.</strong> A finding from the critique: the client's real
-      end action is getting a caption into Instagram, and round 2 buried it two taps deep.</li>
+      end action is getting a caption into Instagram, and round 2 buried it two taps deep. Copy is a
+      <em>per-post</em> action, which is why it sits on the post and not on the FAB — the critique
+      proposed the latter and it was rejected on that ground.</li>
+    <li><strong>The FAB is never inert.</strong> On a committed month the mic runs
+      <code>POST /api/plan/agent</code> → <code>runPlanAgentTurn</code>: move / delete / rewrite /
+      add become <strong>pending proposals</strong>, not applied changes. That route already accepts
+      <code>source:'voice'</code>, so gap 8 is the draft route only. On a read-only cycle
+      <code>data.ask</code> refuses, and the FAB is not rendered at all.</li>
     <li><strong>Panel bottom padding raised to 116px</strong> so neither the tab bar nor the FAB can
       print over card content. In round 2 the FAB sat on top of the evidence sentence — the one
       line on this surface that must never be occluded.</li>

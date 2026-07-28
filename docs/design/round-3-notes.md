@@ -51,25 +51,56 @@ already on the list, which is a good sign for both.
 
 ---
 
-## 3. Critique findings — **vetoed for the operator**
+## 3. Critique findings — **ruled on**
 
-Not applied. Each contradicts a decision you have already made, or proposes work outside the brief.
+Raised by the critique, contradicting a decision already made. All three were put to the operator
+and **ruled on 2026-07-28**; the rulings are recorded inline below.
 
 1. **“The action row should keep its text labels.”** Assessment A argued the round-2 labelled row
-   was right for a non-technical founder and that DESIGN.md was wrong to remove them. **This
-   directly contradicts G5 / R10 (icon-only).** Left icon-only with `aria-label`s and 44px targets.
-   Worth knowing the reviewer disagreed; the compromise if you want one is labels on
-   *destructive* only.
+   was right for a non-technical founder and that DESIGN.md was wrong to remove them. This
+   contradicts G5 / R10 (icon-only).
+
+   **RULING: upheld as-is.** Icon-only stands, with `aria-label`s and 44px targets.
+
+   **The designated cheap reversal.** If the **September demo shows hesitation** at the action row —
+   a client pausing over the icons, asking what one does, or tapping the wrong one — restoring
+   labels is the first thing to try. It is deliberately cheap: `.act` is already a column flex with
+   the icon on top, so a label is one `<span>` per button and one line of CSS, with no change to
+   the row's geometry, target sizes or `aria-label`s. Nothing else in the sheet moves. Recorded
+   here so the reversal is a decision taken in advance rather than a redesign under pressure.
 
 2. **“The FAB should be *copy the next caption*, not approve.”** Approval happens once a month;
    copying happens ten times. On a draft month the brief assigns the FAB to the mic (DR2), so this
-   only concerns the **committed** month, which currently has no FAB at all. Recorded as spec §13,
-   open question 1 — not built.
+   only concerned the **committed** month, which round 3 shipped with no FAB at all.
+
+   **RULING: the copy-next-caption suggestion is rejected — but the FAB is never inert.** On a
+   committed month the FAB is **still the microphone**, and it means *talk to your plan*. That is
+   the existing post-cutoff agent path (`POST /api/plan/agent` → `runPlanAgentTurn`), which already
+   ships.
+
+   The critique's underlying complaint was right — a committed month with no persistent action is a
+   dead surface — but copy is a per-post action and belongs on the card, which is where round 3 put
+   it. The FAB carries the one thing that is about the *month*.
+
+   **One consequence worth stating plainly:** the two mics do different things. On a draft month the
+   mic **reshapes the month directly**. On a committed month it **raises proposals the client then
+   approves** — the agent applies nothing itself. Same gesture, same icon, different consequence,
+   and the sheet has to say so. Wiring in the spec, §5.4.
 
 3. **`single-font` detector finding** — “only font used is `var(--sans)`; pair a display font with
-   a body font.” **Contradicts R3.** This is precisely the decision you made three times. Left
-   firing rather than silenced, because it is a real signal for other projects and a deliberate
-   exception here.
+   a body font.” Contradicts R3, which is the typography decision made three times.
+
+   **RULING: registered as an ignore.** `detector.ignoreRules` now carries `single-font`, project
+   wide, with the reason *“single native family is the reviewed platform-feel decision, three
+   rounds.”* The principle: **the detector channel stays clean, and deliberate exceptions live in
+   config rather than as permanent warnings** — a warning you have decided to ignore forever trains
+   you to ignore the channel.
+
+   **One honest limitation.** `detector.ignoreRules` is a plain string array in
+   `.impeccable/config.json`; unlike `detector.ignoreValues`, it has **no `reason` field**, so
+   `hook-admin.mjs` accepted the `--reason` flag and stored nothing. The reason is recorded here and
+   in the spec instead. Worth knowing before someone reads the bare config and wonders why the rule
+   is off.
 
 4. **Terminology objections.** A flagged “Not sent yet” as ambiguous (*sent to whom?*), “Hook” and
    “Script” as content-marketing jargon sitting beside “Caption”, and the rollup's
@@ -151,7 +182,8 @@ Full measured table in the spec, §6b.
 | Before round 3 | 14 (10 advisory em-dash, 2 flat-type, 1 single-font, 1 side-tab) |
 | After writing `DESIGN.md`, before the type pass | **90** — the new design-system rules fired on 56 off-ramp font sizes and 19 off-scale radii |
 | After consolidating the ramp | **16** |
-| After excepting review-document chrome | **13** (10 advisory em-dash, 2 flat-type, 1 single-font) |
+| After excepting review-document chrome | 13 (10 advisory em-dash, 2 flat-type, 1 single-font) |
+| After the `single-font` ruling | **12** — 10 advisory em-dash, 2 `flat-type-hierarchy` |
 
 The 90 was the useful number: it said the system I had *declared* was thinner than the system I had
 *built*. The fix was both directions — declare the real ten-role ramp in `DESIGN.md`, and collapse
@@ -164,7 +196,13 @@ Ignores registered, all narrow and reasoned, in `.impeccable/config.json`:
 - `design-system-color #DFE1E5`, `design-system-font-size 30px`, `design-system-font
   Sfmono-Regular` — all review-document chrome, not product UI.
 
-`single-font` and the two `flat-type-hierarchy` findings are **left firing deliberately** (see §3).
+`single-font` is now ignored project-wide (ruling 3, §3).
+
+**Two `flat-type-hierarchy` findings are left firing, and were not ruled on.** One is the rollup
+panel (12.5 / 13.5 / 15px, a 1.2 ratio against the rule's 1.25) — three genuinely distinct roles,
+and inserting a fourth step to satisfy the ratio would make the panel worse. The other is
+`index.html`, which is review-document chrome. Neither is silenced: unlike the single-family
+decision, these are judgement calls a future reader should get to re-make.
 
 ---
 

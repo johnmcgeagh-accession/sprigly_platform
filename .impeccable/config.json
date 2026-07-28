@@ -1,6 +1,8 @@
 {
   "detector": {
-    "ignoreRules": [],
+    "ignoreRules": [
+      "single-font"
+    ],
     "ignoreFiles": [],
     "ignoreValues": [
       {

@@ -127,8 +127,28 @@ Three rules the round-3 shell adds:
 2. **Month is a peer, not a modal.** It has no ✕ and no dismiss; you leave it the way you entered
    it. That also removes the round-2 ✕ sitting beside the wordmark, where a founder reads it as
    *close the app*.
-3. **The FAB is the primary verb of the surface.** On a draft month that is the microphone. On a
-   committed month there is no FAB today — see the open question in §12.
+3. **The FAB is the primary verb of the surface, and it is never inert.** It is the microphone on
+   **both** month states — the gesture is always *talk to your plan* — but the two mics do
+   different things, and the surface has to say which:
+
+   | Month state | What the mic does | Path |
+   |---|---|---|
+   | **Draft** (pre-cutoff) | **Reshapes the month directly.** One sentence adds, moves or replaces planned posts, and returns a receipt | `POST /api/plan/draft/apply` |
+   | **Committed** (post-cutoff) | **Raises proposals the client then approves.** The agent applies nothing itself | `POST /api/plan/agent` → `runPlanAgentTurn` |
+
+   Same icon, same gesture, different consequence. The committed sheet must not imply the month
+   changed when what actually happened is that a proposal is waiting — the existing agent surface
+   already has the approve/apply queue for this, and the mic feeds it.
+
+   **Copy is not the FAB.** The critique proposed *copy the next caption* for the committed FAB, on
+   the grounds that copying happens ten times a month and approval once. The observation is right
+   and the placement is not: copying is a **per-post** action and belongs on the post, which is
+   where the copy control now sits (mockup 1). The FAB carries the one action that is about the
+   **month**.
+
+   **On a read-only month the FAB is absent, not disabled.** `data.ask` is gated on `readOnly`, so a
+   client browsing a cycle that is not their session's home cycle has no agent to talk to; offering
+   a mic that refuses is worse than offering none.
 
 Transient state alongside, none of it navigational:
 
@@ -390,6 +410,10 @@ Refusals map to distinct statuses the surface must distinguish: `not_found` 404,
 | The rewrite meter | same route: `getUsageForCycle` + `isRewriteBlocked` can return `mode:'blocked'` with a summary | yes — **but it has nowhere to render** (gap 9) |
 | A post still being written | `status: 'generating'` on the post | yes |
 | Hooks / scripts | `POST /api/plan/hooks`, `POST /api/plan/script` | yes |
+| **The mic FAB — “talk to your plan”** | `POST /api/plan/agent {instruction, source, sessionId?, conversationId?}` → `runPlanAgentTurn` (`data.ask`). Every message goes through the LLM task parser: move / delete / rewrite / add become **pending proposals**, `add_note` writes straight to `plan_inputs`, `query` answers inline, `clarify` is surfaced. Returns `{conversationId, message, proposals[], changeSetId}` | yes |
+| Voice-sourced input on the **committed** month | the same route — it **already accepts `source:'voice'` + `sessionId`** | yes. Gap 8 is the *draft* route only |
+| The mic on a read-only (non-home) cycle | `data.ask` returns null when `readOnly` — the FAB is not rendered | yes |
+| Approving what the mic proposed | the existing `agent_proposals` queue and its approve/apply surface | yes |
 
 **Cross-month move — what the picker now allows.** Round 3 lets the date picker navigate months
 freely rather than clamping to the current one. The write works: `PATCH /api/posts/:id` accepts any
@@ -461,6 +485,13 @@ critique's words, the strongest website tell on the screen.
 The wordmark now falls back through `--logo: 'Plus Jakarta Sans', var(--sans)`, so an unloaded
 Plus Jakarta Sans degrades to the native stack rather than to a serif. That single fallback chain
 is the fix; the round-2 version had no such floor.
+
+**The detector's `single-font` rule is ignored project-wide**, with the reason *“single native
+family is the reviewed platform-feel decision, three rounds.”* It fires by design on a one-family
+interface and would otherwise sit in the channel forever; a warning nobody will ever act on trains
+people to stop reading warnings. The exception lives in `.impeccable/config.json`
+(`detector.ignoreRules`) — note that array carries **no reason field**, unlike `ignoreValues`, so
+the reason is recorded here and in `round-3-notes.md` §3.
 
 **What does not change.** Coral is never used for small text; coral text and coral icons appear
 only on coral-100 (coral-800, 4.70:1). White on coral-600 appears only at 14px+/500 — in the
@@ -747,11 +778,10 @@ Not a commitment — the shape of the work, so the sequencing is reviewable alon
 Three questions the critique raised that the round-3 brief did not settle. Recorded so they are
 decided rather than defaulted.
 
-1. **The committed month has no FAB.** On a draft month the FAB is the mic. On a committed month
-   there is no persistent action at all — yet that is the surface where the client's real recurring
-   job lives: copying a caption into Instagram, ten times a month. Round 3 puts a copy control on
-   the card, which helps, but the question of whether the committed FAB should be *copy the next
-   caption* is open.
+1. ~~**The committed month has no FAB.**~~ **Decided 2026-07-28.** The FAB is the microphone on
+   both month states and is never inert; on a committed month it means *talk to your plan* and runs
+   the existing post-cutoff agent path, which raises proposals rather than applying changes. Copy
+   stays a per-post control on the card. See §1.2 and §5.4.
 2. **Peak-end has no end.** There is no post-approval state anywhere in the set. The last emotional
    beat of the product — *the month is written, here is what happens next* — is unrendered, and
    generation takes minutes.
