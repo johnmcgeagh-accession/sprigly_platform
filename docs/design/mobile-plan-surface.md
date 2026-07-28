@@ -78,7 +78,7 @@ and its overlay — though the latter is superseded on the draft surface by the 
 | **DR1** | Draft framing is possessive-month: *“This is your October draft”* | §2 |
 | **DR2** | The experiment tooltip element is **removed**; the banner pill carries the whole meaning | §2 |
 | **V1** | Typed mode is one large field filling the sheet, with a single full-width submit pinned at the foot | §8 |
-| **S1** | The action row is three equal-width buttons, icon with the **label below**, Move carrying its date above the icon | §4. This is round 3's recorded reversal, exercised |
+| **S1** | The action row is three equal-width buttons, icon with the **label below** | §4. This is round 3's recorded reversal, exercised |
 | **R1** | The summary chip is **one control** — tap anywhere to toggle, one chevron, no ✕ | §3 |
 
 ## 1. The state machine
@@ -345,13 +345,20 @@ A fixed 48px bar between the month row and the week strip:
   4: the endpoint has always been `POST /api/plan/shape` and has always required an `instruction`,
   so the client-facing word now matches what happens. See §5.4.
 - **The action row is three equal-width buttons filling the row**: icon with the **label below**,
-  Move carrying its current date **above** its icon, and a real pressed state so they read as
-  buttons. This is round 3's icon-only row reversed — round 3 recorded labels as *“the designated
-  cheap reversal”* and named the trigger; round 4 pulls it forward rather than waiting for the
-  demo. It cost what it was predicted to cost: one span per button and one CSS rule, with no change
-  to geometry, targets or `aria-label`s.
-- **“Move” carries the current date on its icon**, so the action row states where the post is
-  before you open anything, and the picker edits date *and* time.
+  and a real pressed state so they read as buttons. This is round 3's icon-only row reversed —
+  round 3 recorded labels as *“the designated cheap reversal”* and named the trigger; round 4
+  pulled it forward rather than waiting for the demo, and it cost what it was predicted to cost.
+- **Round 5 takes the date off the Move button.** The sheet header states it one line above, so
+  the button was saying it twice.
+- **Delete is a solid `danger` fill with a white icon and label** (5.94:1). A destructive action
+  should not have to be inferred from the colour of its text.
+- **Shape mode replaces the footer wholesale** — a primary submit filling most of the row, and a
+  smaller destructive cancel beside it, visually kin to Delete. The row is *replaced*, not
+  relabelled: a button must never change meaning mid-flow, which is what round 4's “Cancel” sitting
+  in the Shape slot did.
+- **“Move” opens a picker over the full month grid**, with free month navigation, editing date
+  *and* time. Round 4 clipped that grid to roughly half a month, which made a picker look like a
+  fragment.
 - **Undo renders at the top of the screen.** In round 1 it was bottom-anchored, which put it
   directly over the action row it was undoing.
 - **The planned-post variant has no tabs** — there is nothing written yet, so
@@ -547,68 +554,74 @@ mockups, the 16px/600 day numeral and 15px/600 buttons. Touch targets stay ≥40
 
 ---
 
-## 6b. Theme tokens, and the vivid pass
+## 6b. Theme tokens, and the ramp
 
 **Colour is not owned by this design.** The platform has an admin-managed Themes system: one
 global active theme, tokens injected as CSS custom properties at the layout root by
-`app/src/lib/theme.ts`, activation AA-gated in admin on tint/text pairs. Round 2's mockups
-hard-coded thirteen coral hexes, which meant the files specifying a themeable surface could not
-themselves be themed.
+`app/src/lib/theme.ts`, activation AA-gated in admin on tint/text pairs. The mockups consume
+`--t-*` and never write a hex.
 
-**Round 3 moves the mockups onto the tokens.** Same names as the injected properties:
+### Round 5: the ramp comes from the mark
 
-| Token | Teal v1 | Role |
+Rounds 3 and 4 demonstrated the ramp in **Teal v1** — a generic Tailwind teal with no relationship
+to the identity. Round 5 rebuilds it from the logo.
+
+**The mark is `#4DB0A0`** — H170.3°, S39.1%, L49.6%. Its apparent *two-tone* is not two colours:
+`sprigly-mark.svg` carries `opacity="0.78"` on the second leaf, which renders `#74C1B5` over white.
+**One identity tone, and an opacity.** Every tier below is that hue and saturation at a different
+lightness, so the ramp and the mark cannot drift apart.
+
+| Tier | Value | Job |
 |---|---|---|
-| `--t-accent-600` | `#14B8A6` | the vivid fill. **Never carries white ink** |
-| `--t-accent-700` | `#0F766E` | fill when it must carry white (5.47:1) |
-| `--t-accent-800` | `#0C5F58` | the only accent that may be small text |
-| `--t-accent-100` | `#E6F7F5` | tint |
-| `--t-chrome` / `--t-chrome-deep` | `#334155` / `#1E293B` | text, dark surfaces — **and the ink on every accent-600 fill** |
-| `--t-muted` / `--t-line` / `--t-line-soft` | `#5C6470` / `#8F9296` / `#F4F5F6` | secondary text, hairlines |
-| `--t-canvas` / `--t-surface` | `#F2F3F5` / `#FFFFFF` | page, cards |
-| `--t-danger` | `#B23A2E` | **operator-facing, plus destructive actions the client chooses** |
+| `accent-100` | `#E3F3F0` | tint |
+| `accent-500` | `#74C1B5` | the mark's lighter leaf — light fills, non-text vivid |
+| `accent-600` | **`#4DB0A0`** | **the logo tone.** Identity fills |
+| `accent-700` | `#327267` | fills that must carry white |
+| `accent-800` | `#285C54` | accent text |
 
-The mockups demonstrate the active theme, **Teal v1**. Changing the twelve lines in the
-stylesheet's THEME block repaints all ten pages, which is the point of showing it this way.
+### The ink rule, re-derived
 
-### The vivid rule
+> **Tiers 100–600 take `chrome-deep` ink. Tiers 700–800 take white. No tier takes both.**
 
-The operator asked for more vivid colour. The obstacle is that `accent-600` — the brightest tier
-that can cover a large area — measures **2.49:1 against white**, failing both the AA text floor
-(4.5) and the graphic floor (3.0). The instinct is to darken the fill until white text passes,
-which is exactly how a surface ends up dull.
+The crossover is sharp enough that no judgement call is needed: `chrome-deep` goes **5.60 → 2.60**
+across the 600/700 boundary while white goes **2.61 → 5.62**.
 
-> **Flip the ink, not the fill. `chrome-deep` on `accent-600` is 5.88:1.**
-
-That keeps the brightest teal on the biggest surfaces — the selected day, the FAB, loud badges,
-the summary chip, primary buttons — and passes AA comfortably. It is the same move a
-black-on-bright-green Spotify button makes.
-
-Measured pairs in the active theme:
+Round 4 had banned dark ink on 600 after it read muddy. That verdict was correct *about the colour
+it was made against* — `#14B8A6`, a heavily saturated mid-tone at S≈80%, where dark ink sat heavy.
+On this softer mint (S 39%) it reads crisp. Checked on screen, not only in the ratio, because the
+round-4 finding was precisely the kind a ratio cannot catch.
 
 | Pair | Ratio | Verdict |
 |---|---|---|
-| `chrome-deep` on `accent-600` | **5.88** | ✅ the vivid rule |
-| white on `accent-700` | 5.47 | ✅ when a fill must carry white |
-| `accent-800` on `accent-100` | 6.80 | ✅ the only accent small text |
-| `accent-500` on `chrome-deep` | **7.86** | ✅ maximum vividness, on dark |
-| white on `accent-600` | 2.49 | ❌ never |
-| `accent-600` on `surface` / `canvas` | 2.25–2.49 | ❌ never as text or a meaningful glyph |
+| `chrome-deep` on `accent-100` | 12.78 | ✅ |
+| `chrome-deep` on `accent-500` | **6.99** | ✅ light fills |
+| `chrome-deep` on `accent-600` | **5.60** | ✅ **the identity pairing** |
+| `accent-800` on `accent-100` | 6.67 | ✅ accent text on tint |
+| `accent-800` on `surface` | 7.64 | ✅ accent text on white |
+| `accent-700` on `surface` | 5.62 | ✅ |
+| white on `accent-700` | **5.62** | ✅ when a fill must carry white |
+| white on `accent-800` | 7.64 | ✅ |
+| white on `accent-600` | 2.61 | ❌ never |
+| `chrome-deep` on `accent-700` | 2.60 | ❌ never |
+| `accent-600` on `surface` / `canvas` | 2.61 / 2.35 | ❌ never as text or a meaningful glyph |
+| white on `danger` | 5.94 | ✅ the Delete button |
+| `border` on `surface` | 3.13 | ✅ hairlines only |
 
-**Where the accent is allowed to be loud** (non-text, no glyph over it): day pips and month dots,
-the changed-card wash and edge, the FAB's offset glow, waveform bars, the summary chip, focus
-rings.
+**Non-text uses** (nothing on top of them): day pips and month dots, the changed-card wash and
+edge, the glow under the mic, waveform bars, focus rings, the completed-task tick.
 
-### The proposal: an `accent-500` tier
+**The selected-day pip stays accent and is never white.** It sits *below* the numeral, on canvas
+rather than on the fill, so round 4's white pip simply vanished when a day was selected.
 
-Every theme today ships four accent tiers. A fifth, brighter one — `#2DD4BF` in Teal v1 — would
-give the system a sanctioned home for glows, waveform peaks and dark-field accents that are
-currently improvised from `accent-600` at alpha.
+### One thing this could not verify
 
-It needs **no new AA rule**, because it is non-text by definition and its only text-adjacent use
-is on `chrome-deep`, where it measures 7.86:1 — the most saturated moment in the product, on the
-voice sheet's waveform. Adopting it costs one column in the admin Themes editor and one entry in
-`theme.ts`'s `VAR` map. The mockups demonstrate it; the platform does not ship it.
+**No mint-teal logo asset exists in this repo.** Every file in `studio/svg_logos/`, plus
+`app/src/app/icon.svg` and `site/public/favicon.svg`, is still coral `#E87766` with ink `#2A1F1C`.
+So the tones were not sampled from an asset — they are the operator's quoted values, cross-checked
+against the mark's geometry: `#4DB0A0` at the SVG's own `0.78` opacity renders `#74C1B5`, which
+matches the quoted lighter tone to within one point on green and zero on blue. That agreement is
+what makes the single-tone reading safe to build on. **If the mint mark exists outside the repo,
+the ramp should be re-sampled from it before this ships.**
 
 ---
 
@@ -653,7 +666,7 @@ has never heard it and the thing it names looks to them exactly like a post.
 | `generation_failed` / retry | **on its way** | Client-facing. The real status stays for the operator |
 | receipt / `DraftApplication` | **what changed** | The chip has no heading at all — just the counts |
 | cycle | **month** | Already true in the copy; recorded so it stays true |
-| approve / approval | **ready to go** / **generate it** | “Approve” is our word for a state transition, not theirs |
+| approve / approval | **Generate** (the pill) · **Ready to go?** (the sheet) | “Approve” is our word for a state transition, not theirs. Round 5 shortens the pill to the single action word; the sheet's copy is unchanged |
 
 ---
 

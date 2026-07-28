@@ -2,11 +2,11 @@
 name: Sprigly — client plan surface
 description: An iOS-native, day-focused plan surface for phone review, painted entirely from admin-managed theme tokens.
 colors:
-  accent-500: "#2DD4BF"
-  accent-600: "#14B8A6"
-  accent-700: "#0F766E"
-  accent-800: "#0C5F58"
-  accent-100: "#E6F7F5"
+  accent-500: "#74C1B5"
+  accent-600: "#4DB0A0"
+  accent-700: "#327267"
+  accent-800: "#285C54"
+  accent-100: "#E3F3F0"
   chrome: "#334155"
   chrome-deep: "#1E293B"
   muted: "#5C6470"
@@ -91,8 +91,8 @@ spacing:
   lg: "20px"
 components:
   button-primary:
-    backgroundColor: "{colors.accent-700}"
-    textColor: "{colors.surface}"
+    backgroundColor: "{colors.accent-600}"
+    textColor: "{colors.chrome-deep}"
     rounded: "{rounded.md}"
     padding: "0 18px"
     height: "50px"
@@ -102,13 +102,13 @@ components:
     rounded: "{rounded.md}"
     height: "50px"
   nav-mic:
-    backgroundColor: "{colors.accent-700}"
-    textColor: "{colors.surface}"
+    backgroundColor: "{colors.accent-600}"
+    textColor: "{colors.chrome-deep}"
     rounded: "{rounded.pill}"
     size: "56px"
   nav-pill-active:
-    backgroundColor: "{colors.accent-700}"
-    textColor: "{colors.surface}"
+    backgroundColor: "{colors.accent-600}"
+    textColor: "{colors.chrome-deep}"
     rounded: "{rounded.pill}"
     height: "44px"
   card:
@@ -117,8 +117,8 @@ components:
     rounded: "{rounded.lg}"
     padding: "13px 14px 14px"
   badge:
-    backgroundColor: "{colors.accent-700}"
-    textColor: "{colors.surface}"
+    backgroundColor: "{colors.accent-600}"
+    textColor: "{colors.chrome-deep}"
     rounded: "{rounded.pill}"
     padding: "4px 9px"
   badge-quiet:
@@ -127,8 +127,8 @@ components:
     rounded: "{rounded.pill}"
     padding: "4px 9px"
   day-selected:
-    backgroundColor: "{colors.accent-700}"
-    textColor: "{colors.surface}"
+    backgroundColor: "{colors.accent-600}"
+    textColor: "{colors.chrome-deep}"
     rounded: "{rounded.pill}"
     size: "34px"
   action-button:
@@ -164,42 +164,59 @@ tint/text pairs. Everything below names tokens. The hexes in the frontmatter are
 `--t-danger` — the same custom properties `app/src/lib/theme.ts` injects. A client surface never
 writes a hex.
 
-**The ink rule — the one that matters.**
+**The ramp comes from the logo.** The mark is `#4DB0A0` — H170.3°, S39.1%, L49.6%. Its *second*
+leaf is not a second colour: the SVG carries `opacity="0.78"` on it, which renders `#74C1B5` over
+white. **One identity tone, not two.** Every tier below is that hue and saturation at a different
+lightness, so the ramp and the mark cannot drift apart.
 
-> **White ink requires a ≥700-tier fill. `accent-600` is non-text only.**
+| Tier | Value | Job |
+|---|---|---|
+| `accent-100` | `#E3F3F0` | tint |
+| `accent-500` | `#74C1B5` | the mark's lighter leaf — light fills, non-text vivid |
+| `accent-600` | **`#4DB0A0`** | **the logo tone.** Identity fills |
+| `accent-700` | `#327267` | fills that must carry white |
+| `accent-800` | `#285C54` | accent text |
 
-Round 3 tried the other answer: `chrome-deep` ink on `accent-600` fills. It passes at 5.88:1 and
-the arithmetic was never wrong, but dark-on-green read muddy on the device — the fill and the ink
-sat too close in value, so the label sank into the button instead of sitting on it. Round 4
-replaces it with the conventional pairing, which is also the more legible one.
+**The ink rule, re-derived from that ramp.** The crossover between 600 and 700 is sharp enough
+that no judgement call is needed:
 
-So anything filled that carries a **word or a glyph** is `accent-700` with white: the selected
-day, badges, chips, the summary chip, primary buttons, the nav pill's active segment, the mic.
-`accent-600` keeps the jobs that carry nothing on top of them.
+> **Tiers 100–600 take `chrome-deep` ink. Tiers 700–800 take white. No tier takes both.**
 
-Measured pairs in the active theme:
+`chrome-deep` goes 5.60 → 2.60 across that boundary; white goes 2.61 → 5.62. Round 4 had banned
+dark ink on 600 after it read muddy — but that verdict was against `#14B8A6`, a heavily saturated
+mid-tone (S≈80%). On this softer mint (S 39%) dark ink reads crisp, which was checked on screen
+and not only in the ratio.
+
+Measured pairs:
 
 | Pair | Ratio | Verdict |
 |---|---|---|
-| white on `accent-700` | **5.47** | ✅ **the ink rule** — every filled control |
-| `accent-800` on `accent-100` | 6.80 | ✅ the only way accent becomes small text |
-| `accent-500` on `chrome-deep` | 7.86 | ✅ maximum vividness, on dark |
-| `chrome-deep` on `accent-600` | 5.88 | ⚠️ passes, but retired in round 4 — muddy on device |
-| white on `accent-600` | 2.49 | ❌ never |
-| `accent-600` on `surface` / `canvas` | 2.25–2.49 | ❌ never as text or as a meaningful glyph |
+| `chrome-deep` on `accent-100` | 12.78 | ✅ |
+| `chrome-deep` on `accent-500` | **6.99** | ✅ light fills |
+| `chrome-deep` on `accent-600` | **5.60** | ✅ **the identity pairing** |
+| `accent-800` on `accent-100` | 6.67 | ✅ accent text on tint |
+| `accent-800` on `surface` | 7.64 | ✅ accent text on white |
+| `accent-700` on `surface` | 5.62 | ✅ |
+| white on `accent-700` | **5.62** | ✅ when a fill must carry white |
+| white on `accent-800` | 7.64 | ✅ |
+| white on `accent-600` | 2.61 | ❌ never |
+| `chrome-deep` on `accent-700` | 2.60 | ❌ never |
+| `accent-600` on `surface` / `canvas` | 2.61 / 2.35 | ❌ never as text or a meaningful glyph |
+| white on `danger` | 5.94 | ✅ the Delete button |
 | `border` on `surface` | 3.13 | ✅ hairlines only (graphic floor) |
 | `chrome` / `muted` on `surface` | 10.35 / 5.98 | ✅ |
 
-**Where `accent-600` still belongs (non-text, nothing on top of it):** day pips and month dots, the
-highlight wash and edge on a changed card, the reshape glow, the mic's glow, waveform bars, focus
-rings, the completed-task tick.
+**Non-text uses (nothing on top of them):** day pips and month dots, the highlight wash and edge on
+a changed card, the glow under the mic, waveform bars, focus rings, the completed-task tick. The
+**selected-day pip stays accent and is never white** — it sits below the numeral on canvas, not on
+the fill, so white made it vanish.
 
 **Where accent may never go:** small text on white or canvas, any meaningful icon sitting directly
 on accent-600, and status meaning carried by hue alone.
 
-**accent-500 `#2DD4BF` is a proposal, not yet a theme token** — see §Do's and Don'ts. It exists in
-this system only on `chrome-deep` fields, where it reaches 7.86:1 and is the most saturated moment
-in the product.
+**accent-500 `#74C1B5` is a proposal, not yet a platform token.** It is the mark's own lighter leaf,
+so adopting it costs nothing conceptually: one column in the admin Themes editor and one entry in
+`theme.ts`'s `VAR` map.
 
 **Neutrals.** `canvas` behind everything, `surface` for cards and sheets, `border` at ~30% alpha
 for hairlines and ~55% for a border meant to be noticed (dashed draft edges). `danger` is for
@@ -360,8 +377,9 @@ space. Expands into a panel; dismiss removes the chip and never the highlights.
 
 **Don't**
 
-- Don't put white text or a meaningful glyph on `accent-600` (2.49:1). White needs a 700-tier fill.
-- Don't put dark ink on `accent-600` either. It passes, and it looks muddy; round 4 retired it.
+- Don't put white text or a meaningful glyph on `accent-600` (2.61:1). White needs a 700-tier fill.
+- Don't put `chrome-deep` on a 700- or 800-tier fill (2.60:1). Those tiers take white.
+- Don't invent a second identity tone. The mark's two tones are one colour and an opacity.
 - Don't use accent for small text on white. Accent text exists only as `accent-800` on
   `accent-100`.
 - Don't reintroduce a second typeface on the client surface. Fraunces is out; this was decided
@@ -372,11 +390,13 @@ space. Expands into a panel; dismiss removes the chip and never the highlights.
 - Don't let a receipt or a banner push the day's content off the fold.
 - Don't use bounce or elastic easing. `cubic-bezier(.22,.61,.36,1)`, 120–280ms.
 
-**Open proposal — the vivid ramp (`accent-500`).** Every theme today ships four accent tiers
-(600/700/800/100). Adding a fifth, brighter tier — `#2DD4BF` in Teal v1 — would give the system a
-sanctioned home for glows, waveform peaks, highlight washes and dark-field accents that are
-currently improvised from `accent-600` at alpha. It needs no new AA rule because it is
-**non-text by definition** and its only text-adjacent use is on `chrome-deep`, where it measures
-7.86:1. Adopting it means one column in the admin Themes editor and one entry in
-`theme.ts`'s `VAR` map. Recorded here as a proposal; the mockups demonstrate it, the platform does
+**Open proposal — a fifth tier (`accent-500` `#74C1B5`).** Every theme today ships four accent
+tiers (600/700/800/100). The fifth is the mark's own lighter leaf, and it gives the system a
+sanctioned home for light fills and non-text vivid work currently improvised from `accent-600` at
+alpha. It takes `chrome-deep` ink at 6.99:1, so it needs no new rule. One column in the admin
+Themes editor, one entry in `theme.ts`'s `VAR` map. The mockups demonstrate it; the platform does
 not yet ship it.
+
+**Note on the active theme.** The ramp above replaces the generic Teal v1 values with the logo's
+own. If Teal v1 is to remain the shipped theme it should be re-keyed to these five values, since
+the point of the exercise was that the identity tiers match the mark.

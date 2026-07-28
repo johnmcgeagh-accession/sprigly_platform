@@ -10,16 +10,23 @@
       Teal v1 — swap the six lines in the THEME block and every screen
       repaints, which is the point. Nothing here names a hex twice.
 
-   2. THE INK RULE (corrected in round 4). Round 3 put chrome-deep ink on
-      accent-600 fills — it passed at 5.88:1, but dark-on-green read muddy on
-      the device. The rule is now the simpler and more conventional one:
+   2. THE RAMP COMES FROM THE LOGO (round 5). The old ramp was a generic
+      Tailwind teal. The Sprigly leaf is #4DB0A0 — softer and lighter, H170.3
+      S39.1 — and the mark's SECOND leaf is not a second colour at all: it is
+      the same tone at the opacity="0.78" the SVG already carries, which
+      renders #74C1B5. One identity tone, not two. The ramp is now built on
+      that hue and saturation.
 
-          WHITE INK REQUIRES A >=700-TIER FILL. accent-600 IS NON-TEXT ONLY.
+      THE INK RULE, re-derived. The crossover between 600 and 700 is sharp,
+      so the rule needs no judgement call:
 
-      So every filled thing carrying a word or a glyph — selected day, badges,
-      chips, primary buttons, the mic — is accent-700 with white, 5.47:1.
-      accent-600 keeps the jobs that carry nothing: day pips, month dots, the
-      changed-card wash, the mic's glow, the waveform.
+          TIERS 100-600 TAKE chrome-deep INK.  TIERS 700-800 TAKE WHITE.
+          NO TIER TAKES BOTH.
+
+      chrome-deep goes 5.60 -> 2.60 across that boundary; white goes 2.61 ->
+      5.62. Round 4's "muddy" verdict was dark ink on a heavily saturated
+      mid-tone (#4DB0A0, S~80%); on this softer mint it reads crisp, which
+      was checked on screen and not only in the ratio.
 
    3. NATIVE TYPE ONLY. No webfont for UI, and no serif anywhere. Round 2 kept
       Fraunces for the wordmark and month title; it was never loaded, so both
@@ -33,10 +40,10 @@
      In the app these are injected as `--t-*: r g b` channel triples by
      theme.ts; here they are hexes so the files open with no server. Same
      names, same meaning. ------------------------------------------------- */
-  --t-accent-600: #14B8A6;   /* vivid fill. NEVER carries white ink        */
-  --t-accent-700: #0F766E;   /* fill when it must carry white (5.47:1)     */
-  --t-accent-800: #0C5F58;   /* the only accent that may be small text     */
-  --t-accent-100: #E6F7F5;   /* tint                                       */
+  --t-accent-600: #4DB0A0;   /* THE LOGO TONE. chrome-deep ink, 5.60:1     */
+  --t-accent-700: #327267;   /* fill when it must carry white, 5.62:1      */
+  --t-accent-800: #285C54;   /* accent text: 7.64 on white, 6.67 on tint   */
+  --t-accent-100: #E3F3F0;   /* tint                                       */
   --t-chrome:      #334155;
   --t-chrome-deep: #1E293B;  /* ALSO the ink on every accent-600 fill      */
   --t-muted:       #5C6470;
@@ -46,16 +53,16 @@
   --t-surface:     #FFFFFF;
   --t-danger:      #B23A2E;
 
-  /* Proposed fifth tier — not yet a platform token. Non-text by definition:
-     glows, waveform peaks, highlight washes, and accents on dark fields. */
-  --t-accent-500: #2DD4BF;
+  /* The mark's lighter leaf — the logo tone at its own 0.78 opacity. Still a
+     proposal rather than a platform token. Takes chrome-deep ink at 6.99. */
+  --t-accent-500: #74C1B5;
 
   --hair:  rgb(143 146 150 / .30);
   --hair2: rgb(143 146 150 / .55);
 
   --shadow-card:  0 1px 2px rgb(51 65 85 / .04), 0 6px 18px rgb(51 65 85 / .06);
   --shadow-sheet: 0 -18px 50px -12px rgb(51 65 85 / .28);
-  --shadow-fab:   0 10px 26px -6px rgb(20 184 166 / .55);
+  --shadow-fab:   0 10px 26px -6px rgb(77 176 160 / .58);
   --shadow-tab:   0 -1px 0 rgb(143 146 150 / .3);
 
   --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, 'Segoe UI', Roboto, sans-serif;
@@ -156,18 +163,23 @@ body {
 
 /* Today, right-aligned immediately above the strip. */
 .todayrow { flex: none; display: flex; align-items: center; justify-content: flex-end; padding: 10px 20px 0; min-height: 34px; }
+/* M2: an actual button. It read as a label before, which is why nobody would
+   press it. Behaviour: jumps to the current day in Day view. */
 .todaybtn {
-  border: 0; background: none; cursor: pointer; font-family: var(--sans);
-  font-size: 13.5px; font-weight: 600; color: var(--t-accent-800);
-  min-height: 30px; padding: 0 2px;
+  border: 1px solid var(--hair); background: var(--t-surface); cursor: pointer;
+  font-family: var(--sans); font-size: 13px; font-weight: 600; color: var(--t-accent-800);
+  min-height: 34px; padding: 0 14px; border-radius: var(--r-pill);
+  box-shadow: var(--shadow-card);
+  transition: background .12s var(--ease);
 }
+.todaybtn:active { background: var(--t-accent-100); }
 .draftline { display: flex; align-items: center; gap: 7px; margin-right: auto; }
 .draftline .muted { font-size: 12.5px; color: var(--t-muted); font-weight: 500; }
 
 .badge {
   font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
   padding: 4px 9px; border-radius: var(--r-pill);
-  background: var(--t-accent-700); color: #fff;
+  background: var(--t-accent-600); color: var(--t-chrome-deep);
 }
 .badge.quiet { background: var(--t-accent-100); color: var(--t-accent-800); }
 .badge.slate { background: var(--t-line-soft); color: var(--t-muted); }
@@ -198,13 +210,15 @@ body {
   font-size: 16.5px; font-weight: 600; color: var(--t-chrome); letter-spacing: -.01em;
 }
 /* THE VIVID RULE: brightest fill, dark ink. 5.88:1. */
-.wday[aria-pressed="true"] .num { background: var(--t-accent-700); color: #fff; font-weight: 700; }
+.wday[aria-pressed="true"] .num { background: var(--t-accent-600); color: var(--t-chrome-deep); font-weight: 700; }
 .wday[aria-pressed="true"] .dow { color: var(--t-chrome); }
 .wday.today .num { box-shadow: inset 0 0 0 2px var(--t-accent-600); }
 .wday.today[aria-pressed="true"] .num { box-shadow: none; }
 .wday .pip { position: absolute; bottom: 1px; width: 5px; height: 5px; border-radius: var(--r-pill); background: var(--t-chrome); }
 .wday .pip.draft { background: var(--t-accent-600); }
-.wday[aria-pressed="true"] .pip { background: #fff; }
+/* C2 (round 5): the pip sits BELOW the numeral, on canvas — not on the fill.
+   Round 4 turned it white when selected, which made it vanish. It stays accent. */
+.wday[aria-pressed="true"] .pip { background: var(--t-accent-600); }
 /* Out-of-month days: muted but still legible (was 45% ≈ 2.2:1). */
 .wday.out .dow, .wday.out .num { color: rgb(92 100 112 / .72); }
 
@@ -234,7 +248,7 @@ body {
 .card.changed {
   border-style: solid; border-color: var(--t-accent-600);
   background: linear-gradient(180deg, var(--t-accent-100), var(--t-surface) 70%);
-  box-shadow: 0 6px 20px -8px rgb(20 184 166 / .4);
+  box-shadow: 0 6px 20px -8px rgb(77 176 160 / .45);
 }
 
 .cardtop { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; }
@@ -287,7 +301,7 @@ body {
 
 .bulb {
   width: 30px; height: 30px; border-radius: var(--r-pill); border: 0; cursor: pointer;
-  background: var(--t-accent-700); color: #fff;
+  background: var(--t-accent-600); color: var(--t-chrome-deep);
   display: inline-flex; align-items: center; justify-content: center;
 }
 /* Round 4: the experiment tooltip is gone. The banner pill carries the whole
@@ -299,14 +313,14 @@ body {
   flex: none; display: flex; align-items: center; gap: 8px;
   height: 48px; margin: 10px 20px 0; padding: 0 14px;
   border: 0; font-family: var(--sans); text-align: left;
-  background: var(--t-accent-700); border-radius: 16px; cursor: pointer;
+  background: var(--t-accent-600); border-radius: 16px; cursor: pointer;
 }
-.sumbar .txt { flex: 1; font-size: 13.5px; font-weight: 700; color: #fff; }
+.sumbar .txt { flex: 1; font-size: 13.5px; font-weight: 700; color: var(--t-chrome-deep); }
 /* Round 4: the chip is ONE control. Tap anywhere toggles; the chevron is a
    state indicator, not a second button. No ✕ — clearing lives in the expanded
    panel, and the chip auto-clears on the next visit via the seen-state boolean
    that already drives the "New" marks. */
-.sumbar .chev { flex: none; color: #fff; opacity: .9; }
+.sumbar .chev { flex: none; color: var(--t-chrome-deep); opacity: .8; }
 .clearbtn {
   background: none; border: 0; cursor: pointer; font-family: var(--sans);
   font-size: 13.5px; font-weight: 600; color: var(--t-muted);
@@ -316,7 +330,7 @@ body {
 /* --- strips --------------------------------------------------------------- */
 
 .strip { margin: 0 0 12px; background: var(--t-surface); border: 1px solid var(--hair); border-radius: 16px; padding: 12px 13px; }
-.strip.tint { background: var(--t-accent-100); border-color: rgb(20 184 166 / .4); }
+.strip.tint { background: var(--t-accent-100); border-color: rgb(77 176 160 / .45); }
 .strip h3 { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--t-muted); }
 .strip.tint h3 { color: var(--t-accent-800); }
 .strip p { margin: 7px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--t-chrome); }
@@ -332,7 +346,9 @@ body {
 
 /* --- month view (a peer, not an overlay) --------------------------------- */
 
-.grid { flex: 1; overflow-y: auto; padding: 12px 16px 104px; }
+/* M1: centred with room to breathe. The grid was hard against the gutters. */
+.grid { flex: 1; overflow-y: auto; padding: 18px 22px 104px; }
+.gridbody { row-gap: 4px; }
 .grid::-webkit-scrollbar { width: 0; }
 .gridhead { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; padding-bottom: 6px; }
 .gridhead span { text-align: center; font-size: 10.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--t-muted); }
@@ -344,7 +360,7 @@ body {
 }
 .gcell .gnum { font-size: 15px; font-weight: 500; color: var(--t-chrome); letter-spacing: -.01em; }
 .gcell.out .gnum { color: rgb(92 100 112 / .4); }
-.gcell[aria-current="true"] .gnum { background: var(--t-accent-700); color: #fff; font-weight: 700; width: 28px; height: 28px; border-radius: var(--r-pill); display: flex; align-items: center; justify-content: center; }
+.gcell[aria-current="true"] .gnum { background: var(--t-accent-600); color: var(--t-chrome-deep); font-weight: 700; width: 28px; height: 28px; border-radius: var(--r-pill); display: flex; align-items: center; justify-content: center; }
 .dots { display: flex; gap: 3px; height: 6px; align-items: center; }
 .dots i { width: 5px; height: 5px; border-radius: var(--r-pill); display: block; }
 .dots i.draft { background: var(--t-accent-600); }
@@ -372,17 +388,22 @@ body {
   backdrop-filter: blur(20px) saturate(180%);
   box-shadow: 0 8px 28px -6px rgb(30 41 59 / .28), inset 0 0 0 1px rgb(255 255 255 / .6);
 }
+/* N1: icons, per the iOS reference. The selected segment shows icon + label;
+   the others are icon-only with an aria-label, which is what lets three
+   segments and a label fit a 290px pill without crowding. */
 .navpill button {
   flex: 1; min-height: 44px; border: 0; border-radius: var(--r-pill); cursor: pointer;
   font-family: var(--sans); font-size: 13.5px; font-weight: 600;
   background: none; color: var(--t-muted);
+  display: flex; align-items: center; justify-content: center; gap: 6px;
 }
+.navpill button .ic { width: 20px; height: 20px; }
 /* THE INK RULE: a fill carrying a word is 700-tier with white. 5.47:1. */
-.navpill button[aria-selected="true"] { background: var(--t-accent-700); color: #fff; font-weight: 700; }
+.navpill button[aria-selected="true"] { background: var(--t-accent-600); color: var(--t-chrome-deep); font-weight: 700; }
 
 .navmic {
   width: 56px; height: 56px; flex: none; border-radius: var(--r-pill); border: 0; cursor: pointer;
-  background: var(--t-accent-700); color: #fff;
+  background: var(--t-accent-600); color: var(--t-chrome-deep);
   display: flex; align-items: center; justify-content: center;
   box-shadow: var(--shadow-fab);
 }
@@ -413,7 +434,7 @@ body {
   background: var(--t-line-soft); color: var(--t-chrome);
   display: flex; align-items: center; justify-content: center;
 }
-.iconbtn[aria-expanded="true"] { background: var(--t-accent-700); color: #fff; }
+.iconbtn[aria-expanded="true"] { background: var(--t-accent-600); color: var(--t-chrome-deep); }
 
 .tabs { flex: none; display: flex; gap: 4px; padding: 12px 18px 0; }
 .tab {
@@ -425,8 +446,17 @@ body {
 
 .sheetbody { flex: 1; overflow-y: auto; padding: 12px 18px 16px; }
 .sheetbody::-webkit-scrollbar { width: 0; }
-.sheetbody.center { text-align: center; display: flex; flex-direction: column; align-items: center; }
-.sheetbody.center .typedarea { margin-top: 10px; }
+/* V1: framing top, hints bottom, the mic dead-centre with clear space. The
+   button is the hero; the sheet's job is to leave it alone. */
+.sheetbody.center {
+  text-align: center; display: flex; flex-direction: column; align-items: center;
+  justify-content: space-between; padding-top: 18px; padding-bottom: 18px;
+}
+.sheetbody.center .micwrap {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; width: 100%; min-height: 210px;
+}
+.sheetbody.center .typedarea { margin-top: 14px; }
 
 /* Copy sits alone on its row — the tab already names the field. */
 .copyrow { display: flex; justify-content: flex-end; margin-bottom: 6px; }
@@ -459,8 +489,29 @@ body {
   font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
   color: var(--t-muted); font-variant-numeric: tabular-nums; margin-bottom: 1px;
 }
-.act.destructive { color: var(--t-danger); box-shadow: inset 0 0 0 1px rgb(178 58 46 / .35); }
-.act.destructive .actlabel { color: var(--t-danger); }
+/* S3: unmistakably destructive — solid danger fill, white icon and label.
+   White on danger measures 5.94:1. */
+.act.destructive { background: var(--t-danger); color: #fff; box-shadow: none; }
+.act.destructive .actlabel { color: #fff; }
+.act.destructive:active { background: rgb(178 58 46 / .86); box-shadow: none; }
+
+/* S2: the shape-mode footer. A primary submit that fills the row, and a
+   SMALLER destructive cancel beside it — kin to Delete, so the eye reads it as
+   "stop this" rather than "another option". A button never changes its meaning
+   mid-flow, so the action row is replaced wholesale rather than relabelled. */
+.shapefoot { flex: none; display: flex; gap: 8px; padding: 12px 18px 26px; border-top: 1px solid var(--hair); background: var(--t-surface); }
+.shapefoot .submit {
+  flex: 1; min-height: 56px; border: 0; border-radius: 16px; cursor: pointer;
+  background: var(--t-accent-600); color: var(--t-chrome-deep);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow-fab);
+}
+.shapefoot .submit .ic { stroke-width: 2.2; }
+.shapefoot .cancel {
+  flex: 0 0 72px; min-height: 56px; border: 0; border-radius: 16px; cursor: pointer;
+  background: var(--t-danger); color: #fff; font-family: var(--sans);
+  display: flex; align-items: center; justify-content: center;
+}
 
 /* Undo — top of the screen, never over the row it undoes. */
 .snack {
@@ -474,13 +525,13 @@ body {
 /* --- voice sheet ---------------------------------------------------------- */
 
 .micbtn {
-  width: 108px; height: 108px; border-radius: var(--r-pill); border: 0; cursor: pointer;
+  width: 116px; height: 116px; border-radius: var(--r-pill); border: 0; cursor: pointer;
   margin: 6px auto 0; display: flex; align-items: center; justify-content: center;
-  background: var(--t-accent-700); color: #fff;
+  background: var(--t-accent-600); color: var(--t-chrome-deep);
   box-shadow: var(--shadow-fab);
 }
 /* The ring is a STATE (capturing), not decoration. */
-.micbtn.live { box-shadow: var(--shadow-fab), 0 0 0 10px rgb(20 184 166 / .18); }
+.micbtn.live { box-shadow: var(--shadow-fab), 0 0 0 10px rgb(77 176 160 / .22); }
 
 /* Live waveform. Dark field is where the accent is allowed to be brightest:
    accent-500 on chrome-deep = 7.86:1. */
@@ -490,7 +541,7 @@ body {
    ("Listening…" / "Go ahead"), so the bars do not have to clear the graphic
    floor on their own. */
 .wave {
-  width: 100%; height: 66px; margin: 18px 0 0;
+  width: 100%; height: 58px; margin: 26px 0 0;
   background: transparent; display: flex; align-items: center;
   justify-content: center; gap: 3px; padding: 0 14px; overflow: hidden;
 }
@@ -505,7 +556,7 @@ body {
   50%      { height: var(--h, 30px); }
 }
 
-.examples { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 8px; width: 100%; }
+.examples { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; width: 100%; }
 .examples li {
   border: 1px solid var(--hair); border-radius: var(--r-pill); background: var(--t-surface);
   padding: 11px 15px; font-size: 13.5px; color: var(--t-chrome); text-align: left;
@@ -533,7 +584,7 @@ body {
 .typedfield .box.empty { color: rgb(92 100 112 / .7); }
 .sendbtn {
   flex: none; width: 52px; border-radius: var(--r-md); border: 0; cursor: pointer;
-  background: var(--t-accent-700); color: #fff;
+  background: var(--t-accent-600); color: var(--t-chrome-deep);
   display: flex; align-items: center; justify-content: center;
 }
 
@@ -546,7 +597,7 @@ body {
   background: var(--t-surface); color: var(--t-chrome); box-shadow: inset 0 0 0 1px var(--hair2);
 }
 /* Vivid primary: accent-600 fill, chrome-deep label. 5.88:1. */
-.btn.primary { background: var(--t-accent-700); color: #fff; box-shadow: var(--shadow-fab); font-weight: 700; }
+.btn.primary { background: var(--t-accent-600); color: var(--t-chrome-deep); box-shadow: var(--shadow-fab); font-weight: 700; }
 
 .tally { list-style: none; margin: 4px 0 16px; padding: 0; display: grid; gap: 1px; background: var(--hair); border-radius: 16px; overflow: hidden; }
 .tally li { display: flex; align-items: baseline; gap: 12px; background: var(--t-surface); padding: 13px 14px; }
