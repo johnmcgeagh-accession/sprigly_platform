@@ -10,7 +10,7 @@
  * On unrecoverable validation failure it throws (job → error, post unchanged).
  */
 import { and, eq } from 'drizzle-orm';
-import { contentCycles, contentCyclePosts, postEdits } from '@sprigly/db';
+import { contentCycles, contentCyclePosts, postEdits, type PlanActor } from '@sprigly/db';
 import type { Catalogue } from '../catalogue/parse-catalogue.js';
 import { indexCatalogue, applyCatalogueValidation, deriveBrandTokens } from '../catalogue/validate-catalogue.js';
 import { assembleShapeContext } from './planning.js';
@@ -35,6 +35,16 @@ export interface ShapeJob {
   // Which field the instruction refines. Default (absent) = caption → this handler. hook /
   // script are dispatched to runFieldRefine (refine.ts) by the consumer (§26).
   target?:      'caption' | 'hook' | 'script';
+  /**
+   * WHOSE INTENT this job carries (0090) — stated by the enqueuer, because by the time this
+   * runs the session that caused it is gone. A client-instructed rewrite is 'client'; the
+   * approval fan-out and the nightly sweep are 'agent'.
+   *
+   * Absent defaults to 'agent', and the default direction is deliberate: it UNDER-counts
+   * client touches. Attributing an unknown write to the client would inflate exactly the
+   * number this column exists to measure honestly.
+   */
+  actor?:       PlanActor;
 }
 
 export interface ShapeResultData { changedPostIds: string[]; summary: string; }
@@ -169,6 +179,7 @@ export async function runShapeForCycle(
       await db.insert(postEdits).values({
         postId: post.id, cycleId: job.cycleId, scope: job.scope,
         instruction: job.instruction, captionBefore: before, captionAfter: finalCaption, passed: true,
+        actor: job.actor ?? 'agent',
       });
     } catch (err) {
       logger.warn({ ...logCtx, err: String(err) }, 'shape: post_edits audit write failed — non-fatal');
@@ -179,7 +190,7 @@ export async function runShapeForCycle(
     try {
       await recordPlanActivity(db, {
         clientId: cycle.clientId, cycleId: job.cycleId, postId: post.id,
-        action: 'caption_saved', actor: { origin: 'agent', refProposalId: job.proposalId ?? null },
+        action: 'caption_saved', actor: { origin: 'agent', actor: job.actor ?? 'agent', refProposalId: job.proposalId ?? null },
       });
     } catch (err) {
       logger.warn({ ...logCtx, err: String(err) }, 'shape: plan_activity ledger write failed — non-fatal');

@@ -102,6 +102,7 @@ export async function runFieldRefine(job: ShapeJob, deps: PlanningDeps): Promise
     await db.insert(postEdits).values({
       postId: post.id, cycleId: job.cycleId, scope: job.scope,
       instruction: job.instruction, captionBefore: before, captionAfter: after, passed: true,
+      actor: job.actor ?? 'agent',
     });
   } catch (err) {
     logger.warn({ ...logCtx, err: String(err) }, 'refine: post_edits audit write failed — non-fatal');
@@ -111,7 +112,7 @@ export async function runFieldRefine(job: ShapeJob, deps: PlanningDeps): Promise
     await recordPlanActivity(db, {
       clientId: cycle.clientId, cycleId: job.cycleId, postId: post.id,
       action: target === 'hook' ? 'hook_saved' : 'script_saved',
-      actor: { origin: 'agent', refProposalId: job.proposalId ?? null },
+      actor: { origin: 'agent', actor: job.actor ?? 'agent', refProposalId: job.proposalId ?? null },
     });
   } catch (err) {
     logger.warn({ ...logCtx, err: String(err) }, 'refine: plan_activity ledger write failed — non-fatal');

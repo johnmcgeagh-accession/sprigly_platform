@@ -7,11 +7,17 @@
  * one INSERT (plan_activity is append-only; UPDATE/DELETE are blocked by the 0068 trigger),
  * origin 'agent' + ref_proposal_id when the change applied an approved proposal.
  */
-import { db as _db, planActivity } from '@sprigly/db';
+import { db as _db, planActivity, type PlanActor } from '@sprigly/db';
 
 type Db = typeof _db;
 
-export interface WorkerActor { origin: 'user' | 'agent'; refProposalId?: string | null }
+/**
+ * `actor` (0090) is the finer grain beside `origin`. Everything the worker writes is 'agent'
+ * in practice — the fan-out, the sweep, an approved proposal, a weekly-session rewrite — but
+ * it is passed rather than hard-coded here, because the helper's job is to record what the
+ * caller knows, not to decide it. A caller that omits it records nothing rather than guessing.
+ */
+export interface WorkerActor { origin: 'user' | 'agent'; actor?: PlanActor | null; refProposalId?: string | null }
 
 export interface WorkerActivityEntry {
   clientId: string;
@@ -29,6 +35,7 @@ export async function recordPlanActivity(db: Db, entry: WorkerActivityEntry): Pr
     cycleId:       entry.cycleId ?? null,
     postId:        entry.postId ?? null,
     origin:        entry.actor.origin,
+    actor:         entry.actor.actor ?? null,
     action:        entry.action,
     refProposalId: entry.actor.refProposalId ?? null,
     payload:       entry.payload ?? null,

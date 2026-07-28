@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sprigly — mobile plan surface mockups</title>
+<link rel="stylesheet" href="sprigly-mobile.css">
+<style>
+  .cards { max-width: 1280px; margin: 0 auto; display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+  .linkcard { display: block; background: var(--t-surface); border-radius: 20px; padding: 18px 20px;
+    box-shadow: var(--shadow-card); text-decoration: none; color: inherit; border: 1px solid transparent; }
+  .linkcard:hover { border-color: var(--t-accent-600); }
+  .linkcard .n { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 30px;
+    padding: 0 8px; border-radius: 999px; background: var(--t-accent-650); color: #fff;
+    font-size: 13.5px; font-weight: 700; letter-spacing: -.01em; }
+  .linkcard h3 { margin: 10px 0 5px; font-size: 17px; font-weight: 700; letter-spacing: -.02em; }
+  .linkcard p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--t-muted); }
+  .swatches { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+  .sw { border-radius: 14px; padding: 12px 14px; font-size: 12.5px; font-weight: 700; min-width: 122px; }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <div class="crumbs">Sprigly · design session · round 5.1 · 28 July 2026</div>
+  <h1>Mobile plan surface — mockups</h1>
+  <p>Static mockups for the redesigned client plan surface: iOS-native, day-focused, mobile-first.
+  Spec and wiring: <a href="../mobile-plan-surface.md">docs/design/mobile-plan-surface.md</a>.
+  Design context: <a href="../../PRODUCT.md">PRODUCT.md</a> ·
+  <a href="../../DESIGN.md">DESIGN.md</a>. Round-3 report:
+  <a href="../round-3-notes.md">round-3-notes.md</a>.</p>
+  <p>No build step and no external resources — open any file directly. All content is real client
+  data; every page ends with a note saying where each figure came from and which pieces are
+  reconstructions.</p>
+</div>
+
+<div class="cards">
+  <a class="linkcard" href="01-day-committed.html">
+    <span class="n">1</span>
+    <h3>Day view — committed month</h3>
+    <p>Floating nav, Today, format icons v2, and the quiet “on its way” state. Copy lives in the detail sheet, not on the card.</p>
+  </a>
+  <a class="linkcard" href="02-day-draft.html">
+    <span class="n">2</span>
+    <h3>Day view — draft month</h3>
+    <p>One line of framing, then the plan. The mic in the nav, the Ready-to-go pill on the title row, the lightbulb marker and the ivy-t density case.</p>
+  </a>
+  <a class="linkcard" href="03-voice-sheet.html">
+    <span class="n">3</span>
+    <h3>Voice sheet</h3>
+    <p>Live waveform speaking and silent, on white. The same sheet in typed mode: one large field, one full-width submit.</p>
+  </a>
+  <a class="linkcard" href="04-month-overview.html">
+    <span class="n">4</span>
+    <h3>Month view</h3>
+    <p>A peer view reached through the nav pill. No ✕, no legend. Tapping a day returns to Day view on that date.</p>
+  </a>
+  <a class="linkcard" href="05-detail-sheet.html">
+    <span class="n">5</span>
+    <h3>Detail sheet</h3>
+    <p>Three labelled action buttons, insights behind a toggle, Shape in place, and a date picker that crosses months.</p>
+  </a>
+  <a class="linkcard" href="06-reshape-before.html">
+    <span class="n">6a</span>
+    <h3>Reshape — before</h3>
+    <p>The month as assembled. The way to change it is the mic.</p>
+  </a>
+  <a class="linkcard" href="07-reshape-after.html">
+    <span class="n">6b</span>
+    <h3>Reshape — after</h3>
+    <p>The fixed 48px summary chip, now one control: tap anywhere, one chevron, no ✕.</p>
+  </a>
+  <a class="linkcard" href="08-reshape-rollup.html">
+    <span class="n">6c</span>
+    <h3>Reshape — expanded rollup</h3>
+    <p>Sally's pasted brief, fourteen segments, each expandable to its diff.</p>
+  </a>
+  <a class="linkcard" href="09-approval.html">
+    <span class="n">7</span>
+    <h3>Approval</h3>
+    <p>The Ready-to-go pill on the title row, the consequence sheet, and the thin-month variant.</p>
+  </a>
+  <a class="linkcard" href="10-tasks-tab.html">
+    <span class="n">8</span>
+    <h3>Tasks tab (stub)</h3>
+    <p>Enough of the Tasks segment to demonstrate the nav pill switching views.</p>
+  </a>
+</div>
+
+<div class="notes">
+  <h2>Round 3 — what changed</h2>
+  <ul>
+    <li><strong>Colour is tokens.</strong> Every value reads a <code>--t-*</code> custom property
+      with the same name <code>app/src/lib/theme.ts</code> injects. These files demonstrate the
+      active theme, <strong>Teal v1</strong>; changing the twelve lines in the stylesheet's THEME
+      block repaints all ten pages, which is the point of showing it this way.</li>
+    <li><strong>The ramp comes from the logo.</strong> The mark is <code>#4DB0A0</code>, and its apparent
+      second tone is the same colour at the <code>opacity="0.78"</code> the SVG already carries. One
+      identity tone, not two. Every tier is that hue and saturation at a different lightness, so the
+      ramp and the mark cannot drift. <strong>Filled controls carry white on
+      <code>accent-650</code></strong> (#43998B, 3.40:1) — the lightest value on that hue clearing
+      3:1 with margin. <code>accent-600</code> stays non-text identity: dots, glow, waveform.</li>
+    <li><strong>No serif anywhere.</strong> Round 2 kept Fraunces for the wordmark and month title;
+      it was never loaded, so both rendered as Georgia. Everything is the native stack now.</li>
+    <li><strong>A floating bottom nav</strong> — a segmented pill carrying <em>Day · Month · Tasks</em>
+      with a separate circular microphone beside it. It supersedes both the round-3 tab bar and the
+      header switcher: one place to change view, one place to talk.</li>
+    <li><strong>Icons v2</strong> — clapperboard, stacked squares, framed image — screenshot-tested
+      at 17px before adoption. The clapperboard took three attempts.</li>
+    <li><strong>The mic is its own control in the nav; approval is a labelled pill on the title row.</strong></li>
+    <li><strong>Action rows are three labelled buttons</strong> — icon with the label below, Move
+      carrying its date. This is round 3's recorded reversal, exercised.</li>
+  </ul>
+  <h2>The ramp, from the mark</h2>
+  <div class="swatches">
+    <span class="sw" style="background:var(--t-accent-100);color:var(--t-accent-800)">accent-100<br>#E3F3F0 · tint</span>
+    <span class="sw" style="background:var(--t-accent-500);color:var(--t-chrome-deep)">accent-500<br>#74C1B5 · 6.99</span>
+    <span class="sw" style="background:var(--t-accent-600);color:var(--t-chrome-deep)">accent-600<br>#4DB0A0 · identity, non-text</span>
+    <span class="sw" style="background:var(--t-accent-650);color:#fff">accent-650<br>#43998B · 3.40 ✓ fills</span>
+    <span class="sw" style="background:var(--t-accent-700);color:#fff">accent-700<br>#327267 · 5.62</span>
+    <span class="sw" style="background:var(--t-accent-800);color:#fff">accent-800<br>#285C54 · 7.64</span>
+  </div>
+</div>
+
+</body>
+</html>

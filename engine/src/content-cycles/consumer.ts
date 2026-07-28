@@ -48,6 +48,7 @@ import { requestEmailStub } from './stubs.js';
 import { runContentCycleTick } from './scheduler.js';
 import { assembleAndPersistDraft, summariseDraft, draftFlowEnabled, countDraftBeats, autoApproveAndGenerate } from './draft-plan.js';
 import { settlePlanReady, sweepUnsentPlanReady } from './plan-ready.js';
+import { sweepFailedGenerations } from './generation-sweep.js';
 import { enqueueScriptIfReady } from './script-ready.js';
 import {
   IG_TRAWL_JOB_OPTIONS,
@@ -240,6 +241,10 @@ export function createContentCycleConsumer(
             // The retry arm: approved cycles whose plan-ready send failed get another go
             // each day, using the same claim/send/release path a live settlement uses.
             sweepPlanReady: () => sweepUnsentPlanReady(planReadyDeps, queue),
+            // Gap 7's retry arm. The client surface no longer offers a retry, so a caption
+            // that exhausted its BullMQ attempts gets two more passes here before it stops
+            // costing anything and becomes an operator item (admin → Failed Posts).
+            sweepFailedGenerations: () => sweepFailedGenerations(planReadyDeps, queue),
           });
           break;
         }

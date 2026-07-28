@@ -1,0 +1,658 @@
+/* ===========================================================================
+   Sprigly — mobile plan surface mockups · ROUND 3
+   Shared stylesheet. Static mockups: no build step, no framework, no JS.
+
+   THREE STRUCTURAL CHANGES THIS ROUND
+   ------------------------------------
+   1. COLOUR IS TOKENS. Every colour below reads a --t-* custom property with
+      the same name the platform injects at the layout root (see
+      app/src/lib/theme.ts VAR map). The values in :root are the ACTIVE theme,
+      Teal v1 — swap the six lines in the THEME block and every screen
+      repaints, which is the point. Nothing here names a hex twice.
+
+   2. THE RAMP COMES FROM THE LOGO (round 5). The old ramp was a generic
+      Tailwind teal. The Sprigly leaf is #4DB0A0 — softer and lighter, H170.3
+      S39.1 — and the mark's SECOND leaf is not a second colour at all: it is
+      the same tone at the opacity="0.78" the SVG already carries, which
+      renders #74C1B5. One identity tone, not two. The ramp is now built on
+      that hue and saturation.
+
+      THE INK RULE (round 5.1 — operator-ruled, third time). Filled green
+      controls carry WHITE, not chrome-deep. The ramp gains a tier sized for
+      exactly that job:
+
+          FILLED CONTROLS: accent-650 #43998B + WHITE, 3.40:1.
+          accent-600 IS NON-TEXT IDENTITY (dots, glow, waveform).
+          700/800 ARE FOR DENSE-TEXT SURFACES, unchanged.
+
+      accent-650 is the lightest value on the logo's hue and saturation that
+      clears 3:1 with white WITH MARGIN. The literal lightest (#47A394, 3.03)
+      rendered white noticeably thin and left no headroom at all. 3.40 sits
+      below the 4.5 AA-normal floor: that is a recorded, component-scoped
+      deviation rather than an oversight — the labels are short and bold, and
+      iOS system buttons ship white-on-green at ~2.2:1. See DESIGN.md.
+
+   3. NATIVE TYPE ONLY. No webfont for UI, and no serif anywhere. Round 2 kept
+      Fraunces for the wordmark and month title; it was never loaded, so both
+      rendered as Georgia — the most document-like face available, on the one
+      surface that must not read as a document. Round 3 removes it. The
+      wordmark falls back to the native stack, never to a serif.
+   =========================================================================== */
+
+:root {
+  /* ── THEME BLOCK — the active theme (Teal v1). ────────────────────────────
+     In the app these are injected as `--t-*: r g b` channel triples by
+     theme.ts; here they are hexes so the files open with no server. Same
+     names, same meaning. ------------------------------------------------- */
+  --t-accent-600: #4DB0A0;   /* THE LOGO TONE. Non-text identity only      */
+  --t-accent-650: #43998B;   /* FILLED CONTROLS + white, 3.40:1            */
+  --t-accent-700: #327267;   /* dense-text surfaces; white on it is 5.62:1 */
+  --t-accent-800: #285C54;   /* accent text: 7.64 on white, 6.67 on tint   */
+  --t-accent-100: #E3F3F0;   /* tint                                       */
+  --t-chrome:      #334155;
+  --t-chrome-deep: #1E293B;
+  --t-muted:       #5C6470;
+  --t-line:        #8F9296;
+  --t-line-soft:   #F4F5F6;
+  --t-canvas:      #F2F3F5;
+  --t-surface:     #FFFFFF;
+  --t-danger:      #B23A2E;
+
+  /* The mark's lighter leaf — the logo tone at its own 0.78 opacity. Still a
+     proposal rather than a platform token. Takes chrome-deep ink at 6.99. */
+  --t-accent-500: #74C1B5;
+
+  --hair:  rgb(143 146 150 / .30);
+  --hair2: rgb(143 146 150 / .55);
+
+  --shadow-card:  0 1px 2px rgb(51 65 85 / .04), 0 6px 18px rgb(51 65 85 / .06);
+  --shadow-sheet: 0 -18px 50px -12px rgb(51 65 85 / .28);
+  --shadow-fab:   0 10px 26px -6px rgb(77 176 160 / .58);
+  --shadow-tab:   0 -1px 0 rgb(143 146 150 / .3);
+
+  --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, 'Segoe UI', Roboto, sans-serif;
+  /* Wordmark only. Falls back to the native stack — never to a serif. */
+  --logo: 'Plus Jakarta Sans', var(--sans);
+
+  --r-sm: 9px; --r-md: 14px; --r-lg: 20px; --r-sheet: 26px; --r-pill: 999px;
+  --ease: cubic-bezier(.22,.61,.36,1);
+
+  --tabbar-h: 56px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0; padding: 40px 20px 72px;
+  background: #DFE1E5;
+  font-family: var(--sans); color: var(--t-chrome);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- review-document chrome (NOT the product surface) --------------------- */
+
+.page-head, .notes, .frames { max-width: 1280px; margin-left: auto; margin-right: auto; }
+.page-head { margin-bottom: 28px; }
+.page-head h1 { font-size: 30px; font-weight: 700; letter-spacing: -.03em; margin: 0 0 8px; }
+.page-head p { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--t-muted); max-width: 74ch; }
+.page-head p + p { margin-top: 9px; }
+.page-head a { color: var(--t-accent-800); }
+.crumbs { font-size: 12.5px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; color: var(--t-muted); margin-bottom: 10px; }
+
+.frames { display: flex; flex-wrap: wrap; gap: 34px; justify-content: flex-start; align-items: flex-start; }
+.frame-wrap { width: 390px; max-width: 100%; }
+.frame-label { font-size: 12.5px; font-weight: 700; margin: 0 0 4px; }
+.frame-sub { font-size: 12.5px; line-height: 1.5; color: var(--t-muted); margin: 0 0 12px; }
+
+.phone {
+  width: 390px; max-width: 100%; height: 812px;
+  background: var(--t-canvas); border-radius: 44px;
+  box-shadow: 0 30px 60px -20px rgb(30 41 59 / .38), 0 0 0 1px rgb(30 41 59 / .06);
+  overflow: hidden; position: relative;
+  display: flex; flex-direction: column; font-size: 15px;
+}
+.phone.tall { height: 880px; }
+
+.statusbar {
+  flex: none; display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 26px 2px; font-size: 13.5px; font-weight: 600;
+}
+.statusbar .glyphs { font-size: 12.5px; letter-spacing: .12em; }
+
+/* --- icons ---------------------------------------------------------------- */
+
+.ic { width: 20px; height: 20px; display: block; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.ic.sm { width: 17px; height: 17px; }
+.ic.lg { width: 26px; height: 26px; }
+.ic.xl { width: 38px; height: 38px; }
+.ic.solid { fill: currentColor; stroke: none; }
+
+/* Format icon tile: accent-800 on accent-100 = 6.67:1. */
+.fmt {
+  width: 28px; height: 28px; flex: none; border-radius: var(--r-sm);
+  background: var(--t-accent-100); color: var(--t-accent-800);
+  display: flex; align-items: center; justify-content: center;
+}
+.fmt.lg { width: 34px; height: 34px; border-radius: 14px; }
+
+/* --- header: wordmark LEFT ------------------------------------------------ */
+
+.topbar { flex: none; display: flex; align-items: center; gap: 7px; padding: 10px 20px 2px; }
+.topbar svg.mark { width: 18px; height: 18px; display: block; color: var(--t-accent-600); }
+.wordmark { font-family: var(--logo); font-size: 17px; font-weight: 800; letter-spacing: -.02em; color: var(--t-chrome); }
+
+/* Title row: ‹ Month Year › left, Week|Month switcher right. No pill. */
+.titlerow { flex: none; display: flex; align-items: center; gap: 6px; padding: 12px 18px 0; }
+.monthnav { display: flex; align-items: center; gap: 4px; }
+/* 20px, not 22: 'September 2026' at 22px pushed the Week|Month switcher off the
+   right edge. The day header stays the largest thing on screen, which is right —
+   the day is what you are looking at; the month is where you are. */
+.monthtitle { font-size: 20px; font-weight: 700; letter-spacing: -.03em; color: var(--t-chrome); white-space: nowrap; }
+.navbtn {
+  width: 32px; height: 32px; flex: none; border: 0; background: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; color: var(--t-chrome);
+  border-radius: var(--r-pill);
+}
+.navbtn[disabled] { color: rgb(92 100 112 / .38); cursor: default; }
+
+/* Segmented control — iOS. Used for Week|Month and inside sheets. */
+.seg { display: inline-flex; flex: none; background: rgb(143 146 150 / .18); border-radius: 9px; padding: 2px; gap: 2px; }
+.seg button {
+  border: 0; background: none; cursor: pointer; font-family: var(--sans);
+  font-size: 12.5px; font-weight: 600; color: var(--t-muted);
+  padding: 0 10px; height: 30px; border-radius: 9px; white-space: nowrap;
+}
+.seg button[aria-pressed="true"] { background: var(--t-surface); color: var(--t-chrome); box-shadow: 0 1px 3px rgb(51 65 85 / .12); }
+.seg.wide { display: flex; width: 100%; }
+.seg.wide button { flex: 1; }
+
+/* Today, right-aligned immediately above the strip. */
+.todayrow { flex: none; display: flex; align-items: center; justify-content: flex-end; padding: 10px 20px 0; min-height: 34px; }
+/* M2: an actual button. It read as a label before, which is why nobody would
+   press it. Behaviour: jumps to the current day in Day view. */
+.todaybtn {
+  border: 1px solid var(--hair); background: var(--t-surface); cursor: pointer;
+  font-family: var(--sans); font-size: 13px; font-weight: 600; color: var(--t-accent-800);
+  min-height: 34px; padding: 0 14px; border-radius: var(--r-pill);
+  box-shadow: var(--shadow-card);
+  transition: background .12s var(--ease);
+}
+.todaybtn:active { background: var(--t-accent-100); }
+.draftline { display: flex; align-items: center; gap: 7px; margin-right: auto; }
+.draftline .muted { font-size: 12.5px; color: var(--t-muted); font-weight: 500; }
+
+.badge {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+  padding: 4px 9px; border-radius: var(--r-pill);
+  background: var(--t-accent-650); color: #fff;
+}
+.badge.quiet { background: var(--t-accent-100); color: var(--t-accent-800); }
+.badge.slate { background: var(--t-line-soft); color: var(--t-muted); }
+
+/* The approval control: a labelled pill in the draft header region. */
+/* Round 4: sits right-aligned on the TITLE ROW, in the space the Week|Month
+   switcher vacated. Persistent, secondary weight — it never competes with the mic. */
+.readypill {
+  display: inline-flex; align-items: center; gap: 7px; flex: none;
+  min-height: 34px; padding: 0 14px; border-radius: var(--r-pill); cursor: pointer;
+  border: 0; background: var(--t-accent-650);
+  font-family: var(--sans); font-size: 13.5px; font-weight: 700; color: #fff;
+}
+.readypill .ic { width: 15px; height: 15px; stroke-width: 2.2; }
+
+/* --- week strip ----------------------------------------------------------- */
+
+.weekstrip { flex: none; display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; padding: 8px 12px 10px; }
+.wday {
+  background: none; border: 0; padding: 4px 0 8px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  position: relative; border-radius: 16px; font-family: var(--sans);
+}
+.wday .dow { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--t-muted); }
+.wday .num {
+  width: 34px; height: 34px; border-radius: var(--r-pill);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16.5px; font-weight: 600; color: var(--t-chrome); letter-spacing: -.01em;
+}
+/* THE INK RULE: the selected day is a filled control — accent-650 + white,
+   3.40:1. It was the vivid tier with dark ink until round 5.1. */
+.wday[aria-pressed="true"] .num { background: var(--t-accent-650); color: #fff; font-weight: 700; }
+.wday[aria-pressed="true"] .dow { color: var(--t-chrome); }
+.wday.today .num { box-shadow: inset 0 0 0 2px var(--t-accent-600); }
+.wday.today[aria-pressed="true"] .num { box-shadow: none; }
+.wday .pip { position: absolute; bottom: 1px; width: 5px; height: 5px; border-radius: var(--r-pill); background: var(--t-chrome); }
+.wday .pip.draft { background: var(--t-accent-600); }
+/* C2 (round 5): the pip sits BELOW the numeral, on canvas — not on the fill.
+   Round 4 turned it white when selected, which made it vanish. It stays accent. */
+.wday[aria-pressed="true"] .pip { background: var(--t-accent-600); }
+/* Out-of-month days: muted but still legible (was 45% ≈ 2.2:1). */
+.wday.out .dow, .wday.out .num { color: rgb(92 100 112 / .72); }
+
+.weekrule { flex: none; height: 1px; background: var(--hair); margin: 0 20px; }
+
+/* --- the day panel -------------------------------------------------------- */
+/* Bottom padding clears the tab bar AND the FAB — round 2 let the FAB print
+   over the evidence sentence, which is the one line that must never be hidden. */
+
+.panel { flex: 1; overflow-y: auto; padding: 16px 20px 104px; }
+.panel::-webkit-scrollbar { width: 0; }
+
+.dayhead { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+.dayhead .dname { font-size: 22px; font-weight: 700; letter-spacing: -.02em; color: var(--t-chrome); }
+.dayhead .spacer { flex: 1; }
+.dayhead .daycount { font-size: 12.5px; font-weight: 600; color: var(--t-muted); }
+
+/* --- cards ---------------------------------------------------------------- */
+
+.card {
+  display: block; width: 100%; text-align: left;
+  background: var(--t-surface); border: 1px solid var(--hair); border-radius: var(--r-lg);
+  padding: 13px 14px 14px; margin-bottom: 10px;
+  box-shadow: var(--shadow-card); font-family: var(--sans); color: inherit; cursor: pointer;
+}
+.card.draft { border-style: dashed; border-color: var(--hair2); box-shadow: none; }
+.card.changed {
+  border-style: solid; border-color: var(--t-accent-600);
+  background: linear-gradient(180deg, var(--t-accent-100), var(--t-surface) 70%);
+  box-shadow: 0 6px 20px -8px rgb(77 176 160 / .45);
+}
+
+.cardtop { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; }
+.pillar { font-size: 12.5px; font-weight: 500; color: var(--t-muted); }
+.time { margin-left: auto; font-size: 12.5px; font-weight: 600; color: var(--t-muted); font-variant-numeric: tabular-nums; }
+
+.card h4 { margin: 0 0 5px; font-size: 16.5px; line-height: 1.3; font-weight: 600; letter-spacing: -.02em; color: var(--t-chrome); }
+.card p.teaser { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--t-muted); }
+.card p.excerpt {
+  margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--t-muted);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+.cardfoot { display: flex; align-items: center; gap: 8px; margin-top: 11px; }
+.statusline { font-size: 12.5px; font-weight: 600; color: var(--t-muted); }
+/* Work in flight. Vivid, quiet, no red, nothing asked of the client. */
+.waydots { display: inline-flex; gap: 3px; align-items: center; }
+.waydots i { width: 5px; height: 5px; border-radius: var(--r-pill); background: var(--t-accent-600); display: block; opacity: .3; }
+.waydots i:nth-child(2) { opacity: .6; }
+.waydots i:nth-child(3) { opacity: 1; }
+
+/* Compact rows — the 3+ density rule. */
+.rowlist { border: 1px solid var(--hair); border-radius: var(--r-lg); background: var(--t-surface); overflow: hidden; margin-bottom: 10px; box-shadow: var(--shadow-card); }
+.rowlist.draft { border-style: dashed; border-color: var(--hair2); box-shadow: none; background: rgb(255 255 255 / .82); }
+.row {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  background: none; border: 0; cursor: pointer; padding: 12px 13px; min-height: 58px; font-family: var(--sans);
+}
+.row + .row { border-top: 1px solid var(--hair); }
+.row .rtime { font-size: 12.5px; font-weight: 600; color: var(--t-muted); font-variant-numeric: tabular-nums; width: 42px; flex: none; }
+.row .rtitle { flex: 1; min-width: 0; font-size: 15px; font-weight: 500; color: var(--t-chrome); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Was 60% alpha ≈ 2.6:1 — under the graphic floor, and the only cue a row is tappable. */
+.row .rchev { flex: none; color: var(--t-muted); }
+
+.addslot {
+  display: flex; align-items: center; gap: 8px; justify-content: center;
+  width: 100%; min-height: 48px; padding: 12px;
+  border: 1px dashed var(--hair2); border-radius: 16px;
+  background: rgb(255 255 255 / .55); cursor: pointer; font-family: var(--sans);
+  font-size: 13.5px; font-weight: 500; color: var(--t-muted);
+}
+.addslot .ic { color: var(--t-accent-800); }
+
+/* --- draft framing: one line, then content ------------------------------- */
+
+.draftlead { display: flex; align-items: center; gap: 9px; margin-bottom: 16px; }
+.draftlead .txt { font-size: 13.5px; font-weight: 600; color: var(--t-chrome); letter-spacing: -.01em; }
+
+/* --- experiment marker + tooltip ----------------------------------------- */
+
+.bulb {
+  width: 30px; height: 30px; border-radius: var(--r-pill); border: 0; cursor: pointer;
+  background: var(--t-accent-650); color: #fff;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+/* Round 4: the experiment tooltip is gone. The banner pill carries the whole
+   meaning; a tooltip that has to explain a marker means the marker failed. */
+
+/* --- summary chip -------------------------------------------------------- */
+
+.sumbar {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  height: 48px; margin: 10px 20px 0; padding: 0 14px;
+  border: 0; font-family: var(--sans); text-align: left;
+  background: var(--t-accent-650); border-radius: 16px; cursor: pointer;
+}
+.sumbar .txt { flex: 1; font-size: 13.5px; font-weight: 700; color: #fff; }
+/* Round 4: the chip is ONE control. Tap anywhere toggles; the chevron is a
+   state indicator, not a second button. No ✕ — clearing lives in the expanded
+   panel, and the chip auto-clears on the next visit via the seen-state boolean
+   that already drives the "New" marks. */
+.sumbar .chev { flex: none; color: #fff; opacity: .9; }
+.clearbtn {
+  background: none; border: 0; cursor: pointer; font-family: var(--sans);
+  font-size: 13.5px; font-weight: 600; color: var(--t-muted);
+  min-height: 44px; padding: 0 4px; text-decoration: underline; text-underline-offset: 3px;
+}
+
+/* --- strips --------------------------------------------------------------- */
+
+.strip { margin: 0 0 12px; background: var(--t-surface); border: 1px solid var(--hair); border-radius: 16px; padding: 12px 13px; }
+.strip.tint { background: var(--t-accent-100); border-color: rgb(77 176 160 / .45); }
+.strip h3 { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--t-muted); }
+.strip.tint h3 { color: var(--t-accent-800); }
+.strip p { margin: 7px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--t-chrome); }
+.strip p.quiet { color: var(--t-muted); font-size: 12.5px; }
+
+.difflist { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.difflist li { display: flex; gap: 8px; font-size: 13.5px; line-height: 1.45; align-items: baseline; }
+.difflist .mark { font-weight: 700; flex: none; width: 12px; color: var(--t-accent-800); }
+.difflist .mark.move { color: var(--t-chrome); }
+
+.chiprow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.chiprow .sumchip { font-size: 12.5px; font-weight: 600; color: var(--t-accent-800); background: var(--t-surface); border-radius: var(--r-pill); padding: 4px 10px; }
+
+/* --- month view (a peer, not an overlay) --------------------------------- */
+
+/* M1: centred with room to breathe. The grid was hard against the gutters. */
+.grid { flex: 1; overflow-y: auto; padding: 18px 22px 104px; }
+.gridbody { row-gap: 4px; }
+.grid::-webkit-scrollbar { width: 0; }
+.gridhead { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; padding-bottom: 6px; }
+.gridhead span { text-align: center; font-size: 10.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--t-muted); }
+.gridbody { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.gcell {
+  aspect-ratio: 1 / 1.06; border: 0; background: none; cursor: pointer; border-radius: 14px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+  font-family: var(--sans); padding: 0;
+}
+.gcell .gnum { font-size: 15px; font-weight: 500; color: var(--t-chrome); letter-spacing: -.01em; }
+.gcell.out .gnum { color: rgb(92 100 112 / .4); }
+.gcell[aria-current="true"] .gnum { background: var(--t-accent-650); color: #fff; font-weight: 700; width: 28px; height: 28px; border-radius: var(--r-pill); display: flex; align-items: center; justify-content: center; }
+.dots { display: flex; gap: 3px; height: 6px; align-items: center; }
+.dots i { width: 5px; height: 5px; border-radius: var(--r-pill); display: block; }
+.dots i.draft { background: var(--t-accent-600); }
+.dots i.committed { background: var(--t-chrome); }
+/* In flight: a ring, so the state survives greyscale and a glance. */
+.dots i.onway { background: transparent; box-shadow: inset 0 0 0 1.5px var(--t-chrome); }
+
+.monthfoot { padding: 18px 4px 0; font-size: 13.5px; line-height: 1.5; color: var(--t-muted); }
+
+/* --- floating bottom nav (round 4) ---------------------------------------- */
+/* Supersedes both the round-3 tab bar and the header Week|Month switcher.
+   A segmented pill carrying the three views, and a SEPARATE circular mic
+   beside it. Both float over the content on a blurred material, iOS-style
+   (Photos / BBC). Sheets slide over the top — they sit above this in z. */
+
+.bottomnav {
+  position: absolute; left: 16px; right: 16px; bottom: 22px; z-index: 25;
+  display: flex; align-items: center; gap: 10px;
+}
+.navpill {
+  flex: 1; display: flex; gap: 3px; padding: 5px;
+  border-radius: var(--r-pill);
+  background: rgb(255 255 255 / .78);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: 0 8px 28px -6px rgb(30 41 59 / .28), inset 0 0 0 1px rgb(255 255 255 / .6);
+}
+/* N1: icons, per the iOS reference. The selected segment shows icon + label;
+   the others are icon-only with an aria-label, which is what lets three
+   segments and a label fit a 290px pill without crowding. */
+.navpill button {
+  flex: 1; min-height: 44px; border: 0; border-radius: var(--r-pill); cursor: pointer;
+  font-family: var(--sans); font-size: 13.5px; font-weight: 600;
+  background: none; color: var(--t-muted);
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.navpill button .ic { width: 20px; height: 20px; }
+/* THE INK RULE: a fill carrying a word is accent-650 with white. 3.40:1. */
+.navpill button[aria-selected="true"] { background: var(--t-accent-650); color: #fff; font-weight: 700; }
+
+.navmic {
+  width: 56px; height: 56px; flex: none; border-radius: var(--r-pill); border: 0; cursor: pointer;
+  background: var(--t-accent-650); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow-fab);
+}
+.navmic .ic { stroke-width: 2; }
+
+/* --- sheets --------------------------------------------------------------- */
+
+.scrim { position: absolute; inset: 0; background: rgb(30 41 59 / .34); z-index: 30; }
+.sheet {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 31;
+  /* 92%, not 90%: the cut has to land in the gap under the wordmark. At 90% the
+     sheet's top edge sliced the month title mid-word, which reads as a rendering
+     fault rather than depth. */
+  height: 92%;
+  background: var(--t-surface); border-radius: var(--r-sheet) var(--r-sheet) 0 0;
+  box-shadow: var(--shadow-sheet); display: flex; flex-direction: column;
+}
+.sheet.mid { height: 62%; }
+.grabber { flex: none; width: 38px; height: 5px; border-radius: var(--r-pill); background: rgb(143 146 150 / .45); margin: 9px auto 4px; }
+
+.sheethead { flex: none; padding: 6px 18px 14px; border-bottom: 1px solid var(--hair); }
+.sheettop { display: flex; align-items: flex-start; gap: 12px; }
+.sheettop .who { flex: 1; min-width: 0; }
+.sheethead h2 { margin: 0 0 4px; font-size: 20px; line-height: 1.25; font-weight: 700; letter-spacing: -.025em; color: var(--t-chrome); }
+.sheethead .meta { font-size: 13.5px; font-weight: 500; color: var(--t-muted); }
+.iconbtn {
+  width: 44px; height: 44px; flex: none; border-radius: var(--r-pill); border: 0; cursor: pointer;
+  background: var(--t-line-soft); color: var(--t-chrome);
+  display: flex; align-items: center; justify-content: center;
+}
+.iconbtn[aria-expanded="true"] { background: var(--t-accent-650); color: #fff; }
+
+.tabs { flex: none; display: flex; gap: 4px; padding: 12px 18px 0; }
+.tab {
+  flex: 1; min-height: 38px; border-radius: 14px; cursor: pointer; font-family: var(--sans);
+  font-size: 13.5px; font-weight: 600; color: var(--t-muted); background: var(--t-line-soft); border: 0;
+}
+.tab[aria-selected="true"] { background: var(--t-chrome); color: #fff; }
+.tab[disabled] { opacity: .4; cursor: default; }
+
+.sheetbody { flex: 1; overflow-y: auto; padding: 12px 18px 16px; }
+.sheetbody::-webkit-scrollbar { width: 0; }
+/* V1: framing top, hints bottom, the mic dead-centre with clear space. The
+   button is the hero; the sheet's job is to leave it alone. */
+.sheetbody.center {
+  text-align: center; display: flex; flex-direction: column; align-items: center;
+  justify-content: space-between; padding-top: 18px; padding-bottom: 18px;
+}
+.sheetbody.center .micwrap {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; width: 100%; min-height: 210px;
+}
+.sheetbody.center .typedarea { margin-top: 14px; }
+
+/* Copy sits alone on its row — the tab already names the field. */
+.copyrow { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+.copyb {
+  width: 44px; height: 44px; border-radius: var(--r-pill); border: 0; cursor: pointer;
+  background: var(--t-line-soft); color: var(--t-chrome);
+  display: flex; align-items: center; justify-content: center;
+}
+
+.prose { font-size: 15px; line-height: 1.62; color: var(--t-chrome); margin: 0; white-space: pre-wrap; }
+.prose.quiet { color: var(--t-muted); font-size: 13.5px; line-height: 1.55; white-space: normal; }
+.evidence { background: var(--t-line-soft); border-radius: 14px; padding: 12px 13px; font-size: 13.5px; line-height: 1.55; color: var(--t-chrome); margin: 0; }
+.section-label { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--t-muted); margin: 16px 0 8px; }
+
+/* Round 4: three equal-width buttons filling the row, icon with the label
+   BELOW it, and the current date ABOVE the Move icon. They read as buttons —
+   token fill, hairline, and a real pressed state. This reverses round 3's
+   icon-only row; the reversal was recorded then as the cheap one to make. */
+.acts { flex: none; display: flex; gap: 8px; padding: 12px 18px 26px; border-top: 1px solid var(--hair); background: var(--t-surface); }
+.act {
+  flex: 1; min-height: 68px; border-radius: 16px; cursor: pointer; font-family: var(--sans);
+  background: var(--t-surface); border: 0; box-shadow: inset 0 0 0 1px var(--hair2);
+  color: var(--t-chrome);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  padding: 8px 4px; transition: background .12s var(--ease), box-shadow .12s var(--ease);
+}
+.act:active, .act[data-pressed] { background: var(--t-line-soft); box-shadow: inset 0 0 0 1px var(--t-line); }
+.act .actlabel { font-size: 12.5px; font-weight: 600; letter-spacing: -.01em; }
+.act .actdate {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--t-muted); font-variant-numeric: tabular-nums; margin-bottom: 1px;
+}
+/* S3: unmistakably destructive — solid danger fill, white icon and label.
+   White on danger measures 5.94:1. */
+.act.destructive { background: var(--t-danger); color: #fff; box-shadow: none; }
+.act.destructive .actlabel { color: #fff; }
+.act.destructive:active { background: rgb(178 58 46 / .86); box-shadow: none; }
+
+/* S2: the shape-mode footer. A primary submit that fills the row, and a QUIET
+   NEUTRAL cancel beside it. A button never changes its meaning mid-flow, so the
+   action row is replaced wholesale rather than relabelled.
+
+   ROUND 5.1 (operator ruling X1): the cancel is NOT red. Rounds 4 and 5 made it
+   "kin to Delete", and one screen earlier a red button of the same family
+   DESTROYS the post. A cancel is the opposite of a delete — it is the safe way
+   out. danger is Delete's monopoly on this surface. */
+.shapefoot { flex: none; display: flex; gap: 8px; padding: 12px 18px 26px; border-top: 1px solid var(--hair); background: var(--t-surface); }
+.shapefoot .submit {
+  flex: 1; min-height: 56px; border: 0; border-radius: 16px; cursor: pointer;
+  background: var(--t-accent-650); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow-fab);
+}
+.shapefoot .submit .ic { stroke-width: 2.2; }
+.shapefoot .cancel {
+  flex: 0 0 88px; min-height: 56px; border: 0; border-radius: 16px; cursor: pointer;
+  background: var(--t-surface); color: var(--t-muted); box-shadow: inset 0 0 0 1px var(--hair2);
+  font-family: var(--sans); font-size: 15px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+}
+.shapefoot .cancel:active { background: var(--t-line-soft); }
+
+/* Undo — top of the screen, never over the row it undoes. */
+.snack {
+  position: absolute; top: 46px; left: 16px; right: 16px; z-index: 40;
+  background: var(--t-chrome-deep); color: #fff; border-radius: 14px;
+  padding: 12px 15px; display: flex; align-items: center; gap: 14px;
+  font-size: 13.5px; font-weight: 500; box-shadow: 0 14px 34px rgb(30 41 59 / .3);
+}
+.snack button { margin-left: auto; background: none; border: 0; color: var(--t-accent-500); font-family: var(--sans); font-size: 13.5px; font-weight: 700; cursor: pointer; }
+
+/* --- voice sheet ---------------------------------------------------------- */
+
+.micbtn {
+  width: 116px; height: 116px; border-radius: var(--r-pill); border: 0; cursor: pointer;
+  margin: 6px auto 0; display: flex; align-items: center; justify-content: center;
+  background: var(--t-accent-650); color: #fff;
+  box-shadow: var(--shadow-fab);
+}
+/* The ring is a STATE (capturing), not decoration. */
+.micbtn.live { box-shadow: var(--shadow-fab), 0 0 0 10px rgb(77 176 160 / .22); }
+
+/* Live waveform. Dark field is where the accent is allowed to be brightest:
+   accent-500 on chrome-deep = 6.99:1. */
+/* Round 4: clean accent green on WHITE. The dark backing panel is gone — it
+   read as a component from another app. The bars are amplitude feedback, not
+   information the client must read: the STATE is carried by the sheet title
+   ("Listening…" / "Go ahead"), so the bars do not have to clear the graphic
+   floor on their own. */
+.wave {
+  width: 100%; height: 58px; margin: 26px 0 0;
+  background: transparent; display: flex; align-items: center;
+  justify-content: center; gap: 3px; padding: 0 14px; overflow: hidden;
+}
+.wave i {
+  display: block; width: 4px; border-radius: var(--r-pill);
+  background: var(--t-accent-600); height: 3px;
+}
+.wave.speaking i { animation: wv 1.05s ease-in-out infinite; }
+.wave .lbl { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: rgb(255 255 255 / .55); }
+@keyframes wv {
+  0%, 100% { height: 5px; }
+  50%      { height: var(--h, 30px); }
+}
+
+.examples { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; width: 100%; }
+.examples li {
+  border: 1px solid var(--hair); border-radius: var(--r-pill); background: var(--t-surface);
+  padding: 11px 15px; font-size: 13.5px; color: var(--t-chrome); text-align: left;
+}
+.examples li::before { content: '“'; color: var(--t-accent-800); }
+.examples li::after  { content: '”'; color: var(--t-accent-800); }
+
+/* Round 4: typed mode is ONE large field filling the sheet body, with a single
+   full-width arrow pinned in the footer. The old side-by-side box + 52px send
+   button made the field feel like a search bar; this reads as somewhere to say
+   a paragraph, which is what clients actually paste. */
+.typedarea {
+  width: 100%; flex: 1; min-height: 220px; text-align: left;
+  border: 1px solid var(--hair2); border-radius: var(--r-md);
+  background: var(--t-surface); padding: 15px 14px;
+  font-size: 16.5px; line-height: 1.45; color: var(--t-chrome);
+  white-space: pre-wrap;
+}
+
+.typedfield { display: flex; gap: 8px; align-items: stretch; width: 100%; }
+.typedfield .box {
+  flex: 1; text-align: left; border: 1px solid var(--hair2); border-radius: var(--r-md);
+  background: var(--t-surface); padding: 13px 13px; font-size: 15px; line-height: 1.45; color: var(--t-chrome);
+}
+.typedfield .box.empty { color: rgb(92 100 112 / .7); }
+.sendbtn {
+  flex: none; width: 52px; border-radius: var(--r-md); border: 0; cursor: pointer;
+  background: var(--t-accent-650); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* --- buttons -------------------------------------------------------------- */
+
+.btn {
+  flex: 1; min-height: 50px; border-radius: var(--r-md); border: 0; cursor: pointer;
+  font-family: var(--sans); font-size: 15px; font-weight: 600; letter-spacing: -.01em;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  background: var(--t-surface); color: var(--t-chrome); box-shadow: inset 0 0 0 1px var(--hair2);
+}
+/* Primary: accent-650 fill, white label. 3.40:1 — see the ink rule above. */
+.btn.primary { background: var(--t-accent-650); color: #fff; box-shadow: var(--shadow-fab); font-weight: 700; }
+
+.tally { list-style: none; margin: 4px 0 16px; padding: 0; display: grid; gap: 1px; background: var(--hair); border-radius: 16px; overflow: hidden; }
+.tally li { display: flex; align-items: baseline; gap: 12px; background: var(--t-surface); padding: 13px 14px; }
+.tally .n { font-size: 20px; font-weight: 700; color: var(--t-chrome); min-width: 26px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.tally .what { font-size: 13.5px; line-height: 1.4; color: var(--t-muted); }
+
+/* --- tasks tab stub ------------------------------------------------------- */
+
+.taskgroup { margin-bottom: 18px; }
+.taskgroup h3 { margin: 0 0 8px; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--t-muted); }
+.taskrow {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  background: var(--t-surface); border: 1px solid var(--hair); border-radius: var(--r-md);
+  padding: 12px 13px; margin-bottom: 8px; min-height: 56px; cursor: pointer; font-family: var(--sans);
+  box-shadow: var(--shadow-card);
+}
+.taskrow .tick {
+  width: 24px; height: 24px; flex: none; border-radius: var(--r-pill);
+  border: 2px solid var(--hair2); background: var(--t-surface);
+}
+.taskrow.done .tick { border-color: var(--t-accent-600); background: var(--t-accent-600); }
+.taskrow .tbody { flex: 1; min-width: 0; }
+.taskrow .tlabel { font-size: 15px; font-weight: 600; color: var(--t-chrome); }
+.taskrow.done .tlabel { color: var(--t-muted); text-decoration: line-through; }
+.taskrow .tmeta { font-size: 12.5px; color: var(--t-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* --- misc ----------------------------------------------------------------- */
+
+.notes { margin-top: 34px; background: var(--t-surface); border-radius: 20px; padding: 20px 22px; box-shadow: var(--shadow-card); }
+.notes h2 { font-size: 13.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--t-muted); margin: 0 0 10px; }
+.notes h2 + h2 { margin-top: 18px; }
+.notes ul { margin: 0; padding-left: 20px; display: grid; gap: 7px; }
+.notes li { font-size: 13.5px; line-height: 1.55; color: var(--t-chrome); }
+.notes code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: var(--t-line-soft); padding: 1px 5px; border-radius: 9px; }
+.notes a { color: var(--t-accent-800); }
+
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  .wave.speaking i { animation: none; height: 14px; }
+}
+
+@media (max-width: 480px) {
+  body { padding: 20px 8px 40px; }
+  .phone { border-radius: 0; height: auto; min-height: 760px; box-shadow: none; }
+}

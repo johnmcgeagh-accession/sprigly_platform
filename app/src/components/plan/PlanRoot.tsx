@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { usePlanData, type PlanDataInit } from './usePlanData';
 import { DraftPlan } from '../DraftPlan';
 import { PlanDesktop } from './PlanDesktop';
-import { PlanMobile } from './PlanMobile';
+import { CommittedSurface } from './surface/CommittedSurface';
 import { IntakeCapture } from './IntakeCapture';
 import { Toast } from './primitives';
 import { prevMonth } from '@/lib/cycle-nav';
@@ -18,9 +18,31 @@ function cutoffLabelFor(cycleMonth: string, day: number): string | null {
 }
 
 /**
- * The one client root: holds the shared state hook and renders <PlanDesktop> ≥1080px,
- * <PlanMobile> below. A real layout split (not CSS), both driven by the same usePlanData.
- * Renders nothing until the breakpoint is measured (avoids an SSR/client mismatch).
+ * The one client root: holds the shared state hook and forks on viewport, then on surface.
+ *
+ * ── The structural change ────────────────────────────────────────────────────────────
+ *
+ * This file used to return `DraftPlan` BEFORE the desktop/mobile fork was reached, which meant
+ * the draft surface had no responsive shell at all — spec §1.3 names that as the single largest
+ * piece of work the redesign implies. The order is now inverted:
+ *
+ *     viewport  →  desktop | mobile
+ *                     └── surface  →  draft | committed
+ *
+ * Both surfaces are now inside the fork, so the draft month is a BRANCH of a form factor
+ * rather than a page that pre-empts one. That is the reconciliation: Session B's job is to
+ * swap the mobile draft branch below for the same `PlanShell` the committed branch already
+ * uses, and nothing else moves.
+ *
+ * Desktop is untouched by this build, deliberately. `PlanDesktop` renders the same month grid
+ * it always has, behind the same ≥1080px breakpoint; its own redesign is a later session and
+ * the shell must not break it in the meantime. What crosses over when that session runs is
+ * everything width-agnostic — the detail sheet (as a right-hand panel or centred modal), the
+ * summary chip, the approval sheet — plus, first and most cheaply, the month control and its
+ * arrows, because "October doesn't show" was a DESKTOP report: `PlanDesktop` navigates by
+ * prev/next by index with no visible month name, which put October two blind taps away. The
+ * left rail is where `PlanShell`'s nav pill adapts: the same three views, laid out vertically,
+ * with the mic staying a separate control rather than becoming a rail item.
  */
 export function PlanRoot(props: PlanDataInit) {
   const data = usePlanData(props);
@@ -40,12 +62,19 @@ export function PlanRoot(props: PlanDataInit) {
   // the client's cutoffDay of that month. null when the client has no cutoffDay (neutral copy).
   const cutoffLabel = props.cutoffDay && viewedCycle ? cutoffLabelFor(prevMonth(viewedCycle.displayMonth), props.cutoffDay) : null;
 
-  // THE SURFACE FOLLOWS THE VIEWED CYCLE. The kind is the server's answer for whichever
-  // cycle is being shown (usePlanData.switchCycle); this switches on it rather than forking
-  // on "are there drafts?", so the client can never reach a different conclusion than the
-  // server did. Draft mode renders INSIDE this root — the month switcher lives here, so a
-  // client can leave a draft month and come back to it.
-  if (data.surfaceKind === 'draft' && data.draft) {
+  // THE SURFACE FOLLOWS THE VIEWED CYCLE. The kind is the server's answer for whichever cycle
+  // is being shown (usePlanData.switchCycle); this switches on it rather than forking on "are
+  // there drafts?", so the client can never reach a different conclusion than the server did.
+  const isDraft = data.surfaceKind === 'draft' && !!data.draft;
+
+  // Nothing renders until the breakpoint is measured (avoids an SSR/client mismatch).
+  if (desktop === null) return null;
+
+  // Draft month. Still `DraftPlan` on BOTH form factors in this session: moving it onto the
+  // shell is the largest single piece of the redesign and it is Session B's, not a corner of
+  // this one. What has changed is where it sits — inside the fork, so the mobile branch has a
+  // shell to move into.
+  if (isDraft && data.draft) {
     return (
       <DraftPlan
         beats={data.draft.beats}
@@ -65,7 +94,7 @@ export function PlanRoot(props: PlanDataInit) {
 
   return (
     <>
-      {desktop === null ? null : desktop ? <PlanDesktop data={data} /> : <PlanMobile data={data} />}
+      {desktop ? <PlanDesktop data={data} /> : <CommittedSurface data={data} />}
       {data.intakeOpen && (
         <IntakeCapture
           questions={data.questions}

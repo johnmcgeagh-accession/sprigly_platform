@@ -30,6 +30,14 @@ const config: Config = {
         surface: t('--t-surface', '255 255 255'),   // cards, modals, steppers
 
         // Accent scale (was the coral ramp).
+        //
+        // 500 and 650 are the round-5 tiers. 650 is the FILLED-CONTROL tier — the one that
+        // carries white — and 600 is identity-only, non-text (DESIGN.md, the ink rule). The
+        // fallbacks are the coral system's equivalents, chosen so the rule still holds with no
+        // theme injected: white on the 650 fallback (#D25B48) is 3.94:1, and chrome-deep on
+        // the 500 fallback (#F0968A) is 6.57:1.
+        'coral-500': t('--t-accent-500', '240 150 138'),
+        'coral-650': t('--t-accent-650', '210 91 72'),
         'coral-600': t('--t-accent-600', '232 112 95'),
         'coral-700': t('--t-accent-700', '196 82 63'),
         'coral-800': t('--t-accent-800', '138 51 35'),

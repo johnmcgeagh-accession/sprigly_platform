@@ -43,6 +43,7 @@ export async function POST(req: Request) {
 
   const r = await enqueueShape({
     type: 'shape', scope: 'plan', clientId: session.clientId, cycleId, targetPostId, instruction, source: 'web',
+    actor: 'client',
   });
   if ('error' in r) return NextResponse.json({ error: r.error }, { status: 503 });
   if ('busy' in r) return NextResponse.json({ mode: 'noop', summary: 'Still working on the last change to this post. One moment.' });

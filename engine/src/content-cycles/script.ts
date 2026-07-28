@@ -141,7 +141,7 @@ export async function runScriptForPost(job: ScriptJob, deps: PlanningDeps): Prom
     try {
       await recordPlanActivity(db, {
         clientId: cycle.clientId, cycleId: job.cycleId, postId: post.id,
-        action, actor: { origin: 'agent' },
+        action, actor: { origin: 'agent', actor: 'agent' },
         ...(action === 'script_saved' ? { payload: { lengthSeconds: job.lengthSeconds } } : {}),
       });
     } catch (err) {

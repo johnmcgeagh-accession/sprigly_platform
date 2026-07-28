@@ -1,0 +1,52 @@
+{
+  "detector": {
+    "ignoreRules": [
+      "single-font"
+    ],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "system-ui",
+        "createdAt": "2026-07-28T08:57:21.859Z",
+        "reason": "native stack chosen deliberately for iOS-native platform feel; reviewed by operator across three rounds."
+      },
+      {
+        "rule": "overused-font",
+        "value": "-apple-system",
+        "createdAt": "2026-07-28T08:57:21.887Z",
+        "reason": "native stack chosen deliberately for iOS-native platform feel; reviewed by operator across three rounds."
+      },
+      {
+        "rule": "overused-font",
+        "value": "blinkmacsystemfont",
+        "createdAt": "2026-07-28T08:57:21.912Z",
+        "reason": "native stack chosen deliberately for iOS-native platform feel; reviewed by operator across three rounds."
+      },
+      {
+        "rule": "overused-font",
+        "value": "sf pro text",
+        "createdAt": "2026-07-28T08:57:21.938Z",
+        "reason": "native stack chosen deliberately for iOS-native platform feel; reviewed by operator across three rounds."
+      },
+      {
+        "rule": "design-system-color",
+        "value": "#dfe1e5",
+        "createdAt": "2026-07-28T09:45:07.299Z",
+        "reason": "review-document backdrop the phone frames sit on; deliberately outside the product palette"
+      },
+      {
+        "rule": "design-system-font-size",
+        "value": "30px",
+        "createdAt": "2026-07-28T09:45:07.326Z",
+        "reason": "review-document page heading, not product UI"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "sfmono-regular",
+        "createdAt": "2026-07-28T09:45:07.350Z",
+        "reason": "monospace for <code> in the review document's own notes, not product UI"
+      }
+    ]
+  }
+}

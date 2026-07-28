@@ -1,0 +1,200 @@
+/**
+ * generation-sweep.test.ts — the retry arm behind "on its way" (spec gap 7).
+ *
+ * The redesign takes the client's retry button away. These pin the three facts that make
+ * that honest: a stuck caption gets picked up, it gets picked up a SECOND time, and then it
+ * stops costing money and becomes something an operator sees instead.
+ *
+ * Mocked rather than integration: what is being asserted is the loop's decisions — enqueue
+ * before stamp, the bound, the in-flight skip, the pass not consumed on a failed enqueue —
+ * and none of those are database behaviours. The one thing a mock cannot check is the SQL
+ * bound in the WHERE clause, which is why the bound is also asserted in code (see the
+ * sweepExhausted guard) and exercised here with data.
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+const h = vi.hoisted(() => ({
+  rows: [] as Record<string, unknown>[],
+  updates: [] as { set: Record<string, unknown> }[],
+  added: [] as { name: string; payload: Record<string, unknown>; opts: Record<string, unknown> }[],
+}));
+
+vi.mock('@sprigly/db', () => ({
+  contentCyclePosts: new Proxy({}, { get: (_t, k) => `contentCyclePosts.${String(k)}` }),
+}));
+
+// @sprigly/engine resolves to built `dist/` output, which an offline unit run must not
+// depend on. The instruction is stubbed to something recognisable; the bound and its reader
+// are restated faithfully here and tested for real in
+// packages/engine/src/generation-recovery.test.ts, where they live.
+vi.mock('@sprigly/engine/generation-recovery', () => {
+  const SWEEP_ATTEMPTS_KEY = 'generationSweepAttempts';
+  const MAX_SWEEP_ATTEMPTS = 2;
+  const sweepAttemptsOf = (sm: unknown): number => {
+    if (!sm || typeof sm !== 'object') return 0;
+    const v = (sm as Record<string, unknown>)[SWEEP_ATTEMPTS_KEY];
+    return typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.trunc(v) : 0;
+  };
+  return {
+    captionInstruction: (title: string, pillar: string) => `caption:${title}:${pillar}`,
+    sweepAttemptsOf,
+    sweepExhausted: (sm: unknown) => sweepAttemptsOf(sm) >= MAX_SWEEP_ATTEMPTS,
+    MAX_SWEEP_ATTEMPTS,
+    SWEEP_ATTEMPTS_KEY,
+  };
+});
+
+vi.mock('drizzle-orm', () => ({
+  and: (...a: unknown[]) => a,
+  eq: (a: unknown, b: unknown) => ['eq', a, b],
+  isNull: (a: unknown) => ['isNull', a],
+  gte: (a: unknown, b: unknown) => ['gte', a, b],
+  sql: Object.assign((strings: TemplateStringsArray, ...v: unknown[]) => ['sql', strings.join('?'), v], { raw: (s: string) => s }),
+}));
+
+vi.mock('./scheduler.js', () => ({
+  getLondonToday: () => ({ year: 2026, month: 7, day: 28 }),
+}));
+
+vi.mock('./job-options.js', () => ({ GENERATION_JOB_OPTIONS: { attempts: 3 } }));
+
+vi.mock('./planning.js', () => ({}));
+
+const db = {
+  select: () => {
+    const q: Record<string, unknown> = {};
+    q['from']    = () => q;
+    q['where']   = () => q;
+    q['orderBy'] = () => q;
+    q['limit']   = () => Promise.resolve(h.rows);
+    return q;
+  },
+  update: () => ({
+    set: (payload: Record<string, unknown>) => ({
+      where: () => { h.updates.push({ set: payload }); return Promise.resolve(); },
+    }),
+  }),
+} as never;
+
+const logger = { info() {}, warn() {} } as never;
+
+/** A BullMQ stand-in. `jobState` decides what getJob reports for an existing id. */
+function makeQueue(opts: { existingState?: string | null; addThrows?: boolean } = {}) {
+  return {
+    getJob: async () => (opts.existingState == null ? null : { getState: async () => opts.existingState, remove: async () => {} }),
+    add: async (name: string, payload: Record<string, unknown>, jobOpts: Record<string, unknown>) => {
+      if (opts.addThrows) throw new Error('redis is down');
+      h.added.push({ name, payload, opts: jobOpts });
+    },
+  } as never;
+}
+
+import { sweepFailedGenerations, instructionFor, MAX_SWEEP_ATTEMPTS } from './generation-sweep.js';
+
+const post = (over: Record<string, unknown> = {}) => ({
+  id: 'p1', clientId: 'c1', cycleId: 'cyc1', pillar: 'Everyday Ritual',
+  sourceMeta: { title: 'A small moment' },
+  ...over,
+});
+
+beforeEach(() => { h.rows = []; h.updates = []; h.added = []; });
+
+describe('the bound: once, twice, then it stops', () => {
+  it('a first-time failure is re-enqueued and stamped with pass 1', async () => {
+    h.rows = [post()];
+    const r = await sweepFailedGenerations({ db, logger }, makeQueue());
+
+    expect(r.reenqueued).toBe(1);
+    expect(h.added).toHaveLength(1);
+    expect(h.added[0]!.name).toBe('shape');
+    expect(h.added[0]!.opts['jobId']).toBe('shape_cyc1_p1');
+    expect(h.updates[0]!.set['status']).toBe('generating');
+    expect((h.updates[0]!.set['sourceMeta'] as Record<string, unknown>)['generationSweepAttempts']).toBe(1);
+  });
+
+  it('a post that already used one pass is re-enqueued and stamped with pass 2', async () => {
+    h.rows = [post({ sourceMeta: { title: 'A small moment', generationSweepAttempts: 1 } })];
+    const r = await sweepFailedGenerations({ db, logger }, makeQueue());
+
+    expect(r.reenqueued).toBe(1);
+    expect((h.updates[0]!.set['sourceMeta'] as Record<string, unknown>)['generationSweepAttempts']).toBe(2);
+  });
+
+  it('a post that used both passes is NOT re-enqueued — it stops spending and becomes an operator item', async () => {
+    h.rows = [post({ sourceMeta: { title: 'A small moment', generationSweepAttempts: MAX_SWEEP_ATTEMPTS } })];
+    const r = await sweepFailedGenerations({ db, logger }, makeQueue());
+
+    expect(r.reenqueued).toBe(0);
+    expect(h.added).toHaveLength(0);
+    // Crucially it is NOT dragged out of generation_failed — the operator list reads that state.
+    expect(h.updates).toHaveLength(0);
+  });
+
+});
+
+describe('what the sweep will not do', () => {
+  it('skips a post whose job is still in flight — something is already working on it', async () => {
+    h.rows = [post()];
+    const r = await sweepFailedGenerations({ db, logger }, makeQueue({ existingState: 'active' }));
+
+    expect(r.busy).toBe(1);
+    expect(h.added).toHaveLength(0);
+    expect(h.updates).toHaveLength(0);
+  });
+
+  it('clears a COMPLETED slot first, or BullMQ would deduplicate the re-enqueue into silence', async () => {
+    h.rows = [post()];
+    const r = await sweepFailedGenerations({ db, logger }, makeQueue({ existingState: 'completed' }));
+
+    expect(r.reenqueued).toBe(1);
+    expect(h.added).toHaveLength(1);
+  });
+
+  it('does NOT consume a pass when the enqueue itself fails — nothing was spent', async () => {
+    h.rows = [post()];
+    const r = await sweepFailedGenerations({ db, logger }, makeQueue({ addThrows: true }));
+
+    expect(r.failed).toBe(1);
+    expect(r.reenqueued).toBe(0);
+    expect(h.updates).toHaveLength(0);   // no stamp → the next tick tries again from pass 0
+  });
+
+  it('never leaves a post reading generating with nothing queued: the stamp follows the enqueue', async () => {
+    h.rows = [post()];
+    await sweepFailedGenerations({ db, logger }, makeQueue({ addThrows: true }));
+    expect(h.updates.some((u) => u.set['status'] === 'generating')).toBe(false);
+  });
+
+  it('one post failing does not end the pass for the rest', async () => {
+    h.rows = [post({ id: 'p1' }), post({ id: 'p2' })];
+    let first = true;
+    const queue = {
+      getJob: async () => null,
+      add: async (name: string, payload: Record<string, unknown>, opts: Record<string, unknown>) => {
+        if (first) { first = false; throw new Error('transient'); }
+        h.added.push({ name, payload, opts });
+      },
+    } as never;
+
+    const r = await sweepFailedGenerations({ db, logger }, queue);
+    expect(r.failed).toBe(1);
+    expect(r.reenqueued).toBe(1);
+  });
+});
+
+describe('the instruction is a retry, not a new brief', () => {
+  it('re-runs the post’s own pending instruction when it has one', () => {
+    expect(instructionFor({ pillar: 'X', sourceMeta: { pendingInstruction: 'make it about the restock' } }))
+      .toBe('make it about the restock');
+  });
+
+  it('falls back to the deterministic fan-out instruction for the slot', () => {
+    expect(instructionFor({ pillar: 'Home & Space', sourceMeta: { title: 'Wilderness relaunch' } }))
+      .toBe('caption:Wilderness relaunch:Home & Space');
+  });
+
+  it('a blank pending instruction is not an instruction', () => {
+    expect(instructionFor({ pillar: 'P', sourceMeta: { pendingInstruction: '   ', title: 'T' } }))
+      .toBe('caption:T:P');
+  });
+});

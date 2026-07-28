@@ -3,6 +3,11 @@ export type { BaseQuestion } from './base-questions.js';
 
 export { AUTO_RUN_ENABLED_ENV, isAutoRunEnabled } from './auto-run-flag.js';
 
+// Generation recovery (spec gap 7): the instruction a re-generation runs with, and the bound
+// on how many passes a stuck post gets. Shared by the fan-out (app), the daily sweep (worker)
+// and the operator list (admin) so none of the three can disagree about them.
+export { captionInstruction, sweepAttemptsOf, sweepExhausted, MAX_SWEEP_ATTEMPTS, SWEEP_ATTEMPTS_KEY } from './generation-recovery.js';
+
 // The three intake "has input?" questions (A suppression, B plannable) + C (form completeness).
 export { hasIntakeContent, hasSuppressibleInput, hasPlannableInput, loadDurableInputs, DURABLE_INPUT_TYPES } from './intake-signals.js';
 export type { SuppressibleCycle, PlannableCycle, DurableInputRow } from './intake-signals.js';

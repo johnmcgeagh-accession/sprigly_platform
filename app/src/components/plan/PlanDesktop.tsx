@@ -64,7 +64,7 @@ export function PlanDesktop({ data }: { data: PlanData }) {
     <div className="flex h-screen flex-col bg-bg text-slate-700" data-testid="plan-desktop">
       {/* topbar */}
       <header className="flex h-[66px] flex-none items-center justify-between border-b border-line bg-surface px-7">
-        <div className="flex items-center gap-2.5"><SprigMark className="h-[26px] w-[26px]" /><span className="font-logo text-[22px] font-extrabold tracking-tight text-coral-heading">Sprigly</span></div>
+        <div className="flex items-center gap-2.5"><SprigMark className="h-[26px] w-[26px] text-coral-600" /><span className="font-logo text-[22px] font-extrabold tracking-tight text-coral-heading">Sprigly</span></div>
         <span className="text-[12.5px] font-semibold text-muted">Plan workspace</span>
       </header>
 
@@ -361,7 +361,9 @@ function TasksView({ data, onSelect }: { data: PlanData; onSelect: (id: string) 
 function RetryPane({ testid, label, onRetry }: { testid: string; label: string; onRetry: () => void }) {
   return (
     <div data-testid={testid} role="alert" className="rounded-xl border border-line bg-surface p-4 text-[13.5px] text-slate-600 shadow-card">
-      {label} <button onClick={onRetry} className="font-extrabold text-slate-700 underline">Retry</button>
+      {/* "Try again", not "Retry" (§7 / G4). A load that did not arrive is the client asking
+          again for something they asked for; the vocabulary of OUR failure stays operator-side. */}
+      {label} <button onClick={onRetry} className="font-extrabold text-slate-700 underline">Try again</button>
     </div>
   );
 }

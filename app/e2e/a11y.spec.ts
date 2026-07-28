@@ -18,18 +18,30 @@ test.beforeEach(async ({ page }) => {
 
 test('no serious/critical axe violations across the primary surfaces', async ({ page }, testInfo) => {
   const desktop = testInfo.project.name === 'desktop';
-  await expect(page.getByTestId(desktop ? 'plan-desktop' : 'plan-mobile')).toBeVisible();
+  await expect(page.getByTestId(desktop ? 'plan-desktop' : 'plan-shell')).toBeVisible();
 
   // 1. Calendar (desktop) / agenda feed (mobile)
   expect(await seriousViolations(page), 'calendar/feed').toEqual([]);
 
-  // 2. Editor drawer / sheet
-  if (desktop) await page.locator(`[data-post-id="${SEED.post(1)}"]`).click();
-  else await page.getByTestId('swipe-card').first().getByTestId('swipe-surface').click();
-  await expect(page.getByTestId('post-editor')).toBeVisible();
+  // 2. Editor drawer (desktop) / detail sheet (mobile). Different components, same promise.
+  if (desktop) {
+    await page.locator(`[data-post-id="${SEED.post(1)}"]`).click();
+    await expect(page.getByTestId('post-editor')).toBeVisible();
+  } else {
+    await page.getByTestId('post-card').first().click();
+    await expect(page.getByTestId('detail-sheet')).toBeVisible();
+  }
   expect(await seriousViolations(page), 'editor').toEqual([]);
 
-  // 3. Agent sheet (desktop only — mobile's agent is the disabled voice overlay)
+  // 2b. Mobile only: the move sheet, which is a second dialog over the first.
+  if (!desktop) {
+    await page.getByTestId('act-move').click();
+    await expect(page.getByTestId('move-sheet')).toBeVisible();
+    expect(await seriousViolations(page), 'move sheet').toEqual([]);
+    await page.getByTestId('move-close').click();
+  }
+
+  // 3. Agent sheet (desktop only — the mobile mic's own sheet is Session B)
   if (desktop) {
     await page.getByTestId('drawer-close').click();
     await page.getByTestId('agent-fab').click();

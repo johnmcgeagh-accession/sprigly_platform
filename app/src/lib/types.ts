@@ -94,6 +94,28 @@ export interface PlanPost {
   // generates/regenerates this post, and the last generation error (if failed).
   pendingInstruction?: string | null;
   generationError?:    string | null;
+  /**
+   * When this post goes out, as a LABEL — '06:00', or 'Evening', or null.
+   *
+   * Spec gap 1, the read half. The value has always existed on `source_meta.postingTime` and
+   * no reader surfaced it, so every time in the mockups was the PostingTimes contract's
+   * documented example rather than a client's. The live rows hold both clock forms and named
+   * slots (see normalisePostingTime), which is why this is a label and not a time.
+   */
+  postingTime?: string | null;
+  /**
+   * The slot title the assembler gave this post — 'Wilderness candle relaunch — Launch', or
+   * its deterministic fallback form 'Pillar — Format'. Lives on `source_meta.title`, is what
+   * the caption instruction names, and had no reader until the card needed a heading that is
+   * not just the caption's first sentence repeated above the caption.
+   */
+  title?: string | null;
+  /**
+   * Why this post is in the plan — `source_meta.competitorInsight`, the sentence the planner
+   * wrote about the slot. Present on every generated post; the sheet puts it behind the
+   * insights toggle, and shows no toggle at all when it is empty.
+   */
+  rationale?: string | null;
 }
 
 // ── Draft beats (Build B) ─────────────────────────────────────────────────────

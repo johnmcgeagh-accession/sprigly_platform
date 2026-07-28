@@ -15,6 +15,7 @@ import type { ContentCyclePostRow } from '@sprigly/db';
 import { db, contentCycles, contentCyclePosts, clientPlanningConfig, excludeDraftPosts, POST_STATUS_DRAFT, PRE_PLANNING_STATUSES } from '@sprigly/db';
 import type { BeatMeta } from '@sprigly/db';
 import { listStepsForPosts } from '@/lib/steps';
+import { normalisePostingTime } from '@/lib/posting-time';
 import { nextMonth } from '@/lib/cycle-nav';
 import { resolveSurfaceKind, mayHaveDraftSurface, type SurfaceKind } from '@/lib/surface-state';
 import { cycleIsPreCutoff } from '@/lib/draft-mutations';
@@ -116,6 +117,10 @@ function toPlanPost(r: ContentCyclePostRow, stepsByPost: Map<string, PostStepVie
     overlay:     r.overlay ?? null,
     pendingInstruction: metaStr(r.sourceMeta, 'pendingInstruction'),
     generationError:    metaStr(r.sourceMeta, 'generationError'),
+    // Gap 1 (read): the planning path writes this; until now nothing read it back.
+    postingTime:        normalisePostingTime(metaStr(r.sourceMeta, 'postingTime')),
+    title:              metaStr(r.sourceMeta, 'title'),
+    rationale:          metaStr(r.sourceMeta, 'competitorInsight'),
   };
 }
 
@@ -172,6 +177,8 @@ export async function loadCrossMonthPosts(
   const stepsByPost = await listStepsForPosts(rows.map((r) => r.id));
   return rows.map((r) => toPlanPost(r, stepsByPost));
 }
+
+export { normalisePostingTime, isClockTime } from '@/lib/posting-time';
 
 /** Read a string field off a post's source_meta jsonb (null if absent/non-string). */
 function metaStr(sourceMeta: unknown, key: string): string | null {

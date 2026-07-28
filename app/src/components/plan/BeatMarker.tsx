@@ -3,9 +3,14 @@
 import React from 'react';
 import type { PlanBeat } from '@/lib/types';
 
-/** A beat's short calendar label — the product it features, else its kebab-case type. */
+/** A beat's short calendar label — the product it features, else its kebab-case type.
+ *
+ *  The fallback is NOT the word "beat". Spec §7 is absolute: it never appears on a
+ *  client-facing surface, and an aria-label is client-facing. "beat" is a good internal word —
+ *  it names a slot with evidence attached — and a bad client one, because a client has never
+ *  heard it. A marker with neither a product nor a type is simply something on the month. */
 export function beatLabel(beat: PlanBeat): string {
-  return (beat.product || beat.type || 'beat').replace(/-/g, ' ');
+  return (beat.product || beat.type || 'Something planned').replace(/-/g, ' ');
 }
 
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -21,7 +26,7 @@ export function rangeSuffix(startIso: string, endIso: string): string {
 
 /** The tap/toast text for a beat: its note (or type), plus the resolved span for a range beat. */
 export function beatFlashText(beat: PlanBeat): string {
-  const base = beat.note || beat.type || 'Beat';
+  const base = beat.note || beat.type || 'Something planned';
   return beat.range ? `${base} (${rangeSuffix(beat.range.start, beat.range.end)})` : base;
 }
 
@@ -50,7 +55,9 @@ export function BeatMarker({ beat, onClick }: { beat: PlanBeat; onClick?: () => 
       data-beat-segment={beat.range ? 'range' : 'single'}
       onClick={onClick}
       title={`${beat.note || beat.type}${titleSpan}`}
-      aria-label={`Beat: ${beatLabel(beat)}${suffix ? ` (${suffix})` : ''}${beat.note ? ` — ${beat.note}` : ''}`}
+      // "In your month", never "Beat" (§7). This is the only name a screen-reader user gets
+      // for the marker, so it is exactly as client-facing as the visible label beside it.
+      aria-label={`In your month: ${beatLabel(beat)}${suffix ? ` (${suffix})` : ''}${beat.note ? ` — ${beat.note}` : ''}`}
       className="flex w-full items-center gap-1.5 rounded-[6px] bg-coral-100 px-1.5 py-[3px] text-left text-[11px] font-bold leading-tight text-coral-800"
     >
       <span aria-hidden className="h-[6px] w-[6px] flex-none rounded-full bg-coral-700" />

@@ -9,6 +9,10 @@ import { eq } from 'drizzle-orm';
 
 /** token key → CSS custom property. */
 const VAR: Record<string, string> = {
+  // accent500 / accent650 are the round-5 ramp's two extra tiers. Optional on the theme row:
+  // buildThemeVars skips any key the theme does not carry, so a theme without them injects
+  // nothing for them and Tailwind's fallback applies — which is exactly the pre-ramp render.
+  accent500: '--t-accent-500', accent650: '--t-accent-650',
   accent600: '--t-accent-600', accent700: '--t-accent-700', accent800: '--t-accent-800', accent100: '--t-accent-100',
   ink: '--t-ink', muted: '--t-muted', line: '--t-line', lineSoft: '--t-line-soft', danger: '--t-danger',
   chrome: '--t-chrome', chromeDeep: '--t-chrome-deep', chromeSoft: '--t-chrome-soft', canvas: '--t-canvas', surface: '--t-surface',

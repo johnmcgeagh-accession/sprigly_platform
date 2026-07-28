@@ -25,6 +25,10 @@
     "./intake-completeness": {
       "import": "./dist/intake-completeness.js",
       "types": "./dist/intake-completeness.d.ts"
+    },
+    "./generation-recovery": {
+      "import": "./dist/generation-recovery.js",
+      "types": "./dist/generation-recovery.d.ts"
     }
   },
   "scripts": {
