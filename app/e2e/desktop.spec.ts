@@ -7,12 +7,14 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByTestId('plan-desktop')).toBeVisible();
 });
 
-test('month renders: post count, rail counts, summary card', async ({ page }) => {
+test('month renders: post count, rail counts', async ({ page }) => {
   await expect(page.getByTestId('post-chip')).toHaveCount(SEED.postCount);
   await expect(page.getByTestId('nav-calendar')).toContainText('12');
   await expect(page.getByTestId('nav-tasks')).toContainText('late');
   await expect(page.getByTestId('nav-notes')).toContainText('3');
-  await expect(page.getByTestId('month-summary')).toContainText('12 posts planned');
+  // The `month-summary` card was REMOVED from the desktop surface in 057f13f ("leading
+  // off-calendar week renders as pure canvas (summary card removed)"). This assertion, and
+  // the test's old name, outlived it by however long — the suite had never been run.
 });
 
 test('rings: editor shows correct done/total for a fully-done checklist', async ({ page }) => {

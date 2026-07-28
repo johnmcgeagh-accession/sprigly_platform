@@ -8,7 +8,17 @@ async function seriousViolations(page: Page) {
   const { violations } = await new AxeBuilder({ page }).analyze();
   return violations
     .filter((v) => v.impact === 'serious' || v.impact === 'critical')
-    .map((v) => ({ id: v.id, impact: v.impact, nodes: v.nodes.length }));
+    // The TARGET matters as much as the rule id. Reporting only a count told a reader
+    // "1 node, somewhere" and left them opening a trace to find out which — so a contrast
+    // finding on a surface with one recorded, scoped contrast deviation could not be told
+    // apart from an unintended one without manual work.
+    .map((v) => ({
+      id: v.id,
+      impact: v.impact,
+      nodes: v.nodes.length,
+      targets: v.nodes.map((n) => n.target.join(' ')),
+      summary: v.nodes[0]?.failureSummary?.split('\n').slice(0, 3).join(' | '),
+    }));
 }
 
 test.beforeEach(async ({ page }) => {

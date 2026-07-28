@@ -73,7 +73,13 @@ async function main() {
 
   await db.insert(clients).values({ id: CLIENT, name: 'Ivy T', slug: 'e2e-ivy-t', status: 'active' });
   await db.insert(clientConfigs).values({ clientId: CLIENT, settings: { plan_redesign: true } });
-  await db.insert(contentCycles).values({ id: CYCLE, clientId: CLIENT, channel: 'instagram', cycleMonth: '2026-07', status: 'active' });
+  // cycle_month is the DATA month; the PLAN month it displays is cycleMonth + 1
+  // (plan.ts:250, displayMonth = nextMonth(cycleMonth)). These posts are dated in July, so
+  // the cycle that plans them is JUNE's. The seed said '2026-07' — which displays as August —
+  // so every July post fell outside the grid the app was showing, and the desktop rendered 3
+  // chips (August's, surfaced cross-month) instead of 12. Never caught because this suite had
+  // never been run.
+  await db.insert(contentCycles).values({ id: CYCLE, clientId: CLIENT, channel: 'instagram', cycleMonth: '2026-06', status: 'active' });
 
   let position = 0;
   for (const [id, date, format, pillar, caption, status, dones, meta] of POSTS) {
@@ -106,7 +112,8 @@ async function main() {
   // An adjacent August cycle (same client + channel) so month-nav is exercisable — it
   // opens READ-ONLY (only the home July cycle is editable). A few posts so it qualifies
   // for the switcher list (loadCycleList needs liveCount > 0).
-  await db.insert(contentCycles).values({ id: CYCLE_AUG, clientId: CLIENT, channel: 'instagram', cycleMonth: '2026-08', status: 'active' });
+  // Displays as AUGUST — the adjacent month desktop.spec's nav test round-trips to.
+  await db.insert(contentCycles).values({ id: CYCLE_AUG, clientId: CLIENT, channel: 'instagram', cycleMonth: '2026-07', status: 'active' });
   const AUG: [string, string, keyof typeof tpl, string, string][] = [
     [PA(1), '2026-08-04', 'single',   'Product', 'August opener — the linen restock is live.'],
     [PA(2), '2026-08-12', 'reel',     'Style',   'Three ways to wear the new midi.'],
@@ -148,7 +155,8 @@ async function main() {
   // cross-tenant-isolation tests. plan_redesign is on so its session lands on the redesign.
   await db.insert(clients).values({ id: CLIENT_B, name: 'Beta Co', slug: 'e2e-beta-co', status: 'active' });
   await db.insert(clientConfigs).values({ clientId: CLIENT_B, settings: { plan_redesign: true } });
-  await db.insert(contentCycles).values({ id: CYCLE_B, clientId: CLIENT_B, channel: 'instagram', cycleMonth: '2026-07', status: 'active' });
+  // Tenant B's empty month, displaying JULY like tenant A's — same off-by-one as above.
+  await db.insert(contentCycles).values({ id: CYCLE_B, clientId: CLIENT_B, channel: 'instagram', cycleMonth: '2026-06', status: 'active' });
   await db.insert(appMagicLinkTokens).values({ clientId: CLIENT_B, cycleId: CYCLE_B, token: TOKEN_B, expiresAt: new Date('2035-01-01T00:00:00Z') });
 
   const authDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'app', 'e2e', '.auth');
