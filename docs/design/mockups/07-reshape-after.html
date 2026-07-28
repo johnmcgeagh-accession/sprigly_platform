@@ -36,8 +36,8 @@
 <div class="page-head">
   <div class="crumbs">Mockup 6 of 8 · after · <a href="06-reshape-before.html">← before</a> · <a href="08-reshape-rollup.html">the expanded panel →</a> · <a href="index.html">all states</a></div>
   <h1>Reshape moment — after</h1>
-  <p>A fixed 48px bar naming the counts, with an expand and a dismiss. It never grows, so a one-line change and a fourteen-item brief cost the same vertical space and the day is never pushed off the fold by a receipt.</p>
-  <p>Round 3 moves it onto the vivid fill with dark ink, which is what makes it read as a live result rather than another tinted panel. The highlight on changed cards is independent of the chip: dismissing the summary does not un-mark what changed.</p>
+  <p>A fixed 48px bar naming the counts. It never grows, so a one-line change and a fourteen-item brief cost the same vertical space and the day is never pushed off the fold by a receipt.</p>
+  <p><strong>Round 4 makes it one control.</strong> The whole chip is the button — tap anywhere to expand or collapse, and the chevron is a state indicator rather than a second target. There is no ✕: clearing lives as a quiet text action inside the expanded panel, and the chip clears itself on the next visit via the same seen-state boolean that already retires the “New” marks. Two affordances competing on a 48px bar was one too many.</p>
   <p>The verbs are the receipt's verbs — added, moved, <em>replaced</em>. Replaced is kept deliberately: the difference between “edited” and “removed, and another took its slot” is exactly what a client needs to see, and it is what went wrong in ivy-t's rehearsal.</p>
 </div>
 
@@ -63,19 +63,13 @@
         <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
-    </div>
-    <div class="sumbar" role="status">
-      <span class="txt">1 added</span>
-      <button type="button" aria-label="Show what changed" aria-expanded="false"><svg class="ic sm"><use href="#i-chev-u"/></svg></button>
-      <button type="button" aria-label="Dismiss"><svg class="ic sm"><use href="#i-close"/></svg></button>
-    </div>
-    <div class="todayrow">
       <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
-      <span style="flex:1"></span>
+    </div>
+    <button class="sumbar" type="button" aria-expanded="false" aria-label="What changed. Tap to see the detail">
+      <span class="txt">1 added</span>
+      <svg class="ic sm chev"><use href="#i-chev-r"/></svg>
+    </button>
+    <div class="todayrow">
       <button class="todaybtn" type="button">Today</button>
     </div>
     <div class="weekstrip" role="group" aria-label="Week">
@@ -91,7 +85,7 @@
     <div class="panel">
       <div class="draftlead">
         <span class="badge">Draft</span>
-        <span class="txt">This is your draft October</span>
+        <span class="txt">This is your October draft</span>
       </div>
       <div class="dayhead">
         <span class="dname">Thursday 1 October</span>
@@ -121,10 +115,13 @@
         <p class="teaser">Single posts average 38 likes and comments across your last 23 posts.</p>
       </div>
     </div>
-    <button class="fab" type="button" aria-label="Tell Sprigly about this month"><svg class="ic lg"><use href="#i-mic"/></svg></button>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="true">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>
@@ -149,19 +146,13 @@
         <button class="navbtn" type="button" aria-label="September 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
-    </div>
-    <div class="sumbar" role="status">
-      <span class="txt">3 added · 3 replaced</span>
-      <button type="button" aria-label="Show what changed" aria-expanded="false"><svg class="ic sm"><use href="#i-chev-u"/></svg></button>
-      <button type="button" aria-label="Dismiss"><svg class="ic sm"><use href="#i-close"/></svg></button>
-    </div>
-    <div class="todayrow">
       <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
-      <span style="flex:1"></span>
+    </div>
+    <button class="sumbar" type="button" aria-expanded="false" aria-label="What changed. Tap to see the detail">
+      <span class="txt">3 added · 3 replaced</span>
+      <svg class="ic sm chev"><use href="#i-chev-r"/></svg>
+    </button>
+    <div class="todayrow">
       <button class="todaybtn" type="button">Today</button>
     </div>
     <div class="weekstrip" role="group" aria-label="Week of 27 July">
@@ -177,7 +168,7 @@
     <div class="panel">
       <div class="draftlead">
         <span class="badge">Draft</span>
-        <span class="txt">This is your draft August</span>
+        <span class="txt">This is your August draft</span>
       </div>
       <div class="dayhead">
         <span class="dname">Saturday 1 August</span>
@@ -207,10 +198,13 @@
         <p class="teaser">From what you told us: “a mini-series, one post every three weeks”.</p>
       </div>
     </div>
-    <button class="fab" type="button" aria-label="Tell Sprigly about this month"><svg class="ic lg"><use href="#i-mic"/></svg></button>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="true">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>

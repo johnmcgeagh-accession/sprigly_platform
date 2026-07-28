@@ -62,7 +62,12 @@ and **ruled on 2026-07-28**; the rulings are recorded inline below.
 
    **RULING: upheld as-is.** Icon-only stands, with `aria-label`s and 44px targets.
 
-   **The designated cheap reversal.** If the **September demo shows hesitation** at the action row —
+   **Exercised in round 4.** The operator restored the labels at the next review rather than
+   waiting for the demo, and the reversal cost exactly what was predicted: one span per button, one
+   CSS rule, no change to geometry, targets or `aria-label`s. Recording the reversal in advance is
+   the part that made it cheap — see the spec §4.
+
+   **The designated cheap reversal, as written at the time.** If the **September demo shows hesitation** at the action row —
    a client pausing over the icons, asking what one does, or tapping the wrong one — restoring
    labels is the first thing to try. It is deliberately cheap: `.act` is already a column flex with
    the icon on top, so a label is one `<span>` per button and one line of CSS, with no change to

@@ -36,7 +36,7 @@
 <div class="page-head">
   <div class="crumbs">Mockup 3 of 8 · <a href="02-day-draft.html">← the draft day view</a> · <a href="index.html">all states</a></div>
   <h1>Voice sheet</h1>
-  <p>Opened by the microphone FAB. Round 3 makes this the one place the month's framing copy lives, extends the sheet to 90% of the viewport, and gives it a live waveform.</p>
+  <p>Opened by the microphone in the floating bottom nav. This is the one place the month's framing copy lives; the sheet fills the viewport and carries a live waveform.</p>
   <p><strong>One sheet, two input modes.</strong> The keyboard toggle swaps the mic and waveform for a text field. Same framing, same examples, same submit, same route. The inline say-something box that used to sit on the draft page is gone: there is now exactly one place to tell us something, and it works whether you talk or type.</p>
   <p><strong>Voice is live from day one.</strong> No “arrives later” framing anywhere. A browser-side capture path already exists and is already wired into the intake sheet (<code>useSpeechInput.ts</code>), so this is a move rather than a build.</p>
 </div>
@@ -44,7 +44,7 @@
 <div class="frames">
 <div class="frame-wrap">
   <p class="frame-label">A — speaking</p>
-  <p class="frame-sub">The waveform is audio-reactive: peaks while she talks. The ring on the mic is a state, not decoration — it is present only while capturing.</p>
+  <p class="frame-sub">Clean accent green on white — round 3's dark backing panel is gone. The waveform is audio-reactive: peaks while she talks, and the ring on the mic is a state, present only while capturing.</p>
 
   <div class="phone tall">
     <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
@@ -63,14 +63,9 @@
         <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
+      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
     </div>
     <div class="todayrow">
-      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
-      <span style="flex:1"></span>
       <button class="todaybtn" type="button">Today</button>
     </div>
     <div class="weekstrip" role="group" aria-label="Week">
@@ -84,7 +79,7 @@
     </div>
     <div class="weekrule"></div>
     <div class="panel" style="opacity:.28;pointer-events:none">
-      <div class="draftlead"><span class="badge">Draft</span><span class="txt">This is your draft October</span></div>
+      <div class="draftlead"><span class="badge">Draft</span><span class="txt">This is your October draft</span></div>
       <div class="dayhead"><span class="dname">Thursday 1 October</span></div>
     </div>
     <div class="scrim"></div>
@@ -100,7 +95,7 @@
         </div>
       </div>
       <div class="sheetbody center">
-        <p class="prose" style="max-width:290px;font-weight:600">This is your draft October — shape it by telling us what's happening</p>
+        <p class="prose" style="max-width:290px;font-weight:600">This is your October draft — shape it by telling us what's happening</p>
         <button class="micbtn live" type="button" aria-label="Stop recording">
           <svg class="ic xl"><use href="#i-mic"/></svg>
         </button>
@@ -111,15 +106,19 @@
           <li>Anything you want more of?</li>
         </ul>
       </div>
-      <div class="acts" style="justify-content:center">
-        <button class="btn" type="button" style="flex:0 0 auto;padding:0 20px">
+      <div class="acts" style="flex-direction:column;gap:10px">
+        <button class="btn" type="button">
           <svg class="ic sm"><use href="#i-key"/></svg> Type instead
         </button>
       </div>
     </div>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="true">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>
@@ -144,14 +143,9 @@
         <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
+      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
     </div>
     <div class="todayrow">
-      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
-      <span style="flex:1"></span>
       <button class="todaybtn" type="button">Today</button>
     </div>
     <div class="weekstrip" role="group" aria-label="Week">
@@ -165,7 +159,7 @@
     </div>
     <div class="weekrule"></div>
     <div class="panel" style="opacity:.28;pointer-events:none">
-      <div class="draftlead"><span class="badge">Draft</span><span class="txt">This is your draft October</span></div>
+      <div class="draftlead"><span class="badge">Draft</span><span class="txt">This is your October draft</span></div>
       <div class="dayhead"><span class="dname">Thursday 1 October</span></div>
     </div>
     <div class="scrim"></div>
@@ -181,7 +175,7 @@
         </div>
       </div>
       <div class="sheetbody center">
-        <p class="prose" style="max-width:290px;font-weight:600">This is your draft October — shape it by telling us what's happening</p>
+        <p class="prose" style="max-width:290px;font-weight:600">This is your October draft — shape it by telling us what's happening</p>
         <button class="micbtn" type="button" aria-label="Start recording">
           <svg class="ic xl"><use href="#i-mic"/></svg>
         </button>
@@ -192,21 +186,25 @@
           <li>Anything you want more of?</li>
         </ul>
       </div>
-      <div class="acts" style="justify-content:center">
-        <button class="btn" type="button" style="flex:0 0 auto;padding:0 20px">
+      <div class="acts" style="flex-direction:column;gap:10px">
+        <button class="btn" type="button">
           <svg class="ic sm"><use href="#i-key"/></svg> Type instead
         </button>
       </div>
     </div>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="true">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>
 <div class="frame-wrap">
   <p class="frame-label">C — typed</p>
-  <p class="frame-sub">The same sheet with the mic and waveform swapped for a field. The client's real sentence from the Build D dogfood run, which the live classifier read as a launch arc.</p>
+  <p class="frame-sub">One large field instead of the mic, and a single full-width arrow pinned at the foot of the sheet. The client's real sentence from the Build D dogfood run.</p>
 
   <div class="phone tall">
     <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
@@ -225,14 +223,9 @@
         <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
+      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
     </div>
     <div class="todayrow">
-      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
-      <span style="flex:1"></span>
       <button class="todaybtn" type="button">Today</button>
     </div>
     <div class="weekstrip" role="group" aria-label="Week">
@@ -246,7 +239,7 @@
     </div>
     <div class="weekrule"></div>
     <div class="panel" style="opacity:.28;pointer-events:none">
-      <div class="draftlead"><span class="badge">Draft</span><span class="txt">This is your draft October</span></div>
+      <div class="draftlead"><span class="badge">Draft</span><span class="txt">This is your October draft</span></div>
       <div class="dayhead"><span class="dname">Thursday 1 October</span></div>
     </div>
     <div class="scrim"></div>
@@ -262,26 +255,29 @@
         </div>
       </div>
       <div class="sheetbody center">
-        <p class="prose" style="max-width:290px;font-weight:600">This is your draft October — shape it by telling us what's happening</p>
-        <div class="typedfield" style="margin-top:8px">
-          <div class="box">The Wilderness candle relaunches on the 24th, can we build up to it?</div>
-          <button class="sendbtn" type="button" aria-label="Send"><svg class="ic"><use href="#i-send"/></svg></button>
-        </div>
+        <p class="prose" style="max-width:290px;font-weight:600">This is your October draft — shape it by telling us what's happening</p>
+        <div class="typedarea">The Wilderness candle relaunches on the 24th,
+can we build up to it?</div>
         <ul class="examples">
           <li>What's happening in October?</li>
           <li>Anything launching?</li>
           <li>Anything you want more of?</li>
         </ul>
       </div>
-      <div class="acts" style="justify-content:center">
-        <button class="btn" type="button" style="flex:0 0 auto;padding:0 20px">
+      <div class="acts" style="flex-direction:column;gap:10px">
+        <button class="btn primary" type="button" aria-label="Send this"><svg class="ic"><use href="#i-send"/></svg></button>
+        <button class="btn" type="button">
           <svg class="ic sm"><use href="#i-mic"/></svg> Speak instead
         </button>
       </div>
     </div>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="true">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>

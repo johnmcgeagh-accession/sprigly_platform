@@ -36,7 +36,7 @@
 <div class="page-head">
   <div class="crumbs">Mockup 6 of 8 · before · <a href="07-reshape-after.html">see “after” →</a> · <a href="index.html">all states</a></div>
   <h1>Reshape moment — before</h1>
-  <p>Earl of East's draft October with nothing said yet. The month leads the page; the way to change it is the microphone, bottom-right, where the live app already puts its FAB.</p>
+  <p>Earl of East's draft October with nothing said yet. The month leads the page; the way to change it is the microphone in the floating nav, beside the view pill.</p>
   <p>There is no inline say-something box on this page any more. Round 2 had one here and another interface in the voice sheet; there is now one place to say something, and it opens from here.</p>
 </div>
 
@@ -62,14 +62,9 @@
         <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
+      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
     </div>
     <div class="todayrow">
-      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
-      <span style="flex:1"></span>
       <button class="todaybtn" type="button">Today</button>
     </div>
     <div class="weekstrip" role="group" aria-label="Week">
@@ -85,7 +80,7 @@
     <div class="panel">
       <div class="draftlead">
         <span class="badge">Draft</span>
-        <span class="txt">This is your draft October</span>
+        <span class="txt">This is your October draft</span>
       </div>
       <div class="dayhead">
         <span class="dname">Thursday 1 October</span>
@@ -105,10 +100,13 @@
 
       <button class="addslot" type="button"><svg class="ic sm"><use href="#i-plus"/></svg> Plan a post for this day</button>
     </div>
-    <button class="fab" type="button" aria-label="Tell Sprigly about this month"><svg class="ic lg"><use href="#i-mic"/></svg></button>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="true">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>

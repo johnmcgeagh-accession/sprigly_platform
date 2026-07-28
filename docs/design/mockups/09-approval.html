@@ -36,14 +36,14 @@
 <div class="page-head">
   <div class="crumbs">Mockup 7 of 8 · <a href="index.html">all states</a></div>
   <h1>Approval</h1>
-  <p>The one door that spends money, and round 3 finally labels it. Approval is a <strong>Ready to go</strong> pill in the header region: persistent, secondary weight, and it says in words what it does. Round 2 made it an unlabelled tick FAB, which put the highest stakes action in the product behind a glyph a non-technical founder has no reason to read as “approve the month and start spending”.</p>
+  <p>The one door that spends money, and it is labelled. Approval is a <strong>Ready to go</strong> pill in the header region: persistent, secondary weight, and it says in words what it does. Round 2 made it an unlabelled tick FAB, which put the highest-stakes action in the product behind a glyph a non-technical founder has no reason to read as “approve the month and start spending”.</p>
   <p>The FAB is now the microphone, which is the action a client takes ten times to approval's one. It is still two taps: the pill opens the consequence, the consequence has its own commit.</p>
 </div>
 
 <div class="frames">
 <div class="frame-wrap">
   <p class="frame-label">A — the pill, in place</p>
-  <p class="frame-sub">Secondary weight, always visible, never competing with the mic. On the same row as Today, so the header carries state and the FAB carries intent.</p>
+  <p class="frame-sub">Secondary weight, always visible, right-aligned on the title row in the space the Week|Month switcher vacated. The header carries state; the floating nav carries intent.</p>
 
   <div class="phone">
     <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
@@ -62,14 +62,9 @@
         <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
+      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
     </div>
     <div class="todayrow">
-      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
-      <span style="flex:1"></span>
       <button class="todaybtn" type="button">Today</button>
     </div>
     <div class="weekstrip" role="group" aria-label="Week of 26 October">
@@ -85,7 +80,7 @@
     <div class="panel">
       <div class="draftlead">
         <span class="badge">Draft</span>
-        <span class="txt">This is your draft October</span>
+        <span class="txt">This is your October draft</span>
       </div>
       <div class="dayhead">
         <span class="dname">Thursday 29 October</span>
@@ -105,16 +100,19 @@
 
       <button class="addslot" type="button"><svg class="ic sm"><use href="#i-plus"/></svg> Plan a post for this day</button>
     </div>
-    <button class="fab" type="button" aria-label="Tell Sprigly about this month"><svg class="ic lg"><use href="#i-mic"/></svg></button>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="true">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>
 <div class="frame-wrap">
   <p class="frame-label">B — “Ready to go”</p>
-  <p class="frame-sub">Counts computed from the planned posts on screen. Two buttons, one commit. The primary is the vivid fill with dark ink; “Yes, write them” replaces round 2's “Generate it”, which was the system's verb rather than the client's.</p>
+  <p class="frame-sub">Counts computed from the planned posts on screen. Two buttons, one commit. The primary is the 700-tier fill with white ink; “Yes, write them” replaces round 2's “Generate it”, which was the system's verb rather than the client's.</p>
 
   <div class="phone">
     <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
@@ -133,14 +131,9 @@
         <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
+      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
     </div>
     <div class="todayrow">
-      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
-      <span style="flex:1"></span>
       <button class="todaybtn" type="button">Today</button>
     </div>
     <div class="weekstrip" role="group" aria-label="Week of 26 October">
@@ -180,9 +173,13 @@
         <button class="btn" type="button" style="flex:0 0 116px"><svg class="ic sm"><use href="#i-close"/></svg> Not yet</button>
       </div>
     </div>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="true">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>
@@ -207,14 +204,9 @@
         <button class="navbtn" type="button" aria-label="December 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
+      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
     </div>
     <div class="todayrow">
-      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
-      <span style="flex:1"></span>
       <button class="todaybtn" type="button">Today</button>
     </div>
     <div class="weekstrip" role="group" aria-label="Week of 2 November">
@@ -230,7 +222,7 @@
     <div class="panel">
       <div class="draftlead">
         <span class="badge">Draft</span>
-        <span class="txt">This is your draft November</span>
+        <span class="txt">This is your November draft</span>
       </div>
       <div class="dayhead">
         <span class="dname">Monday 2 November</span>
@@ -253,10 +245,13 @@
       <p class="prose quiet" style="margin-top:18px">Two posts so far. Tell us what's coming up and
       we'll build it out, or say you're ready and we'll write these two.</p>
     </div>
-    <button class="fab" type="button" aria-label="Tell Sprigly about this month"><svg class="ic lg"><use href="#i-mic"/></svg></button>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="true">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>

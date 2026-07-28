@@ -37,8 +37,8 @@
   <div class="crumbs">Mockup 5 of 8 · <a href="index.html">all states</a></div>
   <h1>Detail sheet</h1>
   <p>Every sheet in the set is now the same height — 90% of the viewport — so opening one never changes how much of the app you can see. The header carries the format icon, the title and the date. The reasoning sits behind the insights toggle, one tap away and never in front of the words the client came for.</p>
-  <p><strong>The action row is icon-only</strong> with <code>aria-label</code>s and 44px+ targets. Move carries the current date on its face, so the row states where the post is before you open anything.</p>
-  <p><strong>Write again happens inside the sheet.</strong> Tapping the sparkle swaps the tab content for a prompt field at the same sheet size — round 2 stacked a second sheet over the first, which is the one thing an iOS sheet should never do.</p>
+  <p><strong>The action row is three equal-width buttons</strong>, icon with the label below, and Move carries its current date above the icon. Round 3 shipped this icon-only; round 4 restores the labels, which is the reversal round 3 recorded as the cheap one to make. Move carries the current date on its face, so the row states where the post is before you open anything.</p>
+  <p><strong>Shape happens inside the sheet.</strong> Tapping the sparkle swaps the tab content for a prompt field at the same sheet size — round 2 stacked a second sheet over the first, which is the one thing an iOS sheet should never do.</p>
 </div>
 
 <div class="frames">
@@ -63,10 +63,6 @@
         <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
     </div>
     <div class="todayrow">
       <button class="todaybtn" type="button">Today</button>
@@ -115,14 +111,28 @@ Our Wilderness Soy Wax Candle is live now. Head to the link in bio.
 // #earlofeast #wilderness #homerituals #scentedcandle #ritualovertoutine</p>
       </div>
     <div class="acts">
-      <button class="act" type="button" aria-label="Move to another day or time"><svg class="ic"><use href="#i-cal"/></svg><span class="datebadge">1 OCT</span></button>
-      <button class="act accent" type="button" aria-label="Write this one again"><svg class="ic"><use href="#i-sparkle"/></svg></button>
-      <button class="act destructive" type="button" aria-label="Delete this post"><svg class="ic"><use href="#i-bin"/></svg></button>
+      <button class="act" type="button" aria-label="Move to another day or time">
+        <span class="actdate">1 OCT</span>
+        <svg class="ic"><use href="#i-cal"/></svg>
+        <span class="actlabel">Move</span>
+      </button>
+      <button class="act" type="button" aria-label="Shape this post">
+        <svg class="ic solid"><use href="#i-sparkle"/></svg>
+        <span class="actlabel">Shape</span>
+      </button>
+      <button class="act destructive" type="button" aria-label="Delete this post">
+        <svg class="ic"><use href="#i-bin"/></svg>
+        <span class="actlabel">Delete</span>
+      </button>
     </div>
     </div>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="true">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>
@@ -147,10 +157,6 @@ Our Wilderness Soy Wax Candle is live now. Head to the link in bio.
         <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
     </div>
     <div class="todayrow">
       <button class="todaybtn" type="button">Today</button>
@@ -204,19 +210,33 @@ Our Wilderness Soy Wax Candle is live now. Head to the link in bio.
 Not the grand gestures, but the small, deliberate acts that mark the shift from one part of the day to the next. The incense lit before sitting down to work. The reed diffuser in the hallway that meets you when you come home.</p>
       </div>
     <div class="acts">
-      <button class="act" type="button" aria-label="Move to another day or time"><svg class="ic"><use href="#i-cal"/></svg><span class="datebadge">21 OCT</span></button>
-      <button class="act accent" type="button" aria-label="Write this one again"><svg class="ic"><use href="#i-sparkle"/></svg></button>
-      <button class="act destructive" type="button" aria-label="Delete this post"><svg class="ic"><use href="#i-bin"/></svg></button>
+      <button class="act" type="button" aria-label="Move to another day or time">
+        <span class="actdate">21 OCT</span>
+        <svg class="ic"><use href="#i-cal"/></svg>
+        <span class="actlabel">Move</span>
+      </button>
+      <button class="act" type="button" aria-label="Shape this post">
+        <svg class="ic solid"><use href="#i-sparkle"/></svg>
+        <span class="actlabel">Shape</span>
+      </button>
+      <button class="act destructive" type="button" aria-label="Delete this post">
+        <svg class="ic"><use href="#i-bin"/></svg>
+        <span class="actlabel">Delete</span>
+      </button>
     </div>
     </div>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="true">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>
 <div class="frame-wrap">
-  <p class="frame-label">C — write again, in place</p>
+  <p class="frame-label">C — “Shape”, in place</p>
   <p class="frame-sub">No stacked popover, no size change. The meter now has somewhere to speak: the API can refuse a rewrite when the monthly allowance is spent, and round 2 had nowhere to say so.</p>
 
   <div class="phone tall">
@@ -236,10 +256,6 @@ Not the grand gestures, but the small, deliberate acts that mark the shift from 
         <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
     </div>
     <div class="todayrow">
       <button class="todaybtn" type="button">Today</button>
@@ -290,14 +306,28 @@ Not the grand gestures, but the small, deliberate acts that mark the shift from 
         month. Editing the words yourself is always free.</p>
       </div>
     <div class="acts">
-      <button class="act" type="button" aria-label="Move to another day or time"><svg class="ic"><use href="#i-cal"/></svg><span class="datebadge">1 OCT</span></button>
-      <button class="act accent" type="button" aria-label="Cancel the rewrite"><svg class="ic"><use href="#i-sparkle"/></svg></button>
-      <button class="act destructive" type="button" aria-label="Delete this post"><svg class="ic"><use href="#i-bin"/></svg></button>
+      <button class="act" type="button" aria-label="Move to another day or time">
+        <span class="actdate">1 OCT</span>
+        <svg class="ic"><use href="#i-cal"/></svg>
+        <span class="actlabel">Move</span>
+      </button>
+      <button class="act" type="button" aria-label="Cancel shaping">
+        <svg class="ic solid"><use href="#i-sparkle"/></svg>
+        <span class="actlabel">Cancel</span>
+      </button>
+      <button class="act destructive" type="button" aria-label="Delete this post">
+        <svg class="ic"><use href="#i-bin"/></svg>
+        <span class="actlabel">Delete</span>
+      </button>
     </div>
     </div>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="true">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>
@@ -322,10 +352,6 @@ Not the grand gestures, but the small, deliberate acts that mark the shift from 
         <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
     </div>
     <div class="todayrow">
       <button class="todaybtn" type="button">Today</button>
@@ -400,15 +426,19 @@ Not the grand gestures, but the small, deliberate acts that mark the shift from 
         <button class="btn primary" type="button">Move it</button>
       </div>
     </div>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="true">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>
 <div class="frame-wrap">
   <p class="frame-label">E — a planned post, before approval</p>
-  <p class="frame-sub">Nothing written yet, so the sheet says why rather than showing three empty tabs, and "write again" is absent because there is nothing to rewrite.</p>
+  <p class="frame-sub">Nothing written yet, so the sheet says why rather than showing three empty tabs, and “Shape” is absent because there is nothing to rewrite.</p>
 
   <div class="phone tall">
     <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
@@ -427,10 +457,6 @@ Not the grand gestures, but the small, deliberate acts that mark the shift from 
         <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
     </div>
     <div class="todayrow">
       <button class="todaybtn" type="button">Today</button>
@@ -469,13 +495,28 @@ Not the grand gestures, but the small, deliberate acts that mark the shift from 
         about it, or tell us what it should be about.</p>
       </div>
     <div class="acts">
-      <button class="act" type="button" aria-label="Move to another day or time"><svg class="ic"><use href="#i-cal"/></svg><span class="datebadge">21 OCT</span></button>
-      <button class="act destructive" type="button" aria-label="Delete this planned post"><svg class="ic"><use href="#i-bin"/></svg></button>
+      <button class="act" type="button" aria-label="Move to another day or time">
+        <span class="actdate">21 OCT</span>
+        <svg class="ic"><use href="#i-cal"/></svg>
+        <span class="actlabel">Move</span>
+      </button>
+      <button class="act" type="button" aria-label="Shape this planned post">
+        <svg class="ic solid"><use href="#i-sparkle"/></svg>
+        <span class="actlabel">Shape</span>
+      </button>
+      <button class="act destructive" type="button" aria-label="Delete this planned post">
+        <svg class="ic"><use href="#i-bin"/></svg>
+        <span class="actlabel">Delete</span>
+      </button>
     </div>
     </div>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="true">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>
@@ -491,7 +532,7 @@ Not the grand gestures, but the small, deliberate acts that mark the shift from 
   </ul>
   <h2>Wiring, and one consequence worth deciding</h2>
   <ul>
-    <li><strong>Write again → <code>POST /api/plan/shape {targetPostId, instruction}</code>.</strong> The route 400s without an instruction, so a guided rewrite is what the API has always required; the round-1 blind-regenerate button was the mismatch.</li>
+    <li><strong>Shape → <code>POST /api/plan/shape {targetPostId, instruction}</code>.</strong> The route 400s without an instruction, so a guided rewrite is what the API has always required; the round-1 blind-regenerate button was the mismatch.</li>
     <li><strong>Cross-month move is a real change, not just a picker.</strong> <code>PATCH /api/posts/:id {date}</code> accepts any editable date, and a post already carries its own <code>cycleId</code>, so the write itself works. But the post then belongs to a month it is not planned in: <code>loadCrossMonthPosts</code> surfaces it by date in the other month's feed, the origin cycle's counts drop, and if the destination month has no cycle at all the post lands in the “Outside this month” strip. Allowing it in the picker means the surface has to say where the post went. Flagged rather than assumed.</li>
     <li><strong>Time has no endpoint at all</strong> — spec gap 1, widened this round from read to read-and-write because the picker now edits it.</li>
   </ul>

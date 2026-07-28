@@ -83,19 +83,13 @@
         <button class="navbtn" type="button" aria-label="September 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
-    </div>
-    <div class="sumbar" role="status">
-      <span class="txt">8 applied · 6 saved</span>
-      <button type="button" aria-label="Hide what changed" aria-expanded="true"><svg class="ic sm"><use href="#i-chev-d"/></svg></button>
-      <button type="button" aria-label="Dismiss"><svg class="ic sm"><use href="#i-close"/></svg></button>
-    </div>
-    <div class="todayrow">
       <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
-      <span style="flex:1"></span>
+    </div>
+    <button class="sumbar" type="button" aria-expanded="true" aria-label="What changed. Tap to hide the detail">
+      <span class="txt">8 applied · 6 saved</span>
+      <svg class="ic sm chev"><use href="#i-chev-d"/></svg>
+    </button>
+    <div class="todayrow">
       <button class="todaybtn" type="button">Today</button>
     </div>
     <div class="weekstrip" role="group" aria-label="Week of 27 July">
@@ -194,10 +188,17 @@
           </li>
         </ul>
       </div>
+      <div class="acts" style="justify-content:center">
+        <button class="clearbtn" type="button">Clear this summary</button>
+      </div>
     </div>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="true">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>

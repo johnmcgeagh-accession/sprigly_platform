@@ -1,7 +1,7 @@
 # Mobile plan surface — design spec
 
 **Date:** 2026-07-27 · branch `dev` · **spec and mockups only, no production code**
-**Revision:** round 3, after an `/impeccable` critique and the operator's third review.
+**Revision:** round 4, near-final convergence, after the operator's fourth review.
 **Design context:** [`PRODUCT.md`](../../PRODUCT.md) · [`DESIGN.md`](../../DESIGN.md) ·
 [`round-3-notes.md`](round-3-notes.md)
 **Mockups:** [`docs/design/mockups/index.html`](mockups/index.html) — open any file directly, no build step.
@@ -65,6 +65,22 @@ and its overlay — though the latter is superseded on the draft surface by the 
 | **R10** | **Action rows are icon-only**; the date picker crosses months; write-again happens in place | §4 |
 | **R11** | **Icons v2** — clapperboard, stacked squares, framed image — screenshot-tested at 17px | §6c |
 
+### Round 4 — near-final convergence
+
+| # | Change | Rationale |
+|---|---|---|
+| **N1** | **A floating bottom nav**: a segmented pill `Day · Month · Tasks` plus a **separate** circular microphone beside it, over a blurred material | §1.2. Supersedes *both* the round-3 tab bar and the header Week\|Month switcher |
+| **N2** | The header simplifies to wordmark, `‹ Month Year ›` and Today. The **Ready to go** pill takes the space the switcher vacated | §1.2 |
+| **N3** | **Tapping a day in the month grid returns to Day view with that day selected** | §1.5. The grid is a picker as much as an overview |
+| **C1** | **White ink requires a ≥700-tier fill; `accent-600` is non-text only** | §6b. Round 3's dark-ink-on-600 passed the gate but read muddy on the device |
+| **C2** | The voice waveform is clean accent green **on white** — the dark backing panel is gone | §8 |
+| **D1** | Copy leaves the committed card; it lives only in the detail sheet's tabs | §4. It belongs beside the words it copies |
+| **DR1** | Draft framing is possessive-month: *“This is your October draft”* | §2 |
+| **DR2** | The experiment tooltip element is **removed**; the banner pill carries the whole meaning | §2 |
+| **V1** | Typed mode is one large field filling the sheet, with a single full-width submit pinned at the foot | §8 |
+| **S1** | The action row is three equal-width buttons, icon with the **label below**, Move carrying its date above the icon | §4. This is round 3's recorded reversal, exercised |
+| **R1** | The summary chip is **one control** — tap anywhere to toggle, one chevron, no ✕ | §3 |
+
 ## 1. The state machine
 
 ### 1.1 The surface decision — unchanged
@@ -82,16 +98,14 @@ page* — holds here. This redesign **adds no member to `SurfaceKind`**.
 
 ### 1.2 The states inside a surface
 
-Round 3 gives the surface a real iOS shell. The tab bar is persistent; **Week and Month are peer
-views** inside the Plan tab, switched by a segmented control on the title row.
+Round 4 settles the navigation. The header carries **where you are**; the floating bottom nav
+carries **what you can do**.
 
 ```
   ┌──────────────────────────────────────────────┐
   │  Sprigly                                     │  wordmark, LEFT
   │                                              │
-  │  ‹  October 2026  ›            [Week][Month] │  title row + peer switcher
-  │                                              │
-  │  [Draft] Not sent yet ...      Ready to go   │  ← draft only: state + approval
+  │  ‹  October 2026  ›          [ Ready to go ] │  title row + approval (draft only)
   │                                        Today │
   │  M   T   W   T   F   S   S                   │  week strip   ── OR ──
   │ 28  29  30  (1)  2   3   4                   │  the month grid
@@ -101,33 +115,34 @@ views** inside the Plan tab, switched by a segmented control on the title row.
   │  ┌────────────────────────────────────────┐  │
   │  │ ▣  Home & Space                  6:00  │  │
   │  └────────────────────────────────────────┘  │
-  │                                       ( 🎤 ) │  FAB — mic on a draft month
-  │  ┌──────────────────┬───────────────────┐   │
-  │  │      Plan        │      Tasks        │   │  tab bar, sized for 3–4
+  │                                              │
+  │   ╭──────────────────────────╮      ╭────╮   │
+  │   │  Day  ·  Month  ·  Tasks │      │ 🎤 │   │  floating nav + separate mic
+  │   ╰──────────────────────────╯      ╰────╯   │
   └──────────────────────────────────────────────┘
 ```
 
 ```
    SURFACE = draft | committed        (server decides — §1.1)
       │
-      ├── TAB    = plan | tasks          ← persistent bottom bar
+      ├── VIEW = day | month | tasks     ← the floating nav pill
       │      │
-      │      └── VIEW = week | month     ← peer switcher, title row
-      │             │
-      │             └── selectedDay
+      │      └── selectedDay             (day view)
       │
-      └── OVERLAY ∈ { none, detail, move, write-again, voice, approve }
+      └── OVERLAY ∈ { none, detail, move, shape, voice, approve }
 ```
 
-Three rules the round-3 shell adds:
+Four rules the round-4 shell adds:
 
-1. **The tab bar is always there.** It closes the viewport, which is most of what separates an app
-   from a page that ran out of content — round 2 left 300–500px of unanchored canvas under short
-   days.
-2. **Month is a peer, not a modal.** It has no ✕ and no dismiss; you leave it the way you entered
-   it. That also removes the round-2 ✕ sitting beside the wordmark, where a founder reads it as
-   *close the app*.
-3. **The FAB is the primary verb of the surface, and it is never inert.** It is the microphone on
+1. **The nav is always there, and it floats.** A pill and a circle over a blurred material, clear
+   of the content rather than welded to the bottom edge. It closes the viewport — most of what
+   separates an app from a page that ran out of content — without claiming a fixed 56px band.
+   Sheets slide **over** it.
+2. **One place to change view, one place to talk.** Round 3 had a Week|Month switcher in the header
+   *and* a Plan|Tasks bar at the bottom: two navigation systems for one small surface. The pill
+   absorbs both, so `Day`, `Month` and `Tasks` are siblings — which is what they always were.
+3. **Month is a peer, not a modal.** No ✕, no dismiss; you leave it the way you entered it.
+4. **The microphone is a separate control, and it is never inert.** It is the microphone on
    **both** month states — the gesture is always *talk to your plan* — but the two mics do
    different things, and the surface has to say which:
 
@@ -224,6 +239,21 @@ week.
 
 ---
 
+### 1.5 Month view: the grid is a picker
+
+**Tapping any day in the month grid returns to Day view with that day selected.** Not "closes the
+month" — *switches view and carries the date with it*. The grid is as much a way of choosing a day
+as a way of seeing the shape of a month, and on a phone it is usually the faster of the two ways
+to reach a date three weeks out.
+
+Concretely: `selectedDay` is set from the tapped cell, `view` flips to `day`, and the week strip
+re-anchors to the week containing it. Nothing is fetched — the month's posts are already loaded
+for the grid that was just drawn.
+
+Today, on the month view, does the same thing with today's date.
+
+---
+
 ## 2. The draft framing
 
 Round 2 replaced the “What we assumed” panel with a call-to-action card. Round 3 shrinks that card
@@ -267,8 +297,15 @@ A fixed 48px bar between the month row and the week strip:
   off screen entirely.
 - **Expand slides up a panel** carrying the itemised rollup — one line per segment, applied lines
   expandable to their diff, idea lines carrying the rescue tap.
-- **Dismiss removes the chip and nothing else.** The “New” marks on changed posts are driven by
-  `changedIds` and are independent of it.
+- **It is one control.** Round 3 put an expand button and a ✕ on a 48px bar; round 4 makes the
+  whole chip the button. Tap anywhere to toggle, and the chevron is a **state indicator** — `›`
+  collapsed, `⌄` expanded — not a second target. The ✕ was the one a client would hit by accident.
+- **Clearing lives in two places, neither of them a ✕.** A quiet *“Clear this summary”* text
+  action at the foot of the expanded panel, and **the chip clears itself on the next visit** —
+  driven by the same in-memory seen-state boolean that already retires the “New” marks, so no new
+  persistence is needed.
+- **The highlights are independent.** Clearing the chip never un-marks what changed; “New” is
+  driven by `changedIds`.
 - **The verbs are the receipt's verbs: added, moved, replaced.** The round-2 brief suggested
   “changed” for the third. *Replaced* is kept deliberately: the difference between “this post was
   edited” and “this post was removed and another took its slot” is the thing a client most needs
@@ -289,25 +326,35 @@ A fixed 48px bar between the month row and the week strip:
 │  CAPTION                            [⧉ Copy] │   per-tab copy
 │  Wilderness is back. …                       │
 ├──────────────────────────────────────────────┤
-│  [📅 Move]   [✦ Write again]   [🗑 Delete]    │   icons + short labels
+│  ┌ 1 OCT ┐   ┌───────┐   ┌────────┐          │   three equal buttons
+│  │  📅   │   │   ✦   │   │   🗑   │          │   icon, label BELOW
+│  │  Move │   │ Shape │   │ Delete │          │   date ABOVE on Move
 │   1 OCT · 6:00                               │
 └──────────────────────────────────────────────┘
 ```
 
-- **Copy is a first-class control, per tab.** Getting the words out of Sprigly and into Instagram
-  is the actual job; copying the whole sheet is not the same thing as copying the caption.
+- **Copy is a first-class control, per tab, and it lives *only* here.** Round 3 also put a copy
+  button on the committed card; round 4 takes it back off. Copy belongs beside the words it copies,
+  on the tab that names the field — a card is a thing you read, not a thing you operate.
 - **The reasoning lives behind the insights icon.** One tap reveals it above the tabs, with its
   sample sizes. It is not in the way of the words the client came for, and it is one tap from
   every post rather than a paragraph on every card.
 - **Per-post assumptions are gone.** Assumptions are a property of the month; they belong in the
   CTA block, once, not repeated on ten sheets.
-- **“Write again” opens a prompt field, never a blind regenerate.** This matches the API exactly —
-  see §5.4.
+- **“Shape” opens a prompt field, never a blind regenerate.** Renamed from “write again” in round
+  4: the endpoint has always been `POST /api/plan/shape` and has always required an `instruction`,
+  so the client-facing word now matches what happens. See §5.4.
+- **The action row is three equal-width buttons filling the row**: icon with the **label below**,
+  Move carrying its current date **above** its icon, and a real pressed state so they read as
+  buttons. This is round 3's icon-only row reversed — round 3 recorded labels as *“the designated
+  cheap reversal”* and named the trigger; round 4 pulls it forward rather than waiting for the
+  demo. It cost what it was predicted to cost: one span per button and one CSS rule, with no change
+  to geometry, targets or `aria-label`s.
 - **“Move” carries the current date on its icon**, so the action row states where the post is
   before you open anything, and the picker edits date *and* time.
 - **Undo renders at the top of the screen.** In round 1 it was bottom-anchored, which put it
   directly over the action row it was undoing.
-- **The planned-post variant has no tabs and no “Write again”** — there is nothing written yet, so
+- **The planned-post variant has no tabs** — there is nothing written yet, so
   the sheet says so rather than showing three empty tabs.
 
 ### 4.1 One consequence to decide: format has no control
@@ -341,9 +388,10 @@ unless the Exists column says **no**.
 |---|---|---|
 | Tap a day in the week strip | local `selectedDay` — **round 2: no scroll-to-day, the panel re-renders** | yes |
 | Swipe the week strip | local. New gesture; the strip is a grid today | UI only |
-| Week \| Month switcher | local view state, no request | yes (new UI, no API) |
-| Plan \| Tasks tab bar | local; Tasks renders the existing checklist (`planTasks`, `PostStepView`) | yes |
-| Insights tab | — | **no** — the insight layer does not exist. The bar is laid out to take it |
+| Nav pill `Day \| Month \| Tasks` | local view state, no request. Tasks renders the existing checklist (`planTasks`, `PostStepView`) | yes (new UI, no API) |
+| Tapping a day in the month grid | sets `selectedDay`, flips `view` to `day`, re-anchors the strip. **No fetch** — the month's posts are already loaded for the grid just drawn | yes |
+| The **Ready to go** pill | local; opens the approval sheet. Right-aligned on the title row, rendered only when the surface is `draft` and `editable` | yes |
+| Insights segment | — | **no** — the insight layer does not exist. The pill is laid out to take a fourth |
 | Tap a day in the month grid | local `selectedDay`, view → day | yes |
 | ‹ › arrows (either view) | `data.switchCycle(cycleId)` over the sorted cycle list → `GET /api/plan?cycleId=` ; on a draft answer, `GET /api/plan/draft?cycleId=` for planned posts + pillars + editable + receipts | yes |
 | Dot density for the **viewed** month | already-loaded `calendarPosts` / `draft.beats` | yes |
@@ -406,7 +454,7 @@ Refusals map to distinct statuses the surface must distinguish: `not_found` 404,
 | Edit the caption | `PATCH /api/posts/:id {caption}` + autosave | yes |
 | Delete | `DELETE /api/posts/:id` (soft) | yes |
 | Per-day add slot | `POST /api/posts {date, cycleId}` — refuses past dates (`canAddPost`) | yes |
-| **“Write again” (guided rewrite)** | **`POST /api/plan/shape {targetPostId, instruction}` — confirmed.** `app/src/app/api/plan/shape/route.ts` 400s without an `instruction`, gates on the post's date via `gatePostEdit`, resolves the post's real cycle, and enqueues a `shape` job returning `{mode:'pending', jobId}`. **There is no blind-regenerate endpoint** — the round-1 button was the thing that didn't match the API, not this design | yes |
+| **“Shape” (guided rewrite)** | **`POST /api/plan/shape {targetPostId, instruction}` — confirmed.** `app/src/app/api/plan/shape/route.ts` 400s without an `instruction`, gates on the post's date via `gatePostEdit`, resolves the post's real cycle, and enqueues a `shape` job returning `{mode:'pending', jobId}`. **There is no blind-regenerate endpoint** — the round-1 button was the thing that didn't match the API, not this design | yes |
 | The rewrite meter | same route: `getUsageForCycle` + `isRewriteBlocked` can return `mode:'blocked'` with a summary | yes — **but it has nowhere to render** (gap 9) |
 | A post still being written | `status: 'generating'` on the post | yes |
 | Hooks / scripts | `POST /api/plan/hooks`, `POST /api/plan/script` | yes |
@@ -448,7 +496,7 @@ Round 1's six, updated in place. Three are new to round 2; two were widened by i
 | **10** | **A draft flag the month view can badge** | — | Same as gap 2; round 3 moves the badge from the month control to the month view, where it is labelled rather than a bare dot | **Reframed, not new** |
 | **11** | **“Where did it go?” after a cross-month move** | No confirmation naming the destination month | `PATCH /api/posts/:id` already does the move; `loadCrossMonthPosts` already surfaces it | **NEW.** Copy + toast, no API |
 | **12** | **The Insights tab** | Nothing behind it | The tab bar is laid out for it | **NEW, and deliberately empty.** Drawn at 32% in mockup 10 to prove the geometry |
-| **9** | **The rewrite meter's refusal** | Nowhere in the sheet renders `mode:'blocked'` | The route already returns the message (“You’ve used all N AI changes this month. Resets on the 1st. Editing directly stays free.”) | **NEW.** Round 1 listed this as a constraint; round 2 makes “Write again” a first-class action, so it is a gap. It belongs in the prompt field |
+| **9** | **The rewrite meter's refusal** | Nowhere in the sheet renders `mode:'blocked'` | The route already returns the message (“You’ve used all N AI changes this month. Resets on the 1st. Editing directly stays free.”) | **NEW.** Round 1 listed this as a constraint; round 2 makes it a first-class action, so it is a gap. It belongs in the prompt field |
 
 ---
 
@@ -600,6 +648,7 @@ has never heard it and the thing it names looks to them exactly like a post.
 | pillar | **pillar** | Kept — it is the client's own vocabulary from onboarding |
 | format (`reel` / `carousel` / `single`) | *(icon)* | Words survive as `title` and screen-reader label: “Reel”, “Carousel”, “Single post” |
 | rationale / `rationaleEvidence` | **why this one is here** | Behind the insights icon |
+| instructed rewrite (`POST /api/plan/shape`) | **Shape** | Round 4. The endpoint was always `shape` and always required an instruction; “write again” implied a blind redo |
 | assumption | *(re-voiced as a nudge)* | Never “assumption”, never “we assumed” as a heading |
 | `generation_failed` / retry | **on its way** | Client-facing. The real status stays for the operator |
 | receipt / `DraftApplication` | **what changed** | The chip has no heading at all — just the counts |

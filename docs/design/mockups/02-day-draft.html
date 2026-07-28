@@ -36,15 +36,15 @@
 <div class="page-head">
   <div class="crumbs">Mockup 2 of 8 · <a href="03-voice-sheet.html">the voice sheet →</a> · <a href="index.html">all states</a></div>
   <h1>Day view — draft month</h1>
-  <p>The same skeleton in a provisional skin: dashed borders, a DRAFT badge, and planned posts rather than “beats”. Round 3 gets the content out of the way of itself.</p>
-  <p><strong>The framing is now one line.</strong> Round 2 spent a 200px card above the fold asking the client to say something before they had read anything, which inverts the product's own first principle. The full framing copy moved into the voice sheet; what is left is a badge and a sentence, and the month leads the page.</p>
-  <p><strong>The microphone is the FAB</strong> — the primary action on a draft is telling us something. Approval is the labelled <em>Ready to go</em> pill in the header region: always visible, secondary weight, and it says what it does. Round 2 had these the wrong way round, with an unlabelled tick guarding the one action that spends money.</p>
+  <p>The same skeleton in a provisional skin: dashed borders, a DRAFT badge, and planned posts rather than “beats”. The content leads the page.</p>
+  <p><strong>The framing is now one line.</strong> Round 2 spent a 200px card above the fold asking the client to say something before they had read anything, which inverts the product's own first principle. The framing copy lives in the voice sheet; what is left is a badge and a sentence in possessive-month order — <em>your October draft</em>, not <em>draft October</em>.</p>
+  <p><strong>Round 4 settles the navigation.</strong> A floating segmented pill carries <em>Day · Month · Tasks</em>, with a separate circular microphone beside it — one place to change view, one place to talk. Approval is the labelled <em>Ready to go</em> pill, right-aligned on the title row in the space the old Week|Month switcher vacated.</p>
 </div>
 
 <div class="frames">
 <div class="frame-wrap">
   <p class="frame-label">A — Earl of East · draft October · Thu 1 Oct</p>
-  <p class="frame-sub">Five pillars, ten planned posts. One line of framing, then the plan. The mic sits bottom-right above the tab bar where the live app already puts its FAB.</p>
+  <p class="frame-sub">Five pillars, ten planned posts. One line of framing, then the plan. The mic sits in the floating nav beside the view pill.</p>
 
   <div class="phone">
     <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
@@ -63,14 +63,9 @@
         <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
+      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
     </div>
     <div class="todayrow">
-      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
-      <span style="flex:1"></span>
       <button class="todaybtn" type="button">Today</button>
     </div>
     <div class="weekstrip" role="group" aria-label="Week of 28 September">
@@ -86,7 +81,7 @@
     <div class="panel">
       <div class="draftlead">
         <span class="badge">Draft</span>
-        <span class="txt">This is your draft October</span>
+        <span class="txt">This is your October draft</span>
       </div>
       <div class="dayhead">
         <span class="dname">Thursday 1 October</span>
@@ -117,10 +112,13 @@
 
       <button class="addslot" type="button"><svg class="ic sm"><use href="#i-plus"/></svg> Plan a post for this day</button>
     </div>
-    <button class="fab" type="button" aria-label="Tell Sprigly about this month"><svg class="ic lg"><use href="#i-mic"/></svg></button>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="true">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>
@@ -145,14 +143,9 @@
         <button class="navbtn" type="button" aria-label="September 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
+      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
     </div>
     <div class="todayrow">
-      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
-      <span style="flex:1"></span>
       <button class="todaybtn" type="button">Today</button>
     </div>
     <div class="weekstrip" role="group" aria-label="Week of 3 August">
@@ -168,7 +161,7 @@
     <div class="panel">
       <div class="draftlead">
         <span class="badge">Draft</span>
-        <span class="txt">This is your draft August</span>
+        <span class="txt">This is your August draft</span>
       </div>
       <div class="dayhead">
         <span class="dname">Monday 3 August</span>
@@ -196,16 +189,19 @@
 
       <button class="addslot" type="button"><svg class="ic sm"><use href="#i-plus"/></svg> Plan a post for this day</button>
     </div>
-    <button class="fab" type="button" aria-label="Tell Sprigly about this month"><svg class="ic lg"><use href="#i-mic"/></svg></button>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="true">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>
 <div class="frame-wrap">
   <p class="frame-label">C — the experiment marker</p>
-  <p class="frame-sub">The lightbulb sits on the vivid fill, dark ink. Its tooltip is now anchored inside the card, below the content, so it can neither clip the frame nor straddle the card edge — round 2 did both.</p>
+  <p class="frame-sub">A banner pill and nothing else. Round 3 gave it a tooltip; round 4 removes that element entirely — a marker needing a tooltip to explain it is a marker that failed.</p>
 
   <div class="phone">
     <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
@@ -224,14 +220,9 @@
         <button class="navbtn" type="button" aria-label="October 2026"><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
+      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
     </div>
     <div class="todayrow">
-      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
-      <span style="flex:1"></span>
       <button class="todaybtn" type="button">Today</button>
     </div>
     <div class="weekstrip" role="group" aria-label="Week of 31 August">
@@ -247,7 +238,7 @@
     <div class="panel">
       <div class="draftlead">
         <span class="badge">Draft</span>
-        <span class="txt">This is your draft September</span>
+        <span class="txt">This is your September draft</span>
       </div>
       <div class="dayhead">
         <span class="dname">Friday 4 September</span>
@@ -266,7 +257,6 @@
         </div>
         <h4>A room that breathes</h4>
         <p class="teaser">From an idea you sent us.</p>
-        <p class="tip">A new idea we're trying this month.</p>
       </div>
 
       <div class="card draft">
@@ -279,10 +269,13 @@
         <p class="teaser">Carousels average 70 likes and comments across your last 8 posts.</p>
       </div>
     </div>
-    <button class="fab" type="button" aria-label="Tell Sprigly about this month"><svg class="ic lg"><use href="#i-mic"/></svg></button>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="true">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>

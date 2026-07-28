@@ -36,7 +36,7 @@
 <div class="page-head">
   <div class="crumbs">Mockup 4 of 8 · <a href="index.html">all states</a></div>
   <h1>Month view — a peer, not an overlay</h1>
-  <p>Reached and left through the <strong>Week | Month</strong> switcher on the title row. It is not a modal, it has no ✕, and it keeps the same header, the same tab bar and the same FAB as the week view. Tapping a day switches back to Week on that day.</p>
+  <p>Reached and left through the <strong>Month</strong> segment of the floating nav pill. It is not a modal and it has no ✕. <strong>Tapping any day returns to Day view with that day selected</strong> — the grid is a picker as much as an overview.</p>
   <p><strong>The legend is gone.</strong> A calendar that needs a printed key has an encoding problem, and the round-2 version shipped one. The two states that need distinguishing now differ in <em>shape</em> — a filled dot is a post, a ring is a post still being written — and the one-line summary under the grid names the exception in words instead.</p>
 </div>
 
@@ -62,18 +62,13 @@
         <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="false">Week</button>
-        <button type="button" aria-pressed="true">Month</button>
-      </div>
+      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
     </div>
     <div class="todayrow">
-      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
-      <span style="flex:1"></span>
       <button class="todaybtn" type="button">Today</button>
     </div>
     <div class="grid">
-      <div class="draftlead" style="margin-bottom:10px"><span class="badge">Draft</span><span class="txt">This is your draft October</span></div>
+      <div class="draftlead" style="margin-bottom:10px"><span class="badge">Draft</span><span class="txt">This is your October draft</span></div>
       <div class="gridhead"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
       <div class="gridbody">
         <button class="gcell out" type="button"><span class="gnum">28</span><span class="dots"></span></button>
@@ -114,10 +109,13 @@
       </div>
       <p class="monthfoot">10 posts planned across October. Tap a day to open it.</p>
     </div>
-    <button class="fab" type="button" aria-label="Tell Sprigly about this month"><svg class="ic lg"><use href="#i-mic"/></svg></button>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="false">Day</button>
+        <button type="button" role="tab" aria-selected="true">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>
@@ -142,10 +140,6 @@
         <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="false">Week</button>
-        <button type="button" aria-pressed="true">Month</button>
-      </div>
     </div>
     <div class="todayrow">
       <button class="todaybtn" type="button">Today</button>
@@ -191,9 +185,13 @@
       </div>
       <p class="monthfoot">10 posts across October. One is still being written.</p>
     </div>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="false">Day</button>
+        <button type="button" role="tab" aria-selected="true">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>

@@ -36,14 +36,14 @@
 <div class="page-head">
   <div class="crumbs">Mockup 8 of 8 · <a href="index.html">all states</a></div>
   <h1>Tasks tab — stub</h1>
-  <p>A minimal stub, included so the tab bar is demonstrated rather than asserted. The production checklist already exists in <code>PlanMobile</code>'s Tasks view; this is not a redesign of it, only enough to show the bar switching and the second tab carrying its own content.</p>
-  <p>Frame B shows the <strong>third slot</strong> at 32% opacity: <em>Insights</em> joins as a tab when the insight layer ships, and the bar was laid out with <code>flex: 1</code> children so a third and fourth tab drop in without any layout change.</p>
+  <p>A minimal stub, included so the nav pill is demonstrated rather than asserted. The production checklist already exists in <code>PlanMobile</code>'s Tasks view; this is not a redesign of it, only enough to show the pill switching and the Tasks segment carrying its own content.</p>
+  <p><strong>Insights is not drawn.</strong> The nav pill carries three segments today and its children are <code>flex: 1</code>, so a fourth drops in without any layout change when the insight layer ships. Round 3 sketched a greyed fourth tab; a control that does nothing is worse than an absent one.</p>
 </div>
 
 <div class="frames">
 <div class="frame-wrap">
   <p class="frame-label">A — Tasks, populated</p>
-  <p class="frame-sub">Grouped by urgency, each row naming the post it belongs to. The completed row keeps the vivid fill on its tick — a rare case where accent-600 carries meaning with no glyph on it.</p>
+  <p class="frame-sub">Grouped by urgency, each row naming the post it belongs to. The completed row keeps the vivid fill on its tick — a rare case where accent-600 carries meaning with nothing on top of it.</p>
 
   <div class="phone">
     <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
@@ -62,10 +62,6 @@
         <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
     </div>
     <div class="panel" style="padding-top:20px">
       <div class="dayhead">
@@ -113,15 +109,19 @@
         </button>
       </div>
     </div>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="false">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="true">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>
 <div class="frame-wrap">
   <p class="frame-label">B — empty, and the third tab slot</p>
-  <p class="frame-sub">The empty state says what the tab is for rather than congratulating the client. The greyed Insights slot is a layout demonstration, not a shipping control.</p>
+  <p class="frame-sub">The empty state says what the tab is for rather than congratulating the client. The nav pill is the same three segments as everywhere else.</p>
 
   <div class="phone">
     <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
@@ -140,10 +140,6 @@
         <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
     </div>
     <div class="panel" style="padding-top:20px">
       <div class="dayhead">
@@ -154,10 +150,13 @@
       <p class="prose quiet" style="margin-top:6px">Nothing needs you right now. We'll put things
       here when a post needs something only you can do — a photo, a decision, a look.</p>
     </div>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
-      <span class="tabslot" aria-hidden="true" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:10.5px;font-weight:600;color:var(--t-muted)"><svg class="ic"><use href="#i-insights"/></svg>Insights</span>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="false">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="true">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>
@@ -167,9 +166,9 @@
 <div class="notes">
   <h2>What this is and is not</h2>
   <ul>
-    <li><strong>Not a redesign of Tasks.</strong> The live checklist has its own model — steps with lead days, at-risk derivation and a progress ring (<code>app/src/lib/checklist.ts</code>). This stub shows the tab bar working; the Tasks surface itself is out of scope for this brief.</li>
+    <li><strong>Not a redesign of Tasks.</strong> The live checklist has its own model — steps with lead days, at-risk derivation and a progress ring (<code>app/src/lib/checklist.ts</code>). This stub shows the nav pill working; the Tasks surface itself is out of scope for this brief.</li>
     <li><strong>The task rows are illustrative</strong> and labelled as such. Real steps come from <code>PostStepView</code> and are generated per post; no client's actual step list is recorded in the reports, so these are shaped like real ones rather than copied from one.</li>
-    <li><strong>Insights does not exist.</strong> The third slot is drawn to prove the bar's geometry holds at three and four tabs. Nothing behind it is designed or built.</li>
+    <li><strong>Insights does not exist</strong> and is not drawn. The pill is built to take a fourth segment; nothing behind it is designed.</li>
   </ul>
 </div>
 

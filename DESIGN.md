@@ -91,8 +91,8 @@ spacing:
   lg: "20px"
 components:
   button-primary:
-    backgroundColor: "{colors.accent-600}"
-    textColor: "{colors.chrome-deep}"
+    backgroundColor: "{colors.accent-700}"
+    textColor: "{colors.surface}"
     rounded: "{rounded.md}"
     padding: "0 18px"
     height: "50px"
@@ -101,19 +101,24 @@ components:
     textColor: "{colors.chrome}"
     rounded: "{rounded.md}"
     height: "50px"
-  fab:
-    backgroundColor: "{colors.accent-600}"
-    textColor: "{colors.chrome-deep}"
+  nav-mic:
+    backgroundColor: "{colors.accent-700}"
+    textColor: "{colors.surface}"
     rounded: "{rounded.pill}"
-    size: "62px"
+    size: "56px"
+  nav-pill-active:
+    backgroundColor: "{colors.accent-700}"
+    textColor: "{colors.surface}"
+    rounded: "{rounded.pill}"
+    height: "44px"
   card:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.chrome}"
     rounded: "{rounded.lg}"
     padding: "13px 14px 14px"
   badge:
-    backgroundColor: "{colors.accent-600}"
-    textColor: "{colors.chrome-deep}"
+    backgroundColor: "{colors.accent-700}"
+    textColor: "{colors.surface}"
     rounded: "{rounded.pill}"
     padding: "4px 9px"
   badge-quiet:
@@ -122,14 +127,15 @@ components:
     rounded: "{rounded.pill}"
     padding: "4px 9px"
   day-selected:
-    backgroundColor: "{colors.accent-600}"
-    textColor: "{colors.chrome-deep}"
+    backgroundColor: "{colors.accent-700}"
+    textColor: "{colors.surface}"
     rounded: "{rounded.pill}"
     size: "34px"
-  tabbar:
+  action-button:
     backgroundColor: "{colors.surface}"
-    textColor: "{colors.muted}"
-    height: "56px"
+    textColor: "{colors.chrome}"
+    rounded: "{rounded.card}"
+    height: "68px"
 ---
 
 # Design System: Sprigly — client plan surface
@@ -142,8 +148,9 @@ expression. The brand lives in precise details — the vividness of one accent, 
 status marker, the honesty of a sentence — not in decoration.
 
 The governing commitment is that it **reads as an iOS app, not a website**. Two decisions carry
-most of that: the native system type stack, and a bottom tab bar with a floating action button
-over it.
+most of that: the native system type stack, and a floating bottom nav — a segmented pill for the
+three views, with a separate circular microphone beside it — sitting over the content on a
+blurred material.
 
 Colour is **not owned by this file**. The platform has an admin-managed Themes system: one global
 active theme, tokens injected as CSS custom properties at the layout root, activation AA-gated on
@@ -157,33 +164,35 @@ tint/text pairs. Everything below names tokens. The hexes in the frontmatter are
 `--t-danger` — the same custom properties `app/src/lib/theme.ts` injects. A client surface never
 writes a hex.
 
-**The vivid rule — the one that matters.** Accent-600 is the brightest tier that may cover a
-large area, and white text on it measures **2.49:1**, which fails both the AA text floor (4.5)
-and the graphic floor (3.0). The instinct is to darken the fill. Don't:
+**The ink rule — the one that matters.**
 
-> **Flip the ink, not the fill. Accent-600 fills carry `chrome-deep` ink — 5.88:1.**
+> **White ink requires a ≥700-tier fill. `accent-600` is non-text only.**
 
-That keeps the brightest teal on the biggest surfaces (the selected day, the FAB, loud badges,
-primary buttons) and passes AA comfortably. It is the same move a black-on-bright-green Spotify
-button makes, and it is what lets this surface be vivid without arguing with the gate.
+Round 3 tried the other answer: `chrome-deep` ink on `accent-600` fills. It passes at 5.88:1 and
+the arithmetic was never wrong, but dark-on-green read muddy on the device — the fill and the ink
+sat too close in value, so the label sank into the button instead of sitting on it. Round 4
+replaces it with the conventional pairing, which is also the more legible one.
+
+So anything filled that carries a **word or a glyph** is `accent-700` with white: the selected
+day, badges, chips, the summary chip, primary buttons, the nav pill's active segment, the mic.
+`accent-600` keeps the jobs that carry nothing on top of them.
 
 Measured pairs in the active theme:
 
 | Pair | Ratio | Verdict |
 |---|---|---|
-| `chrome-deep` on `accent-600` | **5.88** | ✅ the vivid rule — fills with ink |
-| white on `accent-700` | 5.47 | ✅ when a fill must carry white |
+| white on `accent-700` | **5.47** | ✅ **the ink rule** — every filled control |
 | `accent-800` on `accent-100` | 6.80 | ✅ the only way accent becomes small text |
-| `accent-500` on `chrome-deep` | **7.86** | ✅ maximum vividness, on dark |
-| `accent-600` on `chrome-deep` | 5.88 | ✅ |
+| `accent-500` on `chrome-deep` | 7.86 | ✅ maximum vividness, on dark |
+| `chrome-deep` on `accent-600` | 5.88 | ⚠️ passes, but retired in round 4 — muddy on device |
 | white on `accent-600` | 2.49 | ❌ never |
 | `accent-600` on `surface` / `canvas` | 2.25–2.49 | ❌ never as text or as a meaningful glyph |
 | `border` on `surface` | 3.13 | ✅ hairlines only (graphic floor) |
 | `chrome` / `muted` on `surface` | 10.35 / 5.98 | ✅ |
 
-**Where accent may be vivid (non-text, no glyph over it):** day pips and month dots, the highlight
-wash and edge on a changed card, the reshape glow, progress and waveform bars, focus rings, the
-FAB's halo.
+**Where `accent-600` still belongs (non-text, nothing on top of it):** day pips and month dots, the
+highlight wash and edge on a changed card, the reshape glow, the mic's glow, waveform bars, focus
+rings, the completed-task tick.
 
 **Where accent may never go:** small text on white or canvas, any meaningful icon sitting directly
 on accent-600, and status meaning carried by hue alone.
@@ -193,8 +202,9 @@ this system only on `chrome-deep` fields, where it reaches 7.86:1 and is the mos
 in the product.
 
 **Neutrals.** `canvas` behind everything, `surface` for cards and sheets, `border` at ~30% alpha
-for hairlines and ~55% for a border meant to be noticed (dashed draft edges). `danger` is
-**operator-facing only** — the client surface has no error red.
+for hairlines and ~55% for a border meant to be noticed (dashed draft edges). `danger` is for
+**system failure the operator owns** and for **destructive actions the client chooses** (iOS puts
+Delete in red). It is never used to report that something broke to a client.
 
 ## Typography
 
@@ -240,15 +250,14 @@ Tabular numerals (`font-variant-numeric: tabular-nums`) on times, counts and tal
 
 1. Status bar
 2. **Header** — wordmark left-aligned
-3. **Title row** — `‹ Month Year ›` with the **Week | Month** segmented switcher
+3. **Title row** — `‹ Month Year ›`, with the **Ready to go** pill right-aligned on a draft month
 4. **Today**, right-aligned, immediately above the week strip
-5. **Week strip** (Week view) or **month grid** (Month view) — peers, not overlay and overlaid
+5. **Week strip** (Day view) or **month grid** (Month view)
 6. **Content panel** — the selected day only; no week feed, no scroll-spy
-7. **Bottom tab bar** — Plan | Tasks, persistent, designed to take 3–4 tabs
-8. **FAB**, floating bottom-right above the tab bar
+7. **Floating bottom nav** — the `Day · Month · Tasks` pill and the microphone, over the content
 
-**Week and Month are peer views**, reached and left through the switcher. Month is not a modal and
-carries no ✕.
+**Day, Month and Tasks are peer views**, reached through the nav pill. Month is not a modal and
+carries no ✕; **tapping any day in the grid returns to Day view with that day selected**.
 
 **One day at a time.** The strip selects; the panel renders that day and nothing else.
 
@@ -288,15 +297,23 @@ nothing else.
 
 ## Components
 
-**Bottom tab bar.** 56px, `surface`, hairline top border, icon over 10.5px label. Active tab uses
-`accent-800` for its icon and label; inactive uses `muted`. Sized so a third and fourth tab
-(Insights, when the insight layer ships) drop in without layout change.
+**Floating bottom nav.** A segmented pill carrying **Day · Month · Tasks**, and a **separate**
+56px circular microphone beside it. Both float over the content on a blurred material
+(`backdrop-filter: blur(20px) saturate(180%)`, `surface` at 78%), iOS-style. The pill's active
+segment is `accent-700` with white; the mic is `accent-700` with a white glyph and an
+`accent-600` glow. Sheets slide **over** the nav. The pill's children are `flex: 1`, so Insights
+drops in as a fourth segment without layout change.
 
-**FAB.** 62px circle, `accent-600` fill, `chrome-deep` glyph, accent glow + halo. Floats
-bottom-right, clearing the tab bar. **On a draft month the FAB is the microphone** — the primary
-action is telling us something, not approving.
+This supersedes both the round-3 bottom tab bar and the header Week|Month switcher. One place to
+change view, one place to talk.
 
-**Week | Month switcher.** Segmented, on the title row. `aria-pressed` on both segments.
+**The microphone is state-aware and never inert.** On a draft month it reshapes the month
+directly; on a committed month it runs the post-cutoff agent, which raises proposals the client
+approves. Same gesture, different consequence, and the sheet says which.
+
+**Approval pill.** `Ready to go`, right-aligned on the title row in the space the switcher
+vacated. Persistent, secondary weight — hairline `accent-600` border, `accent-800` label on
+`surface`. It never competes with the mic for primacy.
 
 **Day strip.** Seven cells. Selected day = `accent-600` circle with `chrome-deep` numeral. Today
 unselected = `accent-600` ring. A day with content carries a pip below: `accent-600` on a draft
@@ -310,16 +327,20 @@ dashed, because it is the one that changed while you were looking.
 framed image with a horizon (single). 17px inside a 28px tile, `accent-800` on `accent-100`. The
 word survives as `title` and screen-reader text only.
 
-**Action rows** are **icon-only** — move, write again, delete, copy — with `aria-label`s and 44px
-targets. Labels under icons were removed in round 3.
+**Action rows** are three equal-width buttons filling the row: icon with the **label below**, and
+`Move` carrying its current date **above** the icon. They read as buttons — `surface` fill,
+hairline, and a real pressed state. Round 3 shipped these icon-only and round 4 restored the
+labels, which is the reversal round 3 recorded in advance as the cheap one to make.
 
 **Detail sheet.** Header (format icon, title, date/time, insights toggle) → Caption / Hook /
-Script tabs, caption default, each with copy → icon-only action row. Reasoning lives behind the
-insights toggle. Write-again replaces the tab content in place; it does not stack a popover.
+Script tabs, caption default, each with a copy control → the action row. Reasoning lives behind
+the insights toggle. **Shape** replaces the tab content in place; it does not stack a popover.
+Copy exists **only here** — it belongs beside the words it copies, not on the card.
 
-**Voice sheet.** ~90% height. One sheet, two input modes: microphone with a live waveform, or a
-keyboard toggle that swaps the waveform for a text field. Same framing copy, same submit. This is
-the only place the framing copy for the month lives.
+**Voice sheet.** One sheet, two input modes: microphone with a live waveform — clean accent green
+on white, no backing panel — or a keyboard toggle that swaps it for **one large field** filling
+the sheet body, with a single full-width submit pinned at the foot. Same framing copy, same
+submit, same route. This is the only place the framing copy for the month lives.
 
 **Summary chip.** Fixed 48px. A one-line change and a fourteen-item brief cost the same vertical
 space. Expands into a panel; dismiss removes the chip and never the highlights.
@@ -339,7 +360,8 @@ space. Expands into a panel; dismiss removes the chip and never the highlights.
 
 **Don't**
 
-- Don't put white text or a meaningful glyph on `accent-600` (2.49:1).
+- Don't put white text or a meaningful glyph on `accent-600` (2.49:1). White needs a 700-tier fill.
+- Don't put dark ink on `accent-600` either. It passes, and it looks muddy; round 4 retired it.
 - Don't use accent for small text on white. Accent text exists only as `accent-800` on
   `accent-100`.
 - Don't reintroduce a second typeface on the client surface. Fraunces is out; this was decided

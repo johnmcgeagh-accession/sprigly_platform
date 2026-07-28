@@ -16,7 +16,7 @@
 <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="M9.5 5.5l7 6.5-7 6.5"/></symbol>
 <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></symbol>
 <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></symbol>
-<symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.5"/><path d="M15.5 5.5v-.5a2 2 0 0 0-2-2H6a2.5 2.5 0 0 0-2.5 2.5v7.5a2 2 0 0 0 2 2h.5"/></symbol>
+<symbol id="i-copy-unused" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.5"/><path d="M15.5 5.5v-.5a2 2 0 0 0-2-2H6a2.5 2.5 0 0 0-2.5 2.5v7.5a2 2 0 0 0 2 2h.5"/></symbol>
 <symbol id="i-plan" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/><path d="M7.5 13.5h4"/></symbol>
 <symbol id="i-tasks" viewBox="0 0 24 24"><path d="M4 7.5l2 2 3.5-3.5M4 16.5l2 2 3.5-3.5M13 8h7M13 17h7"/></symbol>
 </defs></svg>
@@ -25,18 +25,18 @@
   <div class="crumbs">Mockup 1 of 8 · <a href="index.html">all states</a></div>
   <h1>Day view — committed month</h1>
   <p>Earl of East, October 2026, after approval. The week strip selects; the panel shows only the
-  selected day. Round 3 restores the app chrome the live surface already has and adds the view
-  switcher: wordmark left, then <strong>‹ October 2026 ›</strong> with a <strong>Week | Month</strong>
-  segmented control, Today right-aligned above the strip, and a persistent
-  <strong>bottom tab bar</strong>.</p>
-  <p><strong>The FAB is the microphone here too.</strong> On a committed month it means
-  <em>talk to your plan</em> and runs the existing post-cutoff agent path — which raises
-  proposals the client approves rather than changing the month directly. Same gesture as the
-  draft mic, different consequence.</p>
+  selected day. Round 4 settles the navigation: the header is wordmark, <strong>‹ October 2026 ›</strong>
+  and Today, and everything else moves to a <strong>floating bottom cluster</strong> — a segmented
+  pill carrying <em>Day · Month · Tasks</em>, with a separate circular microphone beside it.</p>
+  <p><strong>The microphone is live here too.</strong> On a committed month it means
+  <em>talk to your plan</em> and runs the existing post-cutoff agent path, which raises proposals
+  the client approves rather than changing the month directly. Same gesture as the draft mic,
+  different consequence.</p>
   <p>Colour is now token-driven. Every value reads a <code>--t-*</code> custom property with the
   same name <code>theme.ts</code> injects, so these files demonstrate the active theme —
   <strong>Teal v1</strong> — rather than hard-coding one. The vivid pass shows up here in the
-  selected day and the copy button: <em>accent-600 fill, chrome-deep ink</em>, 5.88:1.</p>
+  selected day and the nav pill: <em>accent-700 fill, white ink</em>, 5.47:1 — the corrected rule,
+  replacing round 3's dark-on-green.</p>
 </div>
 
 <div class="frames">
@@ -44,9 +44,9 @@
 <!-- ═══ FRAME A ═════════════════════════════════════════════════════════════ -->
 <div class="frame-wrap">
   <p class="frame-label">A — Thursday 1 October · 2 posts</p>
-  <p class="frame-sub">Two posts render as full cards. The copy button is on the card, because
-  copying a caption into Instagram is the client's actual job and it should not require opening a
-  sheet.</p>
+  <p class="frame-sub">Two posts render as full cards. Copy is no longer on the card — it lives in
+  the detail sheet's tabs, next to the words it copies, so the card stays a thing you read rather
+  than a thing you operate.</p>
 
   <div class="phone">
     <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
@@ -67,10 +67,6 @@
         <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
     </div>
 
     <div class="todayrow">
@@ -105,12 +101,6 @@
         <p class="excerpt">Wilderness is back. There is a particular quality to autumn light
         indoors, the way it sits low and golden across a room, making everything feel a little
         more considered…</p>
-        <div class="cardfoot">
-          <span class="spacer" style="flex:1"></span>
-          <button class="copyb" type="button" aria-label="Copy this caption" style="width:38px;height:38px;background:var(--t-accent-600);color:var(--t-chrome-deep)">
-            <svg class="ic sm"><use href="#i-copy"/></svg>
-          </button>
-        </div>
       </div>
 
       <div class="card">
@@ -121,21 +111,18 @@
         </div>
         <h4>A small moment, made deliberate</h4>
         <p class="excerpt">Caption written — 274 characters. Tap to read it.</p>
-        <div class="cardfoot">
-          <span class="spacer" style="flex:1"></span>
-          <button class="copyb" type="button" aria-label="Copy this caption" style="width:38px;height:38px;background:var(--t-accent-600);color:var(--t-chrome-deep)">
-            <svg class="ic sm"><use href="#i-copy"/></svg>
-          </button>
-        </div>
       </div>
 
       <button class="addslot" type="button"><svg class="ic sm"><use href="#i-plus"/></svg> Plan a post for this day</button>
     </div>
 
-    <button class="fab" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="true">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>
@@ -145,7 +132,7 @@
   <p class="frame-label">B — Saturday 3 October · empty</p>
   <p class="frame-sub">An empty day gets one open slot in the same place it sits under a populated
   day, and nothing else — the panel never shows a second day. Round 2 left 300–500px of unanchored
-  canvas under short days; the tab bar now closes the viewport, which is most of what separates an
+  canvas under short days; the floating nav now closes the viewport, which is most of what separates an
   app from a page that ran out of content.</p>
 
   <div class="phone">
@@ -167,10 +154,6 @@
         <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
     </div>
 
     <div class="todayrow">
@@ -197,10 +180,13 @@
       <button class="addslot" type="button"><svg class="ic sm"><use href="#i-plus"/></svg> Plan a post for this day</button>
     </div>
 
-    <button class="fab" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="true">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>
@@ -231,10 +217,6 @@
         <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
       </div>
       <span style="flex:1"></span>
-      <div class="seg" role="group" aria-label="Week or month view">
-        <button type="button" aria-pressed="true">Week</button>
-        <button type="button" aria-pressed="false">Month</button>
-      </div>
     </div>
 
     <div class="todayrow">
@@ -276,10 +258,13 @@
       <button class="addslot" type="button"><svg class="ic sm"><use href="#i-plus"/></svg> Plan a post for this day</button>
     </div>
 
-    <button class="fab" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
-    <nav class="tabbar" role="tablist" aria-label="Sections">
-      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
-      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    <nav class="bottomnav" aria-label="Views">
+      <div class="navpill" role="tablist">
+        <button type="button" role="tab" aria-selected="true">Day</button>
+        <button type="button" role="tab" aria-selected="false">Month</button>
+        <button type="button" role="tab" aria-selected="false">Tasks</button>
+      </div>
+      <button class="navmic" type="button" aria-label="Talk to your plan"><svg class="ic lg"><use href="#i-mic"/></svg></button>
     </nav>
   </div>
 </div>
@@ -307,18 +292,16 @@
       never loaded, so both rendered as Georgia — a document face on the one surface that must not
       read as a document. The wordmark now falls back to the native stack.</li>
     <li><strong>Format is the icons v2 set</strong>, screenshot-tested at 17px before adoption.</li>
-    <li><strong>Copy moved onto the card.</strong> A finding from the critique: the client's real
-      end action is getting a caption into Instagram, and round 2 buried it two taps deep. Copy is a
-      <em>per-post</em> action, which is why it sits on the post and not on the FAB — the critique
-      proposed the latter and it was rejected on that ground.</li>
+    <li><strong>Copy is in the sheet, not on the card.</strong> Round 3 put it on the card; round 4
+      takes it back off. It sits with the caption it copies, on the tab that names the field.</li>
     <li><strong>The FAB is never inert.</strong> On a committed month the mic runs
       <code>POST /api/plan/agent</code> → <code>runPlanAgentTurn</code>: move / delete / rewrite /
       add become <strong>pending proposals</strong>, not applied changes. That route already accepts
       <code>source:'voice'</code>, so gap 8 is the draft route only. On a read-only cycle
       <code>data.ask</code> refuses, and the FAB is not rendered at all.</li>
-    <li><strong>Panel bottom padding raised to 116px</strong> so neither the tab bar nor the FAB can
-      print over card content. In round 2 the FAB sat on top of the evidence sentence — the one
-      line on this surface that must never be occluded.</li>
+    <li><strong>The panel clears the floating nav</strong> (104px) so nothing prints over card
+      content. In round 2 the FAB sat on top of the evidence sentence — the one line on this
+      surface that must never be occluded.</li>
   </ul>
 </div>
 
