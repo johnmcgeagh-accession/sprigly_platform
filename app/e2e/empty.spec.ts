@@ -8,9 +8,9 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByTestId('plan-desktop')).toBeVisible();
 });
 
-test('month with no posts: summary card + dashed adds, zero chips', async ({ page }) => {
+test('month with no posts: dashed adds, zero chips', async ({ page }) => {
   await expect(page.getByTestId('post-chip')).toHaveCount(0);
-  await expect(page.getByTestId('month-summary')).toContainText('0 posts planned');
+  // month-summary removed in 057f13f — see the note in desktop.spec.ts.
   await expect(page.getByTestId('add-on-day').first()).toBeVisible();
 });
 
