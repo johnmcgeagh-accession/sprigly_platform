@@ -195,7 +195,10 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
   let genJobId: string | undefined;   // add-with-instruction: the caption-generation job to poll
   // Approved agent changes land in the plan_activity ledger as origin='agent', tagged
   // with this proposal id — one ordered stream with the user's direct edits (AUDIT §3).
-  const agentActor: ActivityActor = { origin: 'agent', refProposalId: id };
+  // origin 'agent', actor 'client'. The two disagree here on purpose: the agent composed the
+  // change, and the client asked for it — this code path only runs because a client pressed
+  // approve. For the untouched-post rate that is unambiguously a touch.
+  const agentActor: ActivityActor = { origin: 'agent', actor: 'client', refProposalId: id };
   // DATE POLICY: refuse any agent action on a post/date before today (London).
   const today = editScopeToday();
   const readOnlyFail = async () => {
@@ -210,7 +213,7 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
         await setStatus(clientId, id, 'failed', `You’ve used all ${usage.limit} AI changes this month.`, false);
         return { proposal: view({ ...row, status: 'failed' }) };
       }
-      const r = await enqueueShape({ type: 'shape', scope: 'post', clientId: row.clientId, cycleId: payload.cycleId, targetPostId: payload.postId, instruction: payload.instruction, source: 'web', proposalId: id });
+      const r = await enqueueShape({ type: 'shape', scope: 'post', clientId: row.clientId, cycleId: payload.cycleId, targetPostId: payload.postId, instruction: payload.instruction, source: 'web', proposalId: id, actor: 'client' });
       if ('error' in r) throw new Error(r.error);
       await setStatus(clientId, id, 'applied', null, true);
       return { proposal: view({ ...row, status: 'applied' }), jobId: r.jobId };
@@ -285,7 +288,7 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
         await setStatus(clientId, id, 'failed', `You’ve used all ${usage.limit} AI changes this month.`, false);
         return { proposal: view({ ...row, status: 'failed' }) };
       }
-      const r = await enqueueShape({ type: 'shape', scope: 'post', clientId: row.clientId, cycleId: payload.cycleId, targetPostId: target.postId, instruction: payload.instruction, target: payload.target, source: 'web', proposalId: id });
+      const r = await enqueueShape({ type: 'shape', scope: 'post', clientId: row.clientId, cycleId: payload.cycleId, targetPostId: target.postId, instruction: payload.instruction, target: payload.target, source: 'web', proposalId: id, actor: 'client' });
       if ('error' in r) throw new Error(r.error);
       await setStatus(clientId, id, 'applied', null, true);
       return { proposal: view({ ...row, status: 'applied' }), jobId: r.jobId };

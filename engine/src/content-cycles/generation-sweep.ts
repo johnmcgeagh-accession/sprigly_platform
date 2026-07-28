@@ -173,6 +173,9 @@ export async function sweepFailedGenerations(
         type: 'shape', scope: 'post',
         clientId: post.clientId, cycleId: post.cycleId, targetPostId: post.id,
         instruction: instructionFor(post), source: 'web',
+        // The sweep is the system recovering its own work at 05:00 with nobody in the room.
+        // Attributing it to the client would count our retry as their engagement (0090).
+        actor: 'agent',
       }, { jobId, ...GENERATION_JOB_OPTIONS });
 
       // Stamped only after the job is genuinely on the queue. `generationError` is kept: it is

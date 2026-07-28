@@ -171,7 +171,8 @@ export async function runWeeklySession(job: WeeklySessionJob, deps: PlanningDeps
         const feedback = `Address this reviewer finding: "${f.trigger}". Rewrite the caption to resolve it while keeping the post on-brand for this client (voice, register, sign-off, products). If the finding's rationale references the weather or season, weave that context in naturally so the post feels timely. Keep the post's core subject; make the smallest change that fully addresses the finding.`;
         const caption = await generateCaption(cycle, planPostFromRow(post), feedback, deps);
         // Quota: count the pre-generated rewrite at generation time.
-        try { await db.insert(postEdits).values({ postId: post.id, cycleId, scope: 'post', instruction: f.trigger, captionBefore: post.caption ?? '', captionAfter: caption, passed: true }); } catch { /* audit best-effort */ }
+        // The weekly session runs on a schedule with nobody in the room: actor 'agent'.
+        try { await db.insert(postEdits).values({ postId: post.id, cycleId, scope: 'post', instruction: f.trigger, captionBefore: post.caption ?? '', captionAfter: caption, passed: true, actor: 'agent' }); } catch { /* audit best-effort */ }
         specs.push({
           intent: 'rewrite_post',
           payload: { kind: 'apply_caption', cycleId, postId: post.id, caption, noteId: f.type === 'note_integration' ? f.noteId ?? null : null },

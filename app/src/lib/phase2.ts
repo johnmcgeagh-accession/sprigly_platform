@@ -90,6 +90,9 @@ export async function startPhase2(clientId: string, cycleId: string): Promise<Ph
     const shape = await enqueueShape({
       type: 'shape', scope: 'post', clientId, cycleId, targetPostId: post.id,
       instruction, source: 'web',
+      // Approving a draft is one act about the MONTH. It is not the client writing ten
+      // captions, so the fan-out's own writes are the agent's (0090).
+      actor: 'agent',
     });
     if ('error' in shape) {
       // An enqueue failure is a real failure for that post, and must be visible rather

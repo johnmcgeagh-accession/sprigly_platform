@@ -165,7 +165,8 @@ export async function runHookForPost(job: HookJob, deps: PlanningDeps): Promise<
     try {
       await recordPlanActivity(db, {
         clientId: job.clientId, cycleId: job.cycleId, postId: job.targetPostId,
-        action: 'hook_saved', actor: { origin: 'agent' },
+        // The hook job is generation, never a client instruction — 'agent' is not a default here.
+        action: 'hook_saved', actor: { origin: 'agent', actor: 'agent' },
       });
     } catch (err) {
       logger.warn({ ...logCtx, err: String(err) }, 'hook: ledger write failed — non-fatal');

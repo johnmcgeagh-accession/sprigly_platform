@@ -5,6 +5,7 @@
  * no @sprigly/workflows here — enqueue + read only.
  */
 import { Queue } from 'bullmq';
+import type { PlanActor } from '@sprigly/db';
 import { e2eFakeEnabled, E2E_SHAPED_CAPTION, E2E_HOOK_CANDIDATES, E2E_SCRIPT_TEXT, E2E_REFINED_HOOK, E2E_REFINED_SCRIPT } from '@/lib/e2e-fake';
 
 export interface ShapePayload {
@@ -17,6 +18,10 @@ export interface ShapePayload {
   source:       'web' | 'voice';
   proposalId?:  string;   // set when this rewrite applied an approved proposal (ledger ref)
   target?:      'caption' | 'hook' | 'script';   // which field the instruction refines (§26)
+  // WHOSE INTENT this job carries (0090). The worker cannot work it out — by the time shape.ts
+  // runs, the session that caused it is long gone — so the enqueuer states it. Absent means
+  // nobody asked in the moment; the worker defaults to 'agent'.
+  actor?:       PlanActor;
 }
 
 function getQueue(): Queue | null {
@@ -87,7 +92,8 @@ export async function enqueueShape(payload: ShapePayload): Promise<EnqueueResult
       const { planActivity } = await import('@sprigly/db');
       await db.insert(planActivity).values({
         clientId: payload.clientId, cycleId: payload.cycleId, postId: payload.targetPostId,
-        origin: 'agent', action: payload.target === 'hook' ? 'hook_saved' : 'script_saved',
+        origin: 'agent', actor: payload.actor ?? 'agent',
+        action: payload.target === 'hook' ? 'hook_saved' : 'script_saved',
         refProposalId: payload.proposalId ?? null,
       });
     }

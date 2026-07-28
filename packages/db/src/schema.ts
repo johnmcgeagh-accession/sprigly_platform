@@ -1145,6 +1145,9 @@ export const postEdits = pgTable(
     captionAfter:  text('caption_after'),
     passed:        boolean('passed').notNull().default(false),
     tokens:        integer('tokens'),
+    // WHO asked for this edit: 'client' | 'operator' | 'agent' (CHECK in 0090). Nullable —
+    // every row written before 0090 is honestly unattributed rather than guessed at.
+    actor:         text('actor'),
   },
   (t) => ({
     postIdx: index('post_edits_post_idx').on(t.postId),
@@ -1363,6 +1366,11 @@ export const planActivity = pgTable(
     origin:        text('origin').notNull(),                                    // 'user' | 'agent' (CHECK in 0068)
     action:        text('action').notNull(),                                    // 'rescheduled' | 'caption_saved' | …
     refProposalId: uuid('ref_proposal_id').references(() => agentProposals.id),  // set when origin='agent'
+    // WHO, at a finer grain than `origin`. origin's 'user' conflates the client editing their
+    // own month with an operator doing it for them, which is exactly the distinction the
+    // untouched-post rate needs. 'client' | 'operator' | 'agent' (CHECK in 0090), nullable —
+    // pre-0090 rows stay unattributed, because nothing in them says which it was.
+    actor:         text('actor'),
     payload:       jsonb('payload').$type<Record<string, unknown>>(),
     createdAt:     timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1373,6 +1381,26 @@ export const planActivity = pgTable(
 );
 export type PlanActivityRow    = typeof planActivity.$inferSelect;
 export type NewPlanActivityRow = typeof planActivity.$inferInsert;
+
+/**
+ * WHO caused a plan write — the `actor` column on plan_activity and post_edits (0090).
+ *
+ * One vocabulary across both tables, and across the app, the worker and admin, because the
+ * measurement it exists for (the untouched-post rate) has to compare like with like:
+ *
+ *   'client'    a magic-link session. The client's own hand on their own month.
+ *   'operator'  us, editing on their behalf. Admitted by the CHECK and by this type; NO write
+ *               path produces it yet, because admin is read-only over both tables today. It
+ *               is here so the first operator edit surface has somewhere honest to land
+ *               rather than borrowing 'client' and quietly corrupting the rate.
+ *   'agent'     the system: the approval fan-out, the daily sweep, an approved proposal,
+ *               a weekly-session rewrite. Nobody asked in the moment.
+ *
+ * Nullable everywhere. A row with no actor predates 0090 and means "not attributed" — never
+ * "the client did it".
+ */
+export type PlanActor = 'client' | 'operator' | 'agent';
+export const PLAN_ACTORS: readonly PlanActor[] = ['client', 'operator', 'agent'];
 
 // ─── ui_events ────────────────────────────────────────────────────────────────
 // Minimal product telemetry for the plan surface (redesign Stage 5, migration 0069).

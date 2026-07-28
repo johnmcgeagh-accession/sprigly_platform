@@ -7,7 +7,7 @@
  * (migration 0068). recordActivity accepts either the db handle or a transaction, so a
  * write + its ledger row commit atomically (see mutations.ts).
  */
-import { db, planActivity } from '@sprigly/db';
+import { db, planActivity, type PlanActor } from '@sprigly/db';
 
 /** db handle or an in-flight transaction — both expose `.insert`. */
 type Executor = Pick<typeof db, 'insert'>;
@@ -42,14 +42,52 @@ export type ActivityAction =
   | 'beat_moved'
   | 'beat_format_changed';
 
-/** Who caused a change, and (for agent changes) which proposal it applied. */
+/**
+ * Who caused a change, and (for agent changes) which proposal it applied.
+ *
+ * TWO fields, not one, and they answer DIFFERENT questions.
+ *
+ *   `origin` — who COMPOSED the write. 'user' | 'agent', shipped, unchanged, and what existing
+ *              readers switch on.
+ *   `actor`  — whose INTENT it carries: who wanted it, not who typed it (0090).
+ *
+ * They agree most of the time and come apart exactly where it matters. An approved agent
+ * proposal is origin 'agent', actor 'client': the agent wrote the words, the client asked for
+ * them. The approval fan-out's captions are origin 'agent', actor 'agent': nobody asked in the
+ * moment; approving a draft is one act about a month, not a touch of each post in it.
+ *
+ * That distinction is the whole point. The untouched-post rate asks how much of a generated
+ * month a client never engaged with, and origin alone cannot answer it — it would score a
+ * client's own "make it warmer" and our nightly sweep identically.
+ *
+ * Widening `origin` to carry all this instead would have silently redefined every historical
+ * row: a 2026-06 'user' row would have become "client or operator, unknown which" while still
+ * looking like a definite answer.
+ */
 export interface ActivityActor {
   origin: ActivityOrigin;
+  actor:  PlanActor;
   refProposalId?: string | null;
 }
 
-/** The default attribution for a direct manual write. */
-export const USER_ACTOR: ActivityActor = { origin: 'user' };
+/**
+ * The default attribution for a direct manual write in THIS app.
+ *
+ * Every write path in app/ is reached through a magic-link session — there is no other way in
+ * (lib/auth.ts). So a manual write here is the client's own hand, and saying so is a fact
+ * about the routing, not an assumption about the person.
+ */
+export const USER_ACTOR: ActivityActor = { origin: 'user', actor: 'client' };
+
+/**
+ * Us, editing on a client's behalf.
+ *
+ * Nothing in this repo produces it yet: admin does not write plan_activity or post_edits at
+ * all today. It is defined here so the first operator edit surface lands on a named constant
+ * rather than reaching for USER_ACTOR and quietly counting an operator's fix as a client
+ * touch — which is the one way this measurement gets corrupted without anyone noticing.
+ */
+export const OPERATOR_ACTOR: ActivityActor = { origin: 'user', actor: 'operator' };
 
 export interface ActivityEntry {
   clientId: string;
@@ -70,6 +108,7 @@ export async function recordActivity(exec: Executor, entry: ActivityEntry): Prom
     cycleId:       entry.cycleId ?? null,
     postId:        entry.postId ?? null,
     origin:        entry.actor.origin,
+    actor:         entry.actor.actor,
     action:        entry.action,
     refProposalId: entry.actor.refProposalId ?? null,
     payload:       entry.payload ?? null,
