@@ -379,6 +379,17 @@ Script tabs, caption default, each with a copy control → the action row. Reaso
 the insights toggle. **Shape** replaces the tab content in place; it does not stack a popover.
 Copy exists **only here** — it belongs beside the words it copies, not on the card.
 
+In shape mode the footer is **replaced wholesale**: a full-width `accent-650` submit, and beside
+it a **quiet neutral cancel** — the word *Cancel*, `surface` fill, hairline, `muted` label.
+**Never red.** Rounds 4 and 5 made it "kin to Delete"; round 5.1 reversed that, because one screen
+earlier a red button of the same family destroys the post, and a cancel is the safe way out.
+`danger` is Delete's monopoly on this surface.
+
+**Touch targets.** Nothing interactive renders under **40px**; anything a thumb must hit while
+walking takes 44px; primaries 48–50px. The round-5 mockups measured four controls under the floor
+(`Generate` at 34, Today at 34, the month chevrons at 32, the experiment bulb at 30) — the build
+does not inherit those numbers. Hit-area expansion is visually inert, so there is no cost.
+
 **Voice sheet.** One sheet, two input modes: microphone with a live waveform — clean accent green
 on white, no backing panel — or a keyboard toggle that swaps it for **one large field** filling
 the sheet body, with a single full-width submit pinned at the foot. Same framing copy, same
@@ -410,7 +421,8 @@ space. Expands into a panel; dismiss removes the chip and never the highlights.
   `accent-100`.
 - Don't reintroduce a second typeface on the client surface. Fraunces is out; this was decided
   three times.
-- Don't use `danger` on a client screen. Failure is the operator's.
+- Don't use `danger` on a client screen. Failure is the operator's. On this surface `danger` is
+  **Delete's monopoly** — never a cancel, a dismiss, or any other safe way out.
 - Don't nest cards in cards, or wrap a list of cards in another card.
 - Don't reach for purple, purple gradients, or anything that reads as the competitor.
 - Don't let a receipt or a banner push the day's content off the fold.

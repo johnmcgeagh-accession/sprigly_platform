@@ -81,6 +81,21 @@ and its overlay — though the latter is superseded on the draft surface by the 
 | **S1** | The action row is three equal-width buttons, icon with the **label below** | §4. This is round 3's recorded reversal, exercised |
 | **R1** | The summary chip is **one control** — tap anywhere to toggle, one chevron, no ✕ | §3 |
 
+### Round 5.1 — the operator's carry-ins into the build
+
+Recorded here so the build reads one document. Full reasoning in
+[`round-5-1-notes.md`](round-5-1-notes.md); these are the rulings, not the argument.
+
+| # | Ruling | Where it lands |
+|---|---|---|
+| **X1** | **The shape-mode cancel is a quiet neutral**, not red. The operator reversed the round-5 “kin to Delete” treatment on the critique's finding (V2). `danger` is Delete's monopoly | §4 |
+| **X2** | **The wordless arrow primaries stand** (shape submit, typed-mode submit). Recorded against V3 on the iMessage-send precedent — not re-opened | §4, §8 |
+| **X3** | **Nothing interactive sits under the 40px floor.** The mockups measured `.readypill` 34px (the *Generate* control — the primary approval action), `.todaybtn` 34px, `.navbtn` 32px, `.bulb` 30px, `.tab` 38px. **The build takes ≥40px**; hit-area expansion is visually inert, so the numbers are not inherited silently | §6, every part |
+| **X4** | **Suggestion lists are tappable or they are not chips.** The voice-sheet example prompts and the shape suggestions render as bordered capsules — the universal form of a suggestion chip — and do nothing. Either a tap seeds the field, or they are de-styled to a quiet hint list. **Tappable is the chosen resolution** | §8, Session B |
+| **X5** | **The experiment marker has one definition, and it does not yet.** §0 **DR2** says the banner pill carries the whole meaning; §7 says a bare lightbulb with a tap explanation; mockup 02 renders a 30px corner bulb with neither, in the slot where every other card states its time. **Reconcile before building it** — Session B | §7, §2 |
+| **X6** | **Silent and speaking must differ beyond the waveform.** Today only the bars and the heading change; the mic itself is identical — Session B | §8 |
+| **X7** | **The ≤480px breakpoint is unverified.** Chrome headless clamps its viewport to 500px, so no round exercised it. **The built surface is tested at 375px and 320px** in interaction tests | §9 |
+
 ## 1. The state machine
 
 ### 1.1 The surface decision — unchanged
@@ -353,9 +368,15 @@ A fixed 48px bar between the month row and the week strip:
 - **Delete is a solid `danger` fill with a white icon and label** (5.94:1). A destructive action
   should not have to be inferred from the colour of its text.
 - **Shape mode replaces the footer wholesale** — a primary submit filling most of the row, and a
-  smaller destructive cancel beside it, visually kin to Delete. The row is *replaced*, not
-  relabelled: a button must never change meaning mid-flow, which is what round 4's “Cancel” sitting
-  in the Shape slot did.
+  **quiet neutral cancel** beside it: the word *Cancel*, on `surface` with a hairline, in `muted`.
+  The row is *replaced*, not relabelled: a button must never change meaning mid-flow, which is what
+  round 4's “Cancel” sitting in the Shape slot did.
+  **Round 5.1 (operator, carry-in R4a): the cancel is NOT red.** Rounds 4 and 5 made it a small
+  `danger` button “kin to Delete”, and the critique's finding is right — one screen earlier a red
+  button of the same family *destroys the post*. A cancel is the opposite of a delete: it is the
+  safe way out. **`danger` is Delete's monopoly on this surface.** The wordless full-width arrow
+  primaries (this submit, and the typed-mode submit in the voice sheet) **stand** — the iMessage
+  send precedent, recorded rather than re-argued.
 - **“Move” opens a picker over the full month grid**, with free month navigation, editing date
   *and* time. Round 4 clipped that grid to roughly half a month, which made a picker look like a
   fragment.
