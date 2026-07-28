@@ -249,7 +249,7 @@ Hierarchy comes from **weight and size, never from a second family**:
 | `secondary` — teasers, meta prose, status | 13.5px | 500 | normal |
 | `meta` — times, counts, chips, segment labels | 12.5px | 600 | normal |
 | `label` — section eyebrows | 11px | 700 | +0.1em, uppercase |
-| `tab` — tab-bar labels | 10.5px | 600 | +0.01em |
+| `tab` — nav-pill labels | 10.5px | 600 | +0.01em |
 | `micro` — the date on the Move icon | 8.5px | 700 | +0.02em |
 
 **Ten roles, and no step closer than ~1.1 to its neighbour by accident.** Round 3 collapsed a
@@ -317,8 +317,8 @@ nothing else.
 **Floating bottom nav.** A segmented pill carrying **Day · Month · Tasks**, and a **separate**
 56px circular microphone beside it. Both float over the content on a blurred material
 (`backdrop-filter: blur(20px) saturate(180%)`, `surface` at 78%), iOS-style. The pill's active
-segment is `accent-700` with white; the mic is `accent-700` with a white glyph and an
-`accent-600` glow. Sheets slide **over** the nav. The pill's children are `flex: 1`, so Insights
+segment is `accent-600` with `chrome-deep` ink (5.60:1), and so is the mic, which carries an
+`accent-600` glow beneath it. Sheets slide **over** the nav. The pill's children are `flex: 1`, so Insights
 drops in as a fourth segment without layout change.
 
 This supersedes both the round-3 bottom tab bar and the header Week|Month switcher. One place to

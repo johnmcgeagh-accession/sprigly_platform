@@ -56,7 +56,7 @@ and its overlay — though the latter is superseded on the draft surface by the 
 | **R1** | **Colour is theme tokens.** Every value reads a `--t-*` custom property with the name `theme.ts` injects; the mockups demonstrate the active theme, **Teal v1** | §6b. Round 2 hard-coded thirteen coral hexes into a surface whose whole point is that an admin can re-skin it |
 | **R2** | **The vivid pass.** accent-600 fills carry **chrome-deep ink**, not white | §6b. White on accent-600 is 2.49:1; flipping the ink gets 5.88:1 and keeps the brightest tier on the biggest surfaces |
 | **R3** | **No serif anywhere on the client surface.** Fraunces is out entirely | §6. It was never loaded, so round 2's wordmark and month title rendered as Georgia |
-| **R4** | **A persistent bottom tab bar** — Plan \| Tasks, laid out for 3–4 — with the FAB floating over it | §1.2. Insights joins as a third tab when the insight layer ships |
+| **R4** | ~~A persistent bottom tab bar — Plan \| Tasks — with the FAB floating over it~~ **Superseded by N1 (round 4).** Recorded so the reasoning survives; **do not build this** | §1.2 |
 | **R5** | **Week \| Month is a peer switcher**, not an overlay. No ✕, no legend, no month pills | §1.2, §1.5 |
 | **R6** | **Plan \| Tasks and Today restored**, matching the live app | §1.2 |
 | **R7** | **The mic is the FAB; approval is a labelled “Ready to go” pill** | §1.3. Round 2 put an unlabelled tick on the one action that spends money |
@@ -211,7 +211,7 @@ in the month):
 | `BeatMarker` rows (`structured_brief` beats) | Kept, read-only, under the day's posts |
 | “Outside this month” strip | Kept, at the end of the panel |
 | Account avatar chip | **Removed** (G5) |
-| Plan / Tasks segmented control | **Restored as the bottom tab bar** (R6) |
+| Plan / Tasks segmented control | **The floating nav pill** — `Day · Month · Tasks` (N1). Round 3 restored it as a bottom tab bar; round 4 replaced that with the pill |
 | `voice-fab` and its “arrives later” overlay | **Replaced** by the mic FAB and the voice sheet (§8) |
 
 **One structural consequence, unchanged from round 1 and now larger.** `PlanRoot` returns
@@ -502,7 +502,7 @@ Round 1's six, updated in place. Three are new to round 2; two were widened by i
 | **8** | **Voice-sourced input on the draft surface** | `POST /api/plan/draft/apply` takes `{op:'text', text}` and nothing else | `POST /api/plan/intake` and `POST /api/plan/agent` both accept `source:'voice'` + `sessionId`. One field, for parity | **Round 3: now blocking on the voice sheet**, which ships live. It should land in the same change |
 | **10** | **A draft flag the month view can badge** | — | Same as gap 2; round 3 moves the badge from the month control to the month view, where it is labelled rather than a bare dot | **Reframed, not new** |
 | **11** | **“Where did it go?” after a cross-month move** | No confirmation naming the destination month | `PATCH /api/posts/:id` already does the move; `loadCrossMonthPosts` already surfaces it | **NEW.** Copy + toast, no API |
-| **12** | **The Insights tab** | Nothing behind it | The tab bar is laid out for it | **NEW, and deliberately empty.** Drawn at 32% in mockup 10 to prove the geometry |
+| **12** | **The Insights segment** | Nothing behind it | The nav pill's children are `flex: 1`, so a fourth segment drops in without layout change | **Deliberately empty and deliberately not drawn** — round 3 sketched a greyed slot; a control that does nothing is worse than an absent one |
 | **9** | **The rewrite meter's refusal** | Nowhere in the sheet renders `mode:'blocked'` | The route already returns the message (“You’ve used all N AI changes this month. Resets on the 1st. Editing directly stays free.”) | **NEW.** Round 1 listed this as a constraint; round 2 makes it a first-class action, so it is a gap. It belongs in the prompt field |
 
 ---
@@ -818,10 +818,13 @@ Not a commitment — the shape of the work, so the sequencing is reviewable alon
    the daily `scheduler-tick` exists and already carries a sibling sweep. What is missing is a
    failed-generation sweep and an operator surface — `generation_failed` appears nowhere in
    `admin/src`. Both are prerequisites for shipping “on its way”, not follow-ups.
-2. **The shell: tab bar, title row, Week | Month, Today.** It is the cheapest change with the
-   largest effect on whether this reads as an app, it retires three controls (month pills, wheel
-   picker, chevrons-by-index), and it closes the “October doesn't show” class on both form factors.
-   Needs gap 2 for the draft badge.
+2. **The shell: the floating nav, title row, Today.** A segmented pill carrying
+   `Day · Month · Tasks` with a **separate** circular mic beside it, floating over the content on a
+   blurred material — **not** a bottom tab bar, and **not** a Week|Month switcher in the header.
+   Both of those were round-3 shapes that round 4 replaced; §1.2 is the contract. It is the
+   cheapest change with the largest effect on whether this reads as an app, it retires four
+   controls (month pills, wheel picker, chevrons-by-index, the header switcher), and it closes the
+   “October doesn't show” class on both form factors. Needs gap 2 for the draft badge.
 3. **Theme tokens on the client surface.** Mechanical, and it unblocks any future theme work.
    Decide the `accent-500` proposal here or explicitly defer it.
 4. **The day view reskin, committed.** Chrome shrinks, the global add button goes, the week feed
@@ -832,6 +835,35 @@ Not a commitment — the shape of the work, so the sequencing is reviewable alon
    `PlanRoot`'s fork.
 8. **The remaining gaps**, of which 4 (a `client_input` reason) is still the cheapest and the one
    with the most direct effect on whether a client trusts the month.
+
+---
+
+## 12b. Rollout — theme and brand assets
+
+Two constraints on shipping the round-5 ramp, recorded here because they gate the build rather
+than the design.
+
+**The ramp needs a theme before any client sees it.** The values in §6b are not the active theme.
+Shipping them means creating a **“Sprigly Mint”** theme in admin → Themes from DESIGN.md's tier
+table, and activating it **on uat first**. The live app stays on **Teal v1** until that has been
+reviewed. Nothing in the client code changes for this — the whole point of the token contract is
+that the theme is data, so the surface repaints on the next load with no rebuild
+(`app/src/lib/theme.ts`).
+
+Activation is AA-gated in admin on tint/text pairs. The §6b table is the evidence that gate needs:
+the two pairs it checks — `accent-800` on `accent-100` (6.67) and `chrome-deep` on `accent-600`
+(5.60) — both clear.
+
+**Repo brand assets stay coral, deliberately.** Everything in `studio/svg_logos/`, plus
+`app/src/app/icon.svg` and `site/public/favicon.svg`, is `#E87766` and **must not be changed in
+this build**. They are held pending the brand-reconciliation gate, which is the same decision that
+owns whether the mint mark replaces the coral one at all. Until that gate clears, the plan surface
+can be mint while the favicon is coral — an inconsistency that is visible, temporary, and
+preferable to a half-migrated identity.
+
+That gate also owns the open question in §6b: **no mint asset exists in this repo**, so the ramp
+is derived from the operator's quoted tones cross-checked against the mark's geometry, not sampled
+from a file. Re-sample when the asset lands.
 
 ---
 
