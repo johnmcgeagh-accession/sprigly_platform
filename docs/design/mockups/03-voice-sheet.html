@@ -9,167 +9,293 @@
 <body>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+<symbol id="i-reel" viewBox="0 0 24 24"><path style="fill:currentColor;stroke:none" d="M4.6 4.2h14.8a2 2 0 0 1 2 2v3.1H2.6V6.2a2 2 0 0 1 2-2Z"/><path style="fill:var(--t-accent-100);stroke:none" d="M8.2 4.2l-2.4 5.1h1.9l2.4-5.1zM14.4 4.2L12 9.3h1.9l2.4-5.1z"/><path d="M2.6 9.3h18.8V18a2 2 0 0 1-2 2H4.6a2 2 0 0 1-2-2V9.3Z"/></symbol>
+<symbol id="i-carousel" viewBox="0 0 24 24"><rect x="3.5" y="6.5" width="13" height="14" rx="2.5"/><path d="M7.2 3.5h9.3a3.5 3.5 0 0 1 3.5 3.5v9.6"/></symbol>
+<symbol id="i-single" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><circle cx="8.8" cy="9.2" r="1.5"/><path d="M4.3 17.3l4.5-4.8a1.7 1.7 0 0 1 2.5 0l5.2 5.5"/></symbol>
+<symbol id="i-chev-l" viewBox="0 0 24 24"><path d="M14.5 5.5l-7 6.5 7 6.5"/></symbol>
+<symbol id="i-chev-r" viewBox="0 0 24 24"><path d="M9.5 5.5l7 6.5-7 6.5"/></symbol>
+<symbol id="i-chev-u" viewBox="0 0 24 24"><path d="M6 14.5l6-6 6 6"/></symbol>
+<symbol id="i-chev-d" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></symbol>
 <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></symbol>
+<symbol id="i-key" viewBox="0 0 24 24"><rect x="2.5" y="6.5" width="19" height="11" rx="2.5"/><path d="M6.5 10h.01M10 10h.01M13.5 10h.01M17 10h.01M8.5 14h7"/></symbol>
+<symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 17a6 6 0 1 1 6 0v1.6H9V17Z"/><path d="M10 21.5h4"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 10.8v5.7M12 7.7v.3"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.5"/><path d="M15.5 5.5v-.5a2 2 0 0 0-2-2H6a2.5 2.5 0 0 0-2.5 2.5v7.5a2 2 0 0 0 2 2h.5"/></symbol>
+<symbol id="i-cal" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/></symbol>
+<symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z"/></symbol>
+<symbol id="i-bin" viewBox="0 0 24 24"><path d="M4.5 6.5h15M9.5 6.5V4.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v2M6.5 6.5l1 13a1.5 1.5 0 0 0 1.5 1.4h6a1.5 1.5 0 0 0 1.5-1.4l1-13"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
 <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
 <symbol id="i-send" viewBox="0 0 24 24"><path d="M4.5 12h14M12.5 6l6 6-6 6"/></symbol>
-<symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M7 10h.01M11 10h.01M15 10h.01M8.5 14h7"/></symbol>
+<symbol id="i-plan" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/><path d="M7.5 13.5h4"/></symbol>
+<symbol id="i-tasks" viewBox="0 0 24 24"><path d="M4 7.5l2 2 3.5-3.5M4 16.5l2 2 3.5-3.5M13 8h7M13 17h7"/></symbol>
+<symbol id="i-insights" viewBox="0 0 24 24"><path d="M4 20V13M10 20V7M16 20v-5M21.5 20H3"/></symbol>
 </defs></svg>
 
 <div class="page-head">
-  <div class="crumbs">Mockup 3 of 7 · <a href="02-day-draft.html">← the draft day view</a> · <a href="index.html">all states</a></div>
+  <div class="crumbs">Mockup 3 of 8 · <a href="02-day-draft.html">← the draft day view</a> · <a href="index.html">all states</a></div>
   <h1>Voice sheet</h1>
-  <p>Opened by the microphone in the draft call-to-action block. It follows the mic sheet already
-  in the app — big mic, brand treatment, canvas wash — and adds the two things that make it
-  usable cold: a few example prompts, so “say something” is not an open field with no floor, and
-  the typed fallback in the same sheet rather than behind another tap.</p>
-  <p><strong>Phasing.</strong> The sheet ships with the surface. The record → transcribe → intake
-  pipeline is a separate workstream, so <strong>frame A is the ship state</strong>: the mic is
-  disabled and says why, and typed input is live and does the whole job. Frame B is the same
-  sheet once voice lands. See the note below — a browser-side path already exists and may make
-  frame A stricter than it needs to be.</p>
+  <p>Opened by the microphone FAB. Round 3 makes this the one place the month's framing copy lives, extends the sheet to 90% of the viewport, and gives it a live waveform.</p>
+  <p><strong>One sheet, two input modes.</strong> The keyboard toggle swaps the mic and waveform for a text field. Same framing, same examples, same submit, same route. The inline say-something box that used to sit on the draft page is gone: there is now exactly one place to tell us something, and it works whether you talk or type.</p>
+  <p><strong>Voice is live from day one.</strong> No “arrives later” framing anywhere. A browser-side capture path already exists and is already wired into the intake sheet (<code>useSpeechInput.ts</code>), so this is a move rather than a build.</p>
 </div>
 
 <div class="frames">
-
-<!-- ═══ FRAME A — ship state ════════════════════════════════════════════════ -->
 <div class="frame-wrap">
-  <p class="frame-label">A — ship state · mic disabled, typing live</p>
-  <p class="frame-sub">The mic is present, greyed and honest. Nothing about the sheet suggests
-  the client is doing it wrong; the examples work identically whether they are spoken or typed,
-  and tapping one drops it into the field.</p>
+  <p class="frame-label">A — speaking</p>
+  <p class="frame-sub">The waveform is audio-reactive: peaks while she talks. The ring on the mic is a state, not decoration — it is present only while capturing.</p>
 
-  <div class="phone">
+  <div class="phone tall">
     <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
-
-    <div class="panel" style="opacity:.35;pointer-events:none">
-      <div class="dayhead"><span class="dname">Thursday 1 October</span><span class="spacer"></span><span class="daycount">2 planned posts</span></div>
-      <div class="card draft"><h4>Wilderness candle relaunch — Launch</h4></div>
+    <div class="topbar">
+      <svg class="mark" viewBox="0 0 100 110" fill="currentColor" aria-hidden="true">
+        <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+        <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+        <line x1="50" y1="76" x2="50" y2="98" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+      <span class="wordmark">Sprigly</span>
     </div>
-
+    <div class="titlerow">
+      <div class="monthnav">
+        <button class="navbtn" type="button" aria-label="September 2026"><svg class="ic sm"><use href="#i-chev-l"/></svg></button>
+        <span class="monthtitle">October 2026</span>
+        <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
+      </div>
+      <span style="flex:1"></span>
+      <div class="seg" role="group" aria-label="Week or month view">
+        <button type="button" aria-pressed="true">Week</button>
+        <button type="button" aria-pressed="false">Month</button>
+      </div>
+    </div>
+    <div class="todayrow">
+      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
+      <span style="flex:1"></span>
+      <button class="todaybtn" type="button">Today</button>
+    </div>
+    <div class="weekstrip" role="group" aria-label="Week">
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Mon</span><span class="num">28</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Tue</span><span class="num">29</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Wed</span><span class="num">30</span></button>
+      <button class="wday" type="button" aria-pressed="true"><span class="dow">Thu</span><span class="num">1</span><span class="pip draft"></span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Fri</span><span class="num">2</span><span class="pip draft"></span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Sat</span><span class="num">3</span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Sun</span><span class="num">4</span><span class="pip draft"></span></button>
+    </div>
+    <div class="weekrule"></div>
+    <div class="panel" style="opacity:.28;pointer-events:none">
+      <div class="draftlead"><span class="badge">Draft</span><span class="txt">This is your draft October</span></div>
+      <div class="dayhead"><span class="dname">Thursday 1 October</span></div>
+    </div>
     <div class="scrim"></div>
-    <div class="sheet" role="dialog" aria-label="Tell Sprigly about October" style="max-height:82%">
+    <div class="sheet" role="dialog" aria-label="Tell us about October">
       <div class="grabber"></div>
-
-      <div class="sheethead" style="border-bottom:0;padding-bottom:4px">
+      <div class="sheethead">
         <div class="sheettop">
           <div class="who">
-            <h2>Tell us about October</h2>
-            <div class="meta">Anything you say reshapes the month.</div>
+            <h2>Listening…</h2>
+            <div class="meta">Tap the mic again when you are done.</div>
           </div>
-          <button class="insights" type="button" aria-label="Close"><svg class="ic sm"><use href="#i-close"/></svg></button>
+          <button class="iconbtn" type="button" aria-label="Close"><svg class="ic sm"><use href="#i-close"/></svg></button>
         </div>
       </div>
-
-      <div class="sheetbody" style="text-align:center">
-        <button class="micbtn big" type="button" disabled aria-label="Voice input, not available yet">
+      <div class="sheetbody center">
+        <p class="prose" style="max-width:290px;font-weight:600">This is your draft October — shape it by telling us what's happening</p>
+        <button class="micbtn live" type="button" aria-label="Stop recording">
           <svg class="ic xl"><use href="#i-mic"/></svg>
         </button>
-        <p class="prose quiet" style="margin:0 auto;max-width:270px">Talking to your plan is
-        coming shortly. For now, type it below — it does exactly the same thing.</p>
-
+        <div class="wave speaking" aria-hidden="true"><i style="--h:18px;animation-delay:0.00s"></i><i style="--h:30px;animation-delay:0.09s"></i><i style="--h:42px;animation-delay:0.18s"></i><i style="--h:26px;animation-delay:0.27s"></i><i style="--h:36px;animation-delay:0.36s"></i><i style="--h:48px;animation-delay:0.45s"></i><i style="--h:30px;animation-delay:0.54s"></i><i style="--h:22px;animation-delay:0.00s"></i><i style="--h:40px;animation-delay:0.09s"></i><i style="--h:28px;animation-delay:0.18s"></i><i style="--h:34px;animation-delay:0.27s"></i><i style="--h:20px;animation-delay:0.36s"></i><i style="--h:44px;animation-delay:0.45s"></i><i style="--h:26px;animation-delay:0.54s"></i><i style="--h:32px;animation-delay:0.00s"></i><i style="--h:18px;animation-delay:0.09s"></i><i style="--h:38px;animation-delay:0.18s"></i><i style="--h:24px;animation-delay:0.27s"></i><i style="--h:30px;animation-delay:0.36s"></i><i style="--h:42px;animation-delay:0.45s"></i><i style="--h:22px;animation-delay:0.54s"></i><i style="--h:36px;animation-delay:0.00s"></i><i style="--h:26px;animation-delay:0.09s"></i><i style="--h:44px;animation-delay:0.18s"></i><i style="--h:20px;animation-delay:0.27s"></i></div>
         <ul class="examples">
-          <li>What’s happening in October?</li>
+          <li>What's happening in October?</li>
           <li>Anything launching?</li>
           <li>Anything you want more of?</li>
         </ul>
       </div>
-
-      <div class="acts" style="flex-direction:column;gap:0;padding-bottom:22px">
-        <div class="typedfield" style="width:100%;margin-top:0">
-          <div class="box empty">Tell us what’s coming up…</div>
-          <button class="sendbtn" type="button" aria-label="Send"><svg class="ic"><use href="#i-send"/></svg></button>
-        </div>
+      <div class="acts" style="justify-content:center">
+        <button class="btn" type="button" style="flex:0 0 auto;padding:0 20px">
+          <svg class="ic sm"><use href="#i-key"/></svg> Type instead
+        </button>
       </div>
     </div>
+    <nav class="tabbar" role="tablist" aria-label="Sections">
+      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
+      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    </nav>
   </div>
 </div>
-
-<!-- ═══ FRAME B — voice live ════════════════════════════════════════════════ -->
 <div class="frame-wrap">
-  <p class="frame-label">B — once voice lands · listening</p>
-  <p class="frame-sub">The same sheet, the same furniture. The mic becomes the primary control,
-  the transcript builds in the field as they speak, and the typed field stays — it is the same
-  field, so a client can start speaking and finish typing.</p>
+  <p class="frame-label">B — silent</p>
+  <p class="frame-sub">Flatline when there is nothing to hear, so the client can tell the difference between “not listening” and “listening, you have not said anything”. That distinction is the whole job of a waveform.</p>
 
-  <div class="phone">
+  <div class="phone tall">
     <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
-
-    <div class="panel" style="opacity:.35;pointer-events:none">
-      <div class="dayhead"><span class="dname">Thursday 1 October</span><span class="spacer"></span><span class="daycount">2 planned posts</span></div>
-      <div class="card draft"><h4>Wilderness candle relaunch — Launch</h4></div>
+    <div class="topbar">
+      <svg class="mark" viewBox="0 0 100 110" fill="currentColor" aria-hidden="true">
+        <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+        <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+        <line x1="50" y1="76" x2="50" y2="98" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+      <span class="wordmark">Sprigly</span>
     </div>
-
+    <div class="titlerow">
+      <div class="monthnav">
+        <button class="navbtn" type="button" aria-label="September 2026"><svg class="ic sm"><use href="#i-chev-l"/></svg></button>
+        <span class="monthtitle">October 2026</span>
+        <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
+      </div>
+      <span style="flex:1"></span>
+      <div class="seg" role="group" aria-label="Week or month view">
+        <button type="button" aria-pressed="true">Week</button>
+        <button type="button" aria-pressed="false">Month</button>
+      </div>
+    </div>
+    <div class="todayrow">
+      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
+      <span style="flex:1"></span>
+      <button class="todaybtn" type="button">Today</button>
+    </div>
+    <div class="weekstrip" role="group" aria-label="Week">
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Mon</span><span class="num">28</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Tue</span><span class="num">29</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Wed</span><span class="num">30</span></button>
+      <button class="wday" type="button" aria-pressed="true"><span class="dow">Thu</span><span class="num">1</span><span class="pip draft"></span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Fri</span><span class="num">2</span><span class="pip draft"></span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Sat</span><span class="num">3</span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Sun</span><span class="num">4</span><span class="pip draft"></span></button>
+    </div>
+    <div class="weekrule"></div>
+    <div class="panel" style="opacity:.28;pointer-events:none">
+      <div class="draftlead"><span class="badge">Draft</span><span class="txt">This is your draft October</span></div>
+      <div class="dayhead"><span class="dname">Thursday 1 October</span></div>
+    </div>
     <div class="scrim"></div>
-    <div class="sheet" role="dialog" aria-label="Tell Sprigly about October" style="max-height:82%">
+    <div class="sheet" role="dialog" aria-label="Tell us about October">
       <div class="grabber"></div>
-
-      <div class="sheethead" style="border-bottom:0;padding-bottom:4px">
+      <div class="sheethead">
         <div class="sheettop">
           <div class="who">
-            <h2>Listening…</h2>
-            <div class="meta">Tap the mic again when you’re done.</div>
+            <h2>Go ahead</h2>
+            <div class="meta">We can't hear anything yet.</div>
           </div>
-          <button class="insights" type="button" aria-label="Close"><svg class="ic sm"><use href="#i-close"/></svg></button>
+          <button class="iconbtn" type="button" aria-label="Close"><svg class="ic sm"><use href="#i-close"/></svg></button>
         </div>
       </div>
-
-      <div class="sheetbody" style="text-align:center">
-        <button class="micbtn big" type="button" aria-label="Stop recording"
-          style="box-shadow:0 0 0 10px rgb(232 112 95 / .16), 0 8px 20px -6px rgb(232 112 95 / .45)">
+      <div class="sheetbody center">
+        <p class="prose" style="max-width:290px;font-weight:600">This is your draft October — shape it by telling us what's happening</p>
+        <button class="micbtn" type="button" aria-label="Start recording">
           <svg class="ic xl"><use href="#i-mic"/></svg>
         </button>
-        <p class="prose quiet" style="margin:0 auto;max-width:270px">We’ll show you what changed
-        before anything is final.</p>
-
+        <div class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
         <ul class="examples">
-          <li>What’s happening in October?</li>
+          <li>What's happening in October?</li>
           <li>Anything launching?</li>
+          <li>Anything you want more of?</li>
         </ul>
       </div>
+      <div class="acts" style="justify-content:center">
+        <button class="btn" type="button" style="flex:0 0 auto;padding:0 20px">
+          <svg class="ic sm"><use href="#i-key"/></svg> Type instead
+        </button>
+      </div>
+    </div>
+    <nav class="tabbar" role="tablist" aria-label="Sections">
+      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
+      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    </nav>
+  </div>
+</div>
+<div class="frame-wrap">
+  <p class="frame-label">C — typed</p>
+  <p class="frame-sub">The same sheet with the mic and waveform swapped for a field. The client's real sentence from the Build D dogfood run, which the live classifier read as a launch arc.</p>
 
-      <div class="acts" style="flex-direction:column;gap:0;padding-bottom:22px">
-        <div class="typedfield" style="width:100%;margin-top:0">
+  <div class="phone tall">
+    <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
+    <div class="topbar">
+      <svg class="mark" viewBox="0 0 100 110" fill="currentColor" aria-hidden="true">
+        <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+        <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+        <line x1="50" y1="76" x2="50" y2="98" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+      <span class="wordmark">Sprigly</span>
+    </div>
+    <div class="titlerow">
+      <div class="monthnav">
+        <button class="navbtn" type="button" aria-label="September 2026"><svg class="ic sm"><use href="#i-chev-l"/></svg></button>
+        <span class="monthtitle">October 2026</span>
+        <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
+      </div>
+      <span style="flex:1"></span>
+      <div class="seg" role="group" aria-label="Week or month view">
+        <button type="button" aria-pressed="true">Week</button>
+        <button type="button" aria-pressed="false">Month</button>
+      </div>
+    </div>
+    <div class="todayrow">
+      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
+      <span style="flex:1"></span>
+      <button class="todaybtn" type="button">Today</button>
+    </div>
+    <div class="weekstrip" role="group" aria-label="Week">
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Mon</span><span class="num">28</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Tue</span><span class="num">29</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Wed</span><span class="num">30</span></button>
+      <button class="wday" type="button" aria-pressed="true"><span class="dow">Thu</span><span class="num">1</span><span class="pip draft"></span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Fri</span><span class="num">2</span><span class="pip draft"></span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Sat</span><span class="num">3</span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Sun</span><span class="num">4</span><span class="pip draft"></span></button>
+    </div>
+    <div class="weekrule"></div>
+    <div class="panel" style="opacity:.28;pointer-events:none">
+      <div class="draftlead"><span class="badge">Draft</span><span class="txt">This is your draft October</span></div>
+      <div class="dayhead"><span class="dname">Thursday 1 October</span></div>
+    </div>
+    <div class="scrim"></div>
+    <div class="sheet" role="dialog" aria-label="Tell us about October">
+      <div class="grabber"></div>
+      <div class="sheethead">
+        <div class="sheettop">
+          <div class="who">
+            <h2>Tell us about October</h2>
+            <div class="meta">Same thing, typed.</div>
+          </div>
+          <button class="iconbtn" type="button" aria-label="Close"><svg class="ic sm"><use href="#i-close"/></svg></button>
+        </div>
+      </div>
+      <div class="sheetbody center">
+        <p class="prose" style="max-width:290px;font-weight:600">This is your draft October — shape it by telling us what's happening</p>
+        <div class="typedfield" style="margin-top:8px">
           <div class="box">The Wilderness candle relaunches on the 24th, can we build up to it?</div>
           <button class="sendbtn" type="button" aria-label="Send"><svg class="ic"><use href="#i-send"/></svg></button>
         </div>
-        <button class="typedlink" type="button" style="margin-top:10px">
-          <svg class="ic sm" style="display:inline-block;vertical-align:-3px"><use href="#i-keyboard"/></svg>
-          Type instead
+        <ul class="examples">
+          <li>What's happening in October?</li>
+          <li>Anything launching?</li>
+          <li>Anything you want more of?</li>
+        </ul>
+      </div>
+      <div class="acts" style="justify-content:center">
+        <button class="btn" type="button" style="flex:0 0 auto;padding:0 20px">
+          <svg class="ic sm"><use href="#i-mic"/></svg> Speak instead
         </button>
       </div>
     </div>
+    <nav class="tabbar" role="tablist" aria-label="Sections">
+      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
+      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    </nav>
   </div>
 </div>
 
 </div><!-- /frames -->
 
 <div class="notes">
-  <h2>What exists, and what the phasing actually turns on</h2>
+  <h2>Implementation notes</h2>
   <ul>
-    <li><strong>The transport is ready.</strong> <code>POST /api/plan/intake</code> and
-      <code>POST /api/plan/agent</code> both accept <code>source: 'voice'</code> with a
-      <code>sessionId</code>. The draft surface’s own route,
-      <code>POST /api/plan/draft/apply</code>, does <strong>not</strong> — it takes
-      <code>{op:'text', text}</code> and nothing else, so voice-sourced draft input would be
-      indistinguishable from typed on the ledger. One field; added to the spec’s gap list.</li>
-    <li><strong>A browser-side transcription path already exists and is already wired.</strong>
-      <code>app/src/components/plan/useSpeechInput.ts</code> drives the Web Speech API — no
-      backend, final transcript chunks appended into an editable field — and
-      <code>IntakeCapture.tsx</code> uses it today. It degrades properly: <code>unsupported</code>
-      hides the mic, <code>no-permission</code> reports itself.</li>
-    <li><strong>So “disabled until the pipeline lands” may be stricter than it needs to be.</strong>
-      Reusing <code>useSpeechInput</code> on the draft surface is a move, not a build, and would
-      make frame B real on any supporting browser. What the separate workstream buys is
-      server-side transcription — better accuracy, works where the Web Speech API doesn’t, and
-      keeps the audio rather than only its transcript. Flagged for the operator to choose;
-      the mockups show the specified state as A and the alternative as B.</li>
-    <li><strong>The app’s existing voice overlay</strong> (<code>voice-fab</code> in
-      <code>PlanMobile</code>) states “Voice arrives in a later stage” over a non-functional mic.
-      This sheet replaces it on the draft surface and gives the same promise a usable floor.</li>
-    <li><strong>The example prompts are written, not recorded.</strong> No client-facing prompt
-      copy exists in the repo to source them from. They are phrased to elicit the intents the
-      classifier can actually route — launch, event, emphasis — rather than open-ended questions
-      whose answers the contract cannot express.</li>
+    <li><strong>The waveform is a Web Audio <code>AnalyserNode</code></strong>: <code>getByteFrequencyData</code> into ~25 bars on <code>requestAnimationFrame</code>, amplitude driving bar height. Mocked here as a CSS animation showing both states; the real one is driven by the mic stream, and it flatlines when RMS falls under a floor rather than when the stream stops.</li>
+    <li><strong>Reduced motion is honoured</strong> — the bars hold a static mid height rather than animating (see the <code>prefers-reduced-motion</code> block in the stylesheet).</li>
+    <li><strong>Capture:</strong> <code>useSpeechInput.ts</code> drives the Web Speech API browser-side, appends final transcript chunks into an editable field, and degrades properly (<code>unsupported</code> hides the mic, <code>no-permission</code> reports itself). <code>IntakeCapture.tsx</code> already uses it.</li>
+    <li><strong>Submit:</strong> both modes post to <code>POST /api/plan/draft/apply {op:'text', text}</code>. That route takes no <code>source</code> field, so spoken and typed input are indistinguishable on the ledger — spec gap 8, and it should land with this sheet.</li>
+    <li><strong>The example prompts are written, not recorded.</strong> No client-facing prompt copy exists in the repo. They are phrased to elicit intents the classifier can actually route — launch, event, emphasis — rather than open questions the contract cannot express.</li>
   </ul>
 </div>
 

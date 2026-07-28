@@ -1,484 +1,568 @@
 /* ===========================================================================
-   Sprigly — mobile plan surface mockups
-   Shared stylesheet. Static mockups only: no build step, no framework, no JS
-   dependency. Open any sibling .html directly in a browser.
+   Sprigly — mobile plan surface mockups · ROUND 3
+   Shared stylesheet. Static mockups: no build step, no framework, no JS.
 
-   ROUND 2 (operator phone review). Three changes worth reading before the code:
+   THREE STRUCTURAL CHANGES THIS ROUND
+   ------------------------------------
+   1. COLOUR IS TOKENS. Every colour below reads a --t-* custom property with
+      the same name the platform injects at the layout root (see
+      app/src/lib/theme.ts VAR map). The values in :root are the ACTIVE theme,
+      Teal v1 — swap the six lines in the THEME block and every screen
+      repaints, which is the point. Nothing here names a hex twice.
 
-   1. TYPE. UI and body text use the NATIVE stack. On the device this renders as
-      SF Pro Text, which is what makes an iOS app feel like an iOS app — a webfont
-      for UI is the single loudest "this is a website" signal. Fraunces survives
-      as two brand moments only: the Sprigly wordmark and the month title.
-      This supersedes round 1's Inter-for-UI rule.
-   2. FORMAT is an ICON, never a word chip. Words survive in aria-label/title.
-   3. Colour is still the locked brand system, reproduced from
-      app/tailwind.config.ts. Nothing here invents a token.
+   2. THE VIVID RULE. accent-600 is the brightest tier that may cover a large
+      area. White on it measures 2.49:1 and fails both the AA text floor and
+      the 3:1 graphic floor. So we do not darken the fill — we flip the ink:
+      chrome-deep on accent-600 is 5.88:1. That keeps the brightest teal on
+      the selected day, the FAB, loud badges and primary buttons, and passes.
+      accent-500 exists only on chrome-deep fields, where it hits 7.86:1.
+
+   3. NATIVE TYPE ONLY. No webfont for UI, and no serif anywhere. Round 2 kept
+      Fraunces for the wordmark and month title; it was never loaded, so both
+      rendered as Georgia — the most document-like face available, on the one
+      surface that must not read as a document. Round 3 removes it. The
+      wordmark falls back to the native stack, never to a serif.
    =========================================================================== */
 
 :root {
-  /* Accent (coral) */
-  --coral-600: #E8705F;   /* primary: filled buttons, selected pill, dots     */
-  --coral-700: #C4523F;   /* pressed / strong interactive                     */
-  --coral-800: #8A3323;   /* coral TEXT and icons, and only ever on coral-100 */
-  --coral-100: #FADDD6;   /* tint fills                                       */
+  /* ── THEME BLOCK — the active theme (Teal v1). ────────────────────────────
+     In the app these are injected as `--t-*: r g b` channel triples by
+     theme.ts; here they are hexes so the files open with no server. Same
+     names, same meaning. ------------------------------------------------- */
+  --t-accent-600: #14B8A6;   /* vivid fill. NEVER carries white ink        */
+  --t-accent-700: #0F766E;   /* fill when it must carry white (5.47:1)     */
+  --t-accent-800: #0C5F58;   /* the only accent that may be small text     */
+  --t-accent-100: #E6F7F5;   /* tint                                       */
+  --t-chrome:      #334155;
+  --t-chrome-deep: #1E293B;  /* ALSO the ink on every accent-600 fill      */
+  --t-muted:       #5C6470;
+  --t-line:        #8F9296;
+  --t-line-soft:   #F4F5F6;
+  --t-canvas:      #F2F3F5;
+  --t-surface:     #FFFFFF;
+  --t-danger:      #B23A2E;
 
-  /* Brand slate + neutrals */
-  --chrome:      #334155;
-  --chrome-deep: #1E293B;
-  --muted:       #5C6470;
-  --line:        #8F9296;
-  --line-soft:   #F4F5F6;
-  --canvas:      #F2F3F5;
-  --surface:     #FFFFFF;
-  --danger:      #B23A2E;   /* operator-facing only — see the spec's G4 note   */
+  /* Proposed fifth tier — not yet a platform token. Non-text by definition:
+     glows, waveform peaks, highlight washes, and accents on dark fields. */
+  --t-accent-500: #2DD4BF;
 
   --hair:  rgb(143 146 150 / .30);
   --hair2: rgb(143 146 150 / .55);
 
   --shadow-card:  0 1px 2px rgb(51 65 85 / .04), 0 6px 18px rgb(51 65 85 / .06);
   --shadow-sheet: 0 -18px 50px -12px rgb(51 65 85 / .28);
-  --shadow-coral: 0 8px 20px -6px rgb(232 112 95 / .45);
+  --shadow-fab:   0 10px 26px -6px rgb(20 184 166 / .55);
+  --shadow-tab:   0 -1px 0 rgb(143 146 150 / .3);
 
-  /* THE NATIVE STACK. No webfont for UI. */
   --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, 'Segoe UI', Roboto, sans-serif;
-  /* Brand moments only: the wordmark and the month title. */
-  --serif: 'Fraunces', Georgia, 'Times New Roman', serif;
+  /* Wordmark only. Falls back to the native stack — never to a serif. */
+  --logo: 'Plus Jakarta Sans', var(--sans);
 
-  --r-card: 20px;
-  --r-chip: 999px;
+  --r-sm: 9px; --r-md: 14px; --r-lg: 20px; --r-sheet: 26px; --r-pill: 999px;
+  --ease: cubic-bezier(.22,.61,.36,1);
+
+  --tabbar-h: 56px;
 }
 
 * { box-sizing: border-box; }
 
 body {
-  margin: 0;
-  padding: 40px 20px 72px;
+  margin: 0; padding: 40px 20px 72px;
   background: #DFE1E5;
-  font-family: var(--sans);
-  color: var(--chrome);
+  font-family: var(--sans); color: var(--t-chrome);
   -webkit-font-smoothing: antialiased;
 }
 
-/* --- page scaffold (review-document chrome, NOT the product surface) ------ */
+/* --- review-document chrome (NOT the product surface) --------------------- */
 
 .page-head, .notes, .frames { max-width: 1280px; margin-left: auto; margin-right: auto; }
-
 .page-head { margin-bottom: 28px; }
-.page-head h1 { font-family: var(--serif); font-size: 30px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 6px; }
-.page-head p { margin: 0; font-size: 14px; line-height: 1.55; color: var(--muted); max-width: 74ch; }
+.page-head h1 { font-size: 30px; font-weight: 700; letter-spacing: -.03em; margin: 0 0 8px; }
+.page-head p { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--t-muted); max-width: 74ch; }
 .page-head p + p { margin-top: 9px; }
-.page-head a { color: var(--coral-800); }
-
-.crumbs { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; color: var(--muted); margin-bottom: 10px; }
+.page-head a { color: var(--t-accent-800); }
+.crumbs { font-size: 12.5px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; color: var(--t-muted); margin-bottom: 10px; }
 
 .frames { display: flex; flex-wrap: wrap; gap: 34px; justify-content: flex-start; align-items: flex-start; }
 .frame-wrap { width: 390px; max-width: 100%; }
-.frame-label { font-size: 12.5px; font-weight: 700; color: var(--chrome); margin: 0 0 4px; }
-.frame-sub { font-size: 12.5px; line-height: 1.5; color: var(--muted); margin: 0 0 12px; }
+.frame-label { font-size: 12.5px; font-weight: 700; margin: 0 0 4px; }
+.frame-sub { font-size: 12.5px; line-height: 1.5; color: var(--t-muted); margin: 0 0 12px; }
 
 .phone {
-  width: 390px; max-width: 100%; height: 780px;
-  background: var(--canvas);
-  border-radius: 44px;
+  width: 390px; max-width: 100%; height: 812px;
+  background: var(--t-canvas); border-radius: 44px;
   box-shadow: 0 30px 60px -20px rgb(30 41 59 / .38), 0 0 0 1px rgb(30 41 59 / .06);
   overflow: hidden; position: relative;
-  display: flex; flex-direction: column;
-  font-size: 15px;
+  display: flex; flex-direction: column; font-size: 15px;
 }
-.phone.tall { height: 860px; }
-.phone.short { height: 620px; }
+.phone.tall { height: 880px; }
 
 .statusbar {
   flex: none; display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 30px 2px;
-  font-size: 13.5px; font-weight: 600; letter-spacing: .01em;
+  padding: 14px 26px 2px; font-size: 13.5px; font-weight: 600;
 }
-.statusbar .glyphs { font-size: 12px; letter-spacing: .12em; }
+.statusbar .glyphs { font-size: 12.5px; letter-spacing: .12em; }
 
 /* --- icons ---------------------------------------------------------------- */
 
 .ic { width: 20px; height: 20px; display: block; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .ic.sm { width: 17px; height: 17px; }
 .ic.lg { width: 26px; height: 26px; }
-.ic.xl { width: 40px; height: 40px; }
+.ic.xl { width: 38px; height: 38px; }
 .ic.solid { fill: currentColor; stroke: none; }
 
-/* Format icon — the round-2 replacement for the word chip. Coral-800 on
-   coral-100: coral-600 on tint measures 2.35:1, below the 3:1 graphic floor. */
+/* Format icon tile: accent-800 on accent-100 = 6.80:1. */
 .fmt {
-  width: 28px; height: 28px; flex: none; border-radius: 9px;
-  background: var(--coral-100); color: var(--coral-800);
+  width: 28px; height: 28px; flex: none; border-radius: var(--r-sm);
+  background: var(--t-accent-100); color: var(--t-accent-800);
   display: flex; align-items: center; justify-content: center;
 }
-.fmt.plain { background: var(--line-soft); color: var(--muted); }
-.fmt.lg { width: 34px; height: 34px; border-radius: 11px; }
+.fmt.lg { width: 34px; height: 34px; border-radius: 14px; }
 
-/* --- app chrome ----------------------------------------------------------- */
+/* --- header: wordmark LEFT ------------------------------------------------ */
 
-.topbar { flex: none; display: flex; align-items: center; justify-content: center; padding: 10px 20px 2px; }
-.brandmark { display: flex; align-items: center; gap: 7px; }
-.brandmark svg { width: 18px; height: 18px; display: block; }
-/* One of the two surviving Fraunces moments. */
-.brandmark span { font-family: var(--serif); font-size: 17px; font-weight: 600; letter-spacing: -.01em; color: var(--chrome); }
+.topbar { flex: none; display: flex; align-items: center; gap: 7px; padding: 10px 20px 2px; }
+.topbar svg.mark { width: 18px; height: 18px; display: block; color: var(--t-accent-600); }
+.wordmark { font-family: var(--logo); font-size: 17px; font-weight: 800; letter-spacing: -.02em; color: var(--t-chrome); }
 
-/* The month row: ‹ › are the ONE lateral mechanism for months, and the title
-   is a button-shaped control so the overview is impossible to miss. */
-.monthrow { flex: none; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 14px 18px 4px; }
-.monthbtn {
-  display: inline-flex; align-items: center; gap: 8px;
-  min-height: 44px; padding: 8px 16px 8px 18px;
-  background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-chip);
-  box-shadow: var(--shadow-card); cursor: pointer;
-  font-family: var(--serif); font-size: 20px; font-weight: 600; letter-spacing: -.01em; color: var(--chrome);
-}
-.monthbtn .ic { color: var(--coral-600); width: 17px; height: 17px; stroke-width: 2.1; }
-.monthbtn .dot { width: 7px; height: 7px; border-radius: 999px; background: var(--coral-600); }
+/* Title row: ‹ Month Year › left, Week|Month switcher right. No pill. */
+.titlerow { flex: none; display: flex; align-items: center; gap: 6px; padding: 12px 18px 0; }
+.monthnav { display: flex; align-items: center; gap: 4px; }
+/* 20px, not 22: 'September 2026' at 22px pushed the Week|Month switcher off the
+   right edge. The day header stays the largest thing on screen, which is right —
+   the day is what you are looking at; the month is where you are. */
+.monthtitle { font-size: 20px; font-weight: 700; letter-spacing: -.03em; color: var(--t-chrome); white-space: nowrap; }
 .navbtn {
-  width: 38px; height: 38px; flex: none; border-radius: 999px;
-  border: 1px solid var(--hair); background: var(--surface); box-shadow: var(--shadow-card);
-  display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--chrome);
+  width: 32px; height: 32px; flex: none; border: 0; background: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; color: var(--t-chrome);
+  border-radius: var(--r-pill);
 }
-.navbtn[disabled] { opacity: .35; cursor: default; }
+.navbtn[disabled] { color: rgb(92 100 112 / .38); cursor: default; }
 
-.draftline { flex: none; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 20px 0; }
-.draftline .muted { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+/* Segmented control — iOS. Used for Week|Month and inside sheets. */
+.seg { display: inline-flex; flex: none; background: rgb(143 146 150 / .18); border-radius: 9px; padding: 2px; gap: 2px; }
+.seg button {
+  border: 0; background: none; cursor: pointer; font-family: var(--sans);
+  font-size: 12.5px; font-weight: 600; color: var(--t-muted);
+  padding: 0 10px; height: 30px; border-radius: 9px; white-space: nowrap;
+}
+.seg button[aria-pressed="true"] { background: var(--t-surface); color: var(--t-chrome); box-shadow: 0 1px 3px rgb(51 65 85 / .12); }
+.seg.wide { display: flex; width: 100%; }
+.seg.wide button { flex: 1; }
+
+/* Today, right-aligned immediately above the strip. */
+.todayrow { flex: none; display: flex; align-items: center; justify-content: flex-end; padding: 10px 20px 0; min-height: 34px; }
+.todaybtn {
+  border: 0; background: none; cursor: pointer; font-family: var(--sans);
+  font-size: 13.5px; font-weight: 600; color: var(--t-accent-800);
+  min-height: 30px; padding: 0 2px;
+}
+.draftline { display: flex; align-items: center; gap: 7px; margin-right: auto; }
+.draftline .muted { font-size: 12.5px; color: var(--t-muted); font-weight: 500; }
 
 .badge {
-  font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
-  padding: 4px 8px; border-radius: var(--r-chip);
-  background: var(--coral-100); color: var(--coral-800);
+  font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+  padding: 4px 9px; border-radius: var(--r-pill);
+  background: var(--t-accent-600); color: var(--t-chrome-deep);
 }
-.badge.slate { background: var(--line-soft); color: var(--muted); }
+.badge.quiet { background: var(--t-accent-100); color: var(--t-accent-800); }
+.badge.slate { background: var(--t-line-soft); color: var(--t-muted); }
+
+/* The approval control: a labelled pill in the draft header region. */
+.readypill {
+  display: inline-flex; align-items: center; gap: 7px; flex: none;
+  min-height: 34px; padding: 0 13px; border-radius: var(--r-pill); cursor: pointer;
+  border: 1px solid var(--t-accent-600); background: var(--t-surface);
+  font-family: var(--sans); font-size: 13.5px; font-weight: 600; color: var(--t-accent-800);
+}
+.readypill .ic { width: 15px; height: 15px; stroke-width: 2.2; }
 
 /* --- week strip ----------------------------------------------------------- */
 
-.weekstrip { flex: none; display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; padding: 12px 12px 10px; }
+.weekstrip { flex: none; display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; padding: 8px 12px 10px; }
 .wday {
   background: none; border: 0; padding: 4px 0 8px; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; gap: 6px;
   position: relative; border-radius: 16px; font-family: var(--sans);
 }
-.wday .dow { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.wday .dow { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--t-muted); }
 .wday .num {
-  width: 34px; height: 34px; border-radius: 999px;
+  width: 34px; height: 34px; border-radius: var(--r-pill);
   display: flex; align-items: center; justify-content: center;
-  font-size: 16px; font-weight: 600; color: var(--chrome); letter-spacing: -.01em;
+  font-size: 16.5px; font-weight: 600; color: var(--t-chrome); letter-spacing: -.01em;
 }
-/* White on coral-600 at 16px/600 — above the 14px+/500 floor. */
-.wday[aria-pressed="true"] .num { background: var(--coral-600); color: #fff; }
-.wday[aria-pressed="true"] .dow { color: var(--chrome); }
-.wday.today .num { box-shadow: inset 0 0 0 1.5px var(--coral-600); }
+/* THE VIVID RULE: brightest fill, dark ink. 5.88:1. */
+.wday[aria-pressed="true"] .num { background: var(--t-accent-600); color: var(--t-chrome-deep); font-weight: 700; }
+.wday[aria-pressed="true"] .dow { color: var(--t-chrome); }
+.wday.today .num { box-shadow: inset 0 0 0 2px var(--t-accent-600); }
 .wday.today[aria-pressed="true"] .num { box-shadow: none; }
-.wday .pip { position: absolute; bottom: 1px; width: 5px; height: 5px; border-radius: 999px; background: var(--chrome); }
-.wday .pip.draft { background: var(--coral-600); }
-.wday[aria-pressed="true"] .pip { background: var(--chrome); }
-.wday.out .dow, .wday.out .num { color: rgb(92 100 112 / .45); }
+.wday .pip { position: absolute; bottom: 1px; width: 5px; height: 5px; border-radius: var(--r-pill); background: var(--t-chrome); }
+.wday .pip.draft { background: var(--t-accent-600); }
+.wday[aria-pressed="true"] .pip { background: var(--t-chrome-deep); }
+/* Out-of-month days: muted but still legible (was 45% ≈ 2.2:1). */
+.wday.out .dow, .wday.out .num { color: rgb(92 100 112 / .72); }
 
 .weekrule { flex: none; height: 1px; background: var(--hair); margin: 0 20px; }
 
 /* --- the day panel -------------------------------------------------------- */
-/* Round 2: the strip SELECTS and the panel shows only that day. No week feed,
-   no scroll-spy, no adjacent days bleeding in from below. */
+/* Bottom padding clears the tab bar AND the FAB — round 2 let the FAB print
+   over the evidence sentence, which is the one line that must never be hidden. */
 
-.panel { flex: 1; overflow-y: auto; padding: 16px 20px 30px; }
+.panel { flex: 1; overflow-y: auto; padding: 16px 20px 116px; }
 .panel::-webkit-scrollbar { width: 0; }
 
 .dayhead { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
-.dayhead .dname { font-size: 21px; font-weight: 700; letter-spacing: -.02em; color: var(--chrome); }
+.dayhead .dname { font-size: 22px; font-weight: 700; letter-spacing: -.02em; color: var(--t-chrome); }
 .dayhead .spacer { flex: 1; }
-.dayhead .daycount { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.dayhead .daycount { font-size: 12.5px; font-weight: 600; color: var(--t-muted); }
 
 /* --- cards ---------------------------------------------------------------- */
 
 .card {
   display: block; width: 100%; text-align: left;
-  background: var(--surface); border: 1px solid var(--hair); border-radius: var(--r-card);
+  background: var(--t-surface); border: 1px solid var(--hair); border-radius: var(--r-lg);
   padding: 13px 14px 14px; margin-bottom: 10px;
   box-shadow: var(--shadow-card); font-family: var(--sans); color: inherit; cursor: pointer;
 }
 .card.draft { border-style: dashed; border-color: var(--hair2); box-shadow: none; }
-.card.changed { border-color: var(--coral-600); border-style: solid; background: #FFF9F8; }
+.card.changed {
+  border-style: solid; border-color: var(--t-accent-600);
+  background: linear-gradient(180deg, var(--t-accent-100), var(--t-surface) 70%);
+  box-shadow: 0 6px 20px -8px rgb(20 184 166 / .4);
+}
 
 .cardtop { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; }
-.pillar { font-size: 12.5px; font-weight: 500; color: var(--muted); }
-.time { margin-left: auto; font-size: 12.5px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pillar { font-size: 12.5px; font-weight: 500; color: var(--t-muted); }
+.time { margin-left: auto; font-size: 12.5px; font-weight: 600; color: var(--t-muted); font-variant-numeric: tabular-nums; }
 
-.card h4 { margin: 0 0 5px; font-size: 16.5px; line-height: 1.3; font-weight: 600; letter-spacing: -.02em; color: var(--chrome); }
-.card p.teaser { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--muted); }
+.card h4 { margin: 0 0 5px; font-size: 16.5px; line-height: 1.3; font-weight: 600; letter-spacing: -.02em; color: var(--t-chrome); }
+.card p.teaser { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--t-muted); }
 .card p.excerpt {
-  margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--muted);
+  margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--t-muted);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 
 .cardfoot { display: flex; align-items: center; gap: 8px; margin-top: 11px; }
-.statusdot { width: 6px; height: 6px; border-radius: 999px; background: var(--coral-600); }
-.statusline { font-size: 12px; font-weight: 600; color: var(--muted); }
-
-/* G4 — a post whose writing is still in flight. Quiet, never an error. */
-.card.onway { background: linear-gradient(180deg, #fff, #FCFCFD); }
-.card.onway p.teaser { color: var(--muted); }
+.statusline { font-size: 12.5px; font-weight: 600; color: var(--t-muted); }
+/* Work in flight. Vivid, quiet, no red, nothing asked of the client. */
 .waydots { display: inline-flex; gap: 3px; align-items: center; }
-.waydots i { width: 4px; height: 4px; border-radius: 999px; background: var(--coral-600); display: block; opacity: .35; }
+.waydots i { width: 5px; height: 5px; border-radius: var(--r-pill); background: var(--t-accent-600); display: block; opacity: .3; }
 .waydots i:nth-child(2) { opacity: .6; }
-.waydots i:nth-child(3) { opacity: .9; }
+.waydots i:nth-child(3) { opacity: 1; }
 
-/* Compact row — the 3+ density rule. */
-.rowlist { border: 1px solid var(--hair); border-radius: var(--r-card); background: var(--surface); overflow: hidden; margin-bottom: 10px; box-shadow: var(--shadow-card); }
+/* Compact rows — the 3+ density rule. */
+.rowlist { border: 1px solid var(--hair); border-radius: var(--r-lg); background: var(--t-surface); overflow: hidden; margin-bottom: 10px; box-shadow: var(--shadow-card); }
 .rowlist.draft { border-style: dashed; border-color: var(--hair2); box-shadow: none; background: rgb(255 255 255 / .82); }
 .row {
   display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
   background: none; border: 0; cursor: pointer; padding: 12px 13px; min-height: 58px; font-family: var(--sans);
 }
 .row + .row { border-top: 1px solid var(--hair); }
-.row .rtime { font-size: 12.5px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; width: 42px; flex: none; }
-.row .rtitle { flex: 1; min-width: 0; font-size: 14.5px; font-weight: 500; color: var(--chrome); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row .rchev { flex: none; color: rgb(92 100 112 / .6); }
+.row .rtime { font-size: 12.5px; font-weight: 600; color: var(--t-muted); font-variant-numeric: tabular-nums; width: 42px; flex: none; }
+.row .rtitle { flex: 1; min-width: 0; font-size: 15px; font-weight: 500; color: var(--t-chrome); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Was 60% alpha ≈ 2.6:1 — under the graphic floor, and the only cue a row is tappable. */
+.row .rchev { flex: none; color: var(--t-muted); }
 
-/* Per-day add slot — the only add affordance. */
 .addslot {
   display: flex; align-items: center; gap: 8px; justify-content: center;
   width: 100%; min-height: 48px; padding: 12px;
   border: 1px dashed var(--hair2); border-radius: 16px;
   background: rgb(255 255 255 / .55); cursor: pointer; font-family: var(--sans);
-  font-size: 13.5px; font-weight: 500; color: var(--muted);
+  font-size: 13.5px; font-weight: 500; color: var(--t-muted);
 }
-.addslot .ic { color: var(--coral-600); }
+.addslot .ic { color: var(--t-accent-800); }
 
-/* --- the draft CTA block (replaces "what we assumed") --------------------- */
+/* --- draft framing: one line, then content ------------------------------- */
 
-.cta {
-  background: var(--surface); border: 1px solid var(--hair); border-radius: 22px;
-  padding: 18px 16px 16px; margin-bottom: 16px; box-shadow: var(--shadow-card);
-  text-align: center;
-}
-.cta h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; letter-spacing: -.02em; color: var(--chrome); }
-.cta p.nudge { margin: 0; font-size: 13px; line-height: 1.45; color: var(--muted); }
-.micbtn {
-  width: 76px; height: 76px; border-radius: 999px; border: 0; cursor: pointer;
-  margin: 15px auto 12px; display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(150deg, var(--coral-600), var(--coral-700));
-  color: #fff; box-shadow: var(--shadow-coral);
-}
-.micbtn.big { width: 104px; height: 104px; }
-.micbtn[disabled] { background: var(--line-soft); color: var(--muted); box-shadow: none; cursor: default; }
-.typedlink {
-  background: none; border: 0; cursor: pointer; font-family: var(--sans);
-  font-size: 13.5px; font-weight: 600; color: var(--chrome); text-decoration: underline;
-  text-underline-offset: 3px; min-height: 40px; padding: 0 8px;
-}
-.typedfield {
-  display: flex; gap: 8px; align-items: stretch; margin-top: 12px;
-}
-.typedfield .box {
-  flex: 1; text-align: left; border: 1px solid var(--hair2); border-radius: 14px;
-  background: var(--surface); padding: 12px 13px; font-size: 14.5px; line-height: 1.45; color: var(--chrome);
-}
-.typedfield .box.empty { color: rgb(92 100 112 / .65); }
-.sendbtn {
-  flex: none; width: 48px; border-radius: 14px; border: 0; cursor: pointer;
-  background: var(--coral-600); color: #fff; display: flex; align-items: center; justify-content: center;
-}
+.draftlead { display: flex; align-items: center; gap: 9px; margin-bottom: 16px; }
+.draftlead .txt { font-size: 13.5px; font-weight: 600; color: var(--t-chrome); letter-spacing: -.01em; }
 
-.examples { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 8px; }
-.examples li {
-  border: 1px solid var(--hair); border-radius: var(--r-chip); background: var(--surface);
-  padding: 11px 15px; font-size: 14px; color: var(--chrome); text-align: left;
-}
-.examples li::before { content: '“'; color: var(--coral-800); }
-.examples li::after { content: '”'; color: var(--coral-800); }
-
-/* --- experiment lightbulb + tooltip --------------------------------------- */
+/* --- experiment marker + tooltip ----------------------------------------- */
 
 .bulb {
-  width: 30px; height: 30px; border-radius: 999px; border: 0; cursor: pointer;
-  background: var(--coral-100); color: var(--coral-800);
+  width: 30px; height: 30px; border-radius: var(--r-pill); border: 0; cursor: pointer;
+  background: var(--t-accent-600); color: var(--t-chrome-deep);
   display: inline-flex; align-items: center; justify-content: center;
 }
-.tooltip {
-  position: relative; margin: 8px 0 0; padding: 9px 11px;
-  background: var(--chrome-deep); color: #fff; border-radius: 11px;
-  font-size: 12.5px; line-height: 1.4; max-width: 250px;
+/* Anchored under the card's own left edge, inside the card box, so it can
+   never clip the frame or straddle the card boundary (round 2 did both). */
+.tip {
+  position: relative; margin: 10px 0 0; padding: 9px 11px;
+  background: var(--t-chrome-deep); color: #fff; border-radius: 14px;
+  font-size: 12.5px; line-height: 1.4;
 }
-.tooltip::before {
-  content: ''; position: absolute; top: -5px; right: 18px;
-  width: 10px; height: 10px; background: var(--chrome-deep); transform: rotate(45deg);
+.tip::before {
+  content: ''; position: absolute; top: -4px; right: 14px;
+  width: 9px; height: 9px; background: var(--t-chrome-deep); transform: rotate(45deg);
 }
 
-/* --- summary chip (what changed, collapsed) ------------------------------- */
+/* --- summary chip -------------------------------------------------------- */
 
 .sumbar {
-  flex: none; display: flex; align-items: center; gap: 10px;
-  height: 48px; margin: 12px 20px 0; padding: 0 8px 0 14px;
-  background: var(--coral-100); border-radius: 15px;
+  flex: none; display: flex; align-items: center; gap: 8px;
+  height: 48px; margin: 10px 20px 0; padding: 0 6px 0 14px;
+  background: var(--t-accent-600); border-radius: 16px;
 }
-.sumbar .txt { flex: 1; font-size: 13.5px; font-weight: 600; color: var(--coral-800); }
+.sumbar .txt { flex: 1; font-size: 13.5px; font-weight: 700; color: var(--t-chrome-deep); }
 .sumbar button {
-  width: 34px; height: 34px; flex: none; border: 0; border-radius: 10px; cursor: pointer;
-  background: transparent; color: var(--coral-800); display: flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; flex: none; border: 0; border-radius: 9px; cursor: pointer;
+  background: rgb(30 41 59 / .1); color: var(--t-chrome-deep);
+  display: flex; align-items: center; justify-content: center;
 }
 
 /* --- strips --------------------------------------------------------------- */
 
-.strip { margin: 0 0 12px; background: var(--surface); border: 1px solid var(--hair); border-radius: 16px; padding: 12px 13px; }
-.strip.tint { background: var(--coral-100); border-color: rgb(232 112 95 / .35); }
-.strip h3 { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
-.strip.tint h3 { color: var(--coral-800); }
-.strip p { margin: 7px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--chrome); }
-.strip p.quiet { color: var(--muted); font-size: 12.5px; }
+.strip { margin: 0 0 12px; background: var(--t-surface); border: 1px solid var(--hair); border-radius: 16px; padding: 12px 13px; }
+.strip.tint { background: var(--t-accent-100); border-color: rgb(20 184 166 / .4); }
+.strip h3 { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--t-muted); }
+.strip.tint h3 { color: var(--t-accent-800); }
+.strip p { margin: 7px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--t-chrome); }
+.strip p.quiet { color: var(--t-muted); font-size: 12.5px; }
 
 .difflist { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
 .difflist li { display: flex; gap: 8px; font-size: 13.5px; line-height: 1.45; align-items: baseline; }
-.difflist .mark { font-weight: 700; flex: none; width: 12px; color: var(--coral-800); }
-.difflist .mark.move { color: var(--chrome); }
+.difflist .mark { font-weight: 700; flex: none; width: 12px; color: var(--t-accent-800); }
+.difflist .mark.move { color: var(--t-chrome); }
 
 .chiprow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
-.chiprow .sumchip { font-size: 12px; font-weight: 600; color: var(--muted); background: var(--line-soft); border-radius: var(--r-chip); padding: 4px 10px; }
+.chiprow .sumchip { font-size: 12.5px; font-weight: 600; color: var(--t-accent-800); background: var(--t-surface); border-radius: var(--r-pill); padding: 4px 10px; }
 
-/* --- month overview ------------------------------------------------------- */
+/* --- month view (a peer, not an overlay) --------------------------------- */
 
-.grid { padding: 10px 16px 0; }
+.grid { flex: 1; overflow-y: auto; padding: 12px 16px 116px; }
+.grid::-webkit-scrollbar { width: 0; }
 .gridhead { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; padding-bottom: 6px; }
-.gridhead span { text-align: center; font-size: 10.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.gridhead span { text-align: center; font-size: 10.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--t-muted); }
 .gridbody { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
 .gcell {
   aspect-ratio: 1 / 1.06; border: 0; background: none; cursor: pointer; border-radius: 14px;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
   font-family: var(--sans); padding: 0;
 }
-.gcell .gnum { font-size: 15px; font-weight: 500; color: var(--chrome); letter-spacing: -.01em; }
-.gcell.out .gnum { color: rgb(92 100 112 / .35); }
-.gcell[aria-current="true"] { background: var(--surface); box-shadow: var(--shadow-card); }
+.gcell .gnum { font-size: 15px; font-weight: 500; color: var(--t-chrome); letter-spacing: -.01em; }
+.gcell.out .gnum { color: rgb(92 100 112 / .4); }
+.gcell[aria-current="true"] .gnum { background: var(--t-accent-600); color: var(--t-chrome-deep); font-weight: 700; width: 28px; height: 28px; border-radius: var(--r-pill); display: flex; align-items: center; justify-content: center; }
 .dots { display: flex; gap: 3px; height: 6px; align-items: center; }
-.dots i { width: 5px; height: 5px; border-radius: 999px; display: block; }
-.dots i.draft { background: var(--coral-600); }
-.dots i.committed { background: var(--chrome); }
-/* "On its way" — a hollow ring, not a colour swap: a different state should be
-   a different shape, so it survives being read at a glance and in greyscale. */
-.dots i.onway { background: transparent; box-shadow: inset 0 0 0 1.5px var(--chrome); }
+.dots i { width: 5px; height: 5px; border-radius: var(--r-pill); display: block; }
+.dots i.draft { background: var(--t-accent-600); }
+.dots i.committed { background: var(--t-chrome); }
+/* In flight: a ring, so the state survives greyscale and a glance. */
+.dots i.onway { background: transparent; box-shadow: inset 0 0 0 1.5px var(--t-chrome); }
 
-.legend { display: flex; gap: 16px; align-items: center; justify-content: center; padding: 16px 18px 4px; font-size: 12px; color: var(--muted); font-weight: 500; }
-.legend span { display: inline-flex; align-items: center; gap: 6px; }
-.legend i { width: 6px; height: 6px; border-radius: 999px; display: block; }
-.legend i.ring { background: transparent; box-shadow: inset 0 0 0 1.5px var(--chrome); }
+.monthfoot { padding: 18px 4px 0; font-size: 13.5px; line-height: 1.5; color: var(--t-muted); }
 
-/* --- bottom sheet --------------------------------------------------------- */
+/* --- bottom tab bar ------------------------------------------------------- */
+/* Sized and laid out for 3–4 tabs without change: Insights joins as a third
+   when the insight layer ships. */
 
-.scrim { position: absolute; inset: 0; background: rgb(30 41 59 / .34); }
-.sheet {
-  position: absolute; left: 0; right: 0; bottom: 0;
-  background: var(--surface); border-radius: 26px 26px 0 0;
-  box-shadow: var(--shadow-sheet); display: flex; flex-direction: column; max-height: 88%;
+.tabbar {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 25;
+  height: var(--tabbar-h);
+  display: flex; align-items: stretch;
+  background: var(--t-surface); box-shadow: var(--shadow-tab);
+  padding-bottom: 0;
 }
-.sheet.mid { max-height: 68%; }
-.sheet.low { max-height: 52%; }
-.grabber { flex: none; width: 38px; height: 5px; border-radius: 999px; background: rgb(143 146 150 / .45); margin: 9px auto 4px; }
+.tabbar button {
+  flex: 1; border: 0; background: none; cursor: pointer; font-family: var(--sans);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  color: var(--t-muted); font-size: 10.5px; font-weight: 600; letter-spacing: .01em;
+  min-height: var(--tabbar-h);
+}
+.tabbar button[aria-selected="true"] { color: var(--t-accent-800); }
+.tabbar button .ic { width: 22px; height: 22px; }
+.tabbar .dot { position: absolute; top: 9px; margin-left: 15px; width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--t-accent-600); }
+.tabslot { flex: 1; opacity: .32; }
+.tabslot span { display: block; }
+
+/* FAB floats above the tab bar. Offset shadow, not a decorative halo. */
+.fab {
+  position: absolute; right: 18px; bottom: calc(var(--tabbar-h) + 16px); z-index: 26;
+  width: 62px; height: 62px; border-radius: var(--r-pill); border: 0; cursor: pointer;
+  background: var(--t-accent-600); color: var(--t-chrome-deep);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow-fab);
+}
+.fab .ic { stroke-width: 2; }
+
+/* --- sheets --------------------------------------------------------------- */
+
+.scrim { position: absolute; inset: 0; background: rgb(30 41 59 / .34); z-index: 30; }
+.sheet {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 31;
+  /* 92%, not 90%: the cut has to land in the gap under the wordmark. At 90% the
+     sheet's top edge sliced the month title mid-word, which reads as a rendering
+     fault rather than depth. */
+  height: 92%;
+  background: var(--t-surface); border-radius: var(--r-sheet) var(--r-sheet) 0 0;
+  box-shadow: var(--shadow-sheet); display: flex; flex-direction: column;
+}
+.sheet.mid { height: 62%; }
+.grabber { flex: none; width: 38px; height: 5px; border-radius: var(--r-pill); background: rgb(143 146 150 / .45); margin: 9px auto 4px; }
 
 .sheethead { flex: none; padding: 6px 18px 14px; border-bottom: 1px solid var(--hair); }
 .sheettop { display: flex; align-items: flex-start; gap: 12px; }
 .sheettop .who { flex: 1; min-width: 0; }
-.sheethead h2 { margin: 0 0 4px; font-size: 20px; line-height: 1.25; font-weight: 700; letter-spacing: -.025em; color: var(--chrome); }
-.sheethead .meta { font-size: 13px; font-weight: 500; color: var(--muted); }
-.insights {
-  width: 34px; height: 34px; flex: none; border-radius: 999px; border: 1px solid var(--hair);
-  background: var(--surface); cursor: pointer; color: var(--chrome);
+.sheethead h2 { margin: 0 0 4px; font-size: 20px; line-height: 1.25; font-weight: 700; letter-spacing: -.025em; color: var(--t-chrome); }
+.sheethead .meta { font-size: 13.5px; font-weight: 500; color: var(--t-muted); }
+.iconbtn {
+  width: 44px; height: 44px; flex: none; border-radius: var(--r-pill); border: 0; cursor: pointer;
+  background: var(--t-line-soft); color: var(--t-chrome);
   display: flex; align-items: center; justify-content: center;
 }
-.insights[aria-expanded="true"] { background: var(--coral-100); border-color: transparent; color: var(--coral-800); }
+.iconbtn[aria-expanded="true"] { background: var(--t-accent-600); color: var(--t-chrome-deep); }
 
-/* Toggle tabs — caption / hook / script, caption default. */
 .tabs { flex: none; display: flex; gap: 4px; padding: 12px 18px 0; }
 .tab {
-  flex: 1; min-height: 38px; border-radius: 11px; cursor: pointer; font-family: var(--sans);
-  font-size: 13.5px; font-weight: 600; color: var(--muted);
-  background: var(--line-soft); border: 0;
+  flex: 1; min-height: 38px; border-radius: 14px; cursor: pointer; font-family: var(--sans);
+  font-size: 13.5px; font-weight: 600; color: var(--t-muted); background: var(--t-line-soft); border: 0;
 }
-.tab[aria-selected="true"] { background: var(--chrome); color: #fff; }
+.tab[aria-selected="true"] { background: var(--t-chrome); color: #fff; }
 .tab[disabled] { opacity: .4; cursor: default; }
 
 .sheetbody { flex: 1; overflow-y: auto; padding: 12px 18px 16px; }
 .sheetbody::-webkit-scrollbar { width: 0; }
+.sheetbody.center { text-align: center; display: flex; flex-direction: column; align-items: center; }
 
-.panelhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
-.panelhead .lbl { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+/* Copy sits alone on its row — the tab already names the field. */
+.copyrow { display: flex; justify-content: flex-end; margin-bottom: 6px; }
 .copyb {
-  min-height: 34px; padding: 0 11px; border-radius: 10px; border: 1px solid var(--hair);
-  background: var(--surface); cursor: pointer; font-family: var(--sans);
-  font-size: 12.5px; font-weight: 600; color: var(--chrome);
-  display: inline-flex; align-items: center; gap: 6px;
+  width: 44px; height: 44px; border-radius: var(--r-pill); border: 0; cursor: pointer;
+  background: var(--t-line-soft); color: var(--t-chrome);
+  display: flex; align-items: center; justify-content: center;
 }
 
-.prose { font-size: 14.5px; line-height: 1.62; color: var(--chrome); margin: 0; white-space: pre-wrap; }
-.prose.quiet { color: var(--muted); font-size: 13.5px; line-height: 1.55; white-space: normal; }
-.evidence { background: var(--line-soft); border-radius: 14px; padding: 12px 13px; font-size: 13.5px; line-height: 1.55; color: var(--chrome); margin: 0; }
-.section-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 16px 0 8px; }
+.prose { font-size: 15px; line-height: 1.62; color: var(--t-chrome); margin: 0; white-space: pre-wrap; }
+.prose.quiet { color: var(--t-muted); font-size: 13.5px; line-height: 1.55; white-space: normal; }
+.evidence { background: var(--t-line-soft); border-radius: 14px; padding: 12px 13px; font-size: 13.5px; line-height: 1.55; color: var(--t-chrome); margin: 0; }
+.section-label { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--t-muted); margin: 16px 0 8px; }
 
-/* Action row — icons with short labels. */
-.acts { flex: none; display: flex; gap: 8px; padding: 12px 18px 26px; border-top: 1px solid var(--hair); background: var(--surface); }
+/* Icon-only action row. 44px targets, aria-labels in the markup. */
+.acts { flex: none; display: flex; gap: 10px; justify-content: center; padding: 12px 18px 26px; border-top: 1px solid var(--hair); background: var(--t-surface); }
 .act {
-  flex: 1; min-height: 62px; border-radius: 15px; cursor: pointer; font-family: var(--sans);
-  background: var(--surface); border: 1px solid var(--hair2); color: var(--chrome);
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
-  font-size: 12px; font-weight: 600;
+  width: 54px; height: 54px; border-radius: 20px; cursor: pointer; font-family: var(--sans);
+  background: var(--t-line-soft); border: 0; color: var(--t-chrome);
+  display: flex; align-items: center; justify-content: center; position: relative;
 }
-.act .datenum { font-size: 9.5px; font-weight: 700; letter-spacing: .02em; }
-.act.warn { color: var(--danger); border-color: rgb(178 58 46 / .38); }
+.act.accent { background: var(--t-accent-600); color: var(--t-chrome-deep); }
+/* Destructive: iOS convention is red for a destructive action the user chose.
+   Distinct from --t-danger's banned use as a client-facing FAILURE colour. */
+.act.destructive { color: var(--t-danger); }
+.act .datebadge {
+  position: absolute; bottom: 6px; font-size: 8.5px; font-weight: 700;
+  letter-spacing: .02em; font-variant-numeric: tabular-nums;
+}
 
-/* Undo — TOP of the screen in round 2, so it can never sit over the action row. */
+/* Undo — top of the screen, never over the row it undoes. */
 .snack {
-  position: absolute; top: 46px; left: 16px; right: 16px; z-index: 30;
-  background: var(--chrome-deep); color: #fff; border-radius: 14px;
+  position: absolute; top: 46px; left: 16px; right: 16px; z-index: 40;
+  background: var(--t-chrome-deep); color: #fff; border-radius: 14px;
   padding: 12px 15px; display: flex; align-items: center; gap: 14px;
   font-size: 13.5px; font-weight: 500; box-shadow: 0 14px 34px rgb(30 41 59 / .3);
 }
-.snack button { margin-left: auto; background: none; border: 0; color: #fff; font-family: var(--sans); font-size: 13.5px; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.snack button { margin-left: auto; background: none; border: 0; color: var(--t-accent-500); font-family: var(--sans); font-size: 13.5px; font-weight: 700; cursor: pointer; }
+
+/* --- voice sheet ---------------------------------------------------------- */
+
+.micbtn {
+  width: 108px; height: 108px; border-radius: var(--r-pill); border: 0; cursor: pointer;
+  margin: 6px auto 0; display: flex; align-items: center; justify-content: center;
+  background: var(--t-accent-600); color: var(--t-chrome-deep);
+  box-shadow: var(--shadow-fab);
+}
+/* The ring is a STATE (capturing), not decoration. */
+.micbtn.live { box-shadow: var(--shadow-fab), 0 0 0 10px rgb(20 184 166 / .18); }
+
+/* Live waveform. Dark field is where the accent is allowed to be brightest:
+   accent-500 on chrome-deep = 7.86:1. */
+.wave {
+  width: 100%; height: 66px; margin: 18px 0 0; border-radius: 16px;
+  background: var(--t-chrome-deep); display: flex; align-items: center;
+  justify-content: center; gap: 3px; padding: 0 14px; overflow: hidden;
+}
+.wave i {
+  display: block; width: 4px; border-radius: var(--r-pill);
+  background: var(--t-accent-500); height: 3px;
+}
+.wave.speaking i { animation: wv 1.05s ease-in-out infinite; }
+.wave .lbl { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: rgb(255 255 255 / .55); }
+@keyframes wv {
+  0%, 100% { height: 5px; }
+  50%      { height: var(--h, 30px); }
+}
+
+.examples { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 8px; width: 100%; }
+.examples li {
+  border: 1px solid var(--hair); border-radius: var(--r-pill); background: var(--t-surface);
+  padding: 11px 15px; font-size: 13.5px; color: var(--t-chrome); text-align: left;
+}
+.examples li::before { content: '“'; color: var(--t-accent-800); }
+.examples li::after  { content: '”'; color: var(--t-accent-800); }
+
+.typedfield { display: flex; gap: 8px; align-items: stretch; width: 100%; }
+.typedfield .box {
+  flex: 1; text-align: left; border: 1px solid var(--hair2); border-radius: var(--r-md);
+  background: var(--t-surface); padding: 13px 13px; font-size: 15px; line-height: 1.45; color: var(--t-chrome);
+}
+.typedfield .box.empty { color: rgb(92 100 112 / .7); }
+.sendbtn {
+  flex: none; width: 52px; border-radius: var(--r-md); border: 0; cursor: pointer;
+  background: var(--t-accent-600); color: var(--t-chrome-deep);
+  display: flex; align-items: center; justify-content: center;
+}
 
 /* --- buttons -------------------------------------------------------------- */
 
 .btn {
-  flex: 1; min-height: 50px; border-radius: 14px; border: 0; cursor: pointer;
+  flex: 1; min-height: 50px; border-radius: var(--r-md); border: 0; cursor: pointer;
   font-family: var(--sans); font-size: 15px; font-weight: 600; letter-spacing: -.01em;
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  background: var(--surface); color: var(--chrome); box-shadow: inset 0 0 0 1px var(--hair2);
+  background: var(--t-surface); color: var(--t-chrome); box-shadow: inset 0 0 0 1px var(--hair2);
 }
-/* White on coral-600 at 15px/600 — above the 14px+/500 floor. */
-.btn.primary { background: var(--coral-600); color: #fff; box-shadow: var(--shadow-coral); }
+/* Vivid primary: accent-600 fill, chrome-deep label. 5.88:1. */
+.btn.primary { background: var(--t-accent-600); color: var(--t-chrome-deep); box-shadow: var(--shadow-fab); font-weight: 700; }
 
-/* The persistent approval control. */
-.fab {
-  position: absolute; right: 20px; bottom: 26px; z-index: 20;
-  width: 62px; height: 62px; border-radius: 999px; border: 0; cursor: pointer;
-  background: var(--coral-600); color: #fff;
-  display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 12px 26px -6px rgb(232 112 95 / .65);
+.tally { list-style: none; margin: 4px 0 16px; padding: 0; display: grid; gap: 1px; background: var(--hair); border-radius: 16px; overflow: hidden; }
+.tally li { display: flex; align-items: baseline; gap: 12px; background: var(--t-surface); padding: 13px 14px; }
+.tally .n { font-size: 20px; font-weight: 700; color: var(--t-chrome); min-width: 26px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.tally .what { font-size: 13.5px; line-height: 1.4; color: var(--t-muted); }
+
+/* --- tasks tab stub ------------------------------------------------------- */
+
+.taskgroup { margin-bottom: 18px; }
+.taskgroup h3 { margin: 0 0 8px; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--t-muted); }
+.taskrow {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  background: var(--t-surface); border: 1px solid var(--hair); border-radius: var(--r-md);
+  padding: 12px 13px; margin-bottom: 8px; min-height: 56px; cursor: pointer; font-family: var(--sans);
+  box-shadow: var(--shadow-card);
 }
-.fab .ic { stroke-width: 2.4; }
-
-.tally { list-style: none; margin: 4px 0 16px; padding: 0; display: grid; gap: 1px; background: var(--hair); border-radius: 15px; overflow: hidden; }
-.tally li { display: flex; align-items: baseline; gap: 12px; background: var(--surface); padding: 13px 14px; }
-.tally .n { font-size: 20px; font-weight: 700; color: var(--chrome); min-width: 26px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
-.tally .what { font-size: 13.5px; line-height: 1.4; color: var(--muted); }
-
-.approve-wrap { padding: 16px 20px 20px; }
-.approve-card { background: var(--surface); border: 1px solid var(--hair); border-radius: 22px; padding: 18px 16px 16px; box-shadow: var(--shadow-card); }
-.approve-card h2 { font-size: 19px; line-height: 1.25; font-weight: 700; letter-spacing: -.025em; margin: 0 0 8px; color: var(--chrome); }
-.approve-card p { margin: 0 0 8px; font-size: 14px; line-height: 1.5; color: var(--chrome); }
-.approve-card p.quiet { color: var(--muted); font-size: 13px; }
+.taskrow .tick {
+  width: 24px; height: 24px; flex: none; border-radius: var(--r-pill);
+  border: 2px solid var(--hair2); background: var(--t-surface);
+}
+.taskrow.done .tick { border-color: var(--t-accent-600); background: var(--t-accent-600); }
+.taskrow .tbody { flex: 1; min-width: 0; }
+.taskrow .tlabel { font-size: 15px; font-weight: 600; color: var(--t-chrome); }
+.taskrow.done .tlabel { color: var(--t-muted); text-decoration: line-through; }
+.taskrow .tmeta { font-size: 12.5px; color: var(--t-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* --- misc ----------------------------------------------------------------- */
 
-.hint { margin: 14px 0 0; font-size: 12px; line-height: 1.5; color: var(--muted); border-left: 2px solid var(--coral-600); padding-left: 10px; }
-
-.notes { margin-top: 34px; background: var(--surface); border-radius: 18px; padding: 20px 22px; box-shadow: var(--shadow-card); }
-.notes h2 { font-size: 13px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+.notes { margin-top: 34px; background: var(--t-surface); border-radius: 20px; padding: 20px 22px; box-shadow: var(--shadow-card); }
+.notes h2 { font-size: 13.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--t-muted); margin: 0 0 10px; }
 .notes h2 + h2 { margin-top: 18px; }
 .notes ul { margin: 0; padding-left: 20px; display: grid; gap: 7px; }
-.notes li { font-size: 13.5px; line-height: 1.55; color: var(--chrome); }
-.notes code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: var(--line-soft); padding: 1px 5px; border-radius: 5px; }
-.notes a { color: var(--coral-800); }
+.notes li { font-size: 13.5px; line-height: 1.55; color: var(--t-chrome); }
+.notes code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: var(--t-line-soft); padding: 1px 5px; border-radius: 9px; }
+.notes a { color: var(--t-accent-800); }
 
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
+@media (prefers-reduced-motion: reduce) {
+  .wave.speaking i { animation: none; height: 14px; }
+}
+
 @media (max-width: 480px) {
   body { padding: 20px 8px 40px; }
-  .phone { border-radius: 0; height: auto; min-height: 720px; box-shadow: none; }
+  .phone { border-radius: 0; height: auto; min-height: 760px; box-shadow: none; }
 }

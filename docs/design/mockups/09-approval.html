@@ -9,60 +9,69 @@
 <body>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
-<symbol id="i-reel" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="3.5"/><path d="M10.3 9.2l5 2.8-5 2.8V9.2Z" fill="currentColor" stroke="none"/></symbol>
-<symbol id="i-single" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/></symbol>
-<symbol id="i-chev-down" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></symbol>
-<symbol id="i-chev-left" viewBox="0 0 24 24"><path d="M14.5 5.5l-7 6.5 7 6.5"/></symbol>
-<symbol id="i-chev-right" viewBox="0 0 24 24"><path d="M9.5 5.5l7 6.5-7 6.5"/></symbol>
+<symbol id="i-reel" viewBox="0 0 24 24"><path style="fill:currentColor;stroke:none" d="M4.6 4.2h14.8a2 2 0 0 1 2 2v3.1H2.6V6.2a2 2 0 0 1 2-2Z"/><path style="fill:var(--t-accent-100);stroke:none" d="M8.2 4.2l-2.4 5.1h1.9l2.4-5.1zM14.4 4.2L12 9.3h1.9l2.4-5.1z"/><path d="M2.6 9.3h18.8V18a2 2 0 0 1-2 2H4.6a2 2 0 0 1-2-2V9.3Z"/></symbol>
+<symbol id="i-carousel" viewBox="0 0 24 24"><rect x="3.5" y="6.5" width="13" height="14" rx="2.5"/><path d="M7.2 3.5h9.3a3.5 3.5 0 0 1 3.5 3.5v9.6"/></symbol>
+<symbol id="i-single" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><circle cx="8.8" cy="9.2" r="1.5"/><path d="M4.3 17.3l4.5-4.8a1.7 1.7 0 0 1 2.5 0l5.2 5.5"/></symbol>
+<symbol id="i-chev-l" viewBox="0 0 24 24"><path d="M14.5 5.5l-7 6.5 7 6.5"/></symbol>
+<symbol id="i-chev-r" viewBox="0 0 24 24"><path d="M9.5 5.5l7 6.5-7 6.5"/></symbol>
+<symbol id="i-chev-u" viewBox="0 0 24 24"><path d="M6 14.5l6-6 6 6"/></symbol>
+<symbol id="i-chev-d" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></symbol>
 <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></symbol>
 <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></symbol>
+<symbol id="i-key" viewBox="0 0 24 24"><rect x="2.5" y="6.5" width="19" height="11" rx="2.5"/><path d="M6.5 10h.01M10 10h.01M13.5 10h.01M17 10h.01M8.5 14h7"/></symbol>
+<symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 17a6 6 0 1 1 6 0v1.6H9V17Z"/><path d="M10 21.5h4"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 10.8v5.7M12 7.7v.3"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.5"/><path d="M15.5 5.5v-.5a2 2 0 0 0-2-2H6a2.5 2.5 0 0 0-2.5 2.5v7.5a2 2 0 0 0 2 2h.5"/></symbol>
+<symbol id="i-cal" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/></symbol>
+<symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z"/></symbol>
+<symbol id="i-bin" viewBox="0 0 24 24"><path d="M4.5 6.5h15M9.5 6.5V4.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v2M6.5 6.5l1 13a1.5 1.5 0 0 0 1.5 1.4h6a1.5 1.5 0 0 0 1.5-1.4l1-13"/></symbol>
 <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
 <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+<symbol id="i-send" viewBox="0 0 24 24"><path d="M4.5 12h14M12.5 6l6 6-6 6"/></symbol>
+<symbol id="i-plan" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/><path d="M7.5 13.5h4"/></symbol>
+<symbol id="i-tasks" viewBox="0 0 24 24"><path d="M4 7.5l2 2 3.5-3.5M4 16.5l2 2 3.5-3.5M13 8h7M13 17h7"/></symbol>
+<symbol id="i-insights" viewBox="0 0 24 24"><path d="M4 20V13M10 20V7M16 20v-5M21.5 20H3"/></symbol>
 </defs></svg>
 
 <div class="page-head">
-  <div class="crumbs">Mockup 7 of 7 · <a href="index.html">all states</a></div>
+  <div class="crumbs">Mockup 7 of 8 · <a href="index.html">all states</a></div>
   <h1>Approval</h1>
-  <p>The one door that spends money. Round 2 makes it a persistent tick, bottom-right, on every
-  screen of the draft surface — clearly the primary action, and reachable without scrolling to
-  the end of the month. It is still two taps, never one: the tick opens the consequence, and the
-  consequence has its own commit.</p>
-  <p>The counts are stated so a client can check them against the month they just read, and the
-  copy stays honest about what approval does and does not lock — <em>dates and formats stay
-  editable; captions, hooks and scripts get created.</em></p>
+  <p>The one door that spends money, and round 3 finally labels it. Approval is a <strong>Ready to go</strong> pill in the header region: persistent, secondary weight, and it says in words what it does. Round 2 made it an unlabelled tick FAB, which put the highest stakes action in the product behind a glyph a non-technical founder has no reason to read as “approve the month and start spending”.</p>
+  <p>The FAB is now the microphone, which is the action a client takes ten times to approval's one. It is still two taps: the pill opens the consequence, the consequence has its own commit.</p>
 </div>
 
 <div class="frames">
-
-<!-- ═══ FRAME A ═════════════════════════════════════════════════════════════ -->
 <div class="frame-wrap">
-  <p class="frame-label">A — the tick, in place</p>
-  <p class="frame-sub">Persistent, bottom-right, over whichever day is open. It replaces round
-  1’s approval card at the foot of the month, which required reaching the end of a scroll that
-  no longer exists.</p>
+  <p class="frame-label">A — the pill, in place</p>
+  <p class="frame-sub">Secondary weight, always visible, never competing with the mic. On the same row as Today, so the header carries state and the FAB carries intent.</p>
 
   <div class="phone">
     <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
-
     <div class="topbar">
-      <div class="brandmark">
-        <svg viewBox="0 0 100 110" fill="#E8705F" aria-hidden="true">
-          <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
-          <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
-          <line x1="50" y1="76" x2="50" y2="98" stroke="#E8705F" stroke-width="2.5" stroke-linecap="round"/>
-        </svg>
-        <span>Sprigly</span>
+      <svg class="mark" viewBox="0 0 100 110" fill="currentColor" aria-hidden="true">
+        <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+        <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+        <line x1="50" y1="76" x2="50" y2="98" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+      <span class="wordmark">Sprigly</span>
+    </div>
+    <div class="titlerow">
+      <div class="monthnav">
+        <button class="navbtn" type="button" aria-label="September 2026"><svg class="ic sm"><use href="#i-chev-l"/></svg></button>
+        <span class="monthtitle">October 2026</span>
+        <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
+      </div>
+      <span style="flex:1"></span>
+      <div class="seg" role="group" aria-label="Week or month view">
+        <button type="button" aria-pressed="true">Week</button>
+        <button type="button" aria-pressed="false">Month</button>
       </div>
     </div>
-
-    <div class="monthrow">
-      <button class="navbtn" type="button" aria-label="September"><svg class="ic sm"><use href="#i-chev-left"/></svg></button>
-      <button class="monthbtn" type="button" aria-haspopup="dialog">October 2026 <span class="dot"></span><svg class="ic"><use href="#i-chev-down"/></svg></button>
-      <button class="navbtn" type="button" aria-label="November" disabled><svg class="ic sm"><use href="#i-chev-right"/></svg></button>
+    <div class="todayrow">
+      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
+      <span style="flex:1"></span>
+      <button class="todaybtn" type="button">Today</button>
     </div>
-
-    <div class="draftline"><span class="badge">Draft</span><span class="muted">Not sent yet</span></div>
-
     <div class="weekstrip" role="group" aria-label="Week of 26 October">
       <button class="wday" type="button" aria-pressed="false"><span class="dow">Mon</span><span class="num">26</span></button>
       <button class="wday" type="button" aria-pressed="false"><span class="dow">Tue</span><span class="num">27</span></button>
@@ -73,15 +82,18 @@
       <button class="wday out" type="button" aria-pressed="false"><span class="dow">Sun</span><span class="num">1</span></button>
     </div>
     <div class="weekrule"></div>
-
     <div class="panel">
+      <div class="draftlead">
+        <span class="badge">Draft</span>
+        <span class="txt">This is your draft October</span>
+      </div>
       <div class="dayhead">
         <span class="dname">Thursday 29 October</span>
         <span class="spacer"></span>
         <span class="daycount">1 planned post</span>
       </div>
 
-      <button class="card draft" type="button">
+      <div class="card draft">
         <div class="cardtop">
           <span class="fmt" title="Single post"><svg class="ic sm"><use href="#i-single"/></svg><span class="sr">Single post</span></span>
           <span class="pillar">Workshops &amp; Experiences</span>
@@ -89,43 +101,63 @@
         </div>
         <h4>An afternoon spent making things</h4>
         <p class="teaser">Single posts average 38 likes and comments across your last 23 posts.</p>
-      </button>
+      </div>
 
       <button class="addslot" type="button"><svg class="ic sm"><use href="#i-plus"/></svg> Plan a post for this day</button>
     </div>
-
-    <button class="fab" type="button" aria-label="Ready to go — generate my plan"><svg class="ic lg"><use href="#i-check"/></svg></button>
+    <button class="fab" type="button" aria-label="Tell Sprigly about this month"><svg class="ic lg"><use href="#i-mic"/></svg></button>
+    <nav class="tabbar" role="tablist" aria-label="Sections">
+      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
+      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    </nav>
   </div>
 </div>
-
-<!-- ═══ FRAME B ═════════════════════════════════════════════════════════════ -->
 <div class="frame-wrap">
   <p class="frame-label">B — “Ready to go”</p>
-  <p class="frame-sub">The counts are computed from the planned posts on screen, not asserted.
-  Two icon buttons, one commit.</p>
+  <p class="frame-sub">Counts computed from the planned posts on screen. Two buttons, one commit. The primary is the vivid fill with dark ink; “Yes, write them” replaces round 2's “Generate it”, which was the system's verb rather than the client's.</p>
 
   <div class="phone">
     <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
-
     <div class="topbar">
-      <div class="brandmark">
-        <svg viewBox="0 0 100 110" fill="#E8705F" aria-hidden="true">
-          <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
-          <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
-          <line x1="50" y1="76" x2="50" y2="98" stroke="#E8705F" stroke-width="2.5" stroke-linecap="round"/>
-        </svg>
-        <span>Sprigly</span>
+      <svg class="mark" viewBox="0 0 100 110" fill="currentColor" aria-hidden="true">
+        <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+        <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+        <line x1="50" y1="76" x2="50" y2="98" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+      <span class="wordmark">Sprigly</span>
+    </div>
+    <div class="titlerow">
+      <div class="monthnav">
+        <button class="navbtn" type="button" aria-label="September 2026"><svg class="ic sm"><use href="#i-chev-l"/></svg></button>
+        <span class="monthtitle">October 2026</span>
+        <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
+      </div>
+      <span style="flex:1"></span>
+      <div class="seg" role="group" aria-label="Week or month view">
+        <button type="button" aria-pressed="true">Week</button>
+        <button type="button" aria-pressed="false">Month</button>
       </div>
     </div>
-    <div class="monthrow">
-      <button class="navbtn" type="button" disabled><svg class="ic sm"><use href="#i-chev-left"/></svg></button>
-      <button class="monthbtn" type="button">October 2026 <span class="dot"></span><svg class="ic"><use href="#i-chev-down"/></svg></button>
-      <button class="navbtn" type="button" disabled><svg class="ic sm"><use href="#i-chev-right"/></svg></button>
+    <div class="todayrow">
+      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
+      <span style="flex:1"></span>
+      <button class="todaybtn" type="button">Today</button>
     </div>
-    <div class="panel"></div>
-
+    <div class="weekstrip" role="group" aria-label="Week of 26 October">
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Mon</span><span class="num">26</span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Tue</span><span class="num">27</span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Wed</span><span class="num">28</span><span class="pip draft"></span></button>
+      <button class="wday" type="button" aria-pressed="true"><span class="dow">Thu</span><span class="num">29</span><span class="pip draft"></span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Fri</span><span class="num">30</span></button>
+      <button class="wday" type="button" aria-pressed="false"><span class="dow">Sat</span><span class="num">31</span></button>
+      <button class="wday out" type="button" aria-pressed="false"><span class="dow">Sun</span><span class="num">1</span></button>
+    </div>
+    <div class="weekrule"></div>
+    <div class="panel" style="opacity:.28;pointer-events:none">
+      <div class="dayhead"><span class="dname">Thursday 29 October</span></div>
+    </div>
     <div class="scrim"></div>
-    <div class="sheet mid" role="dialog" aria-label="Ready to go?">
+    <div class="sheet mid" role="dialog" aria-label="Ready to go">
       <div class="grabber"></div>
       <div class="sheethead">
         <div class="sheettop">
@@ -141,47 +173,50 @@
           <li><span class="n">3</span><span class="what">opening hooks — for the reels and carousels</span></li>
           <li><span class="n">1</span><span class="what">script — for the reel</span></li>
         </ul>
-        <p class="prose quiet">Dates and formats stay yours to change afterwards, right up until
-        each post’s date. What this starts is the writing, and it takes a few minutes.</p>
+        <p class="prose quiet">Dates and formats stay yours to change afterwards, right up until each post's date. What this starts is the writing, and it takes a few minutes.</p>
       </div>
-      <div class="acts">
-        <button class="btn primary" type="button"><svg class="ic sm"><use href="#i-check"/></svg> Generate it</button>
-        <button class="btn" type="button" style="flex:0 0 128px"><svg class="ic sm"><use href="#i-close"/></svg> Not yet</button>
+      <div class="acts" style="gap:8px">
+        <button class="btn primary" type="button"><svg class="ic sm"><use href="#i-check"/></svg> Yes, write them</button>
+        <button class="btn" type="button" style="flex:0 0 116px"><svg class="ic sm"><use href="#i-close"/></svg> Not yet</button>
       </div>
     </div>
+    <nav class="tabbar" role="tablist" aria-label="Sections">
+      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
+      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    </nav>
   </div>
 </div>
-
-<!-- ═══ FRAME C ═════════════════════════════════════════════════════════════ -->
 <div class="frame-wrap">
-  <p class="frame-label">C — a thin month · 2 planned posts</p>
-  <p class="frame-sub">Two posts must not read as a broken ten. The day view is unchanged — it
-  shows one day at a time regardless — and round 2 moves the acknowledgement into the CTA block,
-  where the useful action already lives. The tick stays exactly where it is on a full month: a
-  thin month is still a month you may approve.</p>
+  <p class="frame-label">C — a thin month</p>
+  <p class="frame-sub">Two planned posts must not read as a broken ten. The day view is invariant to month size, and the acknowledgement sits at the foot of the day where the client has already read what there is.</p>
 
-  <div class="phone tall">
+  <div class="phone">
     <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
-
     <div class="topbar">
-      <div class="brandmark">
-        <svg viewBox="0 0 100 110" fill="#E8705F" aria-hidden="true">
-          <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
-          <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
-          <line x1="50" y1="76" x2="50" y2="98" stroke="#E8705F" stroke-width="2.5" stroke-linecap="round"/>
-        </svg>
-        <span>Sprigly</span>
+      <svg class="mark" viewBox="0 0 100 110" fill="currentColor" aria-hidden="true">
+        <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+        <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+        <line x1="50" y1="76" x2="50" y2="98" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+      <span class="wordmark">Sprigly</span>
+    </div>
+    <div class="titlerow">
+      <div class="monthnav">
+        <button class="navbtn" type="button" aria-label="October 2026"><svg class="ic sm"><use href="#i-chev-l"/></svg></button>
+        <span class="monthtitle">November 2026</span>
+        <button class="navbtn" type="button" aria-label="December 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
+      </div>
+      <span style="flex:1"></span>
+      <div class="seg" role="group" aria-label="Week or month view">
+        <button type="button" aria-pressed="true">Week</button>
+        <button type="button" aria-pressed="false">Month</button>
       </div>
     </div>
-
-    <div class="monthrow">
-      <button class="navbtn" type="button" aria-label="October"><svg class="ic sm"><use href="#i-chev-left"/></svg></button>
-      <button class="monthbtn" type="button" aria-haspopup="dialog">November 2026 <span class="dot"></span><svg class="ic"><use href="#i-chev-down"/></svg></button>
-      <button class="navbtn" type="button" disabled><svg class="ic sm"><use href="#i-chev-right"/></svg></button>
+    <div class="todayrow">
+      <button class="readypill" type="button"><svg class="ic"><use href="#i-check"/></svg> Ready to go</button>
+      <span style="flex:1"></span>
+      <button class="todaybtn" type="button">Today</button>
     </div>
-
-    <div class="draftline"><span class="badge">Draft</span><span class="muted">Not sent yet</span></div>
-
     <div class="weekstrip" role="group" aria-label="Week of 2 November">
       <button class="wday" type="button" aria-pressed="true"><span class="dow">Mon</span><span class="num">2</span><span class="pip draft"></span></button>
       <button class="wday" type="button" aria-pressed="false"><span class="dow">Tue</span><span class="num">3</span></button>
@@ -192,37 +227,37 @@
       <button class="wday" type="button" aria-pressed="false"><span class="dow">Sun</span><span class="num">8</span></button>
     </div>
     <div class="weekrule"></div>
-
     <div class="panel">
-      <div class="cta">
-        <h2>This is your draft November — shape it</h2>
-        <p class="nudge">We’ve got two so far. Tell us what’s coming up and we’ll build it out.</p>
-        <button class="micbtn" type="button" aria-label="Tell Sprigly about this month">
-          <svg class="ic xl"><use href="#i-mic"/></svg>
-        </button>
-        <p class="nudge">We don’t have much of your posting history yet, so this is a starting
-        shape rather than a pattern we’ve seen work.</p>
-        <button class="typedlink" type="button">Type it instead</button>
+      <div class="draftlead">
+        <span class="badge">Draft</span>
+        <span class="txt">This is your draft November</span>
       </div>
-
       <div class="dayhead">
         <span class="dname">Monday 2 November</span>
         <span class="spacer"></span>
         <span class="daycount">1 planned post</span>
       </div>
 
-      <button class="card draft" type="button">
+      <div class="card draft">
         <div class="cardtop">
           <span class="fmt" title="Single post"><svg class="ic sm"><use href="#i-single"/></svg><span class="sr">Single post</span></span>
           <span class="pillar">Brand Story &amp; Culture</span>
         </div>
         <h4>Brand Story &amp; Culture — Single</h4>
-      </button>
+        <p class="teaser">We don't have much of your posting history yet, so this is a starting
+        shape rather than a pattern we've seen work.</p>
+      </div>
 
       <button class="addslot" type="button"><svg class="ic sm"><use href="#i-plus"/></svg> Plan a post for this day</button>
-    </div>
 
-    <button class="fab" type="button" aria-label="Ready to go — generate my plan"><svg class="ic lg"><use href="#i-check"/></svg></button>
+      <p class="prose quiet" style="margin-top:18px">Two posts so far. Tell us what's coming up and
+      we'll build it out, or say you're ready and we'll write these two.</p>
+    </div>
+    <button class="fab" type="button" aria-label="Tell Sprigly about this month"><svg class="ic lg"><use href="#i-mic"/></svg></button>
+    <nav class="tabbar" role="tablist" aria-label="Sections">
+      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
+      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    </nav>
   </div>
 </div>
 
@@ -231,36 +266,15 @@
 <div class="notes">
   <h2>Where the content comes from</h2>
   <ul>
-    <li><strong>The tally is the real arithmetic</strong> the shipped approval card already does:
-      captions for every planned post, hooks for reels <em>and</em> carousels, a script per reel.
-      Earl of East’s October is 1 reel, 2 carousels, 7 singles — so 10 / 3 / 1. On a thin month
-      the zero rows are omitted rather than shown as “0 hooks”.</li>
-    <li><strong>The honest-consequence copy is the shipped copy</strong>, kept verbatim because it
-      was written to correct a lie: an earlier version told clients “after this the dates and
-      formats are set for the month”, which is false — every post stays editable by date until its
-      own date passes.</li>
-    <li><strong>Frame C is constructed, and says so.</strong> The template path’s sentence is
-      exactly what <code>rationaleFor()</code> emits for <code>basis:'template'</code>, and
-      “no <code>formatEngagement</code>, no <code>pillarShare</code>” is asserted by test in
-      Build&nbsp;A §9 — which is why that card shows no engagement line and no posting time. But no
-      live client has a recorded thin draft: the one thin-data client (sprigly) has zero
-      <code>ig_posts</code> and has never been assembled.</li>
+    <li><strong>The tally is the real arithmetic</strong> the shipped approval card already does: captions for every planned post, hooks for reels and carousels, a script per reel. Earl of East's October is 1 reel, 2 carousels, 7 singles — 10 / 3 / 1. Zero rows are omitted rather than printed as “0 hooks”.</li>
+    <li><strong>The consequence copy is the shipped copy</strong>, kept because it was written to correct a lie: an earlier version told clients the dates and formats were set for the month, which is false.</li>
+    <li><strong>Frame C is constructed and says so.</strong> The template sentence is what <code>rationaleFor()</code> emits for <code>basis:'template'</code>, and template posts carry no engagement figure and no pillar share — which is why that card has neither. But no live client has a recorded thin draft: sprigly has zero <code>ig_posts</code> and has never been assembled.</li>
   </ul>
   <h2>Wiring</h2>
   <ul>
-    <li><strong>The counts need no new API.</strong> They are derived client-side from the planned
-      posts already in memory — <code>draft.beats</code>, loaded by
-      <code>GET /api/plan/draft</code> for the viewed cycle before this sheet can be opened. A
-      pre-approval summary endpoint would be a second source for a number the client is already
-      holding.</li>
-    <li><strong>Generate it → <code>POST /api/plan/draft/approve</code></strong> — no body, no
-      options, no partial approval. Returns <code>{approved, captionsQueued, hooksQueued, failed}</code>.
-      A second approval is rejected (<code>already_approved</code> 409) rather than quietly
-      succeeding, because approval spends money and a silent second fan-out is worse than an
-      explicit refusal.</li>
-    <li><strong>After approval</strong> the surface navigates to <code>/?cycle=&lt;cycleId&gt;</code>
-      so the client lands on the month they just approved rather than on whatever the date
-      heuristic picks.</li>
+    <li><strong>The counts need no new API.</strong> They derive client-side from the planned posts already in memory, loaded by <code>GET /api/plan/draft</code> before the pill can be tapped. A pre-approval summary endpoint would be a second source for a number the client is already holding.</li>
+    <li><strong>Yes, write them → <code>POST /api/plan/draft/approve</code></strong> — no body, no options, no partial approval. A second approval is rejected with <code>already_approved</code> rather than quietly succeeding, because approval spends money and a silent second fan-out is worse than an explicit refusal.</li>
+    <li><strong>After approval</strong> the surface navigates to <code>/?cycle=&lt;cycleId&gt;</code> so the client lands on the month they just approved.</li>
   </ul>
 </div>
 

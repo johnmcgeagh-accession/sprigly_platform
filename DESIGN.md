@@ -18,9 +18,27 @@ colors:
 typography:
   display:
     fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif"
-    fontSize: "21px"
+    fontSize: "22px"
     fontWeight: 700
     lineHeight: 1.2
+    letterSpacing: "-0.03em"
+  title:
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif"
+    fontSize: "20px"
+    fontWeight: 700
+    lineHeight: 1.25
+    letterSpacing: "-0.025em"
+  wordmark:
+    fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif"
+    fontSize: "17px"
+    fontWeight: 800
+    lineHeight: 1
+    letterSpacing: "-0.02em"
+  cardTitle:
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif"
+    fontSize: "16.5px"
+    fontWeight: 600
+    lineHeight: 1.3
     letterSpacing: "-0.02em"
   body:
     fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif"
@@ -28,17 +46,43 @@ typography:
     fontWeight: 400
     lineHeight: 1.5
     letterSpacing: "normal"
-  wordmark:
-    fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif"
-    fontSize: "17px"
-    fontWeight: 800
+  secondary:
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif"
+    fontSize: "13.5px"
+    fontWeight: 500
+    lineHeight: 1.5
+    letterSpacing: "normal"
+  meta:
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif"
+    fontSize: "12.5px"
+    fontWeight: 600
+    lineHeight: 1.4
+    letterSpacing: "normal"
+  label:
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif"
+    fontSize: "11px"
+    fontWeight: 700
+    lineHeight: 1.3
+    letterSpacing: "0.1em"
+  tab:
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif"
+    fontSize: "10.5px"
+    fontWeight: 600
+    lineHeight: 1.2
+    letterSpacing: "0.01em"
+  micro:
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif"
+    fontSize: "8.5px"
+    fontWeight: 700
     lineHeight: 1
-    letterSpacing: "-0.02em"
+    letterSpacing: "0.02em"
 rounded:
   sm: "9px"
   md: "14px"
+  card: "16px"
   lg: "20px"
   sheet: "26px"
+  shell: "44px"
   pill: "999px"
 spacing:
   xs: "6px"
@@ -170,16 +214,21 @@ Hierarchy comes from **weight and size, never from a second family**:
 
 | Role | Size | Weight | Tracking |
 |---|---|---|---|
-| Day / date header | 21px | 700 | −0.02em |
-| Sheet title | 20px | 700 | −0.025em |
-| Card title | 16.5px | 600 | −0.02em |
-| Body, caption prose | 14.5–15px | 400 | normal |
-| Secondary / meta | 12.5–13.5px | 500–600 | normal |
-| Eyebrow, section label | 11px | 700 | +0.1em, uppercase |
-| Numerals in the strip and grid | 15–16px | 600 | −0.01em |
+| `display` — month title, day header | 22px | 700 | −0.03em |
+| `title` — sheet titles | 20px | 700 | −0.025em |
+| `wordmark` | 17px | 800 | −0.02em |
+| `cardTitle` | 16.5px | 600 | −0.02em |
+| `body` — caption prose, field text, strip numerals | 15px | 400–600 | normal |
+| `secondary` — teasers, meta prose, status | 13.5px | 500 | normal |
+| `meta` — times, counts, chips, segment labels | 12.5px | 600 | normal |
+| `label` — section eyebrows | 11px | 700 | +0.1em, uppercase |
+| `tab` — tab-bar labels | 10.5px | 600 | +0.01em |
+| `micro` — the date on the Move icon | 8.5px | 700 | +0.02em |
 
-Keep at least a 1.25 ratio between adjacent steps in any one region; a panel whose sizes sit
-inside 1.1 of each other has no hierarchy and reads as a wall.
+**Ten roles, and no step closer than ~1.1 to its neighbour by accident.** Round 3 collapsed a
+ramp that had drifted to nineteen sizes — 12, 12.5, 13, 13.5 and 14 were all in play, doing jobs
+that were not five different jobs. If two roles need the same size they are the same role; give
+them the same name.
 
 Tabular numerals (`font-variant-numeric: tabular-nums`) on times, counts and tallies.
 

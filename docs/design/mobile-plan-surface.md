@@ -1,7 +1,9 @@
 # Mobile plan surface — design spec
 
 **Date:** 2026-07-27 · branch `dev` · **spec and mockups only, no production code**
-**Revision:** round 2, after the operator's phone review of round 1.
+**Revision:** round 3, after an `/impeccable` critique and the operator's third review.
+**Design context:** [`PRODUCT.md`](../../PRODUCT.md) · [`DESIGN.md`](../../DESIGN.md) ·
+[`round-3-notes.md`](round-3-notes.md)
 **Mockups:** [`docs/design/mockups/index.html`](mockups/index.html) — open any file directly, no build step.
 
 ---
@@ -47,6 +49,22 @@ and its overlay — though the latter is superseded on the draft surface by the 
 
 ---
 
+### Round 3 — the critique, and the operator's third review
+
+| # | Change | Rationale |
+|---|---|---|
+| **R1** | **Colour is theme tokens.** Every value reads a `--t-*` custom property with the name `theme.ts` injects; the mockups demonstrate the active theme, **Teal v1** | §6b. Round 2 hard-coded thirteen coral hexes into a surface whose whole point is that an admin can re-skin it |
+| **R2** | **The vivid pass.** accent-600 fills carry **chrome-deep ink**, not white | §6b. White on accent-600 is 2.49:1; flipping the ink gets 5.88:1 and keeps the brightest tier on the biggest surfaces |
+| **R3** | **No serif anywhere on the client surface.** Fraunces is out entirely | §6. It was never loaded, so round 2's wordmark and month title rendered as Georgia |
+| **R4** | **A persistent bottom tab bar** — Plan \| Tasks, laid out for 3–4 — with the FAB floating over it | §1.2. Insights joins as a third tab when the insight layer ships |
+| **R5** | **Week \| Month is a peer switcher**, not an overlay. No ✕, no legend, no month pills | §1.2, §1.5 |
+| **R6** | **Plan \| Tasks and Today restored**, matching the live app | §1.2 |
+| **R7** | **The mic is the FAB; approval is a labelled “Ready to go” pill** | §1.3. Round 2 put an unlabelled tick on the one action that spends money |
+| **R8** | **The draft framing shrinks to one line**; the full copy moves into the voice sheet | §2 |
+| **R9** | **Voice is live from day one**, with a live waveform, and typed input uses the same sheet | §8 |
+| **R10** | **Action rows are icon-only**; the date picker crosses months; write-again happens in place | §4 |
+| **R11** | **Icons v2** — clapperboard, stacked squares, framed image — screenshot-tested at 17px | §6c |
+
 ## 1. The state machine
 
 ### 1.1 The surface decision — unchanged
@@ -64,34 +82,53 @@ page* — holds here. This redesign **adds no member to `SurfaceKind`**.
 
 ### 1.2 The states inside a surface
 
+Round 3 gives the surface a real iOS shell. The tab bar is persistent; **Week and Month are peer
+views** inside the Plan tab, switched by a segmented control on the title row.
+
 ```
-                       ┌──────────────────────────────────────────┐
-   (server decides)    │  SURFACE  = draft | committed            │
-                       │  CYCLE    = viewedCycleId                │
-                       │  EDITABLE = pre-cutoff (draft)           │
-                       │             date-by-date (committed)     │
-                       └──────────────────────────────────────────┘
-                                        │
-                    ┌───────────────────┴───────────────────┐
-                    ▼                                       ▼
-          VIEW = day  (default)                     VIEW = month
-          ─────────────────────                     ─────────────────
-          selectedDay: ISO date                     the dot-density grid
-          week strip SELECTS                        under the same control
-          panel = that day only                     that opened it
-                    │                                       │
-                    │  tap the month control ──────────────►│
-                    │◄───────────────────── tap a day ──────┤
-                    │                                       │
-                    │        ‹ › arrows (both views) ───────┴──► switchCycle
-                    ▼
-          OVERLAY ∈ { none, detail, move, write-again, voice, approve }
-                    detail      — the bottom sheet (committed post | planned post)
-                    move        — date + time picker
-                    write-again — the guided-rewrite prompt
-                    voice       — the mic sheet (draft surface only)
-                    approve     — “Ready to go”
+  ┌──────────────────────────────────────────────┐
+  │  Sprigly                                     │  wordmark, LEFT
+  │                                              │
+  │  ‹  October 2026  ›            [Week][Month] │  title row + peer switcher
+  │                                              │
+  │  [Draft] Not sent yet ...      Ready to go   │  ← draft only: state + approval
+  │                                        Today │
+  │  M   T   W   T   F   S   S                   │  week strip   ── OR ──
+  │ 28  29  30  (1)  2   3   4                   │  the month grid
+  │ ──────────────────────────────────────────── │
+  │                                              │
+  │  Thursday 1 October          2 posts         │  the selected day, ALONE
+  │  ┌────────────────────────────────────────┐  │
+  │  │ ▣  Home & Space                  6:00  │  │
+  │  └────────────────────────────────────────┘  │
+  │                                       ( 🎤 ) │  FAB — mic on a draft month
+  │  ┌──────────────────┬───────────────────┐   │
+  │  │      Plan        │      Tasks        │   │  tab bar, sized for 3–4
+  └──────────────────────────────────────────────┘
 ```
+
+```
+   SURFACE = draft | committed        (server decides — §1.1)
+      │
+      ├── TAB    = plan | tasks          ← persistent bottom bar
+      │      │
+      │      └── VIEW = week | month     ← peer switcher, title row
+      │             │
+      │             └── selectedDay
+      │
+      └── OVERLAY ∈ { none, detail, move, write-again, voice, approve }
+```
+
+Three rules the round-3 shell adds:
+
+1. **The tab bar is always there.** It closes the viewport, which is most of what separates an app
+   from a page that ran out of content — round 2 left 300–500px of unanchored canvas under short
+   days.
+2. **Month is a peer, not a modal.** It has no ✕ and no dismiss; you leave it the way you entered
+   it. That also removes the round-2 ✕ sitting beside the wordmark, where a founder reads it as
+   *close the app*.
+3. **The FAB is the primary verb of the surface.** On a draft month that is the microphone. On a
+   committed month there is no FAB today — see the open question in §12.
 
 Transient state alongside, none of it navigational:
 
@@ -109,7 +146,7 @@ in the month):
 
 | Today | Lands in |
 |---|---|
-| Header: “Draft / Not sent yet” + “We’ve drafted *month* for *client*” | The `Draft` badge + “Not sent yet” under the month control. The client's name goes: they know whose plan it is |
+| Header: “Draft / Not sent yet” + “We’ve drafted *month* for *client*” | A `Draft` badge and one line — *“This is your draft October”* — at the top of the panel. The rest of the framing moved into the voice sheet (§2) |
 | `draft-month-nav` month pills | **Retired** → the ‹ › arrows |
 | “What we assumed” section (display only) | **The CTA block** — one assumption, re-voiced as a nudge (§2) |
 | “Anything we should know?” textarea + “Tell Sprigly” | The CTA block's mic (primary) and typed fallback |
@@ -118,7 +155,7 @@ in the month):
 | “Add to this month” rescue tap | Unchanged, on the panel's idea lines |
 | Per-beat inline `<input type=date>`, `<select>` format, Remove | The detail sheet and the move sheet. **Format loses its control entirely** — see §4.1 |
 | `+ Add something` (collapsed, bottom of list) | The per-day add slot, pre-filled with that day's date |
-| Two-step approval section | The persistent tick → the “Ready to go” sheet |
+| Two-step approval section | The **labelled “Ready to go” pill** in the header region → the consequence sheet |
 | Undo toast (fixed, bottom) | **Top of the screen** (§4) |
 | Past-cutoff read-only (`editable: false`) | Unchanged: every control disappears, the month stays fully readable |
 
@@ -139,7 +176,8 @@ in the month):
 | `BeatMarker` rows (`structured_brief` beats) | Kept, read-only, under the day's posts |
 | “Outside this month” strip | Kept, at the end of the panel |
 | Account avatar chip | **Removed** (G5) |
-| Plan / Tasks segmented control, voice FAB | Kept, out of scope |
+| Plan / Tasks segmented control | **Restored as the bottom tab bar** (R6) |
+| `voice-fab` and its “arrives later” overlay | **Replaced** by the mic FAB and the voice sheet (§8) |
 
 **One structural consequence, unchanged from round 1 and now larger.** `PlanRoot` returns
 `DraftPlan` *before* the desktop/mobile fork is reached, so the draft surface has no responsive
@@ -166,37 +204,33 @@ week.
 
 ---
 
-## 2. The draft call-to-action block
+## 2. The draft framing
 
-Replaces “What we assumed”. It is the primary control on the draft surface and it scrolls with
-the day's content; only the month row and the week strip are fixed.
+Round 2 replaced the “What we assumed” panel with a call-to-action card. Round 3 shrinks that card
+to **one line**, because a 200px block asking the client to say something sat above the fold,
+before the month they came to read — which inverts the product's own first principle.
+
+What is left at the top of the panel:
 
 ```
-        This is your draft October — shape it
-        Tell us what’s coming up and we’ll build it in.
-
-                      (   mic   )        ← primary
-
-     Right now we’ve assumed nothing’s launching
-     in October — say so if something is.       ← at most ONE line
-
-                  Type it instead
+  [Draft]  This is your draft October
 ```
 
-Three rules:
+The badge carries *provisional*; the line carries *which month*. “Not sent yet” is gone from here
+as redundant with the badge. Everything else — the framing sentence, the invitation, the example
+prompts — moved into the **voice sheet** (§8), which is where the client is already being asked to
+speak.
 
-1. **Mic first, typing one tap away** — not behind a menu, and the typed field opens in place.
-2. **At most one assumption line, phrased as a nudge.** The assembler attaches the same list to
-   every beat; the block shows the one a client can *act on* and drops the ones that are facts
-   about our data. For Earl of East that means keeping “nothing’s launching this month” and
-   dropping “no pillar weights are on record” — the second is true, but it is not a question.
-3. **Never a caveat.** The round-1 panel was headed “What we assumed” in an amber warning box.
-   The same information as an invitation reads as confidence; as a warning it reads as an excuse.
+**The one assumption worth surfacing goes with it.** The assembler attaches the same list to every
+planned post; the sheet shows the one a client can *act on* and drops the rest. For Earl of East
+that means keeping “nothing's launching this month” and dropping “no pillar weights are on
+record” — the second is true, but it is a fact about our data, not a question for them.
 
-On a thin month the block absorbs the acknowledgement (§9) — which is why round 2 has no separate
-thin-month approval card.
+**Never a caveat.** Round 1 headed this an amber “What we assumed” warning box. The same
+information phrased as an invitation reads as confidence; phrased as a warning it reads as an
+excuse.
 
----
+On a thin month the same one-liner carries the acknowledgement (§9.2).
 
 ## 3. The what-changed summary chip
 
@@ -287,7 +321,9 @@ unless the Exists column says **no**.
 |---|---|---|
 | Tap a day in the week strip | local `selectedDay` — **round 2: no scroll-to-day, the panel re-renders** | yes |
 | Swipe the week strip | local. New gesture; the strip is a grid today | UI only |
-| Tap the month control → overview | local view state, no request | yes (new UI, no API) |
+| Week \| Month switcher | local view state, no request | yes (new UI, no API) |
+| Plan \| Tasks tab bar | local; Tasks renders the existing checklist (`planTasks`, `PostStepView`) | yes |
+| Insights tab | — | **no** — the insight layer does not exist. The bar is laid out to take it |
 | Tap a day in the month grid | local `selectedDay`, view → day | yes |
 | ‹ › arrows (either view) | `data.switchCycle(cycleId)` over the sorted cycle list → `GET /api/plan?cycleId=` ; on a draft answer, `GET /api/plan/draft?cycleId=` for planned posts + pillars + editable + receipts | yes |
 | Dot density for the **viewed** month | already-loaded `calendarPosts` / `draft.beats` | yes |
@@ -319,7 +355,9 @@ Refusals map to distinct statuses the surface must distinguish: `not_found` 404,
 
 | Interaction | Wiring | Exists |
 |---|---|---|
-| Voice sheet → spoken input | `POST /api/plan/draft/apply {op:'text', text}` once transcribed | transport yes, capture **partly** — §8 |
+| Voice sheet → spoken input | `useSpeechInput.ts` (Web Speech, browser-side) → `POST /api/plan/draft/apply {op:'text', text}` | **yes, both halves** — §8 |
+| Voice sheet → typed input | the same route, same payload. One sheet, two modes | yes |
+| The waveform | Web Audio `AnalyserNode` + `getByteFrequencyData` on the mic stream | no API; new UI |
 | Typed input (CTA block or voice sheet) | the same call | yes |
 | Marking input as voice-sourced | — | **no** (gap 8) |
 | Answering the CTA block's assumption nudge | the same call; the answer is ordinary text | yes |
@@ -329,7 +367,7 @@ Refusals map to distinct statuses the surface must distinguish: `not_found` 404,
 | “New” marks | `changedIds`, in memory | yes |
 | Receipts surviving a reload | `GET /api/plan/draft/apply` → `{receipts}`, also folded into the draft surface context. Capped at `MAX_RECEIPTS` (10) | yes |
 | “Add to this month” on an idea line | `POST /api/plan/draft/apply {op:'add_to_month', planInputId, date}` | yes — **but** it returns a single receipt that replaces the panel (gap 6b) |
-| Approval tick → sheet | local | yes |
+| “Ready to go” pill → sheet | local | yes |
 | Sheet counts (10 / 3 / 1) | **derived client-side from the planned posts already in memory** (`draft.beats`, loaded by `GET /api/plan/draft` before the sheet can open). No pre-approval summary endpoint is needed, and adding one would create a second source for a number the client is already holding | yes |
 | Generate it | `POST /api/plan/draft/approve` — no body, no options, no partial approval → `{approved, captionsQueued, hooksQueued, failed}` | yes |
 | Double-approve | rejected (`already_approved` 409), not a quiet no-op — approval spends money | yes |
@@ -342,8 +380,9 @@ Refusals map to distinct statuses the surface must distinguish: `not_found` 404,
 | Open the detail sheet | already-loaded `PlanPost` (`caption`, `hook`, `script`, `scriptLengthSeconds`, `status`, `steps`) | yes |
 | Caption / Hook / Script tabs | the same object; a tab with no content is disabled | yes |
 | Copy | `navigator.clipboard.writeText` — no API, which is the point | yes |
-| Move (date) | `PATCH /api/posts/:id {date}` (`data.reschedule`), gated by `isEditableDate` | yes |
-| Move (time) | — | **no** (gap 1) |
+| Move (date), same month | `PATCH /api/posts/:id {date}` (`data.reschedule`), gated by `isEditableDate` | yes |
+| Move (date), **across months** | the same call — the route gates on date, not on month, and a post carries its own `cycleId` | yes, **with consequences** — see below |
+| Move (time) | — | **no** (gap 1, widened this round to read *and* write) |
 | Edit the caption | `PATCH /api/posts/:id {caption}` + autosave | yes |
 | Delete | `DELETE /api/posts/:id` (soft) | yes |
 | Per-day add slot | `POST /api/posts {date, cycleId}` — refuses past dates (`canAddPost`) | yes |
@@ -351,6 +390,22 @@ Refusals map to distinct statuses the surface must distinguish: `not_found` 404,
 | The rewrite meter | same route: `getUsageForCycle` + `isRewriteBlocked` can return `mode:'blocked'` with a summary | yes — **but it has nowhere to render** (gap 9) |
 | A post still being written | `status: 'generating'` on the post | yes |
 | Hooks / scripts | `POST /api/plan/hooks`, `POST /api/plan/script` | yes |
+
+**Cross-month move — what the picker now allows.** Round 3 lets the date picker navigate months
+freely rather than clamping to the current one. The write works: `PATCH /api/posts/:id` accepts any
+editable date and does not check that the date falls inside the post's own cycle. What follows is
+not a bug but is not nothing either:
+
+- the post keeps its original `cycleId`, so it still belongs to the month that planned it;
+- `loadCrossMonthPosts` surfaces it **by date** in the destination month's feed, so it appears
+  where the client put it;
+- the origin month's counts drop by one, and the destination's rise, without either cycle changing;
+- if no cycle plans the destination month, the post lands in the **“Outside this month”** strip
+  rather than on a day.
+
+So the mechanism exists and behaves sanely. What is missing is that **the surface never says where
+the post went** — a client who moves a 31 October post to 3 November gets no confirmation naming
+November. That is a copy and toast decision, not an API one, and it should land with the picker.
 
 ### 5.5 The gap list
 
@@ -365,7 +420,10 @@ Round 1's six, updated in place. Three are new to round 2; two were widened by i
 | 5 | **An assumption that stays answered** | Nothing records that an assumption was answered or dismissed | The answer routes fine (§5.3); the list is recomputed from `assumptions[]` on every load | **Moved, not closed:** it now surfaces as the CTA block's nudge, so a stale nudge is more prominent than a stale panel row |
 | 6 | **“Undo this”** on an applied intent | Undo is one in-memory slot over a single structural mutation. There is no inverse of an *applied intent* | — | Unchanged. **6b:** rescuing one rollup item still replaces the panel with a single receipt (`brief-decomposer.md`, unfixed §2) |
 | **7** | **“On its way” instead of a retry** | **A sweep for stuck generations, and an operator surface for one that outlives it** | **Bounded retry exists**: `GENERATION_JOB_OPTIONS` is `{attempts: 3, backoff: exponential 5s}`, and `generation_failed` is stamped only once BullMQ has nothing left to retry (`consumer.ts`, `isFinalAttempt`). **A daily tick exists**: `scheduler-tick`, 05:00 Europe/London, already carrying one sweep (`sweepUnsentPlanReady`) — so a failed-generation sweep is a sibling of something real. **But `generation_failed` is explicitly terminal** — “nothing retries it, the post is client-visible with its error” (`plan-ready.ts`) — and it appears nowhere in `admin/src` | **NEW, and blocking.** G4 removes the client's only recovery path. Shipping it without both halves strands the post |
-| **8** | **Voice-sourced input on the draft surface** | `POST /api/plan/draft/apply` takes `{op:'text', text}` and nothing else | `POST /api/plan/intake` and `POST /api/plan/agent` both accept `source:'voice'` + `sessionId`. One field, for parity | **NEW.** Without it, spoken and typed input are indistinguishable on the ledger |
+| **8** | **Voice-sourced input on the draft surface** | `POST /api/plan/draft/apply` takes `{op:'text', text}` and nothing else | `POST /api/plan/intake` and `POST /api/plan/agent` both accept `source:'voice'` + `sessionId`. One field, for parity | **Round 3: now blocking on the voice sheet**, which ships live. It should land in the same change |
+| **10** | **A draft flag the month view can badge** | — | Same as gap 2; round 3 moves the badge from the month control to the month view, where it is labelled rather than a bare dot | **Reframed, not new** |
+| **11** | **“Where did it go?” after a cross-month move** | No confirmation naming the destination month | `PATCH /api/posts/:id` already does the move; `loadCrossMonthPosts` already surfaces it | **NEW.** Copy + toast, no API |
+| **12** | **The Insights tab** | Nothing behind it | The tab bar is laid out for it | **NEW, and deliberately empty.** Drawn at 32% in mockup 10 to prove the geometry |
 | **9** | **The rewrite meter's refusal** | Nowhere in the sheet renders `mode:'blocked'` | The route already returns the message (“You’ve used all N AI changes this month. Resets on the 1st. Editing directly stays free.”) | **NEW.** Round 1 listed this as a constraint; round 2 makes “Write again” a first-class action, so it is a gap. It belongs in the prompt field |
 
 ---
@@ -375,13 +433,16 @@ Round 1's six, updated in place. Three are new to round 2; two were widened by i
 **Round 1 specified Inter for all UI and body text, matching `app/tailwind.config.ts`'s
 `font-sans: var(--font-inter)`. The operator's phone review overrides that.**
 
-| Role | Round 1 | Round 2 |
-|---|---|---|
-| UI, body, cards, sheets, buttons, labels | Inter | **Native stack** — `-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, …` |
-| The big day numeral, day names, sheet and approval headings | Fraunces | **Native stack** |
-| The Sprigly wordmark | Plus Jakarta Sans 800 (`font-logo`) | **Fraunces** |
-| The month title | Fraunces | **Fraunces** — kept |
-| Everything else Fraunces touched | Fraunces | gone |
+| Role | Round 1 | Round 2 | **Round 3** |
+|---|---|---|---|
+| UI, body, cards, sheets, buttons, labels | Inter | Native stack | **Native stack** |
+| Day numeral, day names, sheet and approval headings | Fraunces | Native stack | **Native stack** |
+| The Sprigly wordmark | Plus Jakarta Sans 800 | Fraunces | **Plus Jakarta Sans 800** — back to the app's own `font-logo` token |
+| The month title | Fraunces | Fraunces | **Native stack** |
+| Anything else | Fraunces | — | — |
+
+**Fraunces is now absent from the client app surface entirely.** It remains available to marketing
+and the website.
 
 **Why.** On the device the native stack resolves to SF Pro Text, the typeface every other app on
 the phone uses. Matching it is most of what makes an interface read as *an app* rather than *a
@@ -390,14 +451,106 @@ costs a load. Fraunces earns its place on the two elements that are unambiguousl
 wordmark and the month title — where it is read once and carries identity, not the twenty places
 where it was competing with legibility at 12px.
 
-**One thing to confirm.** The app's `font-logo` token is Plus Jakarta Sans 800, and that is what
-renders “Sprigly” today. Round 2 puts the wordmark in Fraunces. That is a live brand decision, not
-an oversight in the mockups — flagged so it is made deliberately, since the marketing site and the
-app currently agree with each other and would stop.
+**Why round 3 finished the job.** Round 2's compromise did not survive contact with a renderer.
+Fraunces was declared but never loaded — there is no `@font-face` and no font link in any mockup,
+and none in the app for the client surface either — so both “brand moments” fell through to
+**Georgia**: the most document-like face available, on the one surface whose governing commitment
+is that it must not read as a document. A serif month title with flanking chevrons was, in the
+critique's words, the strongest website tell on the screen.
+
+The wordmark now falls back through `--logo: 'Plus Jakarta Sans', var(--sans)`, so an unloaded
+Plus Jakarta Sans degrades to the native stack rather than to a serif. That single fallback chain
+is the fix; the round-2 version had no such floor.
 
 **What does not change.** Coral is never used for small text; coral text and coral icons appear
 only on coral-100 (coral-800, 4.70:1). White on coral-600 appears only at 14px+/500 — in the
 mockups, the 16px/600 day numeral and 15px/600 buttons. Touch targets stay ≥40px, primaries 48–50px.
+
+---
+
+## 6b. Theme tokens, and the vivid pass
+
+**Colour is not owned by this design.** The platform has an admin-managed Themes system: one
+global active theme, tokens injected as CSS custom properties at the layout root by
+`app/src/lib/theme.ts`, activation AA-gated in admin on tint/text pairs. Round 2's mockups
+hard-coded thirteen coral hexes, which meant the files specifying a themeable surface could not
+themselves be themed.
+
+**Round 3 moves the mockups onto the tokens.** Same names as the injected properties:
+
+| Token | Teal v1 | Role |
+|---|---|---|
+| `--t-accent-600` | `#14B8A6` | the vivid fill. **Never carries white ink** |
+| `--t-accent-700` | `#0F766E` | fill when it must carry white (5.47:1) |
+| `--t-accent-800` | `#0C5F58` | the only accent that may be small text |
+| `--t-accent-100` | `#E6F7F5` | tint |
+| `--t-chrome` / `--t-chrome-deep` | `#334155` / `#1E293B` | text, dark surfaces — **and the ink on every accent-600 fill** |
+| `--t-muted` / `--t-line` / `--t-line-soft` | `#5C6470` / `#8F9296` / `#F4F5F6` | secondary text, hairlines |
+| `--t-canvas` / `--t-surface` | `#F2F3F5` / `#FFFFFF` | page, cards |
+| `--t-danger` | `#B23A2E` | **operator-facing, plus destructive actions the client chooses** |
+
+The mockups demonstrate the active theme, **Teal v1**. Changing the twelve lines in the
+stylesheet's THEME block repaints all ten pages, which is the point of showing it this way.
+
+### The vivid rule
+
+The operator asked for more vivid colour. The obstacle is that `accent-600` — the brightest tier
+that can cover a large area — measures **2.49:1 against white**, failing both the AA text floor
+(4.5) and the graphic floor (3.0). The instinct is to darken the fill until white text passes,
+which is exactly how a surface ends up dull.
+
+> **Flip the ink, not the fill. `chrome-deep` on `accent-600` is 5.88:1.**
+
+That keeps the brightest teal on the biggest surfaces — the selected day, the FAB, loud badges,
+the summary chip, primary buttons — and passes AA comfortably. It is the same move a
+black-on-bright-green Spotify button makes.
+
+Measured pairs in the active theme:
+
+| Pair | Ratio | Verdict |
+|---|---|---|
+| `chrome-deep` on `accent-600` | **5.88** | ✅ the vivid rule |
+| white on `accent-700` | 5.47 | ✅ when a fill must carry white |
+| `accent-800` on `accent-100` | 6.80 | ✅ the only accent small text |
+| `accent-500` on `chrome-deep` | **7.86** | ✅ maximum vividness, on dark |
+| white on `accent-600` | 2.49 | ❌ never |
+| `accent-600` on `surface` / `canvas` | 2.25–2.49 | ❌ never as text or a meaningful glyph |
+
+**Where the accent is allowed to be loud** (non-text, no glyph over it): day pips and month dots,
+the changed-card wash and edge, the FAB's offset glow, waveform bars, the summary chip, focus
+rings.
+
+### The proposal: an `accent-500` tier
+
+Every theme today ships four accent tiers. A fifth, brighter one — `#2DD4BF` in Teal v1 — would
+give the system a sanctioned home for glows, waveform peaks and dark-field accents that are
+currently improvised from `accent-600` at alpha.
+
+It needs **no new AA rule**, because it is non-text by definition and its only text-adjacent use
+is on `chrome-deep`, where it measures 7.86:1 — the most saturated moment in the product, on the
+voice sheet's waveform. Adopting it costs one column in the admin Themes editor and one entry in
+`theme.ts`'s `VAR` map. The mockups demonstrate it; the platform does not ship it.
+
+---
+
+## 6c. Icons
+
+Format is an icon everywhere; the word survives only as `title` and screen-reader text.
+
+| Format | Icon | Note |
+|---|---|---|
+| reel | clapperboard | A **filled** slate with negative slashes cut out of it |
+| carousel | stacked squares | Front sheet with a second peeking behind |
+| single | framed image | Frame, sun, one horizon line |
+
+**All three were screenshot-tested at their real rendered size (17px in a 28px tile) before
+adoption, and the clapperboard took three attempts.** An outlined slate with hairline diagonals
+read as browser chrome; a rotated slate read as noise. Only the filled slate is unmistakable at
+17px. Its negative slashes are filled `var(--t-accent-100)` — the tile's own colour — so the icon
+is correct wherever the tile goes, which is the one constraint on reusing it elsewhere.
+
+The canonical sprite is `docs/design/mockups/_sprite.txt`. Every page inlines a copy because
+cross-file `<use href="sprite.svg#id">` is blocked under `file://`.
 
 ---
 
@@ -424,31 +577,37 @@ has never heard it and the thing it names looks to them exactly like a post.
 
 ---
 
-## 8. Voice — the phasing
+## 8. Voice — live from day one
 
-**The sheet ships with the surface. The pipeline behind it does not.**
+**Round 3 removes the phasing.** Round 2 shipped the sheet with a disabled mic and an “arrives
+later” line, which put a large grey dead circle at the optical centre of the one screen whose
+promise is *talk to your plan*. The client reads the broken thing before the explanation.
 
-| Phase | What it is | State today |
-|---|---|---|
-| **1 — ships now** | The voice sheet: big mic, 2–3 example prompts, typed fallback in the same sheet. Per the round-2 brief, **the mic is disabled with copy** (“Talking to your plan is coming shortly. For now, type it below — it does exactly the same thing”) and **typed input is live and does the whole job** | The sheet is new UI; the typed path is `POST /api/plan/draft/apply {op:'text'}`, which ships |
-| **2 — separate workstream** | record → transcribe → intake, server-side | Not built. Adds accuracy, works where the browser API doesn't, and can keep the audio rather than only its transcript |
+That framing was also stricter than the facts. A browser-side capture path **already exists and is
+already wired**: `app/src/components/plan/useSpeechInput.ts` drives the Web Speech API — no
+backend, final transcript chunks appended into an editable field — and `IntakeCapture.tsx` uses it
+today. It degrades correctly: `unsupported` hides the mic, `no-permission` reports itself. Moving
+it onto the draft surface is a move, not a build.
 
-**One finding that may change phase 1.** A browser-side transcription path already exists and is
-already wired: `app/src/components/plan/useSpeechInput.ts` drives the Web Speech API — no backend,
-final transcript chunks appended into an editable field — and `IntakeCapture.tsx` uses it today. It
-degrades correctly (`unsupported` hides the mic, `no-permission` reports itself). Reusing it on the
-draft surface is a **move, not a build**, and would make a live mic real in phase 1 on any
-supporting browser.
+So voice is live, and there is no “later” copy anywhere in the set.
 
-So “disabled until the pipeline lands” may be stricter than necessary. The mockups show the
-specified state as frame A and the live state as frame B; the choice is the operator's. Either way
-gap 8 (`source:'voice'` on the draft apply route) should land with phase 1, so the ledger can tell
-the two apart from the start.
+**One sheet, two modes.** A keyboard toggle swaps the mic and waveform for a text field. Same
+framing copy, same example prompts, same submit, same route. The inline say-something box that sat
+on the draft page in round 2 is gone: there is now exactly one place to tell us something, and it
+works whether you talk or type. That also fixes the round-2 duplication where the page and the
+sheet were two different interfaces for one job.
 
-The app's existing voice overlay (`voice-fab` in `PlanMobile`, “Voice arrives in a later stage”
-over a non-functional mic) is superseded on the draft surface by this sheet.
+**The waveform.** A live `AnalyserNode` over the mic stream, `getByteFrequencyData` into ~25 bars
+on `requestAnimationFrame`. It **flatlines when silent and peaks while speaking**, which is the
+whole job: it lets the client tell *“not listening”* from *“listening, you haven't said anything
+yet”*. Both states are mocked. `prefers-reduced-motion` holds the bars at a static mid height.
 
----
+**What a later workstream still buys**, and why it is no longer blocking: server-side
+transcription is more accurate, works where the Web Speech API doesn't, and can keep the audio
+rather than only its transcript. None of that is needed to ship the sheet.
+
+**Gap 8 should land with this**, so the ledger can tell spoken from typed from the first day
+rather than retrofitting the distinction.
 
 ## 9. Day-view density, and thin months
 
@@ -489,9 +648,11 @@ and **a genuinely small month**.
   cells, no placeholder slots.
 - **The rationale names the gap**: *“We don’t have enough of your posting history yet, so this is a
   starting shape rather than a pattern we’ve seen work.”*
-- **The CTA block absorbs the acknowledgement** — “We’ve got two so far. Tell us what’s coming up
-  and we’ll build it out.” Round 1 gave thin months their own approval card with a second button;
-  round 2 doesn't need one, because the useful action already lives in the block.
+- **The acknowledgement sits at the foot of the day** — “Two posts so far. Tell us what's coming
+  up and we'll build it out, or say you're ready and we'll write these two.” It goes *after* the
+  client has read what there is, not before. Round 1 gave thin months their own approval card with
+  a second button; there is no need, because the mic and the Ready-to-go pill are both already on
+  screen.
 - **The tick stays exactly where it is.** A thin month is still a month you may approve, and the
   sheet counts what is actually there — omitting the zero rows rather than printing “0 hooks”.
 - **Never pad.**
@@ -559,19 +720,39 @@ describes ~13 distinct intents and the decomposer's acceptance fixture splits Sa
 
 Not a commitment — the shape of the work, so the sequencing is reviewable alongside the design.
 
-1. **Gap 7 first, before any of the UI.** G4 removes the client's only recovery path for a stuck
-   generation. The sweep and an operator view are a prerequisite for shipping the “on its way”
-   treatment, not a follow-up to it.
-2. **The month control and overview.** Highest value per unit of work: it closes the “October
-   doesn't show” class on both form factors, retires three controls (pills, wheel picker, month
-   chevrons-by-index), and needs one new field (gap 2) plus a decision on gap 3.
-3. **The day view reskin, committed.** The chrome shrinks, the global add button goes, the week
-   feed and its scroll-spy come out, the density rule lands. Net deletion of code.
-4. **The detail sheet, both variants.** `PostEditor` becomes the committed variant. Needs the §4.1
-   decision on format, and gap 9 for the meter's refusal.
-5. **The draft surface onto the same skeleton.** The largest piece — it reconciles `DraftPlan` with
-   `PlanRoot`'s fork — and where the CTA block, the summary chip and the approval tick take their
-   places.
-6. **The voice sheet**, typed-live per §8, with gap 8 landing alongside it.
-7. **The remaining gaps**, of which 4 (a `client_input` reason) is still the cheapest and the one
+1. **Gap 7 first, before any of the UI.** Removing the client's retry affordance removes their only
+   recovery path for a stuck generation. Bounded retry exists (`attempts: 3`, exponential backoff);
+   the daily `scheduler-tick` exists and already carries a sibling sweep. What is missing is a
+   failed-generation sweep and an operator surface — `generation_failed` appears nowhere in
+   `admin/src`. Both are prerequisites for shipping “on its way”, not follow-ups.
+2. **The shell: tab bar, title row, Week | Month, Today.** It is the cheapest change with the
+   largest effect on whether this reads as an app, it retires three controls (month pills, wheel
+   picker, chevrons-by-index), and it closes the “October doesn't show” class on both form factors.
+   Needs gap 2 for the draft badge.
+3. **Theme tokens on the client surface.** Mechanical, and it unblocks any future theme work.
+   Decide the `accent-500` proposal here or explicitly defer it.
+4. **The day view reskin, committed.** Chrome shrinks, the global add button goes, the week feed
+   and its scroll-spy come out, the density rule lands. Net deletion of code.
+5. **The detail sheet, both variants.** Needs the §4.1 decision on format and gap 9 for the meter.
+6. **The voice sheet**, with `useSpeechInput` moved across and gap 8 landing alongside it.
+7. **The draft surface onto the same skeleton** — the largest piece, reconciling `DraftPlan` with
+   `PlanRoot`'s fork.
+8. **The remaining gaps**, of which 4 (a `client_input` reason) is still the cheapest and the one
    with the most direct effect on whether a client trusts the month.
+
+---
+
+## 13. Open, and deliberately not decided here
+
+Three questions the critique raised that the round-3 brief did not settle. Recorded so they are
+decided rather than defaulted.
+
+1. **The committed month has no FAB.** On a draft month the FAB is the mic. On a committed month
+   there is no persistent action at all — yet that is the surface where the client's real recurring
+   job lives: copying a caption into Instagram, ten times a month. Round 3 puts a copy control on
+   the card, which helps, but the question of whether the committed FAB should be *copy the next
+   caption* is open.
+2. **Peak-end has no end.** There is no post-approval state anywhere in the set. The last emotional
+   beat of the product — *the month is written, here is what happens next* — is unrendered, and
+   generation takes minutes.
+3. **Format still has no control** (§4.1), and `swapFormat` still has no surface.

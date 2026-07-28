@@ -9,26 +9,29 @@
 <body>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
-<symbol id="i-reel" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="3.5"/><path d="M10.3 9.2l5 2.8-5 2.8V9.2Z" fill="currentColor" stroke="none"/></symbol>
-<symbol id="i-carousel" viewBox="0 0 24 24"><rect x="7" y="3.5" width="13.5" height="13.5" rx="2.5"/><path d="M16.5 20.5H6a2.5 2.5 0 0 1-2.5-2.5V7.5"/></symbol>
-<symbol id="i-single" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/></symbol>
-<symbol id="i-chev-down" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></symbol>
-<symbol id="i-chev-left" viewBox="0 0 24 24"><path d="M14.5 5.5l-7 6.5 7 6.5"/></symbol>
-<symbol id="i-chev-right" viewBox="0 0 24 24"><path d="M9.5 5.5l7 6.5-7 6.5"/></symbol>
+<symbol id="i-reel" viewBox="0 0 24 24"><path style="fill:currentColor;stroke:none" d="M4.6 4.2h14.8a2 2 0 0 1 2 2v3.1H2.6V6.2a2 2 0 0 1 2-2Z"/><path style="fill:var(--t-accent-100);stroke:none" d="M8.2 4.2l-2.4 5.1h1.9l2.4-5.1zM14.4 4.2L12 9.3h1.9l2.4-5.1z"/><path d="M2.6 9.3h18.8V18a2 2 0 0 1-2 2H4.6a2 2 0 0 1-2-2V9.3Z"/></symbol>
+<symbol id="i-carousel" viewBox="0 0 24 24"><rect x="3.5" y="6.5" width="13" height="14" rx="2.5"/><path d="M7.2 3.5h9.3a3.5 3.5 0 0 1 3.5 3.5v9.6"/></symbol>
+<symbol id="i-single" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><circle cx="8.8" cy="9.2" r="1.5"/><path d="M4.3 17.3l4.5-4.8a1.7 1.7 0 0 1 2.5 0l5.2 5.5"/></symbol>
+<symbol id="i-chev-l" viewBox="0 0 24 24"><path d="M14.5 5.5l-7 6.5 7 6.5"/></symbol>
+<symbol id="i-chev-r" viewBox="0 0 24 24"><path d="M9.5 5.5l7 6.5-7 6.5"/></symbol>
 <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.5"/><path d="M15.5 5.5v-.5a2 2 0 0 0-2-2H6a2.5 2.5 0 0 0-2.5 2.5v7.5a2 2 0 0 0 2 2h.5"/></symbol>
+<symbol id="i-plan" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/><path d="M7.5 13.5h4"/></symbol>
+<symbol id="i-tasks" viewBox="0 0 24 24"><path d="M4 7.5l2 2 3.5-3.5M4 16.5l2 2 3.5-3.5M13 8h7M13 17h7"/></symbol>
 </defs></svg>
 
 <div class="page-head">
-  <div class="crumbs">Mockup 1 of 7 · <a href="index.html">all states</a></div>
+  <div class="crumbs">Mockup 1 of 8 · <a href="index.html">all states</a></div>
   <h1>Day view — committed month</h1>
-  <p>Earl of East, October 2026, after approval. The week strip <em>selects</em>; the panel below
-  shows only the selected day. No week feed, no scroll-spy, no adjacent days bleeding up from
-  the fold — one day, its posts, and the way to add another.</p>
-  <p><strong>Round 2 changes here:</strong> native UI type throughout (Fraunces survives only in
-  the wordmark and the month title); format is an icon, not a word chip; the account chip is
-  gone; the month title is a button-shaped control with a chevron, and the ‹ › arrows are the
-  only lateral month mechanism; the failed post’s retry badge is replaced by a quiet
-  “on its way”.</p>
+  <p>Earl of East, October 2026, after approval. The week strip selects; the panel shows only the
+  selected day. Round 3 restores the app chrome the live surface already has and adds the view
+  switcher: wordmark left, then <strong>‹ October 2026 ›</strong> with a <strong>Week | Month</strong>
+  segmented control, Today right-aligned above the strip, and a persistent
+  <strong>bottom tab bar</strong>.</p>
+  <p>Colour is now token-driven. Every value reads a <code>--t-*</code> custom property with the
+  same name <code>theme.ts</code> injects, so these files demonstrate the active theme —
+  <strong>Teal v1</strong> — rather than hard-coding one. The vivid pass shows up here in the
+  selected day and the copy button: <em>accent-600 fill, chrome-deep ink</em>, 5.88:1.</p>
 </div>
 
 <div class="frames">
@@ -36,28 +39,37 @@
 <!-- ═══ FRAME A ═════════════════════════════════════════════════════════════ -->
 <div class="frame-wrap">
   <p class="frame-label">A — Thursday 1 October · 2 posts</p>
-  <p class="frame-sub">Two posts render as full cards (density rule: 1–2 full, 3+ compact).
-  Format is the film-strip / stacked-squares / square icon; the word survives as the icon’s
-  tooltip and its screen-reader label.</p>
+  <p class="frame-sub">Two posts render as full cards. The copy button is on the card, because
+  copying a caption into Instagram is the client's actual job and it should not require opening a
+  sheet.</p>
 
   <div class="phone">
     <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
 
     <div class="topbar">
-      <div class="brandmark">
-        <svg viewBox="0 0 100 110" fill="#E8705F" aria-hidden="true">
-          <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
-          <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
-          <line x1="50" y1="76" x2="50" y2="98" stroke="#E8705F" stroke-width="2.5" stroke-linecap="round"/>
-        </svg>
-        <span>Sprigly</span>
+      <svg class="mark" viewBox="0 0 100 110" fill="currentColor" aria-hidden="true">
+        <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+        <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+        <line x1="50" y1="76" x2="50" y2="98" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+      <span class="wordmark">Sprigly</span>
+    </div>
+
+    <div class="titlerow">
+      <div class="monthnav">
+        <button class="navbtn" type="button" aria-label="September 2026"><svg class="ic sm"><use href="#i-chev-l"/></svg></button>
+        <span class="monthtitle">October 2026</span>
+        <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
+      </div>
+      <span style="flex:1"></span>
+      <div class="seg" role="group" aria-label="Week or month view">
+        <button type="button" aria-pressed="true">Week</button>
+        <button type="button" aria-pressed="false">Month</button>
       </div>
     </div>
 
-    <div class="monthrow">
-      <button class="navbtn" type="button" aria-label="September"><svg class="ic sm"><use href="#i-chev-left"/></svg></button>
-      <button class="monthbtn" type="button" aria-haspopup="dialog">October 2026 <svg class="ic"><use href="#i-chev-down"/></svg></button>
-      <button class="navbtn" type="button" aria-label="November" disabled><svg class="ic sm"><use href="#i-chev-right"/></svg></button>
+    <div class="todayrow">
+      <button class="todaybtn" type="button">Today</button>
     </div>
 
     <div class="weekstrip" role="group" aria-label="Week of 28 September">
@@ -78,7 +90,7 @@
         <span class="daycount">2 posts</span>
       </div>
 
-      <button class="card" type="button">
+      <div class="card">
         <div class="cardtop">
           <span class="fmt" title="Reel"><svg class="ic sm"><use href="#i-reel"/></svg><span class="sr">Reel</span></span>
           <span class="pillar">Home &amp; Space</span>
@@ -88,9 +100,15 @@
         <p class="excerpt">Wilderness is back. There is a particular quality to autumn light
         indoors, the way it sits low and golden across a room, making everything feel a little
         more considered…</p>
-      </button>
+        <div class="cardfoot">
+          <span class="spacer" style="flex:1"></span>
+          <button class="copyb" type="button" aria-label="Copy this caption" style="width:38px;height:38px;background:var(--t-accent-600);color:var(--t-chrome-deep)">
+            <svg class="ic sm"><use href="#i-copy"/></svg>
+          </button>
+        </div>
+      </div>
 
-      <button class="card" type="button">
+      <div class="card">
         <div class="cardtop">
           <span class="fmt" title="Single post"><svg class="ic sm"><use href="#i-single"/></svg><span class="sr">Single post</span></span>
           <span class="pillar">Everyday Ritual</span>
@@ -98,37 +116,59 @@
         </div>
         <h4>A small moment, made deliberate</h4>
         <p class="excerpt">Caption written — 274 characters. Tap to read it.</p>
-      </button>
+        <div class="cardfoot">
+          <span class="spacer" style="flex:1"></span>
+          <button class="copyb" type="button" aria-label="Copy this caption" style="width:38px;height:38px;background:var(--t-accent-600);color:var(--t-chrome-deep)">
+            <svg class="ic sm"><use href="#i-copy"/></svg>
+          </button>
+        </div>
+      </div>
 
       <button class="addslot" type="button"><svg class="ic sm"><use href="#i-plus"/></svg> Plan a post for this day</button>
     </div>
+
+    <nav class="tabbar" role="tablist" aria-label="Sections">
+      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
+      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    </nav>
   </div>
 </div>
 
 <!-- ═══ FRAME B ═════════════════════════════════════════════════════════════ -->
 <div class="frame-wrap">
-  <p class="frame-label">B — Saturday 3 October · empty day</p>
-  <p class="frame-sub">An empty day is not a dead end and not an apology. One open slot, in the
-  same place it sits under a populated day. Nothing scrolls in from below to fill the space.</p>
+  <p class="frame-label">B — Saturday 3 October · empty</p>
+  <p class="frame-sub">An empty day gets one open slot in the same place it sits under a populated
+  day, and nothing else — the panel never shows a second day. Round 2 left 300–500px of unanchored
+  canvas under short days; the tab bar now closes the viewport, which is most of what separates an
+  app from a page that ran out of content.</p>
 
   <div class="phone">
     <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
 
     <div class="topbar">
-      <div class="brandmark">
-        <svg viewBox="0 0 100 110" fill="#E8705F" aria-hidden="true">
-          <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
-          <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
-          <line x1="50" y1="76" x2="50" y2="98" stroke="#E8705F" stroke-width="2.5" stroke-linecap="round"/>
-        </svg>
-        <span>Sprigly</span>
+      <svg class="mark" viewBox="0 0 100 110" fill="currentColor" aria-hidden="true">
+        <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+        <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+        <line x1="50" y1="76" x2="50" y2="98" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+      <span class="wordmark">Sprigly</span>
+    </div>
+
+    <div class="titlerow">
+      <div class="monthnav">
+        <button class="navbtn" type="button" aria-label="September 2026"><svg class="ic sm"><use href="#i-chev-l"/></svg></button>
+        <span class="monthtitle">October 2026</span>
+        <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
+      </div>
+      <span style="flex:1"></span>
+      <div class="seg" role="group" aria-label="Week or month view">
+        <button type="button" aria-pressed="true">Week</button>
+        <button type="button" aria-pressed="false">Month</button>
       </div>
     </div>
 
-    <div class="monthrow">
-      <button class="navbtn" type="button" aria-label="September"><svg class="ic sm"><use href="#i-chev-left"/></svg></button>
-      <button class="monthbtn" type="button" aria-haspopup="dialog">October 2026 <svg class="ic"><use href="#i-chev-down"/></svg></button>
-      <button class="navbtn" type="button" aria-label="November" disabled><svg class="ic sm"><use href="#i-chev-right"/></svg></button>
+    <div class="todayrow">
+      <button class="todaybtn" type="button">Today</button>
     </div>
 
     <div class="weekstrip" role="group" aria-label="Week of 28 September">
@@ -150,35 +190,48 @@
       </div>
       <button class="addslot" type="button"><svg class="ic sm"><use href="#i-plus"/></svg> Plan a post for this day</button>
     </div>
+
+    <nav class="tabbar" role="tablist" aria-label="Sections">
+      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
+      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    </nav>
   </div>
 </div>
 
 <!-- ═══ FRAME C ═════════════════════════════════════════════════════════════ -->
 <div class="frame-wrap">
   <p class="frame-label">C — Sunday 4 October · still being written</p>
-  <p class="frame-sub">The round-1 “Needs a retry” badge is gone. A post whose caption has not
-  come back reads as <em>on its way</em> — quiet, no red, no action asked of the client. Retrying
-  is the system’s job (three attempts with backoff, then a daily sweep), and a failure that
-  outlives all of that belongs on the operator’s screen, not this one.</p>
+  <p class="frame-sub">No retry, no red, nothing asked of the client. The three dots use the vivid
+  accent at graduated opacity, which is a legitimate non-text use. Retrying is the system's job —
+  three attempts with backoff already, and a sweep that does not exist yet (spec gap 7).</p>
 
   <div class="phone">
     <div class="statusbar"><span>9:41</span><span class="glyphs">▮▮▮ ⌁ ▰</span></div>
 
     <div class="topbar">
-      <div class="brandmark">
-        <svg viewBox="0 0 100 110" fill="#E8705F" aria-hidden="true">
-          <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
-          <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
-          <line x1="50" y1="76" x2="50" y2="98" stroke="#E8705F" stroke-width="2.5" stroke-linecap="round"/>
-        </svg>
-        <span>Sprigly</span>
+      <svg class="mark" viewBox="0 0 100 110" fill="currentColor" aria-hidden="true">
+        <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+        <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+        <line x1="50" y1="76" x2="50" y2="98" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+      <span class="wordmark">Sprigly</span>
+    </div>
+
+    <div class="titlerow">
+      <div class="monthnav">
+        <button class="navbtn" type="button" aria-label="September 2026"><svg class="ic sm"><use href="#i-chev-l"/></svg></button>
+        <span class="monthtitle">October 2026</span>
+        <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
+      </div>
+      <span style="flex:1"></span>
+      <div class="seg" role="group" aria-label="Week or month view">
+        <button type="button" aria-pressed="true">Week</button>
+        <button type="button" aria-pressed="false">Month</button>
       </div>
     </div>
 
-    <div class="monthrow">
-      <button class="navbtn" type="button" aria-label="September"><svg class="ic sm"><use href="#i-chev-left"/></svg></button>
-      <button class="monthbtn" type="button" aria-haspopup="dialog">October 2026 <svg class="ic"><use href="#i-chev-down"/></svg></button>
-      <button class="navbtn" type="button" aria-label="November" disabled><svg class="ic sm"><use href="#i-chev-right"/></svg></button>
+    <div class="todayrow">
+      <button class="todaybtn" type="button">Today</button>
     </div>
 
     <div class="weekstrip" role="group" aria-label="Week of 28 September">
@@ -199,22 +252,27 @@
         <span class="daycount">1 post</span>
       </div>
 
-      <button class="card onway" type="button">
+      <div class="card">
         <div class="cardtop">
-          <span class="fmt plain" title="Carousel"><svg class="ic sm"><use href="#i-carousel"/></svg><span class="sr">Carousel</span></span>
+          <span class="fmt" title="Carousel"><svg class="ic sm"><use href="#i-carousel"/></svg><span class="sr">Carousel</span></span>
           <span class="pillar">Home &amp; Space</span>
           <span class="time">20:00</span>
         </div>
         <h4>Home &amp; Space — Carousel</h4>
-        <p class="teaser">We’re still writing this one. It’ll appear here shortly.</p>
+        <p class="teaser">We're still writing this one. It'll appear here shortly.</p>
         <div class="cardfoot">
           <span class="waydots"><i></i><i></i><i></i></span>
           <span class="statusline">On its way</span>
         </div>
-      </button>
+      </div>
 
       <button class="addslot" type="button"><svg class="ic sm"><use href="#i-plus"/></svg> Plan a post for this day</button>
     </div>
+
+    <nav class="tabbar" role="tablist" aria-label="Sections">
+      <button type="button" role="tab" aria-selected="true"><svg class="ic"><use href="#i-plan"/></svg>Plan</button>
+      <button type="button" role="tab" aria-selected="false"><svg class="ic"><use href="#i-tasks"/></svg>Tasks</button>
+    </nav>
   </div>
 </div>
 
@@ -225,34 +283,27 @@
   <ul>
     <li><strong>Posts, dates, formats, pillars and statuses</strong> are the ten approved in
       <code>docs/reports/build-d-approval-phase2.md</code> §1 — Earl of East, October 2026, zero
-      structure drift through phase 2. The 4 October carousel really did come back without a
+      structure drift through generation. The 4 October carousel really did come back without a
       caption.</li>
-    <li><strong>The reel’s excerpt</strong> is the opening of the real generated caption in that
-      report. The 1 October single’s caption text is <em>not</em> recorded anywhere — only its
-      length — so its card states the length rather than showing invented copy. On the real
-      surface that line is the caption’s first two lines.</li>
-    <li><strong>Two titles are the assembler’s deterministic fallback form</strong> because the
-      report elides those beats’ phrased titles.</li>
-    <li><strong>Posting times</strong> are the <code>PostingTimes</code> contract’s documented
-      example values (<code>packages/engine/src/types.ts</code>). No reader surfaces a client’s
-      stored <code>posting_times</code> — spec gap 1, which round 2 widens: the detail sheet’s
-      date+time picker needs that field <em>writable</em>, not just readable.</li>
+    <li><strong>The reel's excerpt</strong> is the opening of the real generated caption. The
+      1 October single's caption text is not recorded anywhere — only its length — so its card
+      states the length rather than showing invented copy.</li>
+    <li><strong>Posting times</strong> are the <code>PostingTimes</code> contract's documented
+      example values. No reader surfaces a client's stored <code>posting_times</code> — spec gap 1.</li>
   </ul>
-  <h2>The “on its way” treatment has a dependency</h2>
+  <h2>Round-3 changes on this page</h2>
   <ul>
-    <li><strong>Bounded retry exists</strong> — <code>GENERATION_JOB_OPTIONS</code> is
-      <code>{attempts: 3, backoff: exponential 5s}</code>, and <code>generation_failed</code> is
-      stamped only once BullMQ has nothing left to retry (<code>consumer.ts</code>
-      <code>isFinalAttempt</code>).</li>
-    <li><strong>The daily sweep does not.</strong> A repeatable <code>scheduler-tick</code> runs
-      at 05:00 Europe/London and already carries one sweep (<code>sweepUnsentPlanReady</code>) —
-      so the hook exists and a failed-generation sweep is a sibling of something real. But today
-      <code>generation_failed</code> is explicitly terminal: “nothing retries it, the post is
-      client-visible with its error” (<code>plan-ready.ts</code>).</li>
-    <li><strong>There is no operator surface for it either</strong> — <code>generation_failed</code>
-      appears nowhere in <code>admin/src</code>. Removing the client’s retry affordance without
-      both of those strands the post. Recorded as a blocking dependency in the spec, not a
-      detail.</li>
+    <li><strong>Tab bar, Today, and the Week|Month switcher</strong> — the switcher makes Month a
+      peer view rather than an overlay, so there is no ✕ anywhere in the set.</li>
+    <li><strong>No serif.</strong> Round 2 set the wordmark and month title in Fraunces, which was
+      never loaded, so both rendered as Georgia — a document face on the one surface that must not
+      read as a document. The wordmark now falls back to the native stack.</li>
+    <li><strong>Format is the icons v2 set</strong>, screenshot-tested at 17px before adoption.</li>
+    <li><strong>Copy moved onto the card.</strong> A finding from the critique: the client's real
+      end action is getting a caption into Instagram, and round 2 buried it two taps deep.</li>
+    <li><strong>Panel bottom padding raised to 116px</strong> so neither the tab bar nor the FAB can
+      print over card content. In round 2 the FAB sat on top of the evidence sentence — the one
+      line on this surface that must never be occluded.</li>
   </ul>
 </div>
 
