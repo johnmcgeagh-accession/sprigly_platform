@@ -8,7 +8,8 @@ vi.mock('@sprigly/db', () => ({
 }));
 vi.mock('drizzle-orm', () => ({ eq: () => 'eq' }));
 
-import { hexToRgbChannels, buildThemeVars, loadActiveThemeVars } from './theme';
+import { THEME_TOKEN_KEYS } from '@sprigly/engine/contrast';
+import { hexToRgbChannels, buildThemeVars, loadActiveThemeVars, VAR } from './theme';
 
 const TEAL = { accent600: '#14B8A6', accent700: '#0F766E', accent800: '#0C5F58', accent100: '#E6F7F5', canvas: '#F2F3F5', surface: '#FFFFFF', line: '#8F9296', chrome: '#334155' };
 
@@ -52,5 +53,36 @@ describe('loadActiveThemeVars (the switch)', () => {
   it('DB failure → empty string (never throws; fallbacks render)', async () => {
     h.throws = true;
     expect(await loadActiveThemeVars()).toBe('');
+  });
+});
+
+describe('the injected tiers and the settable tiers are the same list', () => {
+  it('VAR covers THEME_TOKEN_KEYS exactly', () => {
+    // Read from both ends: this map decides what is injected as --t-*, and the admin create form
+    // derives its inputs from THEME_TOKEN_KEYS. A tier in one and not the other is one an
+    // operator cannot set and the app silently falls back for — which is the whole bug.
+    expect(Object.keys(VAR).sort()).toEqual([...THEME_TOKEN_KEYS].sort());
+  });
+
+  it('every custom property is --t-<kebab-key>, so the name cannot drift from the key', () => {
+    for (const [key, cssVar] of Object.entries(VAR)) {
+      const expected = `--t-${key.replace(/([a-z])([A-Z0-9])/g, '$1-$2').toLowerCase()}`;
+      expect(cssVar, `${key} injects ${cssVar}`).toBe(expected);
+    }
+  });
+
+  it('a theme WITHOUT the two optional tiers injects nothing for them', () => {
+    // Teal v1's shape. Nothing is emitted, so Tailwind's own fallback applies and the app renders
+    // exactly as it did before the ramp gained them.
+    const css = buildThemeVars(TEAL);
+    expect(css).not.toContain('--t-accent-500');
+    expect(css).not.toContain('--t-accent-650');
+    expect(css).toContain('--t-accent-600:20 184 166');
+  });
+
+  it('a theme WITH them injects both', () => {
+    const css = buildThemeVars({ ...TEAL, accent500: '#74C1B5', accent650: '#43998B' });
+    expect(css).toContain('--t-accent-500:116 193 181');
+    expect(css).toContain('--t-accent-650:67 153 139');
   });
 });
