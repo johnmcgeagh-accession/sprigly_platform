@@ -54,7 +54,7 @@ and its overlay — though the latter is superseded on the draft surface by the 
 | # | Change | Rationale |
 |---|---|---|
 | **R1** | **Colour is theme tokens.** Every value reads a `--t-*` custom property with the name `theme.ts` injects; the mockups demonstrate the active theme, **Teal v1** | §6b. Round 2 hard-coded thirteen coral hexes into a surface whose whole point is that an admin can re-skin it |
-| **R2** | **The vivid pass.** accent-600 fills carry **chrome-deep ink**, not white | §6b. White on accent-600 is 2.49:1; flipping the ink gets 5.88:1 and keeps the brightest tier on the biggest surfaces |
+| **R2** | ~~**The vivid pass.** accent-600 fills carry **chrome-deep ink**, not white~~ — **superseded by round 5.1**, see §6b | White on accent-600 is 2.61:1 and chrome-deep on it is 5.60:1, which is why round 2 flipped the ink. Round 5.1 instead introduced `accent-650` so filled controls carry white at 3.40:1 |
 | **R3** | **No serif anywhere on the client surface.** Fraunces is out entirely | §6. It was never loaded, so round 2's wordmark and month title rendered as Georgia |
 | **R4** | ~~A persistent bottom tab bar — Plan \| Tasks — with the FAB floating over it~~ **Superseded by N1 (round 4).** Recorded so the reasoning survives; **do not build this** | §1.2 |
 | **R5** | **Week \| Month is a peer switcher**, not an overlay. No ✕, no legend, no month pills | §1.2, §1.5 |
@@ -549,8 +549,10 @@ people to stop reading warnings. The exception lives in `.impeccable/config.json
 the reason is recorded here and in `round-3-notes.md` §3.
 
 **What does not change.** Coral is never used for small text; coral text and coral icons appear
-only on coral-100 (coral-800, 4.70:1). White on coral-600 appears only at 14px+/500 — in the
-mockups, the 16px/600 day numeral and 15px/600 buttons. Touch targets stay ≥40px, primaries 48–50px.
+only on coral-100 (coral-800, 4.70:1). White on coral-600 appears on exactly two elements — the
+16px/600 day numeral and the 15px/600 buttons — and nowhere else. (Earlier rounds justified this
+with a “14px+/500 floor”; no such threshold exists in WCAG. The restriction stands as a house rule,
+not as a standard.) Touch targets stay ≥40px, primaries 48–50px.
 
 ---
 
@@ -593,13 +595,14 @@ round-4 finding was precisely the kind a ratio cannot catch.
 
 | Pair | Ratio | Verdict |
 |---|---|---|
+| **white on `accent-650`** | **3.40** | ⚠️ **filled controls only** — the ink rule, §6b |
 | `chrome-deep` on `accent-100` | 12.78 | ✅ |
 | `chrome-deep` on `accent-500` | **6.99** | ✅ light fills |
-| `chrome-deep` on `accent-600` | **5.60** | ✅ **the identity pairing** |
-| `accent-800` on `accent-100` | 6.67 | ✅ accent text on tint |
+| `chrome-deep` on `accent-600` | 5.60 | ⊘ arithmetically fine, but **no longer used** — round 5.1 took ink off `accent-600` entirely |
+| `accent-800` on `accent-100` | 6.67 | ✅ accent text on tint — **the admin activation gate's one check** |
 | `accent-800` on `surface` | 7.64 | ✅ accent text on white |
 | `accent-700` on `surface` | 5.62 | ✅ |
-| white on `accent-700` | **5.62** | ✅ when a fill must carry white |
+| white on `accent-700` | **5.62** | ✅ dense-text surfaces |
 | white on `accent-800` | 7.64 | ✅ |
 | white on `accent-600` | 2.61 | ❌ never |
 | `chrome-deep` on `accent-700` | 2.60 | ❌ never |

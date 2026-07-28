@@ -46,7 +46,7 @@
      names, same meaning. ------------------------------------------------- */
   --t-accent-600: #4DB0A0;   /* THE LOGO TONE. Non-text identity only      */
   --t-accent-650: #43998B;   /* FILLED CONTROLS + white, 3.40:1            */
-  --t-accent-700: #327267;   /* fill when it must carry white, 5.62:1      */
+  --t-accent-700: #327267;   /* dense-text surfaces; white on it is 5.62:1 */
   --t-accent-800: #285C54;   /* accent text: 7.64 on white, 6.67 on tint   */
   --t-accent-100: #E3F3F0;   /* tint                                       */
   --t-chrome:      #334155;
@@ -127,7 +127,7 @@ body {
 .ic.xl { width: 38px; height: 38px; }
 .ic.solid { fill: currentColor; stroke: none; }
 
-/* Format icon tile: accent-800 on accent-100 = 6.80:1. */
+/* Format icon tile: accent-800 on accent-100 = 6.67:1. */
 .fmt {
   width: 28px; height: 28px; flex: none; border-radius: var(--r-sm);
   background: var(--t-accent-100); color: var(--t-accent-800);
@@ -214,7 +214,8 @@ body {
   display: flex; align-items: center; justify-content: center;
   font-size: 16.5px; font-weight: 600; color: var(--t-chrome); letter-spacing: -.01em;
 }
-/* THE VIVID RULE: brightest fill, dark ink. 5.88:1. */
+/* THE INK RULE: the selected day is a filled control — accent-650 + white,
+   3.40:1. It was the vivid tier with dark ink until round 5.1. */
 .wday[aria-pressed="true"] .num { background: var(--t-accent-650); color: #fff; font-weight: 700; }
 .wday[aria-pressed="true"] .dow { color: var(--t-chrome); }
 .wday.today .num { box-shadow: inset 0 0 0 2px var(--t-accent-600); }
@@ -403,7 +404,7 @@ body {
   display: flex; align-items: center; justify-content: center; gap: 6px;
 }
 .navpill button .ic { width: 20px; height: 20px; }
-/* THE INK RULE: a fill carrying a word is 700-tier with white. 5.47:1. */
+/* THE INK RULE: a fill carrying a word is accent-650 with white. 3.40:1. */
 .navpill button[aria-selected="true"] { background: var(--t-accent-650); color: #fff; font-weight: 700; }
 
 .navmic {
@@ -539,7 +540,7 @@ body {
 .micbtn.live { box-shadow: var(--shadow-fab), 0 0 0 10px rgb(77 176 160 / .22); }
 
 /* Live waveform. Dark field is where the accent is allowed to be brightest:
-   accent-500 on chrome-deep = 7.86:1. */
+   accent-500 on chrome-deep = 6.99:1. */
 /* Round 4: clean accent green on WHITE. The dark backing panel is gone — it
    read as a component from another app. The bars are amplitude feedback, not
    information the client must read: the STATE is carried by the sheet title

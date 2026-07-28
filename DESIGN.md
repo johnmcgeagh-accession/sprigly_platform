@@ -342,8 +342,8 @@ nothing else.
 **Floating bottom nav.** A segmented pill carrying **Day · Month · Tasks**, and a **separate**
 56px circular microphone beside it. Both float over the content on a blurred material
 (`backdrop-filter: blur(20px) saturate(180%)`, `surface` at 78%), iOS-style. The pill's active
-segment is `accent-600` with `chrome-deep` ink (5.60:1), and so is the mic, which carries an
-`accent-600` glow beneath it. Sheets slide **over** the nav. The pill's children are `flex: 1`, so Insights
+segment is `accent-650` with **white** ink (3.40:1) per the ink rule, and so is the mic, which
+carries an `accent-600` glow beneath it. Sheets slide **over** the nav. The pill's children are `flex: 1`, so Insights
 drops in as a fourth segment without layout change.
 
 This supersedes both the round-3 bottom tab bar and the header Week|Month switcher. One place to
@@ -357,7 +357,7 @@ approves. Same gesture, different consequence, and the sheet says which.
 vacated. Persistent, secondary weight — hairline `accent-600` border, `accent-800` label on
 `surface`. It never competes with the mic for primacy.
 
-**Day strip.** Seven cells. Selected day = `accent-600` circle with `chrome-deep` numeral. Today
+**Day strip.** Seven cells. Selected day = `accent-650` circle with a white numeral. Today
 unselected = `accent-600` ring. A day with content carries a pip below: `accent-600` on a draft
 month, `chrome` on a committed one.
 
@@ -392,9 +392,9 @@ space. Expands into a panel; dismiss removes the chip and never the highlights.
 **Do**
 
 - Paint from tokens. `var(--t-accent-600)`, never `#14B8A6`.
-- Flip the ink on vivid fills: `chrome-deep` on `accent-600`.
+- Fill controls with `accent-650` and set them in white. Keep `accent-600` off text entirely.
 - Let the accent be loud where it carries no text — pips, glows, washes, waveforms.
-- Put the most saturated moment on the darkest field. `accent-500` on `chrome-deep` is 7.86:1 and
+- Put the most saturated moment on the darkest field. `accent-500` on `chrome-deep` is 6.99:1 and
   is allowed to be beautiful.
 - State status with shape as well as colour. "On its way" is a hollow ring, not a hue swap.
 - Use the native stack everywhere, and get hierarchy from weight and size.
