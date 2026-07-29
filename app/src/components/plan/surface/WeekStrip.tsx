@@ -14,9 +14,27 @@
  * grid, so it carries a horizontal SWIPE (the month grid covers any jump longer than a week).
  * The swipe is a pointer gesture with a keyboard equivalent — arrow keys move the selection by
  * a day and roll into the next week — so no navigation is gesture-only.
+ *
+ * ── The pager is visible now (round 6, P5) ───────────────────────────────────────────
+ *
+ * The swipe shipped and the phone check reported the strip "locked to one week", which is what a
+ * gesture nobody can see amounts to. Chevrons flank the strip and page it by a week, and the
+ * swipe is unchanged underneath them — a visible control and an invisible shortcut for the same
+ * act, which is the right way round.
+ *
+ * **They stop at the month's edge.** A chevron is disabled when the week it would reach holds no
+ * day of the viewed month, because past that edge the strip would render a week whose posts are
+ * not loaded: seven empty days, which reads as data loss rather than as a different month. Longer
+ * jumps are the ‹ › month arrows' job, and they refetch. Disabled, never hidden — a control that
+ * disappears reads as a rendering fault.
+ *
+ * The width is measured, not assumed: two 36px chevrons and 6px gutters leave 43px per day at
+ * 390px and 41px at 375px, both over the 40px floor. At 320px the cells compress to 36px wide
+ * (60px tall) — recorded rather than hidden, and the swipe and arrow keys still reach every week.
  */
 import React, { useRef } from 'react';
 import { DOW_SHORT, weekOf, addDays, monthOf, fromIso, MONTHS_FULL } from './dates';
+import { ChevronL, ChevronR } from './icons';
 
 export type DayMark = 'none' | 'draft' | 'committed' | 'onway';
 
@@ -33,6 +51,10 @@ export function WeekStrip({
 }) {
   const week = weekOf(selected);
   const drag = useRef({ x: 0, active: false });
+
+  /** Can the strip reach the week `n` weeks away without leaving the month entirely? */
+  const canPage = (n: number) => weekOf(addDays(selected, n * 7)).some((iso) => monthOf(iso) === month);
+  const page = (n: number) => onSelect(addDays(selected, n * 7));
 
   /** Horizontal swipe → ±7 days, keeping the weekday you were on. 48px is past the point
    *  where a vertical scroll would have claimed the gesture. */
@@ -56,8 +78,10 @@ export function WeekStrip({
       data-testid="week-strip" role="group" aria-label={`Week of ${labelOf(week[0]!)}`}
       onPointerDown={onPointerDown} onPointerUp={onPointerUp} onPointerCancel={() => { drag.current.active = false; }}
       onKeyDown={onKeyDown}
-      className="grid flex-none grid-cols-7 gap-0.5 px-3 pb-2.5 pt-2 [touch-action:pan-y]"
+      className="flex flex-none items-center gap-0.5 px-1.5 pb-2 pt-1 [touch-action:pan-y]"
     >
+      <PageBtn dir="prev" onClick={canPage(-1) ? () => page(-1) : undefined} />
+      <div className="grid flex-1 grid-cols-7 gap-0.5">
       {week.map((iso, i) => {
         const d = fromIso(iso);
         const isSelected = iso === selected;
@@ -108,7 +132,24 @@ export function WeekStrip({
           </button>
         );
       })}
+      </div>
+      <PageBtn dir="next" onClick={canPage(1) ? () => page(1) : undefined} />
     </div>
+  );
+}
+
+/** One week back or forward. 36×60px, so it matches the day cells it sits beside rather than
+ *  floating above them, and disabled at the month's edge (see the header note). */
+function PageBtn({ dir, onClick }: { dir: 'prev' | 'next'; onClick?: (() => void) | undefined }) {
+  const Glyph = dir === 'prev' ? ChevronL : ChevronR;
+  return (
+    <button
+      type="button" data-testid={`${dir}-week`} aria-label={dir === 'prev' ? 'Previous week' : 'Next week'}
+      disabled={!onClick} onClick={onClick}
+      className="flex h-[60px] w-9 flex-none items-center justify-center rounded-2xl text-chrome transition-colors duration-100 active:bg-line-soft disabled:text-muted/30 disabled:active:bg-transparent"
+    >
+      <Glyph className="h-4 w-4" />
+    </button>
   );
 }
 

@@ -57,6 +57,10 @@ function fakeData(over: Partial<PlanData> = {}): PlanData {
     track: vi.fn(),
     flash: vi.fn(),
     toggleStep: vi.fn(async () => {}),
+    shapingIds: new Set<string>(),
+    hookGenerating: new Set<string>(),
+    hookCandidates: new Map<string, string[]>(),
+    scriptGenerating: new Set<string>(),
     ...over,
   };
   return base as unknown as PlanData;
@@ -113,7 +117,7 @@ describe('the strip selects and the panel follows', () => {
   });
 });
 
-describe('the nav pill, and the month grid as a picker', () => {
+describe('the nav pill, and the month grid you stay in', () => {
   it('Month is a peer view — it opens without a dismiss control', () => {
     render(<CommittedSurface data={fakeData({ posts: [post()] })} />);
     fireEvent.click(screen.getByTestId('nav-month'));
@@ -125,25 +129,54 @@ describe('the nav pill, and the month grid as a picker', () => {
     expect(screen.queryByLabelText('Close')).toBeNull();
   });
 
-  it('TAPPING A GRID DAY RETURNS TO DAY VIEW WITH THAT DAY SELECTED (§1.5)', () => {
-    const data = fakeData({ posts: [post({ id: 'z', date: '2026-10-22', caption: 'three weeks out' })] });
+  it('TAPPING A GRID DAY STAYS ON THE GRID and summarises that day (round 6, P6)', () => {
+    const data = fakeData({ posts: [post({ id: 'z', date: '2026-10-22', title: 'three weeks out' })] });
     render(<CommittedSurface data={data} />);
     fireEvent.click(screen.getByTestId('nav-month'));
     fireEvent.click(document.querySelector('[data-testid="grid-cell"][data-date="2026-10-22"]')!);
 
-    expect(screen.getByTestId('day-panel')?.getAttribute('data-date')).toBe('2026-10-22');
-    expect(screen.getByText('three weeks out')).toBeTruthy();
+    // The calendar is still the view. N3 flipped to Day here and the phone read that as being
+    // thrown out of the month you were reading.
+    expect(screen.getByTestId('month-grid')).toBeTruthy();
+    expect(screen.queryByTestId('day-panel')).toBeNull();
+
+    const summary = screen.getByTestId('month-summary');
+    expect(summary.getAttribute('data-date')).toBe('2026-10-22');
+    expect(within(summary).getByText('three weeks out')).toBeTruthy();
     // Nothing is fetched — the month's posts were already loaded for the grid just drawn.
     expect(data.switchCycle).not.toHaveBeenCalled();
   });
 
-  it('the strip RE-ANCHORS to the week containing the picked day', () => {
+  it('a summary row opens that post’s sheet, from inside the month view', () => {
+    render(<CommittedSurface data={fakeData({ posts: [post({ id: 'z', date: '2026-10-22', title: 'three weeks out' })] })} />);
+    fireEvent.click(screen.getByTestId('nav-month'));
+    fireEvent.click(document.querySelector('[data-testid="grid-cell"][data-date="2026-10-22"]')!);
+    fireEvent.click(screen.getByTestId('summary-row'));
+
+    expect(screen.getByTestId('detail-sheet')).toBeTruthy();
+    expect(screen.getByTestId('month-grid')).toBeTruthy();   // and the month is still behind it
+  });
+
+  it('an empty day says so and offers nothing — a glance is not a place to create', () => {
     render(<CommittedSurface data={fakeData({ posts: [post()] })} />);
     fireEvent.click(screen.getByTestId('nav-month'));
     fireEvent.click(document.querySelector('[data-testid="grid-cell"][data-date="2026-10-22"]')!);
 
+    const summary = screen.getByTestId('month-summary');
+    expect(summary.textContent).toContain('Nothing planned');
+    expect(within(summary).queryByTestId('row-list')).toBeNull();
+    expect(screen.queryByTestId('add-slot')).toBeNull();
+  });
+
+  it('the selection is SHARED, so switching to Day lands where you were reading', () => {
+    render(<CommittedSurface data={fakeData({ posts: [post()] })} />);
+    fireEvent.click(screen.getByTestId('nav-month'));
+    fireEvent.click(document.querySelector('[data-testid="grid-cell"][data-date="2026-10-22"]')!);
+    fireEvent.click(screen.getByTestId('nav-day'));
+
+    expect(screen.getByTestId('day-panel')?.getAttribute('data-date')).toBe('2026-10-22');
     const days = [...document.querySelectorAll('[data-testid="week-day"]')].map((d) => d.getAttribute('data-date'));
-    expect(days[0]).toBe('2026-10-19');   // the Monday of that week
+    expect(days[0]).toBe('2026-10-19');   // the strip re-anchored to that week
     expect(days).toContain('2026-10-22');
   });
 
@@ -164,13 +197,48 @@ describe('the nav pill, and the month grid as a picker', () => {
     expect(screen.getByTestId('tasks-panel')).toBeTruthy();
   });
 
-  it('Today returns from the month view to the current day', () => {
+  it('Today on the month view selects in place rather than leaving the grid', () => {
     render(<CommittedSurface data={fakeData({ posts: [post()] })} />);
     fireEvent.click(screen.getByTestId('nav-month'));
     fireEvent.click(document.querySelector('[data-testid="grid-cell"][data-date="2026-10-22"]')!);
     fireEvent.click(screen.getByTestId('today-btn'));
 
+    expect(screen.getByTestId('month-grid')).toBeTruthy();
+    expect(screen.getByTestId('month-summary').getAttribute('data-date')).toBe(TODAY);
+  });
+
+  it('Today on the DAY view still returns to the current day', () => {
+    render(<CommittedSurface data={fakeData({ posts: [post()] })} />);
+    fireEvent.click(document.querySelector('[data-testid="week-day"][data-date="2026-10-03"]')!);
+    fireEvent.click(screen.getByTestId('today-btn'));
+
     expect(screen.getByTestId('day-panel')?.getAttribute('data-date')).toBe(TODAY);
+  });
+});
+
+describe('the week pager (round 6, P5)', () => {
+  it('a chevron pages a week, keeping the weekday you were on', () => {
+    render(<CommittedSurface data={fakeData({ posts: [post()] })} />);
+    fireEvent.click(screen.getByTestId('next-week'));
+
+    expect(screen.getByTestId('day-panel')?.getAttribute('data-date')).toBe('2026-10-08');
+    const days = [...document.querySelectorAll('[data-testid="week-day"]')].map((d) => d.getAttribute('data-date'));
+    expect(days[0]).toBe('2026-10-05');
+  });
+
+  it('and pages back', () => {
+    render(<CommittedSurface data={fakeData({ posts: [post()] })} />);
+    fireEvent.click(screen.getByTestId('next-week'));
+    fireEvent.click(screen.getByTestId('prev-week'));
+    expect(screen.getByTestId('day-panel')?.getAttribute('data-date')).toBe(TODAY);
+  });
+
+  it('STOPS at the month edge — disabled, never hidden', () => {
+    render(<CommittedSurface data={fakeData({ posts: [post()] })} />);
+    // 1 Oct is in the week of 28 Sep; one page back is 21–27 Sep, entirely outside October.
+    // Paging there would draw seven days whose posts were never loaded, which reads as loss.
+    expect(screen.getByTestId('prev-week').hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('next-week').hasAttribute('disabled')).toBe(false);
   });
 });
 

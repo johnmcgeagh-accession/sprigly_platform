@@ -28,18 +28,16 @@
  * `position` is the tiebreak `reorderWithinDay` writes, and this is the first surface that
  * makes it visible.
  */
-import React, { useState } from 'react';
+import React from 'react';
 import type { PlanPost, PlanBeat } from '@/lib/types';
-import { FormatTile, PlusGlyph, ChevronR } from './icons';
+import { FormatTile, PlusGlyph } from './icons';
 import { dayTitle } from './dates';
 import { isOnTheWay, ON_THE_WAY_LABEL, ON_THE_WAY_TEASER, ON_THE_WAY_ARIA } from '@/lib/generation-state';
 import { cardText } from './card-text';
 import { WeatherHeaderBadge } from '../pieces';
 import { BeatMarker, beatFlashText } from '../BeatMarker';
 import type { WeatherDay } from '@/lib/weather';
-
-/** Rows shown before "＋N more". Four, per the density rule. */
-const ROWS_BEFORE_MORE = 4;
+import { CompactRows, ROWS_BEFORE_MORE, densityOf, rowsFromPosts } from './rows';
 
 export function DayPanel({
   date, today, posts, beats, canAdd, onOpen, onAdd, onBeat, outside, timeOf, weather,
@@ -64,10 +62,14 @@ export function DayPanel({
 }) {
   const heading = date === today ? `Today · ${dayTitle(date)}` : dayTitle(date);
   const count = posts.length;
+  const density = densityOf(count);
 
   return (
-    <div data-testid="day-panel" data-date={date} className="flex-1 overflow-y-auto px-5 pb-[104px] pt-4 [scrollbar-width:none]">
-      <div className="mb-3.5 flex items-baseline gap-2.5">
+    // pt-3 / mb-3, not pt-4 / mb-3.5: the phone check found the day's content starting a third
+    // of the way down the screen, and this is the last of the four paddings that caused it
+    // (round 6, P4). The rest are in PlanShell.
+    <div data-testid="day-panel" data-date={date} className="flex-1 overflow-y-auto px-5 pb-[104px] pt-3 [scrollbar-width:none]">
+      <div className="mb-3 flex items-baseline gap-2.5">
         <h2 data-testid="day-title" className="text-[22px] font-bold tracking-[-.02em] text-chrome">{heading}</h2>
         <span className="flex-1" />
         <WeatherHeaderBadge day={weather} />
@@ -76,10 +78,14 @@ export function DayPanel({
         </span>
       </div>
 
-      {count > 0 && count <= 2 && posts.map((p) => (
+      {density === 'cards' && posts.map((p) => (
         <PostCard key={p.id} post={p} time={timeOf(p)} onOpen={() => onOpen(p.id)} />
       ))}
-      {count >= 3 && <RowList posts={posts} onOpen={onOpen} timeOf={timeOf} />}
+      {density === 'rows' && (
+        <div className="mb-2.5">
+          <CompactRows items={rowsFromPosts(posts, timeOf)} onOpen={onOpen} cap={ROWS_BEFORE_MORE} />
+        </div>
+      )}
 
       {canAdd && (
         <button
@@ -152,36 +158,3 @@ function PostCard({ post, time, onOpen }: { post: PlanPost; time: string; onOpen
   );
 }
 
-/** Three or more posts: one grouped list of compact rows. */
-function RowList({ posts, onOpen, timeOf }: { posts: PlanPost[]; onOpen: (id: string) => void; timeOf: (p: PlanPost) => string }) {
-  const [expanded, setExpanded] = useState(false);
-  const hidden = Math.max(0, posts.length - ROWS_BEFORE_MORE);
-  const shown = expanded || hidden === 0 ? posts : posts.slice(0, ROWS_BEFORE_MORE);
-
-  return (
-    <div data-testid="row-list" className="mb-2.5 overflow-hidden rounded-[20px] border border-line/30 bg-surface shadow-card">
-      {shown.map((p) => (
-        <button
-          key={p.id} type="button" data-testid="post-row" data-post-id={p.id} onClick={() => onOpen(p.id)}
-          className="flex min-h-[58px] w-full items-center gap-2.5 px-[13px] py-3 text-left [&+&]:border-t [&+&]:border-line/30"
-        >
-          <span className="w-[42px] flex-none text-[12.5px] font-semibold tabular-nums text-muted">{timeOf(p)}</span>
-          <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-chrome">{cardText(p).heading}</span>
-          {isOnTheWay(p.status) && (
-            <span data-testid="row-on-the-way" aria-label={ON_THE_WAY_ARIA}
-              className="h-[5px] w-[5px] flex-none rounded-full bg-coral-600" />
-          )}
-          <ChevronR className="h-4 w-4 flex-none text-muted" />
-        </button>
-      ))}
-      {hidden > 0 && !expanded && (
-        <button
-          type="button" data-testid="show-more" onClick={() => setExpanded(true)}
-          className="flex min-h-[44px] w-full items-center justify-center border-t border-line/30 text-[13px] font-semibold text-coral-800"
-        >
-          ＋{hidden} more
-        </button>
-      )}
-    </div>
-  );
-}

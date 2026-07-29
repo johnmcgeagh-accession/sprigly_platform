@@ -1,13 +1,23 @@
 'use client';
 
 /**
- * MonthGrid.tsx — the month view. A PEER of the day view, and a picker.
+ * MonthGrid.tsx — the month view. A PEER of the day view, and the view you stay in.
  *
- * Spec §1.5. Two things this is not: it is not a modal (no ✕, no dismiss — you leave it the
- * way you entered it, through the nav pill), and it is not a read-only overview. **Tapping any
- * day returns to Day view with that day selected.** On a phone that is usually the faster of
- * the two ways to reach a date three weeks out, and nothing is fetched — the month's posts are
- * already loaded for the grid that was just drawn.
+ * Spec §1.5. It is not a modal: no ✕, no dismiss — you leave it the way you entered it, through
+ * the nav pill.
+ *
+ * ── Round 6, P6 supersedes N3 ────────────────────────────────────────────────────────
+ *
+ * Tapping a day used to flip to Day view and carry the date with it. On the device that read as
+ * the calendar throwing you out — a client scanning the month to see *where things are* lost the
+ * month the moment they touched it, and getting back cost a tap on a nav control they had not
+ * been thinking about.
+ *
+ * So the grid stays, and the tap selects. What the day holds appears BENEATH the grid as compact
+ * rows, and a tap on a row opens that post's sheet. Nothing is fetched either way — the month's
+ * posts are already loaded for the grid that was just drawn — and the selection is shared with
+ * Day view, so switching to Day afterwards lands on the day you were reading. That is the useful
+ * half of N3, kept without its cost.
  *
  * THE LEGEND IS GONE. A calendar that needs a printed key has an encoding problem, and round 2
  * shipped one. The two states that need distinguishing differ in SHAPE — a filled dot is a
@@ -19,7 +29,7 @@ import { DOW_INITIAL, monthGrid, fromIso, MONTHS_FULL } from './dates';
 import type { DayMark } from './WeekStrip';
 
 export function MonthGrid({
-  month, selected, today, marksFor, onPick, footer,
+  month, selected, today, marksFor, onPick, footer, summary,
 }: {
   month: string;
   selected: string;
@@ -29,6 +39,9 @@ export function MonthGrid({
   onPick: (iso: string) => void;
   /** One sentence under the grid — the count, and the exception if there is one. */
   footer: string;
+  /** What the selected day holds (round 6, P6). Rendered under the footer; the move picker
+   *  passes nothing, because a picker's job ends at the date. */
+  summary?: React.ReactNode | undefined;
 }) {
   const cells = monthGrid(month);
 
@@ -84,6 +97,7 @@ export function MonthGrid({
         })}
       </div>
       <p data-testid="month-foot" className="px-1 pt-[18px] text-[13.5px] leading-normal text-muted">{footer}</p>
+      {summary}
     </div>
   );
 }

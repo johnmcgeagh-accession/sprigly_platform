@@ -199,7 +199,7 @@ describe('shape, in place', () => {
     fireEvent.click(screen.getAllByTestId('post-card')[0]!);
     fireEvent.click(screen.getByTestId('act-shape'));
     fireEvent.change(screen.getByTestId('shape-input'), { target: { value: 'meant for the first one' } });
-    fireEvent.click(screen.getByTestId('detail-scrim'));
+    fireEvent.click(screen.getByTestId('detail-sheet-scrim'));
 
     fireEvent.click(screen.getAllByTestId('post-card')[1]!);
     expect(screen.getByTestId('detail-sheet').getAttribute('aria-label')).toBe('Second');
@@ -281,13 +281,13 @@ describe('move: a date, a time, and where it went', () => {
     expect(data.reschedule).toHaveBeenCalledWith('p1', '2026-10-22', '19:30');
   });
 
-  it('WITHIN the month, the snackbar names the day', () => {
+  it('WITHIN the month, the feedback names the day', () => {
     render(<CommittedSurface data={fakeData()} />);
     openMove();
     fireEvent.click(document.querySelector('[data-testid="move-sheet"] [data-date="2026-10-22"]')!);
     fireEvent.click(screen.getByTestId('move-confirm'));
 
-    expect(screen.getByTestId('snackbar').textContent).toContain('Moved to 22 Oct');
+    expect(screen.getByTestId('feedback').textContent).toContain('Moved to 22 Oct');
   });
 
   it('ACROSS a month, it names the month — gap 11, the post that vanished', () => {
@@ -297,7 +297,7 @@ describe('move: a date, a time, and where it went', () => {
     fireEvent.click(document.querySelector('[data-testid="move-sheet"] [data-date="2026-11-03"]')!);
     fireEvent.click(screen.getByTestId('move-confirm'));
 
-    const text = screen.getByTestId('snackbar').textContent ?? '';
+    const text = screen.getByTestId('feedback').textContent ?? '';
     expect(text).toContain('3 Nov');
     expect(text).toContain('November');
   });
@@ -308,18 +308,18 @@ describe('move: a date, a time, and where it went', () => {
     openMove();
     fireEvent.click(document.querySelector('[data-testid="move-sheet"] [data-date="2026-10-22"]')!);
     fireEvent.click(screen.getByTestId('move-confirm'));
-    fireEvent.click(screen.getByTestId('snackbar-undo'));
+    fireEvent.click(screen.getByTestId('feedback-undo'));
 
     expect(data.reschedule).toHaveBeenLastCalledWith('p1', TODAY, '06:00');
   });
 
-  it('the snackbar renders at the TOP, never over the row it is undoing', () => {
+  it('the feedback renders at the TOP, never over the row it is undoing', () => {
     render(<CommittedSurface data={fakeData()} />);
     openMove();
     fireEvent.click(document.querySelector('[data-testid="move-sheet"] [data-date="2026-10-22"]')!);
     fireEvent.click(screen.getByTestId('move-confirm'));
 
-    expect(screen.getByTestId('snackbar').className).toContain('top-[46px]');
+    expect(screen.getByTestId('feedback').className).toContain('top-[46px]');
   });
 
   it('a past date is not pickable, so the move cannot be refused after the fact', () => {
@@ -342,9 +342,9 @@ describe('delete', () => {
 
     expect(data.removePost).toHaveBeenCalledWith('p1');
     expect(screen.queryByTestId('detail-sheet')).toBeNull();
-    expect(screen.getByTestId('snackbar').textContent).toContain('Removed it.');
+    expect(screen.getByTestId('feedback').textContent).toContain('Removed it.');
     // No route un-deletes a post, so an Undo here would be a button that cannot do what it says.
-    expect(screen.queryByTestId('snackbar-undo')).toBeNull();
+    expect(screen.queryByTestId('feedback-undo')).toBeNull();
   });
 });
 
@@ -356,5 +356,69 @@ describe('a read-only day', () => {
     expect(screen.queryByTestId('act-move')).toBeNull();
     expect(screen.queryByTestId('act-delete')).toBeNull();
     expect(screen.queryByTestId('act-shape')).toBeNull();
+  });
+});
+
+describe('the grabber is a control (round 6, P7)', () => {
+  /** jsdom has no pointer capture; the handler calls it optionally, so stub it away. */
+  const grab = (testid: string) => {
+    const el = screen.getByTestId(testid);
+    (el as HTMLElement & { setPointerCapture?: unknown }).setPointerCapture = () => {};
+    return el;
+  };
+
+  it('a plain TAP on the grabber closes the sheet', () => {
+    render(<CommittedSurface data={fakeData()} />);
+    openSheet();
+    const g = grab('detail-sheet-grabber');
+    fireEvent.pointerDown(g, { clientY: 200, pointerId: 1 });
+    fireEvent.pointerUp(g, { clientY: 200, pointerId: 1 });
+
+    expect(screen.queryByTestId('detail-sheet')).toBeNull();
+  });
+
+  it('a DRAG past the threshold closes it', () => {
+    render(<CommittedSurface data={fakeData()} />);
+    openSheet();
+    const g = grab('detail-sheet-grabber');
+    fireEvent.pointerDown(g, { clientY: 200, pointerId: 1 });
+    fireEvent.pointerMove(g, { clientY: 320, pointerId: 1 });
+    fireEvent.pointerUp(g, { clientY: 320, pointerId: 1 });
+
+    expect(screen.queryByTestId('detail-sheet')).toBeNull();
+  });
+
+  it('a HESITATION springs back — the sheet stays open', () => {
+    render(<CommittedSurface data={fakeData()} />);
+    openSheet();
+    const g = grab('detail-sheet-grabber');
+    fireEvent.pointerDown(g, { clientY: 200, pointerId: 1 });
+    fireEvent.pointerMove(g, { clientY: 240, pointerId: 1 });
+    fireEvent.pointerUp(g, { clientY: 240, pointerId: 1 });
+
+    expect(screen.getByTestId('detail-sheet')).toBeTruthy();
+  });
+
+  it('an UPWARD drag is not a dismissal, and is not a tap either', () => {
+    render(<CommittedSurface data={fakeData()} />);
+    openSheet();
+    const g = grab('detail-sheet-grabber');
+    fireEvent.pointerDown(g, { clientY: 300, pointerId: 1 });
+    fireEvent.pointerMove(g, { clientY: 120, pointerId: 1 });
+    fireEvent.pointerUp(g, { clientY: 120, pointerId: 1 });
+
+    expect(screen.getByTestId('detail-sheet')).toBeTruthy();
+  });
+
+  it('the move sheet gets the same gesture from the same chrome', () => {
+    render(<CommittedSurface data={fakeData()} />);
+    openSheet();
+    fireEvent.click(screen.getByTestId('act-move'));
+    const g = grab('move-sheet-grabber');
+    fireEvent.pointerDown(g, { clientY: 200, pointerId: 1 });
+    fireEvent.pointerUp(g, { clientY: 200, pointerId: 1 });
+
+    expect(screen.queryByTestId('move-sheet')).toBeNull();
+    expect(screen.getByTestId('detail-sheet')).toBeTruthy();   // the sheet it opened from stays
   });
 });

@@ -29,14 +29,14 @@
  * THE PLANNED-POST VARIANT HAS NO TABS. There is nothing written yet, so the sheet says so
  * rather than showing three empty ones, and Shape is absent because there is nothing to rewrite.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { PlanPost } from '@/lib/types';
 import type { PlanData, ShapeTarget } from '../usePlanData';
 import { FormatTile, InfoGlyph, CopyGlyph, CalGlyph, SparkleGlyph, BinGlyph, SendGlyph } from './icons';
 import { cardText } from './card-text';
 import { dayTitle } from './dates';
 import { isOnTheWay, ON_THE_WAY_LABEL, ON_THE_WAY_BODY } from '@/lib/generation-state';
-import { useFocusTrap } from '../a11y';
+import { Sheet } from './Sheet';
 
 type Tab = ShapeTarget;
 const TABS: { key: Tab; label: string }[] = [
@@ -60,14 +60,11 @@ export function DetailSheet({
   onMove: () => void;
   onDelete: () => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState<Tab>('caption');
   const [insights, setInsights] = useState(false);
   const [shaping, setShaping] = useState(false);
   const [instruction, setInstruction] = useState('');
   const [copied, setCopied] = useState<Tab | null>(null);
-
-  useFocusTrap(!!post, ref, onClose);
 
   // A new post is a new sheet: never inherit the last one's tab, its open insights, or —
   // above all — a half-typed instruction meant for a different post.
@@ -104,16 +101,8 @@ export function DetailSheet({
   };
 
   return (
-    <>
-      <div data-testid="detail-scrim" aria-hidden="true" onClick={onClose} className="absolute inset-0 z-[30] bg-chrome-deep/[.34]" />
-      <div
-        ref={ref} role="dialog" aria-modal="true" aria-label={heading} data-testid="detail-sheet" tabIndex={-1}
-        // Every sheet in the set is the same height, so opening one never changes how much of
-        // the app you can see. 92%, because at 90% the cut landed mid-word on the month title.
-        className="absolute inset-x-0 bottom-0 z-[31] flex h-[92%] flex-col rounded-t-[26px] bg-surface shadow-[0_-18px_50px_-12px_rgb(30_41_59_/_0.28)] outline-none"
-      >
-        <div aria-hidden="true" className="mx-auto mb-1 mt-2.5 h-[5px] w-[38px] flex-none rounded-full bg-line/45" />
-
+    <Sheet open label={heading} testid="detail-sheet" onClose={onClose}>
+      <>
         <div className="flex-none border-b border-line/30 px-[18px] pb-3.5 pt-1.5">
           <div className="flex items-start gap-3">
             <FormatTile format={post.format} large />
@@ -239,8 +228,8 @@ export function DetailSheet({
             </ActionBtn>
           </div>
         ) : null}
-      </div>
-    </>
+      </>
+    </Sheet>
   );
 }
 

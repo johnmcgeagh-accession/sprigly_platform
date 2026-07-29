@@ -95,6 +95,12 @@ export function PlanRoot(props: PlanDataInit) {
   return (
     <>
       {desktop ? <PlanDesktop data={data} /> : <CommittedSurface data={data} />}
+      {/* ROUND 6, P10 — ONE feedback channel on the phone, and it is the shell's TOP slot.
+          This bottom toast was the second one: a confirmation landed at the top, and the
+          confirmation of the very next act landed here, over the nav pill. Desktop keeps it,
+          because `PlanDesktop` has no top slot to move it into and its own redesign is a later
+          session; the shell must not break it in the meantime. */}
+      {desktop && <Toast message={data.toast} />}
       {data.intakeOpen && (
         <IntakeCapture
           questions={data.questions}
@@ -108,7 +114,6 @@ export function PlanRoot(props: PlanDataInit) {
           onClose={data.closeIntake}
         />
       )}
-      <Toast message={data.toast} />
     </>
   );
 }
