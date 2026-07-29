@@ -475,7 +475,14 @@ export function usePlanData(init: PlanDataInit) {
   }, [readOnly, scriptGenerating, flash, pollJob]);
 
   /** Talk to your plan → real agent extraction; proposals land in Approvals. */
-  const ask = useCallback(async (instruction: string, selectedPostId: string | null): Promise<AgentReply | null> => {
+  const ask = useCallback(async (
+    instruction: string,
+    selectedPostId: string | null,
+    /** Spoken or typed. `POST /api/plan/agent` has accepted this since Build 3; nothing sent it,
+     *  so the committed month's half of gap 8 was open in the other direction — the draft route
+     *  learned to tell them apart and this one already could. */
+    source: 'web' | 'voice' = 'web',
+  ): Promise<AgentReply | null> => {
     if (readOnly || !instruction.trim() || agentBusy) return null;
     setAgentBusy(true);
     setAgentError(null);
@@ -486,7 +493,7 @@ export function usePlanData(init: PlanDataInit) {
     try {
       const res = await fetch('/api/plan/agent', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ instruction, selectedPostId, conversationId: conversationId.current }),
+        body: JSON.stringify({ instruction, selectedPostId, source, conversationId: conversationId.current }),
         signal: controller.signal,
       });
       if (res.status === 429) { setAgentError('You’re sending changes too quickly. Give it a few seconds and try again.'); return null; }
@@ -500,7 +507,7 @@ export function usePlanData(init: PlanDataInit) {
         setProposals((cur) => [...created.filter((p) => !cur.some((c) => c.id === p.id)), ...cur]);
         setFlashView('approvals'); setTimeout(() => setFlashView(null), 2800);
       } else if (r.message) { flash(r.message); }
-      track('agent_ask_submitted', { proposals: created.length });
+      track('agent_ask_submitted', { proposals: created.length, source });
       void refreshNotes();
       return reply;
     } catch {

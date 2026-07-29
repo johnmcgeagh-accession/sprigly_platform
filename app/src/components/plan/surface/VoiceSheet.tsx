@@ -37,21 +37,51 @@ import { MicGlyph, KeyboardGlyph, SendGlyph, CloseGlyph } from './icons';
 import { Waveform } from './Waveform';
 import { useSpeechInput } from '../useSpeechInput';
 
-/** Sentence openers, phrased to reach an intent the classifier routes: launch, event, emphasis. */
-const STARTERS = [
-  'We’re launching ',
-  'There’s an event on ',
-  'Can we do more ',
-];
+/**
+ * ONE SHEET, TWO MONTH STATES (round 7, fix 2).
+ *
+ * The mic means *talk to your plan* on both, and it is the same gesture, the same waveform and the
+ * same dual input. What differs is the CONSEQUENCE, and the sheet is what says which — spec §1.2's
+ * rule, which the committed month was not honouring: it flashed a line of copy and opened nothing.
+ *
+ *   draft      the sentence RESHAPES the month directly and returns a receipt.
+ *   committed  the sentence raises PROPOSALS the client then approves. The agent applies nothing.
+ *
+ * The starters differ with it, because the intents differ. A draft month is being shaped — what is
+ * launching, what is on, what you want more of. A committed month is being corrected — move this,
+ * drop that, rewrite the other.
+ */
+export type VoiceContext = 'draft' | 'committed';
+
+interface Framing { title: string; blurb: string; placeholder: string; starters: string[] }
+
+const FRAMING: Record<VoiceContext, (monthName: string) => Framing> = {
+  draft: (m) => ({
+    title: `Tell us about ${m}`,
+    blurb: `This is your ${m} draft. Tell us what’s happening and we’ll reshape it — what’s launching, what’s on, what you want more of.`,
+    placeholder: 'The Wilderness candle relaunches on the 24th, can we build up to it?',
+    // Openers the client finishes, each leading into an intent the classifier routes.
+    starters: ['We’re launching ', 'There’s an event on ', 'Can we do more '],
+  }),
+  committed: (m) => ({
+    title: `Tell your plan what to change`,
+    blurb: `${m} is written. Say what you want different and we’ll put the change up for you to approve — nothing moves until you say so.`,
+    placeholder: 'Move the Thursday post to Friday',
+    starters: ['Move the ', 'Take out the ', 'Rewrite the '],
+  }),
+};
 
 type Mode = 'speak' | 'type';
 
 export function VoiceSheet({
-  open, monthName, busy, question, onClose, onSubmit,
+  open, monthName, busy, question, context = 'draft', onClose, onSubmit,
 }: {
   open: boolean;
   monthName: string;
   busy: boolean;
+  /** Which month state this mic belongs to. It chooses the framing and the starters; the caller
+   *  chooses where the words go. Same sheet, same capture, different consequence. */
+  context?: VoiceContext;
   /**
    * The assumption being answered, when the sheet was opened from the nudge rather than the mic.
    *
@@ -118,7 +148,8 @@ export function VoiceSheet({
     });
   };
 
-  const heading = mode === 'type' ? `Tell us about ${monthName}`
+  const framing = FRAMING[context](monthName);
+  const heading = mode === 'type' ? framing.title
     : listening ? (loud ? 'Listening…' : 'Go ahead')
     : 'Tap the mic and talk';
   const under = mode === 'type' ? 'Same thing, typed.'
@@ -126,7 +157,7 @@ export function VoiceSheet({
     : 'One sentence is enough.';
 
   return (
-    <Sheet open={open} label={`Tell us about ${monthName}`} testid="voice-sheet" onClose={onClose} hasOwnClose>
+    <Sheet open={open} label={framing.title} testid="voice-sheet" onClose={onClose} hasOwnClose>
       <>
         <div className="flex flex-none items-start gap-3 px-[18px] pb-2 pt-1.5">
           <div className="min-w-0 flex-1">
@@ -144,7 +175,7 @@ export function VoiceSheet({
               because a 200px block asking the client to say something sat above the month they
               came to read — which inverts the product's own first principle. */}
           <p data-testid="voice-framing" className="pt-1 text-[15px] leading-[1.5] text-chrome">
-            {question ?? `This is your ${monthName} draft. Tell us what’s happening and we’ll reshape it — what’s launching, what’s on, what you want more of.`}
+            {question ?? framing.blurb}
           </p>
 
           {mode === 'speak' ? (
@@ -190,14 +221,14 @@ export function VoiceSheet({
             <textarea
               ref={field} data-testid="voice-input" autoFocus value={text} disabled={busy}
               onChange={(e) => setText(e.target.value)}
-              placeholder={`The Wilderness candle relaunches on the 24th, can we build up to it?`}
+              placeholder={framing.placeholder}
               className="mt-4 min-h-[220px] w-full flex-1 rounded-[14px] border border-line/55 bg-surface p-3.5 text-[16.5px] leading-[1.45] text-chrome outline-none placeholder:text-muted"
             />
           )}
 
           <h3 className="mb-2 mt-4 text-[11px] font-bold uppercase tracking-[.1em] text-muted">Try starting with</h3>
           <div data-testid="voice-starters" className="flex flex-col gap-1.5">
-            {STARTERS.map((s) => (
+            {framing.starters.map((s) => (
               // BUTTONS, and they do what their shape promises (X4). A tap moves to typed mode
               // with the opener in the field and the caret after it.
               <button

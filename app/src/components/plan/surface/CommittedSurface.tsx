@@ -37,6 +37,7 @@ import { TasksPanel } from './TasksPanel';
 import { DetailSheet } from './DetailSheet';
 import { MoveSheet } from './MoveSheet';
 import { AddSheet } from './AddSheet';
+import { VoiceSheet } from './VoiceSheet';
 import { Feedback, type UndoState } from './Feedback';
 import { MonthDaySummary, rowsFromPosts } from './rows';
 import { defaultDayFor, monthOf, monthTitle, monthGrid, shortDate } from './dates';
@@ -57,6 +58,7 @@ export function CommittedSurface({ data }: { data: PlanData }) {
   /** The day the add sheet is open for, or null. Held as a DATE rather than a boolean so the
    *  sheet cannot be open for one day while the panel shows another. */
   const [addFor, setAddFor] = useState<string | null>(null);
+  const [voiceOpen, setVoiceOpen] = useState(false);
 
   // Re-anchor the selection when the MONTH changes, not on every render: switching to October
   // while standing on 3 September has to move, and an unrelated post edit must not.
@@ -175,9 +177,13 @@ export function CommittedSurface({ data }: { data: PlanData }) {
       onNextMonth={next ? () => void data.switchCycle(next.cycleId) : undefined}
       view={view}
       onView={(v) => { setView(v); data.track('view_switched', { view: v }); }}
-      // The agent path is the mic's consequence on a committed month. `data.ask` is gated on
-      // readOnly upstream; this build opens the existing agent surface rather than a new sheet.
-      onMic={data.readOnly ? undefined : () => { setView('day'); data.flash('Talk to your plan — say what you’d like changed.'); }}
+      // ONE VOICE INTERFACE (round 7, fix 2). The mic opens the SAME sheet as the draft month's
+      // — same waveform, same dual input, same starters-that-are-openers — with the framing and
+      // the submit target that belong to a committed month. Session A wired this to a line of
+      // `flash()` copy and nothing else, which is the one thing spec §1.2 said not to do: the
+      // gesture is always *talk to your plan*, and the SHEET is what says which consequence it
+      // has. `data.ask` is gated on readOnly upstream, so the mic is absent rather than inert.
+      onMic={data.readOnly ? undefined : () => setVoiceOpen(true)}
       micLabel="Talk to your plan"
       tasksDot={lateCount(data.posts, data.today) > 0}
       onToday={goToday}
@@ -195,6 +201,25 @@ export function CommittedSurface({ data }: { data: PlanData }) {
         {/* ROUND 6, P1 — the add slot opens this instead of creating an empty post. A committed
             month needs no pillar: `addGeneratingPost` files a new idea under "New idea" rather
             than asking the client to categorise something they have not written yet. */}
+        <VoiceSheet
+          open={voiceOpen} context="committed" monthName={monthTitle(month).split(' ')[0] ?? ''}
+          busy={data.agentBusy}
+          onClose={() => setVoiceOpen(false)}
+          onSubmit={async (text, source) => {
+            const reply = await data.ask(text, null, source);
+            if (!reply) return false;   // refused or errored — the sheet keeps the words
+            // The agent APPLIES NOTHING on a committed month; it raises proposals. Say what it
+            // did in its own words, and say how many are waiting rather than implying the month
+            // has already changed.
+            const n = reply.proposals.length;
+            setUndo({
+              message: n > 0
+                ? `${reply.message} ${n} change${n === 1 ? '' : 's'} to approve.`.trim()
+                : reply.message,
+            });
+            return true;
+          }}
+        />
         {addFor && (
           <AddSheet
             open date={addFor} pillars={null} busy={data.busy}

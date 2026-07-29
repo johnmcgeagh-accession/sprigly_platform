@@ -943,6 +943,38 @@ now, and the mic is one of them:
 The halo fires on the meter's own level detection, debounced so a gap between words is not a
 state change.
 
+### 8.2a One sheet, both months (round 7, fix 2)
+
+§1.2's rule was that the mic is the microphone on **both** month states, the gesture is always
+*talk to your plan*, and **the surface has to say which consequence it has**. Session A wired the
+committed mic to a line of `flash()` copy and opened nothing; Session B built the sheet for the
+draft month only. So the one screen whose whole job was to say which consequence you were getting
+existed on one of the two months.
+
+**It is one sheet now.** Same microphone, same live meter, same keyboard toggle, same submit
+button, same starters-that-are-openers. Two things differ, and they are the two that should:
+
+| | Draft | Committed |
+|---|---|---|
+| **Framing** | “This is your October draft. Tell us what's happening and we'll reshape it…” | “October is written. Say what you want different and we'll put the change up for you to approve — **nothing moves until you say so**.” |
+| **Starters** | “We're launching …”, “There's an event on …”, “Can we do more …” | “Move the …”, “Take out the …”, “Rewrite the …” |
+| **Submit** | `POST /api/plan/draft/apply` — reshapes the month, returns a receipt | `POST /api/plan/agent` — raises proposals, **applies nothing** |
+
+The committed reply is reported in the client's own feedback slot using the agent's own sentence,
+plus the count of proposals raised. Nothing in that copy may say *moved* or *done*, and a test
+asserts it does not — because on this month nothing has been.
+
+`source: 'voice' | 'web'` now rides the agent route too. It has accepted the field since Build 3
+and nothing sent it, so gap 8's committed half was open in the other direction from the draft
+one: the route could tell them apart and the client never told it.
+
+**One thing this exposes and does not fix.** A proposal raised by the mic is approved from the
+plan's Approvals surface, which exists on `PlanDesktop` and **not on the mobile shell**. So a
+client can raise a change on a phone and cannot act on it there. The copy is honest about the
+state — the change is up for approval — but the control is not on this form factor yet. Recorded
+as an open gap rather than papered over; it belongs with the Insights segment as a fourth thing
+the pill has room for.
+
 ### 8.3 `useSpeechInput` moved ONTO the draft surface — it did not leave `IntakeCapture`
 
 The brief allows either. **`IntakeCapture` keeps its microphone**, because it is a different

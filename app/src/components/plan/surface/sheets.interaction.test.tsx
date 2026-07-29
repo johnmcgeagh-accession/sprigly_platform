@@ -655,3 +655,65 @@ describe('a post’s tasks, in its sheet (round 6, P9)', () => {
     expect(screen.queryByTestId('sheet-tasks')).toBeNull();
   });
 });
+
+describe('the mic on a committed month opens the SAME sheet (round 7, fix 2)', () => {
+  const withAgent = (over: Partial<PlanData> = {}) => fakeData({
+    ask: vi.fn(async () => ({ message: 'I’ve put that up for you.', proposals: [{ id: 'pr1' }] })),
+    agentBusy: false,
+    ...over,
+  } as Partial<PlanData>);
+
+  it('opens the voice sheet, not a line of toast copy', () => {
+    render(<CommittedSurface data={withAgent()} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+
+    expect(screen.getByTestId('voice-sheet')).toBeTruthy();
+    expect(screen.getByTestId('voice-mic')).toBeTruthy();
+    expect(screen.getByTestId('waveform')).toBeTruthy();
+  });
+
+  it('submits to the AGENT path, carrying how it was said', async () => {
+    const data = withAgent();
+    render(<CommittedSurface data={data} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+    fireEvent.click(screen.getByTestId('voice-mode'));
+    fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'move the Thursday post to Friday' } });
+    await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+
+    expect(data.ask).toHaveBeenCalledWith('move the Thursday post to Friday', null, 'web');
+    expect(screen.queryByTestId('voice-sheet')).toBeNull();
+  });
+
+  it('reports what the agent DID, and says the change is waiting rather than done', async () => {
+    render(<CommittedSurface data={withAgent()} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+    fireEvent.click(screen.getByTestId('voice-mode'));
+    fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'move it' } });
+    await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+
+    const said = screen.getByTestId('feedback').textContent ?? '';
+    expect(said).toContain('I’ve put that up for you.');
+    expect(said).toContain('1 change to approve.');
+    // The agent applies nothing on a committed month, so nothing here may claim it did.
+    expect(said).not.toMatch(/moved|done|changed it/i);
+  });
+
+  it('a refusal keeps the sheet and the words', async () => {
+    const data = withAgent({ ask: vi.fn(async () => null) } as Partial<PlanData>);
+    render(<CommittedSurface data={data} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+    fireEvent.click(screen.getByTestId('voice-mode'));
+    fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'something worth keeping' } });
+    await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+
+    expect(screen.getByTestId('voice-sheet')).toBeTruthy();
+    expect((screen.getByTestId('voice-input') as HTMLTextAreaElement).value).toBe('something worth keeping');
+  });
+
+  it('THE LEGACY POPUP IS GONE — no flash-only mic on this surface', () => {
+    const data = withAgent();
+    render(<CommittedSurface data={data} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+    expect(data.flash).not.toHaveBeenCalled();
+  });
+});

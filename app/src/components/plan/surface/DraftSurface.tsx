@@ -249,7 +249,7 @@ export function DraftSurface({ data }: { data: PlanData }) {
         />
         {voiceFor !== null && (
           <VoiceSheet
-            open monthName={monthName} busy={m.busy}
+            open context="draft" monthName={monthName} busy={m.busy}
             {...(voiceFor ? { question: voiceFor } : {})}
             onClose={() => setVoiceFor(null)}
             onSubmit={async (text, source) => (await m.say(text, source)).ok}
