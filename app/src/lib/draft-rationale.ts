@@ -165,10 +165,47 @@ export function isAnswerable(assumption: string): boolean {
 }
 
 /**
- * The one assumption worth surfacing, or null. Order is the assembler's, which is stable.
+ * How directly the client can act on each kind, best first.
+ *
+ * ORDER IS NOT THE ASSEMBLER'S. It attaches the same list to every planned post and nothing
+ * about that list's order says which question is worth the one slot the surface has. Earl of
+ * East's live October carries exactly two:
+ *
+ *   "No launches or restocks are on record for this month — the draft assumes a
+ *    business-as-usual month."
+ *   "No pillar weights are on record, so the month splits evenly across pillars."
+ *
+ * Spec §2 names that pair and rules: keep the first, drop the second. Both are answerable —
+ * "want to weight it differently?" is a real question with a real transform behind it — so the
+ * ruling is about PRIORITY, not about eligibility. A launch is a fact only the client has and it
+ * reshapes the month; a pillar weighting is a preference they may not have thought about, and
+ * asking it first spends the one slot on the smaller question.
+ *
+ * Anything unmatched sorts last but still qualifies: a needless question costs a tap, and a
+ * suppressed one costs a month.
+ */
+const ANSWERABLE_RANK: RegExp[] = [
+  /launches or restocks/i,   // "anything coming up?" — reshapes the month
+  /catalogue/i,              // "want particular products featured?"
+  /evenly across pillars/i,  // "want it weighted differently?"
+  /posting history/i,        // "tell us what's worked before?"
+];
+
+/**
+ * The one assumption worth surfacing, or null.
+ *
+ * The assembler attaches the same list to every planned post, so this belongs to the MONTH and
+ * is shown once — never repeated on ten cards.
  */
 export function firstAnswerable(assumptions: readonly string[]): string | null {
-  return assumptions.find(isAnswerable) ?? null;
+  const rank = (a: string): number => {
+    const i = ANSWERABLE_RANK.findIndex((re) => re.test(a));
+    return i === -1 ? ANSWERABLE_RANK.length : i;
+  };
+  const eligible = assumptions.filter(isAnswerable);
+  if (eligible.length === 0) return null;
+  // Stable within a rank: `sort` on a mapped index keeps the assembler's order as the tiebreak.
+  return [...eligible.entries()].sort((a, b) => rank(a[1]) - rank(b[1]) || a[0] - b[0])[0]![1];
 }
 
 export function assumptionPrompt(assumption: string): string {

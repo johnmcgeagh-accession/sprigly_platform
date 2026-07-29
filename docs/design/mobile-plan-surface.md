@@ -343,9 +343,18 @@ prompts — moved into the **voice sheet** (§8), which is where the client is a
 speak.
 
 **The one assumption worth surfacing goes with it.** The assembler attaches the same list to every
-planned post; the sheet shows the one a client can *act on* and drops the rest. For Earl of East
+planned post; the surface shows the one a client can *act on* and drops the rest. For Earl of East
 that means keeping “nothing's launching this month” and dropping “no pillar weights are on
 record” — the second is true, but it is a fact about our data, not a question for them.
+
+**Built, with one correction the uat walkthrough forced.** Earl of East's live October carries
+exactly those two, and *both* pass an act-on-it test: `assumptionPrompt` turns the pillar one into
+“We've split the month evenly across your pillars — want to weight it differently?”, which is a
+real question with a real transform behind it. So the ruling above is about **priority**, not
+eligibility, and `firstAnswerable` ranks rather than filtering: a launch is a fact only the client
+has and it reshapes the month; a weighting is a preference they may not have considered, and
+asking it first spends the one slot on the smaller question. The only assumption that is genuinely
+*not* answerable is the format-mix one — that one asks them to fix our bookkeeping.
 
 **Never a caveat.** Round 1 headed this an amber “What we assumed” warning box. The same
 information phrased as an invitation reads as confidence; phrased as a warning it reads as an

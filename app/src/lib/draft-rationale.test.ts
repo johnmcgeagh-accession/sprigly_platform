@@ -156,9 +156,32 @@ describe('isAnswerable / firstAnswerable', () => {
     expect(isAnswerable(FORMATS)).toBe(false);
   });
 
-  it('surfaces exactly one, in the assembler’s order', () => {
+  it('surfaces exactly one, and RANKS rather than taking the assembler’s order', () => {
     expect(firstAnswerable([FORMATS, LAUNCHES])).toBe(LAUNCHES);
     expect(firstAnswerable([LAUNCHES, 'no specific products from the catalogue were named'])).toBe(LAUNCHES);
+  });
+
+  it('resolves Earl of East’s LIVE pair the way spec §2 names it', () => {
+    // Both of these are on the uat cycle right now, in this order. Both are answerable — "want
+    // it weighted differently?" has a real transform behind it — so the ruling is about which
+    // question is worth the one slot, not about which is a question.
+    const live = [
+      'No pillar weights are on record, so the month splits evenly across pillars.',
+      'No launches or restocks are on record for this month — the draft assumes a business-as-usual month.',
+    ];
+    expect(firstAnswerable(live)).toBe(live[1]);
+  });
+
+  it('falls back to an unranked assumption rather than showing none', () => {
+    expect(firstAnswerable(['something the assembler has not flagged before']))
+      .toBe('something the assembler has not flagged before');
+  });
+
+  it('is stable within a rank — the assembler’s order is the tiebreak', () => {
+    const a = 'no launches or restocks are on record (a)';
+    const b = 'no launches or restocks are on record (b)';
+    expect(firstAnswerable([a, b])).toBe(a);
+    expect(firstAnswerable([b, a])).toBe(b);
   });
 
   it('says nothing when everything on the list is ours', () => {
