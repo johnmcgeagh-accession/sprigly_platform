@@ -7,7 +7,7 @@
  * cost the client's trust in every other rationale on the page.
  */
 import { describe, it, expect } from 'vitest';
-import { rationaleFor, slotLabel, assumptionPrompt } from '@/lib/draft-rationale';
+import { rationaleFor, slotLabel, assumptionPrompt, isAnswerable, firstAnswerable } from '@/lib/draft-rationale';
 import type { BeatEvidence } from '@/lib/types';
 
 describe('rationaleFor — observed evidence', () => {
@@ -138,6 +138,37 @@ describe('slotLabel', () => {
   });
   it('leaves a proven slot unlabelled — the default needs no badge', () => {
     expect(slotLabel('proven')).toBeNull();
+  });
+});
+
+describe('isAnswerable / firstAnswerable', () => {
+  const LAUNCHES = 'no launches or restocks are on record for this month';
+  const FORMATS  = 'the format mix is based on posts whose format we could not read';
+
+  it('keeps a gap in what we know about THEIR month', () => {
+    expect(isAnswerable(LAUNCHES)).toBe(true);
+    expect(isAnswerable('no specific products from the catalogue were named')).toBe(true);
+    expect(isAnswerable('the month is split evenly across pillars')).toBe(true);
+  });
+
+  it('drops a fact about OUR data — a client can do nothing with it', () => {
+    // Asking them about this asks them to fix our bookkeeping.
+    expect(isAnswerable(FORMATS)).toBe(false);
+  });
+
+  it('surfaces exactly one, in the assembler’s order', () => {
+    expect(firstAnswerable([FORMATS, LAUNCHES])).toBe(LAUNCHES);
+    expect(firstAnswerable([LAUNCHES, 'no specific products from the catalogue were named'])).toBe(LAUNCHES);
+  });
+
+  it('says nothing when everything on the list is ours', () => {
+    expect(firstAnswerable([FORMATS])).toBeNull();
+    expect(firstAnswerable([])).toBeNull();
+  });
+
+  it('treats an UNKNOWN assumption as answerable — the failure modes are asymmetric', () => {
+    // A needless question costs a tap; a suppressed one costs a month.
+    expect(isAnswerable('something the assembler has not flagged before')).toBe(true);
   });
 });
 

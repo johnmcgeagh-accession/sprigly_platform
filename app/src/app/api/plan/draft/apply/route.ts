@@ -65,10 +65,16 @@ export async function POST(req: Request) {
   const text = String(body['text'] ?? '').trim();
   if (!text) return NextResponse.json({ error: 'bad_request' }, { status: 400 });
 
+  // GAP 8. `POST /api/plan/agent` and `POST /api/plan/intake` have taken this since Build 3;
+  // this route took `{op, text}` and nothing else, so spoken and typed input were
+  // indistinguishable on the ledger. Anything that is not the literal 'voice' is 'web' — an
+  // unknown value must not invent a third transport.
+  const source = body['source'] === 'voice' ? 'voice' : 'web';
+
   // applyTextToDraft decides: a pasted DOCUMENT goes through the decomposer, a single
   // instruction takes the existing path, byte-identical. The route stays thin.
   const res = await applyTextToDraft({
-    clientId: session.clientId, cycleId: session.cycleId, text, model: getModelClient(),
+    clientId: session.clientId, cycleId: session.cycleId, text, source, model: getModelClient(),
   });
   return res.ok
     ? NextResponse.json({ ok: true, application: res.application, beats: res.beats })

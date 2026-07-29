@@ -47,7 +47,9 @@ import { DraftDayPanel } from './DraftDayPanel';
 import { DraftDetailSheet } from './DraftDetailSheet';
 import { MoveSheet } from './MoveSheet';
 import { AddSheet } from './AddSheet';
+import { VoiceSheet } from './VoiceSheet';
 import { TasksPanel } from './TasksPanel';
+import { firstAnswerable, assumptionPrompt } from '@/lib/draft-rationale';
 import { Feedback } from './Feedback';
 import { MonthDaySummary } from './rows';
 import { useDraftMonth } from './useDraftMonth';
@@ -77,6 +79,8 @@ export function DraftSurface({ data }: { data: PlanData }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [moveId, setMoveId] = useState<string | null>(null);
   const [addFor, setAddFor] = useState<string | null>(null);
+  /** null = closed. A string = open, answering that question. '' = open, no question. */
+  const [voiceFor, setVoiceFor] = useState<string | null>(null);
 
   // Re-anchor the selection when the MONTH changes, not on every render.
   const [anchoredMonth, setAnchoredMonth] = useState(month);
@@ -133,6 +137,23 @@ export function DraftSurface({ data }: { data: PlanData }) {
    * an excuse. There is no second approval button here — the mic and the Generate pill are both
    * already on screen.
    */
+  /**
+   * The one assumption worth surfacing, re-voiced as a nudge.
+   *
+   * The assembler attaches the SAME list to every planned post, so it belongs to the month and
+   * is shown once — never repeated on ten cards. `firstAnswerable` drops the ones that state a
+   * fact about our data rather than a gap in what we know about their month.
+   *
+   * Never a caveat. Round 1 headed this an amber "What we assumed" warning box; the same
+   * information phrased as an invitation reads as confidence, and phrased as a warning reads as
+   * an excuse.
+   */
+  const assumption = useMemo(() => {
+    const seen = new Set<string>();
+    for (const b of m.beats) for (const a of b.assumptions) seen.add(a);
+    return firstAnswerable([...seen]);
+  }, [m.beats]);
+
   const thin = editable && monthBeats.length > 0 && monthBeats.length <= THIN_MONTH_MAX;
   const thinNote = thin ? (
     <p data-testid="thin-month" className="mt-4 px-1 text-[13.5px] leading-normal text-muted">
@@ -159,11 +180,13 @@ export function DraftSurface({ data }: { data: PlanData }) {
       onNextMonth={next ? () => void data.switchCycle(next.cycleId) : undefined}
       view={view}
       onView={(v) => { setView(v); data.track('view_switched', { view: v, surface: 'draft' }); }}
-      // The mic's consequence on a draft month is DIRECT: it reshapes the month and returns a
-      // receipt. The sheet that says so is §8's, and it lands in the next commit; until it does
-      // the mic is absent rather than inert, which is the same rule the committed month follows
-      // on a read-only cycle.
-      micLabel="Tell us about this month"
+      // THE MIC'S CONSEQUENCE HERE IS DIRECT: one sentence adds, moves or replaces planned posts
+      // and returns a receipt (`POST /api/plan/draft/apply`). On a committed month the same
+      // gesture raises proposals the client then approves. Same icon, different consequence, and
+      // the sheet is what says which. Absent past the cutoff rather than inert: a mic that
+      // refuses is worse than no mic.
+      onMic={editable ? () => setVoiceFor('') : undefined}
+      micLabel={`Tell us about ${monthName}`}
       onToday={goToday}
       todayEnabled={todayEnabled}
       badge={
@@ -197,6 +220,17 @@ export function DraftSurface({ data }: { data: PlanData }) {
             onMove={(d) => doMove(moveBeat, d)}
           />
         )}
+        {voiceFor !== null && (
+          <VoiceSheet
+            open monthName={monthName} busy={m.busy}
+            {...(voiceFor ? { question: voiceFor } : {})}
+            onClose={() => setVoiceFor(null)}
+            onSubmit={(text, source) => {
+              setVoiceFor(null);
+              void m.say(text, source);
+            }}
+          />
+        )}
         {addFor && (
           <AddSheet
             open date={addFor} pillars={draft?.pillars ?? []} busy={m.busy}
@@ -224,6 +258,10 @@ export function DraftSurface({ data }: { data: PlanData }) {
           changedIds={m.changedIds}
           onOpen={setOpenId}
           onAdd={() => setAddFor(selected)}
+          nudge={editable && assumption ? {
+            question: assumptionPrompt(assumption),
+            onAnswer: () => setVoiceFor(assumptionPrompt(assumption)),
+          } : undefined}
           footer={thinNote}
         />
       )}

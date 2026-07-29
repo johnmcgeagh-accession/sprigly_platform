@@ -382,3 +382,98 @@ describe('the ivy-t density case', () => {
     }
   });
 });
+
+describe('the microphone, and what it does HERE', () => {
+  it('is present on an editable draft and named for this month', () => {
+    render(<DraftSurface data={fakeData()} />);
+    expect(screen.getByTestId('nav-mic').getAttribute('aria-label')).toBe('Tell us about October');
+  });
+
+  it('is ABSENT past the cutoff — a mic that refuses is worse than no mic', () => {
+    const data = fakeData();
+    (data.draft as { editable: boolean }).editable = false;
+    render(<DraftSurface data={data} />);
+    expect(screen.queryByTestId('nav-mic')).toBeNull();
+  });
+
+  it('opens the voice sheet, and the sheet is where the framing copy lives', () => {
+    render(<DraftSurface data={fakeData()} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+
+    expect(screen.getByTestId('voice-sheet')).toBeTruthy();
+    expect(screen.getByTestId('voice-framing').textContent).toContain('This is your October draft');
+    // There is exactly ONE place to say something: the page carries no say-something box.
+    expect(screen.queryByLabelText('Anything we should know?')).toBeNull();
+  });
+
+  it('sends what was said to the draft apply route, WITH its transport (gap 8)', async () => {
+    const calls = stubFetch({ beats: [beat()], application: { id: 'r', at: '', sourceText: 'x', scope: 'month_scoped', lines: [], changedIds: [] } });
+    render(<DraftSurface data={fakeData()} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+    fireEvent.click(screen.getByTestId('voice-mode'));
+    fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'The candle relaunches on the 24th' } });
+    await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+
+    expect(calls[0]!.url).toBe('/api/plan/draft/apply');
+    expect(calls[0]!.body).toEqual({ op: 'text', text: 'The candle relaunches on the 24th', source: 'web' });
+    expect(screen.queryByTestId('voice-sheet')).toBeNull();
+  });
+});
+
+describe('the assumption, re-voiced as a nudge', () => {
+  const withAssumptions = (assumptions: string[]) => fakeData({}, [beat({ assumptions })]);
+
+  it('shows the ONE the client can act on, as a question, once', () => {
+    render(<DraftSurface data={withAssumptions([
+      'no launches or restocks are on record for this month',
+      'the format mix is based on posts whose format we could not read',
+    ])} />);
+
+    const nudge = screen.getByTestId('assumption-nudge');
+    expect(nudge.textContent).toContain('anything coming up?');
+    // The second is a fact about OUR data, not a question for them.
+    expect(document.body.textContent).not.toContain('format we could not read');
+    expect(screen.getAllByTestId('assumption-nudge')).toHaveLength(1);
+  });
+
+  it('is an invitation, not an amber warning box', () => {
+    render(<DraftSurface data={withAssumptions(['no launches or restocks are on record for this month'])} />);
+    expect(document.body.textContent).not.toMatch(/what we assumed/i);
+    expect(screen.getByTestId('assumption-nudge').className).toContain('bg-coral-100');
+  });
+
+  it('sits AFTER the day’s content — a banner must not push the month off the fold', () => {
+    render(<DraftSurface data={withAssumptions(['no launches or restocks are on record for this month'])} />);
+    const panel = screen.getByTestId('day-panel');
+    const kids = [...panel.children];
+    expect(kids.indexOf(screen.getByTestId('assumption-nudge')))
+      .toBeGreaterThan(kids.indexOf(screen.getByTestId('draft-card')));
+  });
+
+  it('opens the voice sheet on the question, and sends only the client’s answer', async () => {
+    const calls = stubFetch({ beats: [beat()] });
+    render(<DraftSurface data={withAssumptions(['no launches or restocks are on record for this month'])} />);
+    fireEvent.click(screen.getByTestId('assumption-nudge'));
+
+    expect(screen.getByTestId('voice-framing').textContent).toContain('anything coming up?');
+
+    fireEvent.click(screen.getByTestId('voice-mode'));
+    fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'The candle, on the 24th' } });
+    await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+
+    // Our question is context for the person, never part of the text a card quotes back.
+    expect(calls[0]!.body).toEqual({ op: 'text', text: 'The candle, on the 24th', source: 'web' });
+  });
+
+  it('says nothing when every assumption is about our own bookkeeping', () => {
+    render(<DraftSurface data={withAssumptions(['the format mix is based on posts whose format we could not read'])} />);
+    expect(screen.queryByTestId('assumption-nudge')).toBeNull();
+  });
+
+  it('and nothing at all past the cutoff', () => {
+    const data = withAssumptions(['no launches or restocks are on record for this month']);
+    (data.draft as { editable: boolean }).editable = false;
+    render(<DraftSurface data={data} />);
+    expect(screen.queryByTestId('assumption-nudge')).toBeNull();
+  });
+});

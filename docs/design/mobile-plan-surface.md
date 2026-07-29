@@ -868,7 +868,60 @@ transcription is more accurate, works where the Web Speech API doesn't, and can 
 rather than only its transcript. None of that is needed to ship the sheet.
 
 **Gap 8 should land with this**, so the ledger can tell spoken from typed from the first day
-rather than retrofitting the distinction.
+rather than retrofitting the distinction. **It did** — `POST /api/plan/draft/apply` takes
+`source: 'web' | 'voice'`, and it reaches the receipt and every `plan_inputs` row the application
+files. Anything that arrived through the microphone counts as voice even when the client tidied
+it by hand afterwards, because that is what happened.
+
+### 8.1 The example prompts became STARTERS (X4, built)
+
+X4 ruled that the three prompts must seed the field or stop looking tappable, and chose seeding.
+Building it exposed the reason they could not simply be wired up: **they were questions.** Round
+3 wrote *“What's happening in October?”*, *“Anything launching?”*, *“Anything you want more of?”*
+— and inserting *“Anything launching?”* into the field as the client's own words is nonsense. It
+would then be quoted back on a card under *“From what you told us”*.
+
+So they are **openers the client finishes**, phrased to lead into an intent the classifier routes:
+
+| Starter | Intent it leads to |
+|---|---|
+| “We're launching …” | `launch` |
+| “There's an event on …” | `event` |
+| “Can we do more …” | `emphasis` |
+
+A tap switches to typed mode, appends the opener to whatever is already there, and puts the caret
+after it. The questions survive as the sheet's own framing sentence, which is where a question
+belongs — asked by us, not put in the client's mouth.
+
+### 8.2 The three states (X6, built)
+
+Round 5.1 found silent and speaking differing only by the bars and the heading. Three channels
+now, and the mic is one of them:
+
+| State | The mic | The copy |
+|---|---|---|
+| **idle** | outline, `accent-600` ring | “Tap the mic and talk” / “One sentence is enough.” |
+| **listening, silent** | filled `accent-650` | “Go ahead” / “We can't hear anything yet.” |
+| **listening, speaking** | filled **and haloed** | “Listening…” / “Tap the mic again when you're done.” |
+
+The halo fires on the meter's own level detection, debounced so a gap between words is not a
+state change.
+
+### 8.3 `useSpeechInput` moved ONTO the draft surface — it did not leave `IntakeCapture`
+
+The brief allows either. **`IntakeCapture` keeps its microphone**, because it is a different
+surface with a different job: the guided/freeform brief reached from the Ask email's `?intake=1`
+link, before a plan exists. Retiring a working capability there would be scope this session did
+not earn, and the two now share one hook, which is the point.
+
+What *did* go is `DraftPlanView`'s inline **“Anything we should know?”** textarea — not by
+deletion but with the whole component, which is no longer reachable on a phone. There is exactly
+one place to tell us something on the mobile draft surface, and it works whether you talk or type.
+
+**The meter and the transcript are independent consumers of the microphone.** `useSpeechInput`
+holds the Web Speech API's; `Waveform` opens its own `getUserMedia` stream for the analyser. A
+browser without `AudioContext` gets flat bars and a working transcript — the meter is the part
+that may fail, and it fails to *nothing* rather than to a claim that the microphone is broken.
 
 ## 9. Day-view density, and thin months
 

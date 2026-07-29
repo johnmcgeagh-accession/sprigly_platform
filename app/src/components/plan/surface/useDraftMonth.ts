@@ -119,8 +119,18 @@ export function useDraftMonth(data: PlanData) {
     await write('/api/plan/draft', { op: 'add', date, format, pillar, ...(subject ? { subject } : {}) });
   }, [write]);
 
-  /** One sentence in, a reshaped month and a receipt out. The north-star path. */
-  const say = useCallback(async (text: string) => write('/api/plan/draft/apply', { op: 'text', text }), [write]);
+  /**
+   * One sentence in, a reshaped month and a receipt out. The north-star path.
+   *
+   * `source` is gap 8: the route took `{op, text}` and nothing else, so from the day the voice
+   * sheet shipped every spoken reshape would have been recorded as typed — and the one
+   * measurement that says whether talking to the plan works would have had to be retrofitted
+   * against rows that no longer carried the answer.
+   */
+  const say = useCallback(
+    async (text: string, source: 'web' | 'voice' = 'web') => write('/api/plan/draft/apply', { op: 'text', text, source }),
+    [write],
+  );
 
   /** Promote a filed idea into this month — the rescue tap on a rollup's idea line. */
   const addToMonth = useCallback(

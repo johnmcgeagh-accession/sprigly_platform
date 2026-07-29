@@ -29,13 +29,13 @@
  */
 import React from 'react';
 import type { DraftBeatView } from '@/lib/types';
-import { FormatTile, PlusGlyph, BulbGlyph } from './icons';
+import { FormatTile, PlusGlyph, BulbGlyph, ChevronR } from './icons';
 import { dayTitle } from './dates';
 import { rationaleFor, slotLabel } from '@/lib/draft-rationale';
 import { CompactRows, ROWS_BEFORE_MORE, densityOf } from './rows';
 
 export function DraftDayPanel({
-  date, today, beats, editable, changedIds, onOpen, onAdd, footer,
+  date, today, beats, editable, changedIds, onOpen, onAdd, nudge, footer,
 }: {
   date: string;
   today: string;
@@ -45,6 +45,8 @@ export function DraftDayPanel({
   changedIds: readonly string[];
   onOpen: (beatId: string) => void;
   onAdd: () => void;
+  /** The month's one answerable assumption, re-voiced. Absent when there is nothing to ask. */
+  nudge?: { question: string; onAnswer: () => void } | undefined;
   /** The thin-month line, when the month is thin. Rendered at the FOOT of the day, after the
    *  client has read what there is (spec §9.2) — never above it as a caveat. */
   footer?: React.ReactNode | undefined;
@@ -87,6 +89,20 @@ export function DraftDayPanel({
         </button>
       )}
 
+      {nudge && (
+        // NEVER A CAVEAT. Round 1 headed this an amber "What we assumed" warning box; the same
+        // information as an invitation reads as confidence and as a warning reads as an excuse.
+        // It sits after the day's content for the same reason the thin-month line does — the
+        // client reads their month first, and a receipt or a banner must never push it off the
+        // fold (DESIGN.md → Don'ts).
+        <button
+          type="button" data-testid="assumption-nudge" onClick={nudge.onAnswer}
+          className="mt-4 flex min-h-[56px] w-full items-center gap-3 rounded-2xl bg-coral-100 px-3.5 py-3 text-left text-[13.5px] leading-normal text-coral-800"
+        >
+          <span className="flex-1">{nudge.question}</span>
+          <ChevronR className="h-4 w-4 flex-none" />
+        </button>
+      )}
       {footer}
     </div>
   );

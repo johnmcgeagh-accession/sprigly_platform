@@ -139,6 +139,38 @@ export function slotLabel(slotType: 'proven' | 'experiment'): string | null {
  * correct is at least an assumption they can correct by email, and phrasing it as a
  * statement would read as a decision already made.
  */
+/**
+ * Is this assumption one the client can DO something about?
+ *
+ * The assembler attaches the same list to every planned post, and the surface shows the ONE a
+ * client can act on rather than all of them (spec §2). The dividing line is not how important
+ * the assumption is — it is whose fact it states:
+ *
+ *   answerable    a gap in what WE KNOW ABOUT THEIR MONTH. "Nothing's launching?" "Want
+ *                 particular products featured?" "Want the pillars weighted differently?" Each
+ *                 has an answer only they have, and the answer changes the plan.
+ *   not answerable  a fact about OUR DATA. "Some older posts don't say what format they were."
+ *                 True, worth recording, and a client can do precisely nothing with it. Showing
+ *                 it as a nudge asks them to fix our bookkeeping.
+ *
+ * For Earl of East that keeps "nothing's launching this month" and drops "no pillar weights are
+ * on record", which is the split spec §2 names by hand. This is that split as a rule, so a new
+ * assumption from the assembler lands on the right side without anyone re-deriving it.
+ *
+ * An UNKNOWN assumption is treated as answerable. The failure modes are asymmetric: a needless
+ * question costs a tap, and a suppressed one costs a month.
+ */
+export function isAnswerable(assumption: string): boolean {
+  return !/format mix is based on/i.test(assumption.trim());
+}
+
+/**
+ * The one assumption worth surfacing, or null. Order is the assembler's, which is stable.
+ */
+export function firstAnswerable(assumptions: readonly string[]): string | null {
+  return assumptions.find(isAnswerable) ?? null;
+}
+
 export function assumptionPrompt(assumption: string): string {
   const a = assumption.trim();
   if (/launches or restocks/i.test(a)) return 'We’ve assumed nothing’s launching this month — anything coming up?';

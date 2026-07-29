@@ -33,10 +33,23 @@ import type { DraftBeatView } from '@/lib/types';
 /** How many receipts a cycle keeps. Enough to see the session's history, not a ledger. */
 const MAX_RECEIPTS = 10;
 
+/**
+ * How the client said it (spec gap 8).
+ *
+ * `POST /api/plan/agent` and `POST /api/plan/intake` have accepted this since Build 3; the draft
+ * route did not, so from the day the voice sheet shipped every spoken reshape would have been
+ * recorded as typed and the one measurement that says whether talking to the plan works would
+ * have been unavailable — retrofitted later against rows that no longer carry the answer.
+ */
+export type InputSource = 'web' | 'voice';
+
 export interface DraftApplication {
   id:          string;
   at:          string;               // ISO timestamp
   sourceText:  string;               // the client's words, verbatim
+  /** Spoken or typed. Absent on every receipt written before gap 8 closed — which reads as
+   *  UNKNOWN, never as 'web'. Defaulting a null to typed would quietly under-count voice. */
+  source?:     InputSource;
   scope:       'month_scoped' | 'evergreen';
   /** Why it went to the backlog. Present on evergreen only. */
   reason?:     string;
@@ -233,14 +246,14 @@ export async function loadReceipts(cycleId: string): Promise<DraftApplication[]>
 }
 
 /** File an input in the ideas backlog. */
-async function saveToBacklog(clientId: string, cycleId: string, sourceText: string): Promise<string | undefined> {
+async function saveToBacklog(clientId: string, cycleId: string, sourceText: string, source: InputSource): Promise<string | undefined> {
   const [row] = await db.insert(planInputs).values({
     clientId,
     cycleId: null,                 // durable items are cycle-INDEPENDENT (see notes.ts)
     type: 'idea',
     content: sourceText,
     status: 'active',              // availability
-    source: 'web',                 // transport
+    source,                        // transport: how they said it (gap 8)
     origin: 'client',              // where the idea came from (Build C)
     lifecycle: 'candidate',        // maturity (Build C)
   }).returning({ id: planInputs.id });
@@ -260,7 +273,7 @@ async function saveToBacklog(clientId: string, cycleId: string, sourceText: stri
  * placed correctly. The receipt line still names them, so the client is told either way.
  */
 async function saveDeferredInstances(
-  clientId: string, deferred: ReadonlyArray<{ date: string; subject: string }>,
+  clientId: string, deferred: ReadonlyArray<{ date: string; subject: string }>, source: InputSource,
 ): Promise<number> {
   if (deferred.length === 0) return 0;
   try {
@@ -271,7 +284,7 @@ async function saveDeferredInstances(
       content:      `${d.subject} (${d.date})`,
       relevantFrom: d.date,
       status:       'active',
-      source:       'web',
+      source,
       origin:       'client',
       lifecycle:    'candidate',
     })));
@@ -294,6 +307,8 @@ export async function applyIntakeToDraft(params: {
   cycleId:  string;
   text:     string;
   model:    Parameters<typeof classifyIntake>[0]['model'];
+  /** Spoken or typed (gap 8). Defaults to 'web': every existing caller types. */
+  source?:  InputSource;
   routing?: IntakeRouting;
   now?:     Date;
   today?:   string;
@@ -303,6 +318,7 @@ export async function applyIntakeToDraft(params: {
   suppressReceipt?: boolean;
 }): Promise<ApplyResult> {
   const { clientId, cycleId, text, model } = params;
+  const source: InputSource = params.source ?? 'web';
   const now = params.now ?? new Date();
   const today = params.today ?? editScopeToday();
   const sourceText = text.trim();
@@ -323,11 +339,12 @@ export async function applyIntakeToDraft(params: {
     id: receiptId(now.getTime(), sourceText),
     at: now.toISOString(),
     sourceText,
+    source,
   };
 
   // ── Evergreen ──────────────────────────────────────────────────────────────
   if (routing.scope === 'evergreen') {
-    const planInputId = await saveToBacklog(clientId, cycleId, sourceText);
+    const planInputId = await saveToBacklog(clientId, cycleId, sourceText, source);
     const application: DraftApplication = {
       ...base, scope: 'evergreen', reason: routing.reason, lines: [], changedIds: [],
       ...(planInputId ? { planInputId } : {}),
@@ -390,8 +407,8 @@ export async function applyIntakeToDraft(params: {
   if (result.ops.length === 0) {
     // A series whose every instance fell outside the month produced no ops but still has
     // dated asks to keep. File those as well as the input itself.
-    const deferred0 = await saveDeferredInstances(clientId, result.deferred ?? []);
-    const planInputId = await saveToBacklog(clientId, cycleId, sourceText);
+    const deferred0 = await saveDeferredInstances(clientId, result.deferred ?? [], source);
+    const planInputId = await saveToBacklog(clientId, cycleId, sourceText, source);
     const application: DraftApplication = {
       ...base, scope: 'evergreen', reason: 'not_applicable', lines: [], changedIds: [],
       ...(result.note ? { note: result.note } : {}),
@@ -404,7 +421,7 @@ export async function applyIntakeToDraft(params: {
 
   const nextPosition = Math.max(0, ...before.map((b) => b.position)) + 1;
   await writeOps(clientId, cycleId, cycle.channel, result.ops, nextPosition);
-  const deferred = await saveDeferredInstances(clientId, result.deferred ?? []);
+  const deferred = await saveDeferredInstances(clientId, result.deferred ?? [], source);
 
   const after = await loadTransformBeats(clientId, cycleId);
   const diff = diffBeats(before.map(toDiffBeat), after.map(toDiffBeat));
@@ -437,6 +454,8 @@ export async function applyTextToDraft(params: {
   cycleId:  string;
   text:     string;
   model:    Parameters<typeof classifyIntake>[0]['model'];
+  /** Spoken or typed (gap 8). One field, and it rides both branches below unchanged. */
+  source?:  InputSource;
   now?:     Date;
   today?:   string;
 }): Promise<ApplyResult> {
@@ -492,10 +511,13 @@ export async function applyBriefToDraft(params: {
   cycleId:  string;
   text:     string;
   model:    Parameters<typeof classifyIntake>[0]['model'];
+  /** Spoken or typed (gap 8) — a dictated brief is a real case, and a long one. */
+  source?:  InputSource;
   now?:     Date;
   today?:   string;
 }): Promise<ApplyResult> {
   const { clientId, cycleId, text, model } = params;
+  const source: InputSource = params.source ?? 'web';
   const now = params.now ?? new Date();
   const today = params.today ?? editScopeToday();
   const brief = text.trim();
@@ -535,7 +557,7 @@ export async function applyBriefToDraft(params: {
   const items: BriefItem[] = new Array<BriefItem>(segments.length);
   for (const i of orderIndices(routings)) {
     const r = await applyIntakeToDraft({
-      clientId, cycleId, text: segments[i]!, model, routing: routings[i]!, now, today, suppressReceipt: true,
+      clientId, cycleId, text: segments[i]!, model, source, routing: routings[i]!, now, today, suppressReceipt: true,
     });
     items[i] = toBriefItem(segments[i]!, routings[i]!, r);
   }
@@ -545,6 +567,7 @@ export async function applyBriefToDraft(params: {
     id: receiptId(now.getTime(), brief),
     at: now.toISOString(),
     sourceText: brief,
+    source,
     scope: items.some((it) => it.outcome === 'applied') ? 'month_scoped' : 'evergreen',
     lines: [],
     changedIds,
