@@ -68,12 +68,15 @@ export function DayPanel({
     // pt-3 / mb-3, not pt-4 / mb-3.5: the phone check found the day's content starting a third
     // of the way down the screen, and this is the last of the four paddings that caused it
     // (round 6, P4). The rest are in PlanShell.
-    <div data-testid="day-panel" data-date={date} className="flex-1 overflow-y-auto px-5 pb-[104px] pt-3 [scrollbar-width:none]">
+    <div data-testid="day-panel" data-date={date} className="flex-1 overflow-y-auto px-5 pb-[104px] pt-2.5 [scrollbar-width:none]">
       <div className="mb-3 flex items-baseline gap-2.5">
         <h2 data-testid="day-title" className="text-[22px] font-bold tracking-[-.02em] text-chrome">{heading}</h2>
         <span className="flex-1" />
         <WeatherHeaderBadge day={weather} />
-        <span data-testid="day-count" className="text-[12.5px] font-semibold tabular-nums text-muted">
+        {/* nowrap: the count is "1 post" / "12 planned posts" — bounded, and the one thing on
+            this row that must not break. Without it a long day title squeezes it to two lines,
+            which the 390px screenshot showed. */}
+        <span data-testid="day-count" className="flex-none whitespace-nowrap text-[12.5px] font-semibold tabular-nums text-muted">
           {count === 0 ? 'Nothing planned' : `${count} post${count === 1 ? '' : 's'}`}
         </span>
       </div>

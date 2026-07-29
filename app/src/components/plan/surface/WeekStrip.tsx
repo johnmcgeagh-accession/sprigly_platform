@@ -78,7 +78,7 @@ export function WeekStrip({
       data-testid="week-strip" role="group" aria-label={`Week of ${labelOf(week[0]!)}`}
       onPointerDown={onPointerDown} onPointerUp={onPointerUp} onPointerCancel={() => { drag.current.active = false; }}
       onKeyDown={onKeyDown}
-      className="flex flex-none items-center gap-0.5 px-1.5 pb-2 pt-1 [touch-action:pan-y]"
+      className="flex flex-none items-center gap-0.5 px-1.5 pb-1.5 pt-0.5 [touch-action:pan-y]"
     >
       <PageBtn dir="prev" onClick={canPage(-1) ? () => page(-1) : undefined} />
       <div className="grid flex-1 grid-cols-7 gap-0.5">
