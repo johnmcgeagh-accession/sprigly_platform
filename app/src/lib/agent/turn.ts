@@ -23,6 +23,7 @@ import { createProposal } from '@/lib/agent/proposals';
 import { saveNote } from '@/lib/agent/notes';
 import { answerQuery } from '@/lib/agent/query';
 import { e2eTodayDate } from '@/lib/e2e-fake';
+import { isEditableDate } from '@/lib/edit-scope';
 import type { AgentTurnResponse, ParsedTask, ProposalView } from '@/lib/agent/types';
 
 export interface AgentTurnArgs {
@@ -105,13 +106,15 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
 
   const posts = await loadPlanPosts(clientId, cycleId);
   const today = e2eTodayDate() ?? new Date();
+  const todayNow = todayIso(today);
   const cycleMonth = await getCycleMonth(clientId, cycleId);
 
   // ── Parse (the only entry point) ──────────────────────────────────────────
   let tasks: ParsedTask[];
   try {
     const ctx = {
-      today: todayIso(today),
+      today: todayNow,
+      viewedMonth: cycleMonth ? monthName(cycleMonth) : 'this month',
       cycleMonths: await getClientCycleMonths(clientId, cycleId),
       planDigest: cycleDigest(posts),
       productIndex: await loadProductIndex(clientId, 'instagram'),
@@ -143,6 +146,23 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
         if ('ambiguous' in ref) { replyParts.push(moveAmbiguous(ref.ambiguous, task)); break; }
         const post = ref.post;
         if (!task.toDate) { replyParts.push(`Move “${post.caption?.split('\n')[0] || post.pillar}” to when?${task.reason ? ` (you asked: “${task.reason}”)` : ''}`); break; }
+        // A move is refused on two grounds, and the cycle's STATUS is neither of them. A date
+        // that has passed cannot be changed and cannot be moved onto — that is the whole rule
+        // (`edit-scope.ts`), and the apply step enforces the same one. Everything future-dated
+        // goes through, in whichever month the client is standing in.
+        if (!isEditableDate(post.date, todayNow)) {
+          replyParts.push(`${dayMonth(post.date)} has already passed, so that post can’t move any more.`);
+          break;
+        }
+        if (!isEditableDate(task.toDate, todayNow)) {
+          replyParts.push(`${dayMonth(task.toDate)} has already passed — I can only move posts to today or later. Which date did you have in mind?`);
+          break;
+        }
+        // The one remaining limit is real and is not about permission: a post lives in the cycle
+        // that plans its month, and nothing yet carries it into a different one. `cycleMonth` is
+        // the month this cycle PLANS, so this now compares two plan-month dates. It used to
+        // compare a plan date against the stored data month — never equal, which is why every
+        // in-month move came back refused.
         if (cycleMonth && task.toDate.slice(0, 7) !== cycleMonth) {
           replyParts.push(`That would move the post into ${monthName(task.toDate)} — moving posts to a different month isn’t available yet.`);
           break;

@@ -4,9 +4,17 @@
  * VoiceSheet.tsx — the one place a client tells us something. (spec §8)
  *
  * ONE SHEET, TWO MODES. A keyboard toggle swaps the microphone and its meter for a text field.
- * Same framing copy, same starters, same submit, same route. The inline "Anything we should
- * know?" textarea that sat on the draft page is gone with `DraftPlanView`: there were two
- * interfaces for one job, and the page's copy and the sheet's copy could disagree.
+ * Same framing copy, same submit, same route. The inline "Anything we should know?" textarea
+ * that sat on the draft page is gone with `DraftPlanView`: there were two interfaces for one
+ * job, and the page's copy and the sheet's copy could disagree.
+ *
+ * ── Round 8: it listens the moment it opens ──────────────────────────────────────────
+ *
+ * The sheet used to open idle and wait to be tapped. Two taps to say one sentence, on a surface
+ * whose whole promise is *talk to your plan* — and the second tap was the one that intermittently
+ * did nothing (the cause, and its fix, are written out in `useSpeechInput`). Opening now starts
+ * listening, and the sheet says which of the three things is true — listening, still asking for
+ * the microphone, or refused — rather than sitting silently in whichever one it is.
  *
  * VOICE IS LIVE FROM DAY ONE. Round 2 shipped a disabled mic and an "arrives later" line, which
  * put a large grey dead circle at the optical centre of the one screen whose promise is *talk to
@@ -23,18 +31,20 @@
  * distinction the meter exists to draw was carried by the meter alone. Three channels now:
  * copy, the mic's own treatment, and the meter.
  *
- * ── The starters are tappable, and they are starters (X4, R4) ────────────────────────
+ * ── The starters are gone (round 8, fix 6) ───────────────────────────────────────────
  *
- * The mockups rendered three questions as bordered capsules that did nothing — the universal
- * form of a suggestion chip, inert. X4 ruled that a tap must seed the field. A question cannot
- * be seeded: inserting "Anything launching?" as the client's own words is nonsense. So they are
- * phrased as OPENERS the client finishes — which is also what makes them useful, because each
- * one leads into an intent the classifier can actually route.
+ * "Try starting with" offered three openers the client tapped to seed the field. X4 built them
+ * because the mockups' inert suggestion capsules were worse. The re-check removed the category:
+ * they sat under the microphone as a list of homework on a sheet that had just told the client
+ * one sentence is enough, and every one of them switched the sheet out of the mode it opens in.
+ * A surface that starts listening does not also need to suggest what to say. The `starters` field
+ * is off `Framing` entirely rather than emptied, so nothing can quietly grow them back.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { Sheet } from './Sheet';
 import { MicGlyph, KeyboardGlyph, SendGlyph, CloseGlyph } from './icons';
 import { Waveform } from './Waveform';
+import { AgentSays } from './AgentVoice';
 import { useSpeechInput } from '../useSpeechInput';
 
 /**
@@ -47,27 +57,25 @@ import { useSpeechInput } from '../useSpeechInput';
  *   draft      the sentence RESHAPES the month directly and returns a receipt.
  *   committed  the sentence raises PROPOSALS the client then approves. The agent applies nothing.
  *
- * The starters differ with it, because the intents differ. A draft month is being shaped — what is
- * launching, what is on, what you want more of. A committed month is being corrected — move this,
- * drop that, rewrite the other.
+ * The framing differs with it, because the intents differ. A draft month is being shaped — what
+ * is launching, what is on, what you want more of. A committed month is being corrected — move
+ * this, drop that, rewrite the other. The blurb and the placeholder carry that; the starters
+ * that used to are gone (fix 6).
  */
 export type VoiceContext = 'draft' | 'committed';
 
-interface Framing { title: string; blurb: string; placeholder: string; starters: string[] }
+interface Framing { title: string; blurb: string; placeholder: string }
 
 const FRAMING: Record<VoiceContext, (monthName: string) => Framing> = {
   draft: (m) => ({
     title: `Tell us about ${m}`,
     blurb: `This is your ${m} draft. Tell us what’s happening and we’ll reshape it — what’s launching, what’s on, what you want more of.`,
     placeholder: 'The Wilderness candle relaunches on the 24th, can we build up to it?',
-    // Openers the client finishes, each leading into an intent the classifier routes.
-    starters: ['We’re launching ', 'There’s an event on ', 'Can we do more '],
   }),
   committed: (m) => ({
     title: `Tell your plan what to change`,
     blurb: `${m} is written. Say what you want different and we’ll put the change up for you to approve — nothing moves until you say so.`,
     placeholder: 'Move the Thursday post to Friday',
-    starters: ['Move the ', 'Take out the ', 'Rewrite the '],
   }),
 };
 
@@ -116,10 +124,22 @@ export function VoiceSheet({
   }
 
   const listening = speech.state === 'recording';
+  const starting = speech.state === 'starting';
+  const { start: startSpeech, stop: stopSpeech } = speech;
 
-  // Stop the microphone whenever it stops being the mode, or the sheet closes. A capture that
-  // outlives its sheet is the one bug here nobody would see and everybody would feel.
-  useEffect(() => { if (!open || mode !== 'speak') speech.stop(); }, [open, mode, speech]);
+  // ── Fix 5: the sheet listens as soon as it exists ────────────────────────────────────
+  // Not on a tap. The client came here to talk, and a microphone that waits to be pressed makes
+  // them do the same thing twice. It also stops whenever speaking stops being the mode or the
+  // sheet closes: a capture that outlives its sheet is the one bug here nobody would see and
+  // everybody would feel.
+  //
+  // The dependency list is the two stable callbacks, NOT the `speech` object — that is a fresh
+  // literal on every render, so depending on it re-ran this effect constantly and made "did we
+  // already start?" impossible to reason about.
+  useEffect(() => {
+    if (open && mode === 'speak') startSpeech();
+    else stopSpeech();
+  }, [open, mode, startSpeech, stopSpeech]);
 
   if (!open) return null;
 
@@ -135,24 +155,24 @@ export function VoiceSheet({
     if (ok) onClose();
   };
 
-  const useStarter = (s: string) => {
-    speech.stop();
-    setMode('type');
-    setText((t) => (t.trim() ? `${t.trim()} ${s}` : s));
-    // Focus at the END: a starter is the beginning of their sentence, not a replacement for it.
-    requestAnimationFrame(() => {
-      const el = field.current;
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(el.value.length, el.value.length);
-    });
-  };
-
   const framing = FRAMING[context](monthName);
+
+  // ── What the sheet says it is doing ──────────────────────────────────────────────────
+  // Every state below is named. The one the re-check caught was the unnamed one: the sheet open,
+  // the microphone not running, and nothing on screen admitting it — which read as "listening"
+  // to anyone who did not know better, and lost the sentence they said into it.
   const heading = mode === 'type' ? framing.title
+    : speech.state === 'no-permission' ? 'We need the microphone'
+    : speech.state === 'unsupported' ? 'This browser can’t listen'
+    : speech.state === 'error' ? 'The microphone stopped'
+    : starting ? 'Getting the mic…'
     : listening ? (loud ? 'Listening…' : 'Go ahead')
     : 'Tap the mic and talk';
   const under = mode === 'type' ? 'Same thing, typed.'
+    : speech.state === 'no-permission' ? 'Allow it in your browser settings, or type it instead.'
+    : speech.state === 'unsupported' ? 'Type it instead — it goes to exactly the same place.'
+    : speech.state === 'error' ? 'Tap the mic to pick it up again, or type it instead.'
+    : starting ? 'One moment.'
     : listening ? (loud ? 'Tap the mic again when you’re done.' : 'We can’t hear anything yet.')
     : 'One sentence is enough.';
 
@@ -184,12 +204,16 @@ export function VoiceSheet({
                 type="button" data-testid="voice-mic" aria-pressed={listening}
                 aria-label={listening ? 'Stop listening' : 'Start listening'}
                 disabled={speech.state === 'unsupported'}
-                onClick={() => (listening ? speech.stop() : speech.start())}
+                onClick={() => (listening || starting ? speech.stop() : speech.start())}
                 className={[
                   'flex h-[96px] w-[96px] items-center justify-center rounded-full transition-all duration-200',
                   listening
                     ? 'bg-coral-650 text-white'
-                    : 'bg-surface text-coral-800 ring-2 ring-inset ring-coral-600',
+                    // Reaching for the microphone is its own look: filled at the light tier, so
+                    // it is visibly not idle and visibly not yet live.
+                    : starting
+                      ? 'bg-coral-100 text-coral-800 ring-2 ring-inset ring-coral-600'
+                      : 'bg-surface text-coral-800 ring-2 ring-inset ring-coral-600',
                   // The halo is a state, present only while something is actually being heard —
                   // the third channel X6 asked for, on top of the copy and the meter.
                   loud ? 'shadow-[0_0_0_10px_rgb(var(--t-accent-600,232_112_95)_/_0.18),0_10px_26px_-6px_rgb(var(--t-accent-600,232_112_95)_/_0.55)]' : '',
@@ -202,8 +226,23 @@ export function VoiceSheet({
                 <Waveform active={listening} onLevel={setLoud} />
               </div>
 
-              {text && (
-                <p data-testid="voice-transcript" className="mt-4 w-full text-[15px] leading-[1.5] text-chrome">{text}</p>
+              {/* THE TRANSCRIPT IS THE AGENT'S REGISTER (fix 7). It used to be body copy, one
+                  size off the framing paragraph above it — so what the client had just said and
+                  what we had said to them looked like the same voice. It is the same block the
+                  toasts and the reshape use, so "this is Sprigly hearing you" looks the same
+                  wherever it happens. Working while the mic is still open: the words so far are
+                  not the whole sentence. */}
+              {(text || listening || starting) && (
+                <AgentSays
+                  testid="voice-transcript" className="mt-4 w-full"
+                  working={listening || starting}
+                  label={text ? 'What we heard' : 'Listening'}
+                  // A transcript APPENDS. Announcing it atomically would re-read everything said
+                  // so far after every phrase.
+                  grows
+                >
+                  {text || undefined}
+                </AgentSays>
               )}
 
               {speech.state === 'unsupported' && (
@@ -216,6 +255,14 @@ export function VoiceSheet({
                   We don’t have access to your microphone. Allow it in your browser settings, or type it instead.
                 </p>
               )}
+              {speech.state === 'error' && (
+                // Named rather than silent. This state existed before and rendered NOTHING, which
+                // is how a microphone that failed to start looked exactly like one waiting to be
+                // tapped — the intermittent no-start, as the client experienced it.
+                <p data-testid="voice-error" role="alert" className="mt-4 text-center text-[13.5px] leading-normal text-muted">
+                  The microphone stopped before we could listen. Tap it to try again, or type it instead.
+                </p>
+              )}
             </div>
           ) : (
             <textarea
@@ -226,19 +273,6 @@ export function VoiceSheet({
             />
           )}
 
-          <h3 className="mb-2 mt-4 text-[11px] font-bold uppercase tracking-[.1em] text-muted">Try starting with</h3>
-          <div data-testid="voice-starters" className="flex flex-col gap-1.5">
-            {framing.starters.map((s) => (
-              // BUTTONS, and they do what their shape promises (X4). A tap moves to typed mode
-              // with the opener in the field and the caret after it.
-              <button
-                key={s} type="button" data-testid="voice-starter" onClick={() => useStarter(s)}
-                className="min-h-[44px] rounded-[14px] bg-surface px-3.5 py-2.5 text-left text-[15px] text-chrome ring-1 ring-inset ring-line/55 active:bg-line-soft"
-              >
-                {s.trim()}…
-              </button>
-            ))}
-          </div>
         </div>
 
         <div className="flex flex-none items-center gap-2 border-t border-line/30 bg-surface px-[18px] pb-[26px] pt-3">

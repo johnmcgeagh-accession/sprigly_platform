@@ -122,12 +122,24 @@ for (const width of WIDTHS) {
 
       expect(screen.getByTestId('voice-sheet')).toBeTruthy();
       expect(screen.getByTestId('voice-mic')).toBeTruthy();
-      expect(screen.getAllByTestId('voice-starter')).toHaveLength(3);
+      // The starters are gone (round 8, fix 6). What must still fit at this width is the mic,
+      // the mode toggle and the send — the three controls the sheet cannot work without.
+      expect(screen.queryAllByTestId('voice-starter')).toHaveLength(0);
 
       fireEvent.click(screen.getByTestId('voice-mode'));
       fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'more product this month' } });
       await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
       expect(screen.queryByTestId('voice-sheet')).toBeNull();
+    });
+
+    it('THE AGENT BLOCK fits the width — it is the one thing that spans the whole top', () => {
+      render(<DraftSurface data={draftData()} />);
+      fireEvent.click(screen.getByTestId('nav-mic'));
+      // The transcript block is the widest thing the agent renders, and it is inside a sheet
+      // inside a 320px viewport. It must be fluid, never fixed.
+      const block = screen.getByTestId('voice-transcript');
+      expect(block.className).toContain('w-full');
+      expect(block.className).not.toMatch(/\bw-\[\d+px\]|\bmin-w-\[\d{3,}px\]/);
     });
 
     it('THE APPROVAL SHEET opens with its counts and both answers reachable', () => {

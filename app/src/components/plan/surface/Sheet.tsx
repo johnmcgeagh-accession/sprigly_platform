@@ -169,7 +169,11 @@ export function Sheet({ open, label, testid, onClose, layer = 0, hasOwnClose = f
       >
         <div
           ref={panel}
-          className="flex h-full flex-col rounded-t-[26px] bg-surface shadow-[0_-18px_50px_-12px_rgb(30_41_59_/_0.28)]"
+          // The padding reserves the home indicator's strip; the BACKGROUND still runs under it,
+          // which is the point — a sheet that stopped short of the edge would show a band of
+          // canvas beneath it. `env()` is 0 on hardware without an indicator, so this is a
+          // no-op everywhere else.
+          className="flex h-full flex-col rounded-t-[26px] bg-surface pb-[env(safe-area-inset-bottom,0px)] shadow-[0_-18px_50px_-12px_rgb(30_41_59_/_0.28)]"
         >
           {/* The grabber's hit area is 34px tall around a 5px bar — visually inert, and it clears
               the touch floor for a control a thumb reaches for without looking. */}

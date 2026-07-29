@@ -18,39 +18,98 @@ function monthLabel(yyyymm: string): string {
   return `${MONTH_NAMES[Number(m[2]) - 1] ?? yyyymm} ${m[1]}`;
 }
 
-/** Formatted list of the client's cycle months (home first) for the parser prompt. */
-export async function getClientCycleMonths(clientId: string, homeCycleId: string): Promise<string> {
+export interface CycleRow { id: string; month: string; status: string }
+
+/**
+ * The month a cycle PLANS, from the month its data covers.
+ *
+ * `contentCycles.cycleMonth` is the DATA month; the plan it produces is dated a month later
+ * (`plan.ts:250`, `displayMonth = nextMonth(cycleMonth)`). Everything the client sees is the
+ * plan month, so everything the agent SAYS has to be too — the prompt used to print the data
+ * month beside a digest of the plan month's posts, which is how the agent came to tell a client
+ * looking at September that it could "only edit posts in the current September 2026 cycle" and,
+ * in the same breath, that its digest started on 1 October.
+ */
+export function planMonthOf(cycleMonth: string): string {
+  const m = /^(\d{4})-(\d{2})/.exec(cycleMonth);
+  if (!m) return cycleMonth;
+  const y = Number(m[1]);
+  const mm = Number(m[2]);
+  return mm === 12 ? `${y + 1}-01` : `${y}-${String(mm + 1).padStart(2, '0')}`;
+}
+
+/**
+ * The client's months, as the parser reads them. Pure, so the shape can be tested without a db.
+ *
+ * TWO THINGS THIS DELIBERATELY DOES NOT SAY.
+ *
+ * It does not call any cycle "editable", because a cycle is not the unit of editability — a DATE
+ * is. Every one of the client's months is browsable and every future-dated post in them is
+ * changeable (`edit-scope.ts`), and the old "[current, editable]" marker taught the parser the
+ * opposite: that one month was the only one it could act on. That is the sentence the client got
+ * back.
+ *
+ * It does not hide the past or the far future either. Adjacent months have to be listed or a
+ * cross-month intent — "push it into next month" — has nowhere to resolve to.
+ *
+ * The VIEWED cycle is marked, and it is marked as *the month on screen* rather than as a
+ * permission: it tells the parser where the client's attention is, which is what a bare reference
+ * like "the 5th" needs, without implying that anything else is off limits.
+ */
+export function describeCycles(rows: readonly CycleRow[], viewedCycleId: string): string {
+  if (!rows.length) return '- (no cycles on record)';
+  return [...rows]
+    .map((r) => ({ ...r, plan: planMonthOf(r.month) }))
+    .sort((a, b) => a.plan.localeCompare(b.plan))
+    .map((r) => `- ${monthLabel(r.plan)} (${r.plan})${r.id === viewedCycleId ? ' [the month on screen]' : ''} — ${r.status}`)
+    .join('\n');
+}
+
+/** Formatted list of the client's months for the parser prompt, named by what they plan. */
+export async function getClientCycleMonths(clientId: string, viewedCycleId: string): Promise<string> {
   const rows = await db
     .select({ id: contentCycles.id, month: contentCycles.cycleMonth, status: contentCycles.status })
     .from(contentCycles)
     .where(eq(contentCycles.clientId, clientId));
-  if (!rows.length) return '- (no cycles on record)';
-  return rows
-    .map((r) => ({ ...r, isHome: r.id === homeCycleId }))
-    .sort((a, b) => (a.isHome === b.isHome ? a.month.localeCompare(b.month) : a.isHome ? -1 : 1))
-    .map((r) => `- ${monthLabel(r.month)} (${r.month})${r.isHome ? ' [current, editable]' : ''} — ${r.status}`)
-    .join('\n');
+  return describeCycles(rows, viewedCycleId);
 }
 
-/** This cycle's plan month ('YYYY-MM'), or null if the row is missing. Scoped to the
- *  client (defense-in-depth) even though the session cycleId is already trusted. */
+/**
+ * The month this cycle PLANS ('YYYY-MM'), or null if the row is missing.
+ *
+ * It returns the plan month, not the stored `cycle_month`. Every caller wants the month the
+ * posts are dated in — the one caller that did not know the difference compared a post's date
+ * against the data month and therefore refused every in-month move.
+ */
 export async function getCycleMonth(clientId: string, cycleId: string): Promise<string | null> {
   const [row] = await db
     .select({ month: contentCycles.cycleMonth })
     .from(contentCycles)
     .where(and(eq(contentCycles.clientId, clientId), eq(contentCycles.id, cycleId)))
     .limit(1);
-  return row?.month ?? null;
+  return row?.month ? planMonthOf(row.month) : null;
 }
 
-/** Resolve a 'YYYY-MM' to one of the client's cycle ids, or null if none exists. */
-export async function resolveCycleForMonth(clientId: string, month: string): Promise<string | null> {
+/** Resolve a PLAN month ('YYYY-MM') to one of the client's cycle ids, or null if none exists. */
+export async function resolveCycleForMonth(clientId: string, planMonth: string): Promise<string | null> {
+  const rows = await db
+    .select({ id: contentCycles.id, month: contentCycles.cycleMonth })
+    .from(contentCycles)
+    .where(eq(contentCycles.clientId, clientId));
+  return rows.find((r) => planMonthOf(r.month) === planMonth)?.id ?? null;
+}
+
+/**
+ * Does this cycle belong to this client? The viewed cycle arrives from the CLIENT now, so it is
+ * checked rather than trusted — the same rule every other write path on this surface follows.
+ */
+export async function cycleBelongsToClient(clientId: string, cycleId: string): Promise<boolean> {
   const [row] = await db
     .select({ id: contentCycles.id })
     .from(contentCycles)
-    .where(and(eq(contentCycles.clientId, clientId), eq(contentCycles.cycleMonth, month)))
+    .where(and(eq(contentCycles.clientId, clientId), eq(contentCycles.id, cycleId)))
     .limit(1);
-  return row?.id ?? null;
+  return !!row;
 }
 
 /** Monday-anchored start of the week containing `d` (local). */

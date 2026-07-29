@@ -85,9 +85,25 @@ export function PlanShell({
           a decision. Now: ONE 20px gutter for every row, and the arrow buttons carry a negative
           margin so their 40px hit areas overhang it while their GLYPHS land on the same line as
           the wordmark. Hit-area expansion is visually inert; misalignment is not. */}
+      {/* ── Round 8, fix 4: the identity, and what it is allowed to be ─────────────────
+          The wordmark was 17px of chrome grey under a 20px month title — the same weight and
+          the same colour as everything else on the surface, and smaller than the thing beneath
+          it. Nothing in the header said whose product this was. It now takes the accent and the
+          top of the scale, and the month title steps down below it.
+
+          WHY accent-700 AND NOT THE LOGO TONE. `accent-600` IS the mark's colour, and the spec's
+          own contrast table rules it out for exactly this: `accent-600` on canvas is **2.35:1**,
+          "never as text or a meaningful glyph" (mobile-plan-surface.md §Round 5). `accent-700`
+          is the same hue one step down, sanctioned as text at 5.62:1 — comfortably past the 3:1
+          large-text floor with room left for a theme that lands lighter. It is the lightest mint
+          the surface may legibly write in, which is precisely what "the wordmark renders in the
+          accent" is asking for. The MARK beside it keeps `accent-600`: it is a fill, not text,
+          and it is the identity's own tone.
+
+          Both keep their ruled faces — `font-logo` here, the sans ladder for the month. */}
       <div className="flex flex-none items-center gap-[7px] px-5 pt-1.5">
-        <SprigMarkV2 className="h-[18px] w-[18px] text-coral-600" />
-        <span className="font-logo text-[17px] font-extrabold tracking-[-.02em] text-chrome">Sprigly</span>
+        <SprigMarkV2 className="h-[20px] w-[20px] text-coral-600" />
+        <span className="font-logo text-[22px] font-extrabold leading-none tracking-[-.02em] text-coral-700">Sprigly</span>
       </div>
 
       {/* 3. MONTH ROW — and Today now sits on it (round 7, fix 4).
@@ -106,8 +122,11 @@ export function PlanShell({
           <ArrowBtn dir="prev" onClick={onPrevMonth} />
           {/* The month IS the page's subject, so it is the h1. That gives the surface a clean
               ladder — h1 month, h2 day, h3 section, h4 card — where the old one started at h4
-              and had no top level at all. The wordmark is a mark, not a heading. */}
-          <h1 data-testid="month-title" className="whitespace-nowrap text-[20px] font-bold tracking-[-.03em] text-chrome">
+              and had no top level at all. The wordmark is a mark, not a heading, and it now
+              outranks this in SCALE without outranking it in structure: 20px → 17px here, so
+              the accent wordmark reads first and the month reads as the page beneath it. The
+              h1 is unchanged, which is the part a screen reader hears. */}
+          <h1 data-testid="month-title" className="whitespace-nowrap text-[17px] font-bold tracking-[-.02em] text-chrome">
             {monthLabel}
           </h1>
           <ArrowBtn dir="next" onClick={onNextMonth} />

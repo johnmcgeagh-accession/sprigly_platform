@@ -222,7 +222,7 @@ export function DraftSurface({ data }: { data: PlanData }) {
           </span>
         </span>
       }
-      topSlot={<Feedback undo={m.undo} onDismiss={() => m.setUndo(null)} message={data.toast} />}
+      topSlot={<Feedback undo={m.undo} onDismiss={() => m.setUndo(null)} message={data.toast} agent={data.agentToast} agentWorking={data.agentBusy || m.shaping} />}
       chip={<SummaryChip label={label} expanded={receiptOpen} onToggle={() => setReceiptOpen((v) => !v)} />}
       overlays={<>
         <DraftDetailSheet

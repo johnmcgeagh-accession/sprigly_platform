@@ -9,7 +9,9 @@ vi.mock('@sprigly/db', () => ({
 vi.mock('drizzle-orm', () => ({ eq: () => 'eq' }));
 
 import { THEME_TOKEN_KEYS } from '@sprigly/engine/contrast';
-import { hexToRgbChannels, buildThemeVars, loadActiveThemeVars, VAR } from './theme';
+import { hexToRgbChannels, buildThemeVars, loadActiveThemeVars, loadActiveCanvasHex, CANVAS_FALLBACK_HEX, VAR } from './theme';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const TEAL = { accent600: '#14B8A6', accent700: '#0F766E', accent800: '#0C5F58', accent100: '#E6F7F5', canvas: '#F2F3F5', surface: '#FFFFFF', line: '#8F9296', chrome: '#334155' };
 
@@ -84,5 +86,46 @@ describe('the injected tiers and the settable tiers are the same list', () => {
     const css = buildThemeVars({ ...TEAL, accent500: '#74C1B5', accent650: '#43998B' });
     expect(css).toContain('--t-accent-500:116 193 181');
     expect(css).toContain('--t-accent-650:67 153 139');
+  });
+});
+
+/**
+ * ── The Safari chrome bands (round 8, fix 3) ─────────────────────────────────────────
+ *
+ * `theme-color` is the one consumer that cannot read a CSS variable: Safari resolves the meta
+ * tag before any stylesheet, so it has to be handed a literal. That literal is the canvas, and
+ * the whole point of the fix is that the bands and `bg-bg` are the same colour — which means
+ * this resolver and Tailwind's fallback must not be allowed to drift apart. A drift here shows
+ * up as a hairline of the wrong colour under the status bar and nowhere else on the surface.
+ */
+describe('loadActiveCanvasHex (what Safari paints its bands)', () => {
+  it('follows the ACTIVE theme, so a theme switch carries the bands with the canvas', async () => {
+    h.rows = [{ tokens: TEAL }];
+    expect(await loadActiveCanvasHex()).toBe('#F2F3F5');
+    h.rows = [{ tokens: { ...TEAL, canvas: '#101418' } }];
+    expect(await loadActiveCanvasHex()).toBe('#101418');
+  });
+
+  it('no active theme → the fallback, which is what the page paints anyway', async () => {
+    h.rows = [];
+    expect(await loadActiveCanvasHex()).toBe(CANVAS_FALLBACK_HEX);
+  });
+
+  it('DB down → the fallback. The bands are never left to Safari to guess', async () => {
+    h.throws = true;
+    expect(await loadActiveCanvasHex()).toBe(CANVAS_FALLBACK_HEX);
+  });
+
+  it('a malformed canvas is refused rather than emitted into a meta tag', async () => {
+    h.rows = [{ tokens: { ...TEAL, canvas: 'rebeccapurple' } }];
+    expect(await loadActiveCanvasHex()).toBe(CANVAS_FALLBACK_HEX);
+  });
+
+  it('THE FALLBACK EQUALS TAILWIND’S --t-canvas fallback, read from the config itself', () => {
+    const cfg = readFileSync(join(process.cwd(), 'tailwind.config.ts'), 'utf8');
+    const m = /--t-canvas',\s*'(\d+) (\d+) (\d+)'/.exec(cfg);
+    expect(m, 'tailwind.config.ts no longer declares a --t-canvas fallback').toBeTruthy();
+    const hex = `#${[m![1], m![2], m![3]].map((n) => Number(n).toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+    expect(hex).toBe(CANVAS_FALLBACK_HEX);
   });
 });

@@ -44,6 +44,24 @@ export function buildThemeVars(tokens: Record<string, string>): string {
   return decls.length ? `:root{${decls.join(';')}}` : '';
 }
 
+/**
+ * The canvas colour Tailwind's `bg-bg` falls back to. Kept here as a hex because `theme-color`
+ * is the one consumer that cannot read a CSS variable — Safari resolves the meta tag before any
+ * stylesheet, so the band has to be given a literal.
+ *
+ * It must equal `tailwind.config.ts`'s `--t-canvas` fallback (242 243 245); `theme.test.ts`
+ * asserts the two agree, because a drift here shows up as a hairline of the wrong colour under
+ * the status bar and nowhere else.
+ */
+export const CANVAS_FALLBACK_HEX = '#F2F3F5';
+
+/**
+ * The brand `theme-color` from DECISIONS.md §13 — still what the legacy `PlanApp` surface and
+ * the expired page hand Safari's chrome bands. Only the redesign departs from it, and only
+ * because its bands have a canvas to match; see `generateViewport` in app/page.tsx.
+ */
+export const CORAL_THEME_COLOR = '#E8705F';
+
 /** The active theme's tokens, or null when there is no active theme / the DB is unreachable
  *  (the caller then injects nothing → Tailwind's Sprigly-Coral fallbacks render byte-identically). */
 export async function loadActiveThemeVars(): Promise<string> {
@@ -53,5 +71,22 @@ export async function loadActiveThemeVars(): Promise<string> {
     return buildThemeVars(row.tokens as Record<string, string>);
   } catch {
     return '';
+  }
+}
+
+/**
+ * The active theme's canvas as a hex, for `theme-color`.
+ *
+ * Resolved from the same row the vars come from, so the Safari band and `bg-bg` cannot disagree
+ * after an admin theme switch. Any failure — no active theme, a malformed hex, the DB down —
+ * returns the fallback, which is what the page would paint anyway.
+ */
+export async function loadActiveCanvasHex(): Promise<string> {
+  try {
+    const [row] = await db.select({ tokens: themes.tokens }).from(themes).where(eq(themes.isActive, true)).limit(1);
+    const hex = (row?.tokens as Record<string, string> | undefined)?.['canvas'] ?? '';
+    return hexToRgbChannels(hex) ? hex.trim() : CANVAS_FALLBACK_HEX;
+  } catch {
+    return CANVAS_FALLBACK_HEX;
   }
 }

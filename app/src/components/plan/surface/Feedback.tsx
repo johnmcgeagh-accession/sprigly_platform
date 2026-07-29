@@ -35,6 +35,7 @@
  * destination, and names the MONTH when the move crossed one.
  */
 import React, { useEffect } from 'react';
+import { AgentSays } from './AgentVoice';
 
 export interface UndoState {
   message: string;
@@ -46,19 +47,45 @@ export interface UndoState {
 const LIFETIME_MS = 7000;
 
 export function Feedback({
-  undo, onDismiss, message,
+  undo, onDismiss, message, agent, agentWorking,
 }: {
   undo: UndoState | null;
   onDismiss: () => void;
   /** `data.toast` — everything `flash()` says. It owns its own 3s lifetime upstream, so this
    *  component never dismisses it and never re-times it. */
   message?: string | null | undefined;
+  /**
+   * The agent's own reply, in the agent's own register (round 8, fix 7).
+   *
+   * It used to arrive through `message` and land in the dark slab below — the same shape as
+   * "Moved to Friday". That slab means *the app did something to your plan*; a reply is the
+   * other party in a conversation answering, and giving one meaning two shapes taught the client
+   * nothing about either. It renders as `AgentSays`, exactly as the voice sheet and the reshape
+   * do, and it outranks a plain message for the same reason undo does: it is a reply to
+   * something they just said.
+   */
+  agent?: string | null | undefined;
+  /** The turn is still running. Shows the dots, with or without words yet. */
+  agentWorking?: boolean | undefined;
 }) {
   useEffect(() => {
     if (!undo) return;
     const t = setTimeout(onDismiss, LIFETIME_MS);
     return () => clearTimeout(t);
   }, [undo, onDismiss]);
+
+  // The agent speaking outranks a statement, and undo outranks the agent: undo is time-limited
+  // and destructive to lose, and a reply is not.
+  if (!undo && (agent || agentWorking)) {
+    return (
+      <AgentSays
+        testid="feedback-agent" working={!!agentWorking} label="Sprigly"
+        className="absolute inset-x-4 top-[46px] z-[40] shadow-[0_14px_34px_rgb(30_41_59_/_0.18)]"
+      >
+        {agent || undefined}
+      </AgentSays>
+    );
+  }
 
   const state: UndoState | null = undo ?? (message ? { message } : null);
   if (!state) return null;

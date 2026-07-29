@@ -51,7 +51,12 @@ export function NavPill({
   return (
     <nav
       data-testid="nav-pill" aria-label="Views"
-      className="pointer-events-none absolute inset-x-4 bottom-[22px] z-[25] flex items-center gap-2.5"
+      // 22px above the bottom edge — plus the home indicator, where there is one. The shell
+      // bleeds to the hardware on purpose (the canvas is painted through the safe areas so the
+      // Safari bands and the overscroll match it), which means the ONE thing that must know
+      // about the inset is the thing that would otherwise sit under the client's thumb. On a
+      // phone with no indicator `env()` resolves to 0 and this is the 22px it always was.
+      className="pointer-events-none absolute inset-x-4 bottom-[calc(22px+env(safe-area-inset-bottom,0px))] z-[25] flex items-center gap-2.5"
     >
       <div
         role="tablist" aria-label="Plan views"

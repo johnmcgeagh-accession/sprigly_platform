@@ -64,6 +64,8 @@ export function useDraftMonth(data: PlanData) {
   // INDEPENDENT of the receipt: clearing the summary never un-marks what changed (spec §3).
   const [changedIds, setChangedIds] = useState<string[]>(receipts[0]?.changedIds ?? []);
   const [busy, setBusy] = useState(false);
+  /** A reshape is running: the ONE thing on this surface the agent is doing rather than us. */
+  const [shaping, setShaping] = useState(false);
   const [undo, setUndo] = useState<UndoState | null>(null);
 
   const setBeats = useCallback((next: DraftBeatView[]) => {
@@ -159,7 +161,15 @@ export function useDraftMonth(data: PlanData) {
    * against rows that no longer carried the answer.
    */
   const say = useCallback(
-    async (text: string, source: 'web' | 'voice' = 'web') => write('/api/plan/draft/apply', { op: 'text', text, source }),
+    async (text: string, source: 'web' | 'voice' = 'web') => {
+      // `shaping` is separate from `busy` on purpose. `busy` is true for a move and a drop too,
+      // and those are the client's own edits landing — showing "Sprigly is working" over them
+      // would credit the agent with something it did not do. This is the reshape and nothing
+      // else, which is what the shell renders the agent's dots from (round 8, fix 7).
+      setShaping(true);
+      try { return await write('/api/plan/draft/apply', { op: 'text', text, source }); }
+      finally { setShaping(false); }
+    },
     [write],
   );
 
@@ -180,7 +190,7 @@ export function useDraftMonth(data: PlanData) {
   );
 
   return {
-    beats, busy, receipt, changedIds, undo,
+    beats, busy, shaping, receipt, changedIds, undo,
     setUndo, setReceipt, setChangedIds,
     move, changeFormat, drop, add, say, addToMonth, rescueDate,
   };
