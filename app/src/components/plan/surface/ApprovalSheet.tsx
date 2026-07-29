@@ -1,0 +1,167 @@
+'use client';
+
+/**
+ * ApprovalSheet.tsx — the one door that spends money, and it is labelled. (mockup 09)
+ *
+ * Round 2 made this an unlabelled tick FAB, which put the highest-stakes action in the product
+ * behind a glyph a non-technical founder has no reason to read as "approve the month and start
+ * spending". It is a labelled pill in the header now, and the mic — the action a client takes ten
+ * times to approval's one — is the FAB.
+ *
+ * IT IS STILL TWO TAPS. The pill opens the consequence; the consequence has its own commit. That
+ * is a product constraint, not a UI preference: approval spends money and writes content the
+ * client will be asked to publish, and a single mis-tap must not reach it.
+ *
+ * ── The copy, and the one lie it exists to correct ───────────────────────────────────
+ *
+ * An earlier version told clients that after this "the dates and formats are set for the month",
+ * which is FALSE — every post stays editable by date until its own date passes, which is the rule
+ * the whole surface is built on. Telling a client their month is locked when it is not makes them
+ * rush a decision that did not need rushing, and teaches them the interface lies. The shipped
+ * correction is kept verbatim.
+ *
+ * ── Terminology ──────────────────────────────────────────────────────────────────────
+ *
+ * The pill is **Generate** and the sheet asks **Ready to go?** — spec §7, where round 5 shortened
+ * the pill to the single action word, and mockup 09 as rendered. The commit is **Yes, write
+ * them**: "Generate" is the system's verb for a state transition, and by the time a client is
+ * looking at three counts and a consequence, the honest button says what they are agreeing to.
+ */
+import React, { useState } from 'react';
+import type { DraftBeatView } from '@/lib/types';
+import { Sheet } from './Sheet';
+import { CheckGlyph, CloseGlyph } from './icons';
+import { approvalCounts, approvalRows } from './approval-counts';
+
+export function ApprovalSheet({
+  open, monthLabel, beats, busy, error, onClose, onApprove,
+}: {
+  open: boolean;
+  monthLabel: string;
+  beats: readonly DraftBeatView[];
+  busy: boolean;
+  /** A refusal from the route — `already_approved` above all, which is a real answer and not a
+   *  failure: approval spends money, so a silent second fan-out is worse than saying no. */
+  error: string | null;
+  onClose: () => void;
+  onApprove: () => void;
+}) {
+  const rows = approvalRows(approvalCounts(beats));
+
+  if (!open) return null;
+
+  return (
+    <Sheet open={open} label={`Ready to go? ${monthLabel}`} testid="approval-sheet" onClose={onClose}>
+      <>
+        <div className="flex flex-none items-start gap-3 px-[18px] pb-3 pt-1.5">
+          <div className="min-w-0 flex-1">
+            <h2 className="mb-1 text-[20px] font-bold tracking-[-.025em] text-chrome">Ready to go?</h2>
+            <p className="text-[13.5px] font-medium text-muted">{monthLabel}</p>
+          </div>
+          <button type="button" data-testid="approval-close" aria-label="Close" onClick={onClose}
+            className="flex h-11 w-11 flex-none items-center justify-center rounded-full bg-line-soft text-chrome">
+            <CloseGlyph className="h-[17px] w-[17px]" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-[18px] pb-4 [scrollbar-width:none]">
+          <ul data-testid="approval-counts" className="flex flex-col gap-3 pt-1">
+            {rows.map((r) => (
+              <li key={r.label} className="flex items-baseline gap-3">
+                <span className="w-[38px] flex-none text-right text-[22px] font-bold tabular-nums tracking-[-.03em] text-chrome">{r.count}</span>
+                <span className="min-w-0 flex-1 text-[15px] leading-[1.4] text-muted">{r.label}</span>
+              </li>
+            ))}
+          </ul>
+
+          {/* The correction, verbatim. What approval actually does is start the WRITING. */}
+          <p data-testid="approval-consequence" className="mt-5 text-[15px] leading-[1.5] text-chrome">
+            Dates and formats stay yours to change afterwards, right up until each post’s date.
+            What this starts is the writing, and it takes a few minutes.
+          </p>
+
+          {error && (
+            <p data-testid="approval-error" role="alert" className="mt-4 text-[13.5px] font-semibold leading-normal text-chrome">
+              {error}
+            </p>
+          )}
+        </div>
+
+        <div className="flex flex-none gap-2 border-t border-line/30 bg-surface px-[18px] pb-[26px] pt-3">
+          <button
+            type="button" data-testid="approve-confirm" disabled={busy || rows.length === 0} onClick={onApprove}
+            className="flex min-h-[50px] flex-1 items-center justify-center gap-2 rounded-[14px] bg-coral-650 text-[15px] font-bold text-white shadow-[0_10px_26px_-6px_rgb(var(--t-accent-600,232_112_95)_/_0.58)] disabled:bg-line-soft disabled:text-muted disabled:shadow-none"
+          >
+            <CheckGlyph className="h-[17px] w-[17px] [stroke-width:2.4]" />
+            {busy ? 'Starting…' : 'Yes, write them'}
+          </button>
+          <button
+            type="button" data-testid="approve-not-yet" disabled={busy} onClick={onClose}
+            className="flex min-h-[50px] flex-none items-center justify-center gap-1.5 rounded-[14px] bg-surface px-4 text-[15px] font-semibold text-muted ring-1 ring-inset ring-line/55"
+          >
+            <CloseGlyph className="h-[15px] w-[15px]" />
+            Not yet
+          </button>
+        </div>
+      </>
+    </Sheet>
+  );
+}
+
+/**
+ * The pill in the title row: persistent, secondary weight, and it never competes with the mic.
+ *
+ * Hairline `accent-600` border, `accent-800` label on `surface` — accent text on white at 7.64:1,
+ * which is the one place accent text is allowed to be. It states its action in a word rather than
+ * asking a question, because the question is what the sheet it opens is for.
+ */
+export function ApprovalPill({ onClick, busy }: { onClick: () => void; busy: boolean }) {
+  return (
+    <button
+      type="button" data-testid="ready-pill" disabled={busy} onClick={onClick}
+      // 40px, not the mockups' 34px. This is the PRIMARY APPROVAL ACTION and it was the smallest
+      // control measured under the floor (X3/B1) — the one place a missed tap costs the most.
+      className="flex min-h-[40px] flex-none items-center gap-1.5 rounded-full border border-coral-600 bg-surface px-3.5 text-[13px] font-bold text-coral-800 transition-colors duration-100 active:bg-coral-100 disabled:opacity-50"
+    >
+      <CheckGlyph className="h-[15px] w-[15px] [stroke-width:2.4]" />
+      Generate
+    </button>
+  );
+}
+
+/** Holds the approval call's own state, so the surface does not grow three more `useState`s. */
+export function useApproval(cycleId: string | undefined) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const approve = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/plan/draft/approve', { method: 'POST' });
+      const json = (await res.json()) as { ok?: boolean; message?: string };
+      if (!res.ok || !json.ok) {
+        setError(json.message ?? 'We couldn’t start that. Try again?');
+        return;
+      }
+      /**
+       * Land on the month they just approved, BY NAME.
+       *
+       * A bare reload re-runs the landing rule, and approval is exactly the moment that rule
+       * stops working: it moves every draft row to 'generating', so `cycleHasReviewableDraft`
+       * goes false and the fallback picks a cycle by today's date — which sent earl-of-east to
+       * August seconds after they approved October. "I just approved this month" is explicit
+       * intent and outranks a heuristic about today.
+       */
+      window.location.assign(cycleId ? `/?cycle=${encodeURIComponent(cycleId)}` : '/');
+    } catch {
+      setError('We couldn’t reach the server. Check your connection and try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return { open, setOpen, busy, error, approve };
+}

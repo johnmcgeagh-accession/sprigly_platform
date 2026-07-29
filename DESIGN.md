@@ -371,9 +371,16 @@ change view, one place to talk.
 directly; on a committed month it runs the post-cutoff agent, which raises proposals the client
 approves. Same gesture, different consequence, and the sheet says which.
 
-**Approval pill.** `Ready to go`, right-aligned on the title row in the space the switcher
-vacated. Persistent, secondary weight — hairline `accent-600` border, `accent-800` label on
-`surface`. It never competes with the mic for primacy.
+**Approval pill.** `Generate`, right-aligned on the title row in the space the switcher vacated.
+Persistent, secondary weight — hairline `accent-600` border, `accent-800` label on `surface`
+(7.64:1, the one place accent text is allowed to be). It never competes with the mic for primacy.
+
+*This paragraph said `Ready to go` until round 6, which was round 4's wording — round 5 shortened
+the pill to the single action word and updated the spec's terminology table and mockup 09 without
+updating this line.* `Ready to go?` is what the **sheet** asks; the pill states its action. The
+commit inside the sheet is `Yes, write them`, because "Generate" is the system's verb for a state
+transition and, by the time a client is reading three counts and a consequence, the honest button
+names what they are agreeing to.
 
 **Day strip.** Seven cells. Selected day = `accent-650` circle with a white numeral. Today
 unselected = `accent-600` ring. A day with content carries a pip below: `accent-600` on a draft

@@ -48,6 +48,7 @@ import { DraftDetailSheet } from './DraftDetailSheet';
 import { MoveSheet } from './MoveSheet';
 import { AddSheet } from './AddSheet';
 import { VoiceSheet } from './VoiceSheet';
+import { ApprovalSheet, ApprovalPill, useApproval } from './ApprovalSheet';
 import { TasksPanel } from './TasksPanel';
 import { firstAnswerable, assumptionPrompt } from '@/lib/draft-rationale';
 import { Feedback } from './Feedback';
@@ -85,6 +86,7 @@ export function DraftSurface({ data }: { data: PlanData }) {
   /** null = closed. A string = open, answering that question. '' = open, no question. */
   const [voiceFor, setVoiceFor] = useState<string | null>(null);
   const [receiptOpen, setReceiptOpen] = useState(false);
+  const approval = useApproval(data.viewedCycleId);
 
   // Re-anchor the selection when the MONTH changes, not on every render.
   const [anchoredMonth, setAnchoredMonth] = useState(month);
@@ -203,6 +205,10 @@ export function DraftSurface({ data }: { data: PlanData }) {
       micLabel={`Tell us about ${monthName}`}
       onToday={goToday}
       todayEnabled={todayEnabled}
+      // THE PILL, in the space the round-3 Week|Month switcher vacated. Rendered only on an
+      // editable draft that has something to approve: a Generate control on an empty month, or
+      // on one already past its cutoff, is a control that can only refuse.
+      headerRight={editable && m.beats.length > 0 ? <ApprovalPill busy={approval.busy} onClick={() => approval.setOpen(true)} /> : undefined}
       badge={
         // The badge carries *provisional*; the line carries *which month*. "Not sent yet" is
         // gone from here as redundant with the badge, and the rest of the framing lives in the
@@ -235,6 +241,12 @@ export function DraftSurface({ data }: { data: PlanData }) {
             onMove={(d) => doMove(moveBeat, d)}
           />
         )}
+        <ApprovalSheet
+          open={approval.open} monthLabel={monthTitle(month)} beats={m.beats}
+          busy={approval.busy} error={approval.error}
+          onClose={() => approval.setOpen(false)}
+          onApprove={() => void approval.approve()}
+        />
         {voiceFor !== null && (
           <VoiceSheet
             open monthName={monthName} busy={m.busy}

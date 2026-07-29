@@ -665,3 +665,114 @@ describe('the itemised rollup (mockup 08)', () => {
     expect(screen.queryByTestId('add-to-this-month')).toBeNull();
   });
 });
+
+describe('approval — the one door that spends money', () => {
+  /** Earl of East's October as the dogfood run approved it: 1 reel, 2 carousels, 7 singles. */
+  const OCTOBER = [
+    beat({ id: 'r1', format: 'reel' }),
+    ...Array.from({ length: 2 }, (_, i) => beat({ id: `c${i}`, format: 'carousel', position: i + 1 })),
+    ...Array.from({ length: 7 }, (_, i) => beat({ id: `s${i}`, format: 'single', position: i + 3 })),
+  ];
+
+  it('the pill is labelled, persistent and secondary — never an unlabelled tick', () => {
+    render(<DraftSurface data={fakeData({}, OCTOBER)} />);
+    const pill = screen.getByTestId('ready-pill');
+    expect(pill.textContent).toBe('Generate');
+    // Secondary weight: a hairline accent border and accent text on surface, not a filled block.
+    expect(pill.className).toContain('border-coral-600');
+    expect(pill.className).not.toContain('bg-coral-650');
+  });
+
+  it('is absent when there is nothing to approve, and past the cutoff', () => {
+    render(<DraftSurface data={fakeData({}, [])} />);
+    expect(screen.queryByTestId('ready-pill')).toBeNull();
+    cleanup();
+
+    const data = fakeData({}, OCTOBER);
+    (data.draft as { editable: boolean }).editable = false;
+    render(<DraftSurface data={data} />);
+    expect(screen.queryByTestId('ready-pill')).toBeNull();
+  });
+
+  it('IS STILL TWO TAPS — the pill opens the consequence, the consequence commits', async () => {
+    const calls = stubFetch();
+    render(<DraftSurface data={fakeData({}, OCTOBER)} />);
+    fireEvent.click(screen.getByTestId('ready-pill'));
+
+    expect(screen.getByTestId('approval-sheet')).toBeTruthy();
+    // Opening it spends nothing.
+    expect(calls).toHaveLength(0);
+  });
+
+  it('states the counts, from the posts already in memory rather than a second source', async () => {
+    const calls = stubFetch();
+    render(<DraftSurface data={fakeData({}, OCTOBER)} />);
+    fireEvent.click(screen.getByTestId('ready-pill'));
+
+    const rows = [...screen.getByTestId('approval-counts').querySelectorAll('li')].map((li) => li.textContent);
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toContain('10');
+    expect(rows[1]).toContain('3');
+    expect(rows[2]).toContain('1');
+    // No pre-approval summary endpoint: a second source for a number the client is holding.
+    expect(calls).toHaveLength(0);
+  });
+
+  it('omits the zero rows rather than printing "0 hooks"', () => {
+    render(<DraftSurface data={fakeData({}, [beat({ format: 'single' }), beat({ id: 'b2', format: 'single', position: 1 })])} />);
+    fireEvent.click(screen.getByTestId('ready-pill'));
+
+    const rows = screen.getByTestId('approval-counts').querySelectorAll('li');
+    expect(rows).toHaveLength(1);
+    expect(screen.getByTestId('approval-sheet').textContent).not.toMatch(/0 (opening hooks|scripts)/);
+  });
+
+  it('NEVER says the month is locked — it says the writing has started', () => {
+    render(<DraftSurface data={fakeData({}, OCTOBER)} />);
+    fireEvent.click(screen.getByTestId('ready-pill'));
+
+    const copy = screen.getByTestId('approval-consequence').textContent ?? '';
+    expect(copy).toContain('Dates and formats stay yours to change afterwards');
+    expect(copy).toContain('What this starts is the writing');
+    expect(copy).not.toMatch(/set for the month|locked|final/i);
+  });
+
+  it('“Not yet” closes and spends nothing', async () => {
+    const calls = stubFetch();
+    render(<DraftSurface data={fakeData({}, OCTOBER)} />);
+    fireEvent.click(screen.getByTestId('ready-pill'));
+    fireEvent.click(screen.getByTestId('approve-not-yet'));
+
+    expect(screen.queryByTestId('approval-sheet')).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
+
+  it('the commit posts to approve and lands on the month it just approved, BY NAME', async () => {
+    const calls = stubFetch();
+    const assign = vi.fn();
+    vi.stubGlobal('location', { assign } as unknown as Location);
+    render(<DraftSurface data={fakeData({}, OCTOBER)} />);
+    fireEvent.click(screen.getByTestId('ready-pill'));
+    await act(async () => { fireEvent.click(screen.getByTestId('approve-confirm')); });
+
+    expect(calls[0]!.url).toBe('/api/plan/draft/approve');
+    // A bare reload re-runs the landing rule, which approval itself breaks — it moves every
+    // draft row to 'generating', and the fallback then picks a cycle by today's date.
+    expect(assign).toHaveBeenCalledWith('/?cycle=cyc-1');
+  });
+
+  it('a refusal is SHOWN, because a silent second fan-out is worse than saying no', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false, json: async () => ({ ok: false, message: 'This month has already been approved.' }),
+    }) as unknown as Response));
+    const assign = vi.fn();
+    vi.stubGlobal('location', { assign } as unknown as Location);
+    render(<DraftSurface data={fakeData({}, OCTOBER)} />);
+    fireEvent.click(screen.getByTestId('ready-pill'));
+    await act(async () => { fireEvent.click(screen.getByTestId('approve-confirm')); });
+
+    await waitFor(() => expect(screen.getByTestId('approval-error').textContent).toBe('This month has already been approved.'));
+    expect(assign).not.toHaveBeenCalled();
+    expect(screen.getByTestId('approval-sheet')).toBeTruthy();
+  });
+});
