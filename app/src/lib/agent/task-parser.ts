@@ -18,6 +18,10 @@ const ACTIONS: readonly TaskActionType[] = [
 
 export interface ParserContext {
   today: string;                    // 'YYYY-MM-DD'
+  /** The month the client is LOOKING at, e.g. 'August 2026'. Bare references ("the 5th") resolve
+   *  here first — the digest below is this month's, and saying so is what stops the parser
+   *  reasoning about one month while reading another's posts. */
+  viewedMonth: string;
   cycleMonths: string;             // formatted list of the client's cycle months
   planDigest: string;              // formatted digest of the whole cycle's posts, by date (with ids)
   productIndex: string;            // formatted index of the client's products (name/style/colourways)
@@ -125,11 +129,12 @@ Message: "um so yeah can you like push the wednesday one back a couple days, to 
 
 function buildUserMessage(text: string, ctx: ParserContext): string {
   return `Today is ${ctx.today}.
+The client is looking at ${ctx.viewedMonth}. Resolve bare dates ("the 5th", "Saturday") in ${ctx.viewedMonth} unless they name another month.
 
-The client's content-plan months:
+The client's content-plan months (every one of these is theirs to work on; a post can be changed whenever its own date is today or later, whatever the month's status says):
 ${ctx.cycleMonths}
 
-PLAN DIGEST (this cycle's posts, by date):
+PLAN DIGEST — ${ctx.viewedMonth}, the month on screen (by date):
 ${ctx.planDigest}
 
 CATALOGUE (this client's products):

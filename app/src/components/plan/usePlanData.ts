@@ -574,7 +574,11 @@ export function usePlanData(init: PlanDataInit) {
     try {
       const res = await fetch('/api/plan/agent', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ instruction, selectedPostId, source, conversationId: conversationId.current }),
+        // `cycleId` is the month ON SCREEN, not the one the magic link was issued for. Without
+        // it the agent answered about the session's cycle whichever month the client had
+        // navigated to, and said so out loud — "I can only edit posts in the current September
+        // 2026 cycle" to someone looking at August. The server re-checks it belongs to them.
+        body: JSON.stringify({ instruction, selectedPostId, source, cycleId: viewedCycleId, conversationId: conversationId.current }),
         signal: controller.signal,
       });
       if (res.status === 429) { setAgentError('You’re sending changes too quickly. Give it a few seconds and try again.'); return null; }
@@ -597,7 +601,7 @@ export function usePlanData(init: PlanDataInit) {
         : 'Network error. Your message is still here, try again.');
       return null;
     } finally { clearTimeout(ceiling); setAgentBusy(false); }
-  }, [readOnly, agentBusy, flash, refreshNotes, track]);
+  }, [readOnly, agentBusy, flash, refreshNotes, track, viewedCycleId]);
 
   /** Poll an agent-enqueued hook job and surface its candidates in the target post's hook
    *  UI — exactly as a manual "Generate hooks" does (the editor reads hookCandidates). */

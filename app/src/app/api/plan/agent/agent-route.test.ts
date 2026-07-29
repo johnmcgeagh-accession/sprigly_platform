@@ -16,11 +16,18 @@ const h = vi.hoisted(() => ({
   session: { clientId: 'client-1', cycleId: 'cycle-1' } as { clientId: string; cycleId: string } | null,
   tasks: [] as ParsedTask[],
   posts: [] as Array<Record<string, unknown>>,
+  /** Which cycle ids this client actually owns — the viewed cycle is verified, not trusted. */
+  clientCycles: ['cycle-1', 'cycle-aug'] as string[],
+  turnCalls: [] as string[],
   createCalls: [] as Array<Record<string, unknown>>,
   saveNote: vi.fn(),
   answerQuery: vi.fn(),
 }));
 
+// The turn reaches the date rule in `edit-scope`, which imports the db client for its OTHER
+// exports; the rule itself is pure. Every collaborator that touches Postgres is mocked below —
+// this stands in for the module-scope DATABASE_URL parse.
+vi.mock('@sprigly/db', () => ({ db: {}, contentCycles: {}, contentCyclePosts: {} }));
 vi.mock('@/lib/auth', () => ({ getSession: async () => h.session }));
 vi.mock('@/lib/plan', () => ({ loadPlanPosts: async () => h.posts }));
 vi.mock('@/lib/agent/model', () => ({ getModelClient: () => ({}), getEmbeddingClient: () => ({}), AGENT_MODEL: 'haiku' }));
@@ -29,9 +36,12 @@ vi.mock('@/lib/agent/catalogue', () => ({ loadProductIndex: async () => ({}) }))
 vi.mock('@/lib/agent/cycle-state', () => ({
   getClientCycleMonths: async () => 'months', cycleDigest: () => 'digest', resolveCycleForMonth: async () => 'cycle-x',
   getCycleMonth: async () => '2026-09',   // the seed post is 2026-09-03; same-month moves proceed
+  cycleBelongsToClient: async (_c: string, id: string) => h.clientCycles.includes(id),
 }));
 vi.mock('@/lib/agent/conversation', () => ({
-  ensureConversation: async () => 'conv-1',
+  // Records the cycle the TURN actually ran against — the only place the route's scoping choice
+  // is observable from outside.
+  ensureConversation: async (_clientId: string, cycleId: string) => { h.turnCalls.push(cycleId); return 'conv-1'; },
   appendMessage: async () => 'msg-1',
 }));
 vi.mock('@/lib/agent/proposals', () => ({
@@ -44,13 +54,19 @@ vi.mock('@/lib/agent/notes', () => ({ saveNote: (...a: unknown[]) => h.saveNote(
 vi.mock('@/lib/agent/query', () => ({ answerQuery: (...a: unknown[]) => h.answerQuery(...a) }));
 
 import { POST } from './route';
+import { resetRateLimit } from '@/lib/rate-limit';
 
 const post = (body: unknown) => POST(new Request('http://x/api/plan/agent', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }));
 
 beforeEach(() => {
+  // The route's token bucket holds 8 and the file has more tests than that — without this the
+  // later ones 429 and the failure looks like a scoping bug.
+  resetRateLimit();
   h.session = { clientId: 'client-1', cycleId: 'cycle-1' };
   h.tasks = [];
   h.posts = [{ ...POST3 }];
+  h.clientCycles = ['cycle-1', 'cycle-aug'];
+  h.turnCalls.length = 0;
   h.createCalls.length = 0;
   h.saveNote.mockReset();
   h.answerQuery.mockReset().mockResolvedValue('You need to film the reel.');
@@ -158,5 +174,25 @@ describe('resilience', () => {
     h.session = null;
     const res = await post({ instruction: 'anything' });
     expect(res.status).toBe(401);
+  });
+});
+
+describe('the viewed cycle, not the link’s cycle', () => {
+  it('runs the turn against the month ON SCREEN when the body names one', async () => {
+    h.tasks = [{ action: 'clarify', question: 'ok' }];
+    await post({ instruction: 'move the 5th to the 7th', cycleId: 'cycle-aug' });
+    expect(h.turnCalls).toEqual(['cycle-aug']);
+  });
+
+  it('falls back to the session’s cycle when the body names none', async () => {
+    h.tasks = [{ action: 'clarify', question: 'ok' }];
+    await post({ instruction: 'anything' });
+    expect(h.turnCalls).toEqual(['cycle-1']);
+  });
+
+  it('IGNORES a cycle that is not this client’s — the body is checked, not trusted', async () => {
+    h.tasks = [{ action: 'clarify', question: 'ok' }];
+    await post({ instruction: 'anything', cycleId: 'cycle-someone-else' });
+    expect(h.turnCalls).toEqual(['cycle-1']);          // silently scoped back, never leaked
   });
 });
