@@ -36,7 +36,9 @@ import { DayPanel } from './DayPanel';
 import { TasksPanel } from './TasksPanel';
 import { DetailSheet } from './DetailSheet';
 import { MoveSheet } from './MoveSheet';
-import { Snackbar, type UndoState } from './Snackbar';
+import { AddSheet } from './AddSheet';
+import { Feedback, type UndoState } from './Feedback';
+import { MonthDaySummary, rowsFromPosts } from './rows';
 import { defaultDayFor, monthOf, monthTitle, monthGrid, shortDate } from './dates';
 import { isOnTheWay } from '@/lib/generation-state';
 import { orphanPosts } from '@/lib/cycle-nav';
@@ -52,6 +54,9 @@ export function CommittedSurface({ data }: { data: PlanData }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [moveId, setMoveId] = useState<string | null>(null);
   const [undo, setUndo] = useState<UndoState | null>(null);
+  /** The day the add sheet is open for, or null. Held as a DATE rather than a boolean so the
+   *  sheet cannot be open for one day while the panel shows another. */
+  const [addFor, setAddFor] = useState<string | null>(null);
 
   // Re-anchor the selection when the MONTH changes, not on every render: switching to October
   // while standing on 3 September has to move, and an unrelated post edit must not.
@@ -137,13 +142,16 @@ export function CommittedSurface({ data }: { data: PlanData }) {
   const todayInMonth = monthOf(data.today) === month;
   const todayEnabled = todayInMonth || !!data.todayCycleId;
   const goToday = () => {
-    if (todayInMonth) { setSelected(data.today); setView('day'); }
+    // On the month view Today selects in place rather than leaving the grid — the same P6
+    // reasoning as a day tap: a control that also changes view is two acts wearing one label.
+    if (todayInMonth) { setSelected(data.today); if (view === 'day') setView('day'); }
     else if (data.todayCycleId) void data.switchCycle(data.todayCycleId);
   };
 
-  /** THE GRID IS A PICKER (§1.5): a tap sets the day, flips to Day, and the strip re-anchors
-   *  because it derives its week from `selected`. Nothing is fetched. */
-  const pickFromGrid = (iso: string) => { setSelected(iso); setView('day'); };
+  /** ROUND 6, P6: the grid STAYS the view. A tap selects the day and the summary beneath the
+   *  grid renders it; Day view is reached through the nav pill. Nothing is fetched, and the
+   *  selection is shared, so switching to Day afterwards lands where you were reading. */
+  const pickFromGrid = (iso: string) => setSelected(iso);
 
   const monthPosts = useMemo(
     () => monthGrid(month).filter((c) => c.inMonth).flatMap((c) => postsOn(c.iso)),
@@ -174,7 +182,9 @@ export function CommittedSurface({ data }: { data: PlanData }) {
       tasksDot={lateCount(data.posts, data.today) > 0}
       onToday={goToday}
       todayEnabled={todayEnabled}
-      topSlot={<Snackbar state={undo} onDismiss={() => setUndo(null)} />}
+      // ONE feedback channel, at the top (round 6, P10). `data.toast` used to render in a second
+      // bar at the bottom of the page, over the nav pill; it comes here instead.
+      topSlot={<Feedback undo={undo} onDismiss={() => setUndo(null)} message={data.toast} />}
       overlays={<>
         <DetailSheet
           post={openPost} data={data} rationale={openPost?.rationale ?? ''}
@@ -182,6 +192,16 @@ export function CommittedSurface({ data }: { data: PlanData }) {
           onMove={() => { if (openPost) setMoveId(openPost.id); }}
           onDelete={() => { if (openPost) doDelete(openPost); }}
         />
+        {/* ROUND 6, P1 — the add slot opens this instead of creating an empty post. A committed
+            month needs no pillar: `addGeneratingPost` files a new idea under "New idea" rather
+            than asking the client to categorise something they have not written yet. */}
+        {addFor && (
+          <AddSheet
+            open date={addFor} pillars={null} busy={data.busy}
+            onClose={() => setAddFor(null)}
+            onSubmit={({ format, subject }) => data.addShapedPost(addFor, format, subject)}
+          />
+        )}
         {movePost && (
           <MoveSheet
             open onClose={() => setMoveId(null)}
@@ -208,7 +228,7 @@ export function CommittedSurface({ data }: { data: PlanData }) {
           beats={data.beatsOn(selected)}
           canAdd={data.canEdit(selected)}
           onOpen={setOpenId}
-          onAdd={() => void data.addPost(selected)}
+          onAdd={() => setAddFor(selected)}
           onBeat={data.flash}
           outside={outside}
           timeOf={timeOf}
@@ -216,7 +236,11 @@ export function CommittedSurface({ data }: { data: PlanData }) {
         />
       )}
       {view === 'month' && (
-        <MonthGrid month={month} selected={selected} today={data.today} marksFor={marksFor} onPick={pickFromGrid} footer={monthFooter} />
+        <MonthGrid
+          month={month} selected={selected} today={data.today}
+          marksFor={marksFor} onPick={pickFromGrid} footer={monthFooter}
+          summary={<MonthDaySummary date={selected} items={rowsFromPosts(postsOn(selected), timeOf)} onOpen={setOpenId} />}
+        />
       )}
       {view === 'tasks' && <TasksPanel data={data} onOpen={setOpenId} />}
     </PlanShell>

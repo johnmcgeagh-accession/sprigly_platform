@@ -17,7 +17,7 @@ export type SaveStatus = 'idle' | 'saving' | 'saved';
  * Shared by the caption/hook/script fields (PostEditor) and the editable checklist
  * step labels (ChecklistItem).
  */
-export function useAutosave(value: string, persisted: string, save: (v: string) => void | Promise<void>, enabled: boolean, delay = 1500) {
+export function useAutosave(value: string, persisted: string, save: (v: string) => unknown, enabled: boolean, delay = 1500) {
   const savedRef = useRef(persisted);
   const valueRef = useRef(value);
   const saveRef = useRef(save);

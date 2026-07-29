@@ -24,9 +24,9 @@
  * never a fiction; when there are no times on record it falls back to a small stated set, and
  * the free field is always there.
  */
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { MonthGrid } from './MonthGrid';
-import { useFocusTrap } from '../a11y';
+import { Sheet } from './Sheet';
 import { ChevronL, ChevronR, CloseGlyph } from './icons';
 import { monthOf, monthTitle, addDays, daysInMonth, shortDate } from './dates';
 
@@ -35,7 +35,7 @@ import { monthOf, monthTitle, addDays, daysInMonth, shortDate } from './dates';
 const FALLBACK_SLOTS = ['07:00', '12:00', '18:00'];
 
 export function MoveSheet({
-  open, postDate, postTime, postHeading, knownTimes, canMoveTo, onClose, onMove,
+  open, postDate, postTime, postHeading, knownTimes, canMoveTo, onClose, onMove, timeEditable = true,
 }: {
   open: boolean;
   postDate: string;
@@ -43,16 +43,17 @@ export function MoveSheet({
   postHeading: string;
   /** Times already used across the client's posts — their real slots. */
   knownTimes: string[];
+  /**
+   * False on a DRAFT month. `POST /api/plan/draft {op:'move'}` writes a date and there is no
+   * posting-time op on that route — the assembler stores none either. Offering an hour we
+   * could not save is the same fault as the mockups' invented times, one layer down.
+   */
+  timeEditable?: boolean;
   /** The date gate, so a past date is unpickable rather than refused after the fact. */
   canMoveTo: (iso: string) => boolean;
   onClose: () => void;
   onMove: (date: string, time: string) => void;
 }) {
-  // A dialog over a dialog. Without its own trap, Tab walks straight back out into the detail
-  // sheet underneath it — which is still mounted, because Move opens FROM it.
-  const ref = useRef<HTMLDivElement>(null);
-  useFocusTrap(open, ref, onClose);
-
   const [month, setMonth] = useState(() => monthOf(postDate));
   const [date, setDate] = useState(postDate);
   const [time, setTime] = useState(postTime ?? '');
@@ -83,15 +84,11 @@ export function MoveSheet({
   const crossesMonth = monthOf(date) !== monthOf(postDate);
 
   return (
-    <>
-      <div data-testid="move-scrim" aria-hidden="true" onClick={onClose} className="absolute inset-0 z-[32] bg-chrome-deep/[.34]" />
-      <div
-        ref={ref} tabIndex={-1}
-        role="dialog" aria-modal="true" aria-label={`Move ${postHeading}`} data-testid="move-sheet"
-        className="absolute inset-x-0 bottom-0 z-[33] flex h-[92%] flex-col rounded-t-[26px] bg-surface shadow-[0_-18px_50px_-12px_rgb(30_41_59_/_0.28)] outline-none"
-      >
-        <div aria-hidden="true" className="mx-auto mb-1 mt-2.5 h-[5px] w-[38px] flex-none rounded-full bg-line/45" />
-
+    // layer 1: Move opens FROM the detail sheet, which stays mounted underneath. The two are
+    // ordered in z rather than sharing a layer, and each has its own focus trap — without one,
+    // Tab walked straight back out into the sheet behind.
+    <Sheet open={open} label={`Move ${postHeading}`} testid="move-sheet" onClose={onClose} layer={1} hasOwnClose>
+      <>
         <div className="flex flex-none items-start gap-3 border-b border-line/30 px-[18px] pb-3.5 pt-1.5">
           <div className="min-w-0 flex-1">
             <h2 className="mb-1 text-[20px] font-bold tracking-[-.025em] text-chrome">Move to…</h2>
@@ -127,6 +124,7 @@ export function MoveSheet({
               : `Moving to ${shortDate(date)}.`}
           />
 
+          {timeEditable && (
           <div className="flex-none px-[18px] pb-4">
             <h3 className="mb-2 mt-2 text-[11px] font-bold uppercase tracking-[.1em] text-muted">Posting time</h3>
             <div data-testid="time-slots" className="flex flex-wrap gap-1.5">
@@ -156,6 +154,7 @@ export function MoveSheet({
               {knownTimes.length ? 'Your usual slots.' : 'A starting point — we don’t have your usual times on record yet.'}
             </p>
           </div>
+          )}
         </div>
 
         <div className="flex flex-none gap-2 border-t border-line/30 bg-surface px-[18px] pb-[26px] pt-3">
@@ -166,7 +165,7 @@ export function MoveSheet({
             Move it
           </button>
         </div>
-      </div>
-    </>
+      </>
+    </Sheet>
   );
 }

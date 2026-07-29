@@ -7,7 +7,7 @@
  * cost the client's trust in every other rationale on the page.
  */
 import { describe, it, expect } from 'vitest';
-import { rationaleFor, slotLabel, assumptionPrompt } from '@/lib/draft-rationale';
+import { rationaleFor, slotLabel, assumptionPrompt, isAnswerable, firstAnswerable } from '@/lib/draft-rationale';
 import type { BeatEvidence } from '@/lib/types';
 
 describe('rationaleFor — observed evidence', () => {
@@ -82,6 +82,43 @@ describe('rationaleFor — client_added', () => {
   });
 });
 
+describe('rationaleFor — client_input (gap 4)', () => {
+  it('quotes the client’s own sentence back — the strongest reason in the system', () => {
+    const said = 'The Wilderness candle relaunches on the 24th, can we build up to it?';
+    expect(rationaleFor({ basis: 'client_input', reason: said }, 'Home & Space'))
+      .toBe(`From what you told us: “${said}”`);
+  });
+
+  it('claims nothing about the feed — this branch has no metrics and invents none', () => {
+    const out = rationaleFor({ basis: 'client_input', reason: 'a mini-series, one post every three weeks' }, 'Understands Real Women');
+    expect(out).not.toMatch(/average|%|likes|history/);
+  });
+
+  it('says NOTHING when the text was not recorded, rather than reaching for a sentence', () => {
+    expect(rationaleFor({ basis: 'client_input' }, 'x')).toBe('');
+    expect(rationaleFor({ basis: 'client_input', reason: '   ' }, 'x')).toBe('');
+  });
+
+  it('trims a long segment at a word boundary, never mid-word', () => {
+    // ivy-t's briefs contain 200-character segments; a card has two lines.
+    const long = '15th August — our factory in Portugal starts its annual summer shutdown until 7th September, '
+      + 'so everything ordered after the 12th ships when they are back and we should say so clearly';
+    const out = rationaleFor({ basis: 'client_input', reason: long }, 'x');
+
+    expect(out.length).toBeLessThan(long.length);
+    expect(out).toMatch(/…”$/);
+    const quoted = out.slice(out.indexOf('“') + 1, -2);
+    // Every word kept is a whole word from the original.
+    expect(long.startsWith(quoted)).toBe(true);
+    expect(long[quoted.length] === ' ' || long[quoted.length] === undefined).toBe(true);
+  });
+
+  it('collapses whitespace so a pasted brief does not render its own line breaks', () => {
+    expect(rationaleFor({ basis: 'client_input', reason: 'one\n\n  two' }, 'x'))
+      .toBe('From what you told us: “one two”');
+  });
+});
+
 describe('rationaleFor — emphasis_reweight', () => {
   it('cites the client’s words and NEVER the old pillar’s share', () => {
     const out = rationaleFor({ basis: 'emphasis_reweight', reason: 'more product this month' }, 'Product & Fragrance');
@@ -101,6 +138,60 @@ describe('slotLabel', () => {
   });
   it('leaves a proven slot unlabelled — the default needs no badge', () => {
     expect(slotLabel('proven')).toBeNull();
+  });
+});
+
+describe('isAnswerable / firstAnswerable', () => {
+  const LAUNCHES = 'no launches or restocks are on record for this month';
+  const FORMATS  = 'the format mix is based on posts whose format we could not read';
+
+  it('keeps a gap in what we know about THEIR month', () => {
+    expect(isAnswerable(LAUNCHES)).toBe(true);
+    expect(isAnswerable('no specific products from the catalogue were named')).toBe(true);
+    expect(isAnswerable('the month is split evenly across pillars')).toBe(true);
+  });
+
+  it('drops a fact about OUR data — a client can do nothing with it', () => {
+    // Asking them about this asks them to fix our bookkeeping.
+    expect(isAnswerable(FORMATS)).toBe(false);
+  });
+
+  it('surfaces exactly one, and RANKS rather than taking the assembler’s order', () => {
+    expect(firstAnswerable([FORMATS, LAUNCHES])).toBe(LAUNCHES);
+    expect(firstAnswerable([LAUNCHES, 'no specific products from the catalogue were named'])).toBe(LAUNCHES);
+  });
+
+  it('resolves Earl of East’s LIVE pair the way spec §2 names it', () => {
+    // Both of these are on the uat cycle right now, in this order. Both are answerable — "want
+    // it weighted differently?" has a real transform behind it — so the ruling is about which
+    // question is worth the one slot, not about which is a question.
+    const live = [
+      'No pillar weights are on record, so the month splits evenly across pillars.',
+      'No launches or restocks are on record for this month — the draft assumes a business-as-usual month.',
+    ];
+    expect(firstAnswerable(live)).toBe(live[1]);
+  });
+
+  it('falls back to an unranked assumption rather than showing none', () => {
+    expect(firstAnswerable(['something the assembler has not flagged before']))
+      .toBe('something the assembler has not flagged before');
+  });
+
+  it('is stable within a rank — the assembler’s order is the tiebreak', () => {
+    const a = 'no launches or restocks are on record (a)';
+    const b = 'no launches or restocks are on record (b)';
+    expect(firstAnswerable([a, b])).toBe(a);
+    expect(firstAnswerable([b, a])).toBe(b);
+  });
+
+  it('says nothing when everything on the list is ours', () => {
+    expect(firstAnswerable([FORMATS])).toBeNull();
+    expect(firstAnswerable([])).toBeNull();
+  });
+
+  it('treats an UNKNOWN assumption as answerable — the failure modes are asymmetric', () => {
+    // A needless question costs a tap; a suppressed one costs a month.
+    expect(isAnswerable('something the assembler has not flagged before')).toBe(true);
   });
 });
 

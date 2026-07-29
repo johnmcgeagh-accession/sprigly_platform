@@ -1,7 +1,10 @@
 # Mobile plan surface — design spec
 
-**Date:** 2026-07-27 · branch `dev` · **spec and mockups only, no production code**
-**Revision:** round 4, near-final convergence, after the operator's fourth review.
+**Date:** 2026-07-27, revised 2026-07-29 · branch `dev`
+**Revision:** round 6 — the operator's phone check of Session A, folded in. Rounds 1–5 designed
+this surface; Session A built its shell and its committed month; round 6 is what a device said
+about that. The mockups are unchanged and are now the *older* document where the two disagree —
+this file is the contract.
 **Design context:** [`PRODUCT.md`](../../PRODUCT.md) · [`DESIGN.md`](../../DESIGN.md) ·
 [`round-3-notes.md`](round-3-notes.md)
 **Mockups:** [`docs/design/mockups/index.html`](mockups/index.html) — open any file directly, no build step.
@@ -76,7 +79,7 @@ and its overlay — though the latter is superseded on the draft surface by the 
 | **C2** | The voice waveform is clean accent green **on white** — the dark backing panel is gone | §8 |
 | **D1** | Copy leaves the committed card; it lives only in the detail sheet's tabs | §4. It belongs beside the words it copies |
 | **DR1** | Draft framing is possessive-month: *“This is your October draft”* | §2 |
-| **DR2** | The experiment tooltip element is **removed**; the banner pill carries the whole meaning | §2 |
+| **DR2** | The experiment tooltip element is **removed**; the banner pill carries the whole meaning. **Round 6 completes this** — see §2.1, the canonical definition | §2.1 |
 | **V1** | Typed mode is one large field filling the sheet, with a single full-width submit pinned at the foot | §8 |
 | **S1** | The action row is three equal-width buttons, icon with the **label below** | §4. This is round 3's recorded reversal, exercised |
 | **R1** | The summary chip is **one control** — tap anywhere to toggle, one chevron, no ✕ | §3 |
@@ -95,6 +98,37 @@ Recorded here so the build reads one document. Full reasoning in
 | **X5** | **The experiment marker has one definition, and it does not yet.** §0 **DR2** says the banner pill carries the whole meaning; §7 says a bare lightbulb with a tap explanation; mockup 02 renders a 30px corner bulb with neither, in the slot where every other card states its time. **Reconcile before building it** — Session B | §7, §2 |
 | **X6** | **Silent and speaking must differ beyond the waveform.** Today only the bars and the heading change; the mic itself is identical — Session B | §8 |
 | **X7** | **The ≤480px breakpoint is unverified.** Chrome headless clamps its viewport to 500px, so no round exercised it. **The built surface is tested at 375px and 320px** in interaction tests | §9 |
+
+### Round 6 — the operator's phone check of Session A
+
+Session A shipped the shell and the committed month; the operator reviewed it on a device. These
+are the resulting rulings, recorded here so the build reads one document. Everything in this table
+is **built in Session B**, most of it before the draft surface (they are fixes to a surface that
+is already live on uat).
+
+| # | Ruling | Where it lands |
+|---|---|---|
+| **P1** | **The add slot no longer creates an empty draft.** It opens a shaping sheet — format choice + a shape prompt — and the post is created *shaped*. Draft months: `addBeat` + an optional subject. Committed months: the add, then the instructed-shape path | §4.2 |
+| **P2** | **The format control is reinstated in the detail sheet.** A compact segmented image / carousel / reel control, wired to the existing format mutation. **This reverses round 4's removal and supersedes the round-6 ruling that `swapFormat` should have no surface** — see §4.1 | §4.1 |
+| **P3** | **Hook and script can be generated on demand.** A carousel with no hook, or a reel with no hook or script, offers a Generate action on the relevant tab. Absent ≠ broken | §4.3 |
+| **P4** | **Day-view header tightened** — the top whitespace was distorting the first thing on the screen | §1.2 |
+| **P5** | **The week strip pages between the month's weeks** — swipe plus edge chevrons. It was reachable only through a detour via Month view | §1.4 |
+| **P6** | **Tapping a day in the month grid STAYS on the calendar** and shows a brief summary beneath the grid: one compact row per post, icon + title; tapping a row opens its detail sheet. **Supersedes N3.** The grid is the view; Day view is reached through the nav pill only | §1.5 |
+| **P7** | **Sheets dismiss from the grabber** — drag down, or plain tap. Scrim-tap keeps working | §4 |
+| **P8** | **A completed task ticks and moves to a Completed section** (collapsible, below). Never a silent disappearance | §1.6 |
+| **P9** | **A post's tasks render in its detail sheet** — a Tasks section with the same tick interaction. They were invisible on the new surface | §4 |
+| **P10** | **One feedback channel, at the top.** Undo, saves and confirmations all render in the top slot; the bottom toast is removed | §4 |
+| **P11** | **A shape in flight shows a working state** over the text it is rewriting — a shimmer, cleared when the new words land | §4 |
+| **P12** | **The detail-sheet action buttons are smaller.** Same three actions, same labels; the row read large and clunky at 68px | §4 |
+| **P13** | **The mic's inert popover is confirmed as such** and is built properly in Session B as the voice sheet | §8 |
+
+Three further rulings arrived with the same review, on questions earlier rounds left open:
+
+| # | Ruling |
+|---|---|
+| **P14** | **The experiment marker has one definition** — §2.1. X5 is closed |
+| **P15** | ~~`swapFormat` has no surface, permanently~~ — **superseded by P2 in the same review.** Recorded, not silently dropped: see §4.1 |
+| **P16** | **The axe colour-contrast ignore is scoped to the recorded deviation's own controls**, never blanket — the eight selectors DESIGN.md names, and nothing else |
 
 ## 1. The state machine
 
@@ -254,18 +288,40 @@ week.
 
 ---
 
-### 1.5 Month view: the grid is a picker
+### 1.5 Month view: the grid stays the view
 
-**Tapping any day in the month grid returns to Day view with that day selected.** Not "closes the
-month" — *switches view and carries the date with it*. The grid is as much a way of choosing a day
-as a way of seeing the shape of a month, and on a phone it is usually the faster of the two ways
-to reach a date three weeks out.
+**Round 6 (P6) supersedes N3.** Tapping a day in the month grid used to flip to Day view and carry
+the date with it. On the device that read as the calendar throwing you out: a client scanning the
+month to see *where things are* lost the month the moment they touched it, and getting back cost
+a second tap on a nav control they had not been thinking about.
 
-Concretely: `selectedDay` is set from the tapped cell, `view` flips to `day`, and the week strip
-re-anchors to the week containing it. Nothing is fetched — the month's posts are already loaded
-for the grid that was just drawn.
+**So the grid stays.** A tap selects the day, and a **brief summary appears beneath the grid** —
+one compact row per post, format icon + title, in the day's own order. Tapping a row opens that
+post's detail sheet. Day view is reached through the nav pill, and only through it.
 
-Today, on the month view, does the same thing with today's date.
+Concretely: `selectedDay` is set from the tapped cell, `view` does **not** change, and the summary
+region renders `postsOn(selectedDay)`. Nothing is fetched — the month's posts are already loaded
+for the grid that was just drawn. The selection is shared with Day view, so switching to Day
+afterwards lands on the day you were reading, which is the useful half of N3 kept without its cost.
+
+Today, on the month view, selects today's date in place rather than leaving the grid.
+
+---
+
+### 1.6 The Tasks view: a completed task goes somewhere (round 6, P8)
+
+The scope note holds — the checklist is carried forward, not redesigned. Round 6 adds one
+behaviour to it.
+
+Ticking a task removed it from the list. `groupTasks` filters `done`, so the row simply stopped
+existing, which on a phone is indistinguishable from a bug — and it takes with it the one thing a
+checklist is for, which is the sight of what you have already done.
+
+**A tick now moves the row to a Completed section**: collapsed by default, below the outstanding
+work, carrying its own count. The tick fills and the label strikes through, so the row's new state
+is legible in the moment before it moves, and a completed task can be un-ticked from there.
+Nothing about `planTasks` or the late rule changes — the Completed list is the same steps,
+filtered the other way.
 
 ---
 
@@ -287,15 +343,47 @@ prompts — moved into the **voice sheet** (§8), which is where the client is a
 speak.
 
 **The one assumption worth surfacing goes with it.** The assembler attaches the same list to every
-planned post; the sheet shows the one a client can *act on* and drops the rest. For Earl of East
+planned post; the surface shows the one a client can *act on* and drops the rest. For Earl of East
 that means keeping “nothing's launching this month” and dropping “no pillar weights are on
 record” — the second is true, but it is a fact about our data, not a question for them.
+
+**Built, with one correction the uat walkthrough forced.** Earl of East's live October carries
+exactly those two, and *both* pass an act-on-it test: `assumptionPrompt` turns the pillar one into
+“We've split the month evenly across your pillars — want to weight it differently?”, which is a
+real question with a real transform behind it. So the ruling above is about **priority**, not
+eligibility, and `firstAnswerable` ranks rather than filtering: a launch is a fact only the client
+has and it reshapes the month; a weighting is a preference they may not have considered, and
+asking it first spends the one slot on the smaller question. The only assumption that is genuinely
+*not* answerable is the format-mix one — that one asks them to fix our bookkeeping.
 
 **Never a caveat.** Round 1 headed this an amber “What we assumed” warning box. The same
 information phrased as an invitation reads as confidence; phrased as a warning it reads as an
 excuse.
 
 On a thin month the same one-liner carries the acknowledgement (§9.2).
+
+### 2.1 The experiment marker — one definition (round 6, P14)
+
+X5 recorded that this marker was described three different ways: §0 **DR2** said the banner pill
+carried the whole meaning, §7 said a bare lightbulb with a tap explanation, and mockup 02 frame C
+rendered a 30px corner bulb with neither — in the slot where every other card states its time.
+Session A could not start it without a ruling. **This is the ruling, and it is the round-5 one:**
+
+> **A banner-style pill on the card: a lightbulb glyph and the words “Something new”.** No tooltip
+> element, no tap target of its own, nothing to explain it in place. **The full reason lives behind
+> the detail sheet's insights icon**, exactly where every other post's reasoning lives.
+
+Three consequences, all of them the point:
+
+- **It is a banner, not a corner bulb.** It sits inline with the card's meta row, so it does not
+  occupy the time slot — round 5.1's finding that the experiment post was the only card in the set
+  stating no time is fixed by the shape, not by moving the time.
+- **It is not interactive.** X4's rule holds in both directions: a thing that looks tappable must
+  be tappable, and a thing that isn't must not look it. The pill is a `<span>` with no border
+  capsule of the suggestion-chip kind, and the card around it is the tap target it always was.
+- **“A new idea we're trying this month” survives as the sheet's sentence**, not as a tooltip.
+  `slotLabel()` already returns `'Something new'` for `slotType: 'experiment'`; the pill renders
+  that, and the sheet's insights panel carries the sentence.
 
 ## 3. The what-changed summary chip
 
@@ -384,24 +472,89 @@ A fixed 48px bar between the month row and the week strip:
   directly over the action row it was undoing.
 - **The planned-post variant has no tabs** — there is nothing written yet, so
   the sheet says so rather than showing three empty tabs.
+- **The grabber is a control** (round 6, P7). Drag it down to dismiss, or simply tap it. The scrim
+  keeps working. Every sheet in the set gets this from one shared chrome component, so a sheet
+  cannot ship without it.
+- **A post's tasks render in the sheet** (round 6, P9) — a Tasks section under the words, with the
+  same tick as the Tasks view. They exist on the post and were invisible everywhere except a view
+  that groups them by due date across the whole month.
+- **The action row is smaller** (round 6, P12). The three buttons keep their structure, their
+  labels and Delete's `danger` fill; the row drops from 68px to 56px with a 19px glyph, which is
+  iOS weight rather than the slab the phone showed.
+- **A shape in flight shows its work** (round 6, P11). While `shapingIds` holds this post, the
+  text it is rewriting carries an animated skeleton in place of the words, cleared when the new
+  ones land. `prefers-reduced-motion` holds it static rather than pulsing.
+- **Feedback has one home, and it is the top** (round 6, P10). Undo, confirmations and saves all
+  render in the shell's top slot. The bottom toast — a second, competing channel that landed over
+  the nav pill — is removed from this surface entirely.
 
-### 4.1 One consequence to decide: format has no control
+### 4.1 Format has a control again — RESOLVED (round 6, P2)
 
-Removing the format control from the sheet leaves **`swapFormat` with no surface**. It is a
+Round 2 removed the format control from the sheet, which left **`swapFormat` with no surface**: a
 shipped, tested Build B mutation (`POST /api/plan/draft {op:'format'}`, vocab-checked against
-reel / carousel / single) that no screen would call.
+reel / carousel / single) that no screen would call. Rounds 2–5 flagged the consequence and ranked
+three options without choosing one.
 
-Three options, in the order I'd rank them:
+**The operator's phone check of Session A chose, and chose the opposite of the removal: the format
+control is reinstated.** A compact segmented `Single post / Carousel / Reel` control in the
+detail sheet's header region, wired to the mutation that already exists — `data.changeFormat` on a
+committed post, `{op:'format'}` on a draft beat.
 
-1. **Put it in the add sheet only** — you choose a format when you create a planned post, and
-   changing it afterwards means deleting and re-adding. Simplest, and honest about how rarely a
-   client changes format deliberately.
-2. **Long-press the format icon** — discoverable by nobody, but costs nothing and keeps the
-   mutation reachable.
-3. **Leave it operator-only.** The mutation stays; the client surface drops it.
+**A conflicting ruling arrived in the same review and is superseded, not dropped.** One line of
+the phone-check notes said `swapFormat` should have no surface *by design, permanently*, and that
+format changes should happen by telling the agent or by drop-and-re-add. That is recorded as
+**P15** and is **overridden by P2**, which is the more specific instruction (it names the control,
+its shape and its wiring) and which reads explicitly as a reversal of the round-4 removal. The
+build follows P2. If P15 was the intent, this is the one paragraph to reverse.
 
-Flagged rather than decided: it is a product call about whether format is the client's choice or
-ours, and the round-2 brief removed the control without saying which.
+**The consequence is stated honestly rather than prevented.** A format change can invalidate a
+hook or a script — a reel's script does not describe a single image. What the shipped machinery
+does today, and therefore what the copy says:
+
+| Surface | What a format change does to hook / script |
+|---|---|
+| **Committed post** (`PATCH /api/posts/:id {format}`) | **Nothing is cleared.** The hook and script rows stay exactly as they were, so a reel-turned-single keeps a script that no longer applies. The sheet says so, and the tab offers to write it again (§4.3) |
+| **Draft beat** (`{op:'format'}`) | Nothing to invalidate — a draft beat has no caption, hook or script. Approval generates against whatever format the beat holds at that moment |
+
+The checklist is the one thing that *does* follow the format: `regenerateChecklist` replaces a
+post's steps with its new format's template, and the sheet offers it as part of the same change
+rather than doing it silently.
+
+### 4.2 The add slot opens a shaping sheet (round 6, P1)
+
+The per-day add slot used to create an empty post and leave the client looking at it. On the phone
+that reads as a bug: you tapped *Plan a post for this day* and got a blank card called “Untitled”.
+
+**It now opens a sheet before anything is written.** Two fields, both of them decisions the client
+already has in mind when they tap:
+
+1. **Format** — the same segmented control as §4.1, with the terminology table's own words.
+2. **What is it?** — one line, free text. Optional, and labelled as optional.
+
+Submit creates the post *shaped*:
+
+| Surface | What submit does |
+|---|---|
+| **Draft month** | `{op:'add', date, format, pillar}` — then, when a subject was given, that subject is stored as the beat's title so the card is not called after its pillar |
+| **Committed month** | `POST /api/posts {date, cycleId}` for the slot, then the instructed-generation path (`startPostGeneration`) with the subject as the instruction. The post occupies its slot immediately and reads **On its way** while the caption is written |
+
+With no subject the committed path creates the slot and writes nothing — which is the old
+behaviour, now reached deliberately rather than by default.
+
+### 4.3 Hook and script on demand (round 6, P3)
+
+A carousel with no hook, or a reel with no hook or script, is not broken — it is a post that took
+the classic path, or whose generation failed, or whose format changed after generation. The tab
+for a missing field currently disables itself, which says *nothing here* and stops.
+
+**An empty tab explains and offers the action.** One sentence naming why the field can be empty,
+and a **Write the hook** / **Write the script** button on the existing per-post generation path
+(`POST /api/plan/hooks`, `POST /api/plan/script` — `data.generateHooks`, `data.generateScript`).
+Hooks return three candidates to choose from, which is what that endpoint already does; a script
+is written straight onto the post.
+
+The action is absent where the endpoint would refuse: hooks are reels and carousels only, and a
+script needs a hook and a caption first. An offer that 422s is worse than no offer.
 
 ---
 
@@ -417,10 +570,10 @@ unless the Exists column says **no**.
 | Tap a day in the week strip | local `selectedDay` — **round 2: no scroll-to-day, the panel re-renders** | yes |
 | Swipe the week strip | local. New gesture; the strip is a grid today | UI only |
 | Nav pill `Day \| Month \| Tasks` | local view state, no request. Tasks renders the existing checklist (`planTasks`, `PostStepView`) | yes (new UI, no API) |
-| Tapping a day in the month grid | sets `selectedDay`, flips `view` to `day`, re-anchors the strip. **No fetch** — the month's posts are already loaded for the grid just drawn | yes |
+| Tapping a day in the month grid | sets `selectedDay` and renders the summary beneath the grid. **The view does not change** (round 6, P6). **No fetch** — the month's posts are already loaded for the grid just drawn | yes |
+| Tapping a row in that summary | opens the detail sheet for that post | yes |
 | The **Ready to go** pill | local; opens the approval sheet. Right-aligned on the title row, rendered only when the surface is `draft` and `editable` | yes |
 | Insights segment | — | **no** — the insight layer does not exist. The pill is laid out to take a fourth |
-| Tap a day in the month grid | local `selectedDay`, view → day | yes |
 | ‹ › arrows (either view) | `data.switchCycle(cycleId)` over the sorted cycle list → `GET /api/plan?cycleId=` ; on a draft answer, `GET /api/plan/draft?cycleId=` for planned posts + pillars + editable + receipts | yes |
 | Dot density for the **viewed** month | already-loaded `calendarPosts` / `draft.beats` | yes |
 | Dot density for a **non-viewed** month | — | **no** (gap 3) |
@@ -437,7 +590,7 @@ list. Nothing in this route can write `status` — approval is a separate door.
 |---|---|---|
 | Move (date) | `{op:'move', postId, date}` | yes |
 | Move (time) | — | **no** (gap 1) |
-| Swap format | `{op:'format', postId, format}` | yes — **but round 2 removes its control** (§4.1) |
+| Swap format | `{op:'format', postId, format}` | yes — **and round 6 gives it back its control** (§4.1) |
 | Delete a planned post | `{op:'drop', postId}` → returns `dropped` (the whole row) | yes |
 | Undo a deletion | `{op:'restore', beat}` — verbatim, not a husk | yes |
 | Reorder within a day | `{op:'reorder', date, postIds}` | yes — implemented, still unused by any surface |
@@ -516,11 +669,11 @@ Round 1's six, updated in place. Three are new to round 2; two were widened by i
 | 1 | **Posting time** — on cards, in the sheet header, and now **editable in the move picker** | `PlanPost` has no time field; `toPlanPost` doesn't read one; nothing writes one | The value exists in two places: `source_meta.postingTime` on posts written by the planning path, and `client_planning_config.posting_times` (a named-slot map: launch / morning / evening / wsg / sundayStyle). Neither is surfaced | **Widened: read → read *and* write.** The move picker edits it |
 | 2 | **A draft dot on the month control** | `CycleSummary` carries no draft flag | `loadCycleList` already calls `cyclesWithReviewableDraft()` — it uses exactly this fact to decide whether a draft-only cycle qualifies for the menu. One boolean needs to reach the client | **More load-bearing:** with the pills gone, this control is the only place a draft month announces itself |
 | 3 | **Dot density for a month you have not opened** | No per-month, per-day count read | `GET /api/plan` serves the viewed cycle's posts; `GET /api/plan/draft` serves one cycle's | Unchanged. Honest fallback: paint on arrival — the arrow already triggers a `switchCycle` fetch, so there's no empty-grid flash |
-| 4 | **A rationale on a `client_input` post** | `rationaleFor()` switches on `client_added`, `emphasis_reweight`, `template` and `observed`. There is no `client_input` branch, so it falls through to `''` | Every post a launch / event / series / beat_spec transform creates carries `{basis:'client_input', reason: sourceText}`. Today those — the ones that came from the client's own words — show **no reason at all**, while a hand-added post says “You added this one.” The evidence is stored; only the sentence is missing | Unchanged, and still the cheapest fix with the largest effect on trust |
+| 4 | **A rationale on a `client_input` post** | `rationaleFor()` switches on `client_added`, `emphasis_reweight`, `template` and `observed`. There is no `client_input` branch, so it falls through to `''` | Every post a launch / event / series / beat_spec transform creates carries `{basis:'client_input', reason: sourceText}`. Today those — the ones that came from the client's own words — show **no reason at all**, while a hand-added post says “You added this one.” The evidence is stored; only the sentence is missing | **CLOSED in Session B.** `rationaleFor()` gains a `client_input` branch: *“From what you told us: ‘…’”*, quoting the client's own trimmed sentence |
 | 5 | **An assumption that stays answered** | Nothing records that an assumption was answered or dismissed | The answer routes fine (§5.3); the list is recomputed from `assumptions[]` on every load | **Moved, not closed:** it now surfaces as the CTA block's nudge, so a stale nudge is more prominent than a stale panel row |
 | 6 | **“Undo this”** on an applied intent | Undo is one in-memory slot over a single structural mutation. There is no inverse of an *applied intent* | — | Unchanged. **6b:** rescuing one rollup item still replaces the panel with a single receipt (`brief-decomposer.md`, unfixed §2) |
 | **7** | **“On its way” instead of a retry** | **A sweep for stuck generations, and an operator surface for one that outlives it** | **Bounded retry exists**: `GENERATION_JOB_OPTIONS` is `{attempts: 3, backoff: exponential 5s}`, and `generation_failed` is stamped only once BullMQ has nothing left to retry (`consumer.ts`, `isFinalAttempt`). **A daily tick exists**: `scheduler-tick`, 05:00 Europe/London, already carrying one sweep (`sweepUnsentPlanReady`) — so a failed-generation sweep is a sibling of something real. **But `generation_failed` is explicitly terminal** — “nothing retries it, the post is client-visible with its error” (`plan-ready.ts`) — and it appears nowhere in `admin/src` | **NEW, and blocking.** G4 removes the client's only recovery path. Shipping it without both halves strands the post |
-| **8** | **Voice-sourced input on the draft surface** | `POST /api/plan/draft/apply` takes `{op:'text', text}` and nothing else | `POST /api/plan/intake` and `POST /api/plan/agent` both accept `source:'voice'` + `sessionId`. One field, for parity | **Round 3: now blocking on the voice sheet**, which ships live. It should land in the same change |
+| **8** | **Voice-sourced input on the draft surface** | `POST /api/plan/draft/apply` takes `{op:'text', text}` and nothing else | `POST /api/plan/intake` and `POST /api/plan/agent` both accept `source:'voice'` + `sessionId`. One field, for parity | **CLOSED in Session B**, alongside the voice sheet. The route takes `source: 'web' \| 'voice'` and the ledger records which |
 | **10** | **A draft flag the month view can badge** | — | Same as gap 2; round 3 moves the badge from the month control to the month view, where it is labelled rather than a bare dot | **Reframed, not new** |
 | **11** | **“Where did it go?” after a cross-month move** | No confirmation naming the destination month | `PATCH /api/posts/:id` already does the move; `loadCrossMonthPosts` already surfaces it | **NEW.** Copy + toast, no API |
 | **12** | **The Insights segment** | Nothing behind it | The nav pill's children are `flex: 1`, so a fourth segment drops in without layout change | **Deliberately empty and deliberately not drawn** — round 3 sketched a greyed slot; a control that does nothing is worse than an absent one |
@@ -680,7 +833,7 @@ has never heard it and the thing it names looks to them exactly like a post.
 |---|---|---|
 | beat (`DraftBeatView`, `draftBeatCount`, `loadDraftBeats`) | **planned post** | Plural: “2 planned posts”. In a committed month they are simply **posts** |
 | draft beat / unapproved beat | **planned post**, inside a month framed as **Draft · Not sent yet** | The framing carries the provisional meaning; the noun doesn't have to |
-| slotType `experiment` | *(no word — a lightbulb icon)* | Tap: “A new idea we’re trying this month.” Round 1's “Something new” badge is retired |
+| slotType `experiment` | **Something new**, beside a lightbulb | A banner-style pill on the card, not a tooltip and not a corner bulb — §2.1 is the one definition. The full reason lives behind the sheet's insights icon |
 | slotType `proven` | *(nothing)* | The default needs no label |
 | pillar | **pillar** | Kept — it is the client's own vocabulary from onboarding |
 | format (`reel` / `carousel` / `single`) | *(icon)* | Words survive as `title` and screen-reader label: “Reel”, “Carousel”, “Single post” |
@@ -724,7 +877,60 @@ transcription is more accurate, works where the Web Speech API doesn't, and can 
 rather than only its transcript. None of that is needed to ship the sheet.
 
 **Gap 8 should land with this**, so the ledger can tell spoken from typed from the first day
-rather than retrofitting the distinction.
+rather than retrofitting the distinction. **It did** — `POST /api/plan/draft/apply` takes
+`source: 'web' | 'voice'`, and it reaches the receipt and every `plan_inputs` row the application
+files. Anything that arrived through the microphone counts as voice even when the client tidied
+it by hand afterwards, because that is what happened.
+
+### 8.1 The example prompts became STARTERS (X4, built)
+
+X4 ruled that the three prompts must seed the field or stop looking tappable, and chose seeding.
+Building it exposed the reason they could not simply be wired up: **they were questions.** Round
+3 wrote *“What's happening in October?”*, *“Anything launching?”*, *“Anything you want more of?”*
+— and inserting *“Anything launching?”* into the field as the client's own words is nonsense. It
+would then be quoted back on a card under *“From what you told us”*.
+
+So they are **openers the client finishes**, phrased to lead into an intent the classifier routes:
+
+| Starter | Intent it leads to |
+|---|---|
+| “We're launching …” | `launch` |
+| “There's an event on …” | `event` |
+| “Can we do more …” | `emphasis` |
+
+A tap switches to typed mode, appends the opener to whatever is already there, and puts the caret
+after it. The questions survive as the sheet's own framing sentence, which is where a question
+belongs — asked by us, not put in the client's mouth.
+
+### 8.2 The three states (X6, built)
+
+Round 5.1 found silent and speaking differing only by the bars and the heading. Three channels
+now, and the mic is one of them:
+
+| State | The mic | The copy |
+|---|---|---|
+| **idle** | outline, `accent-600` ring | “Tap the mic and talk” / “One sentence is enough.” |
+| **listening, silent** | filled `accent-650` | “Go ahead” / “We can't hear anything yet.” |
+| **listening, speaking** | filled **and haloed** | “Listening…” / “Tap the mic again when you're done.” |
+
+The halo fires on the meter's own level detection, debounced so a gap between words is not a
+state change.
+
+### 8.3 `useSpeechInput` moved ONTO the draft surface — it did not leave `IntakeCapture`
+
+The brief allows either. **`IntakeCapture` keeps its microphone**, because it is a different
+surface with a different job: the guided/freeform brief reached from the Ask email's `?intake=1`
+link, before a plan exists. Retiring a working capability there would be scope this session did
+not earn, and the two now share one hook, which is the point.
+
+What *did* go is `DraftPlanView`'s inline **“Anything we should know?”** textarea — not by
+deletion but with the whole component, which is no longer reachable on a phone. There is exactly
+one place to tell us something on the mobile draft surface, and it works whether you talk or type.
+
+**The meter and the transcript are independent consumers of the microphone.** `useSpeechInput`
+holds the Web Speech API's; `Waveform` opens its own `getUserMedia` stream for the analyser. A
+browser without `AudioContext` gets flat bars and a working transcript — the meter is the part
+that may fail, and it fails to *nothing* rather than to a claim that the microphone is broken.
 
 ## 9. Day-view density, and thin months
 
@@ -934,5 +1140,9 @@ decided rather than defaulted.
    stays a per-post control on the card. See §1.2 and §5.4.
 2. **Peak-end has no end.** There is no post-approval state anywhere in the set. The last emotional
    beat of the product — *the month is written, here is what happens next* — is unrendered, and
-   generation takes minutes.
-3. **Format still has no control** (§4.1), and `swapFormat` still has no surface.
+   generation takes minutes. **Still open after Session B**, and now the largest one: approval
+   navigates to `/?cycle=` and the client arrives at a month of *On its way* cards with no
+   sentence saying the writing has started. The cards are honest; the arrival is not staged.
+3. ~~**Format still has no control**~~ — **Decided 2026-07-29 (P2).** The control is reinstated in
+   the detail sheet and `swapFormat` has a surface again. See §4.1, including the conflicting
+   ruling in the same review and why P2 governs.

@@ -358,7 +358,20 @@ export async function restoreBeat(
   return { ok: true, beats: await loadDraftBeats(clientId, cycleId) };
 }
 
-export interface AddBeatSpec { date: string; format: string; pillar: string }
+export interface AddBeatSpec {
+  date: string;
+  format: string;
+  pillar: string;
+  /**
+   * What the client said this post is about (round 6, P1). Optional, and never invented.
+   *
+   * It becomes the beat's TITLE, which is what the card shows and what the caption instruction
+   * names at generation. Without it the title falls back to the pillar, which is why every
+   * client-added beat used to be called "Home & Space" — a slot named after its category rather
+   * than after the thing the client had in mind when they added it.
+   */
+  subject?: string;
+}
 
 /**
  * Add a beat the client asked for.
@@ -368,6 +381,9 @@ export interface AddBeatSpec { date: string; format: string; pillar: string }
  * one to make the beat look as "grounded" as its neighbours would be the exact dishonesty
  * the structured-evidence contract exists to prevent. An unexplained beat the client chose
  * is a perfectly good beat.
+ *
+ * A subject does NOT change the basis. `client_added` says the client placed this slot; the
+ * subject is what they called it, not a second kind of evidence.
  */
 export async function addBeat(
   clientId: string, cycleId: string, spec: AddBeatSpec, today: string = editScopeToday(),
@@ -401,6 +417,8 @@ export async function addBeat(
     clientTouched: true,   // they placed it; no transform may quietly take the slot back
   };
 
+  const title = spec.subject?.trim() || spec.pillar;
+
   const [added] = await db.insert(contentCyclePosts).values({
     clientId, cycleId, channel: cycle.channel,
     scheduledDate: spec.date,
@@ -410,12 +428,12 @@ export async function addBeat(
     status:        POST_STATUS_DRAFT,
     position:      (maxRow?.position ?? -1) + 1,
     beatMeta,
-    sourceMeta:    { title: spec.pillar },
+    sourceMeta:    { title },
   }).returning({ id: contentCyclePosts.id });
 
   await recordBeatActivity({
     clientId, cycleId, postId: added?.id ?? null, action: 'beat_added',
-    title: spec.pillar, date: spec.date, beatMeta, extra: { format: spec.format },
+    title, date: spec.date, beatMeta, extra: { format: spec.format },
   });
 
   return { ok: true, beats: await loadDraftBeats(clientId, cycleId) };

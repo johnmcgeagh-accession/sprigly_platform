@@ -41,7 +41,7 @@ export function PlanShell({
   monthLabel, onPrevMonth, onNextMonth,
   view, onView, onMic, micLabel, tasksDot,
   onToday, todayEnabled,
-  badge, headerRight, strip, topSlot, overlays, children,
+  badge, headerRight, chip, strip, topSlot, overlays, children,
 }: {
   monthLabel: string;
   /** Absent → the arrow is disabled, not hidden. A month edge is a fact worth showing. */
@@ -58,10 +58,13 @@ export function PlanShell({
   badge?: React.ReactNode | undefined;
   /** Right of the title row, in the space the round-3 Week|Month switcher vacated. */
   headerRight?: React.ReactNode | undefined;
+  /** The what-changed chip, between the Today row and the strip (spec §3). Fixed height, and
+   *  the only thing allowed to sit here — a receipt must never push the day off the fold. */
+  chip?: React.ReactNode | undefined;
   /** The week strip, on the day view. Month view passes null and renders its grid as children. */
   strip?: React.ReactNode | undefined;
-  /** Above everything — the undo snackbar, which renders at the TOP so it never sits over the
-   *  action row it is undoing. */
+  /** Above everything — the ONE feedback channel, which renders at the TOP so it never sits
+   *  over the action row it is reporting on (round 6, P10). There is no bottom channel. */
   topSlot?: React.ReactNode | undefined;
   /** Sheets and scrims. Rendered after the nav so they slide over it. */
   overlays?: React.ReactNode | undefined;
@@ -72,16 +75,25 @@ export function PlanShell({
       {topSlot}
 
       {/* 2. Header — wordmark LEFT. The account chip is gone (G5): nothing sat behind it, and
-          it returns when there is a settings surface to open. */}
-      <div className="flex flex-none items-center gap-[7px] px-5 pb-0.5 pt-2.5">
+          it returns when there is a settings surface to open.
+
+          ── Round 6, P4: the header was "distorted — needs tying up" ──────────────────
+          Two faults, and they compounded. The vertical rhythm stacked four paddings before the
+          first card (10 + 12 + 10 + 8), so the day's content started a third of the way down a
+          phone. And every row used a different gutter — 20px, 18px, 20px, 12px — which on a
+          390px screen is four left edges close enough to read as a misalignment rather than as
+          a decision. Now: ONE 20px gutter for every row, and the arrow buttons carry a negative
+          margin so their 40px hit areas overhang it while their GLYPHS land on the same line as
+          the wordmark. Hit-area expansion is visually inert; misalignment is not. */}
+      <div className="flex flex-none items-center gap-[7px] px-5 pt-2">
         <SprigMarkV2 className="h-[18px] w-[18px] text-coral-600" />
         <span className="font-logo text-[17px] font-extrabold tracking-[-.02em] text-chrome">Sprigly</span>
       </div>
 
       {/* 3. Title row. The ‹ › arrows are the ONLY lateral month mechanism (G6) — the month
           pills and the wheel picker are both retired. */}
-      <div className="flex flex-none items-center gap-1.5 px-[18px] pt-3">
-        <div className="flex items-center gap-1">
+      <div className="flex flex-none items-center gap-1.5 px-5 pt-1.5">
+        <div className="-ml-[11px] flex items-center">
           <ArrowBtn dir="prev" onClick={onPrevMonth} />
           {/* The month IS the page's subject, so it is the h1. That gives the surface a clean
               ladder — h1 month, h2 day, h3 section, h4 card — where the old one started at h4
@@ -96,7 +108,7 @@ export function PlanShell({
       </div>
 
       {/* 4. Today row. */}
-      <div className="flex min-h-[44px] flex-none items-center justify-between gap-3 px-5 pt-2.5">
+      <div className="flex min-h-[40px] flex-none items-center justify-between gap-3 px-5 pt-1.5">
         <span className="min-w-0">{badge}</span>
         <button
           type="button" data-testid="today-btn" onClick={onToday} disabled={!todayEnabled}
@@ -106,6 +118,8 @@ export function PlanShell({
           Today
         </button>
       </div>
+
+      {chip && <div className="flex-none pt-2">{chip}</div>}
 
       {strip}
       {strip && <div className="mx-5 h-px flex-none bg-line/30" aria-hidden="true" />}

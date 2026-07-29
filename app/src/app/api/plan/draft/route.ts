@@ -135,8 +135,11 @@ async function runOp(op: string, body: Record<string, unknown>, session: { clien
       const date   = String(body['date'] ?? '');
       const format = String(body['format'] ?? '');
       const pillar = String(body['pillar'] ?? '');
+      // The subject is what the client said the post is about (round 6, P1). Optional — an
+      // absent one leaves the beat named after its pillar, exactly as before.
+      const subject = typeof body['subject'] === 'string' ? body['subject'] : undefined;
       if (!date || !format || !pillar) return NextResponse.json({ error: 'bad_request' }, { status: 400 });
-      return respond(await addBeat(session.clientId, cycleId, { date, format, pillar }));
+      return respond(await addBeat(session.clientId, cycleId, { date, format, pillar, ...(subject ? { subject } : {}) }));
     }
     case 'reorder': {
       const date = String(body['date'] ?? '');

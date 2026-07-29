@@ -149,6 +149,16 @@ export const BinGlyph = stroked(<path d="M4.5 6.5h15M9.5 6.5V4.5a1 1 0 0 1 1-1h3
 export const CheckGlyph = stroked(<path d="M5 12.5l4.5 4.5L19 7.5" />);
 export const CloseGlyph = stroked(<path d="M6 6l12 12M18 6L6 18" />);
 export const SendGlyph = stroked(<path d="M4.5 12h14M12.5 6l6 6-6 6" />);
+/** The experiment marker's lightbulb. Round 6, P14 / §2.1: it sits INSIDE a banner pill beside
+ *  the words "Something new" — never alone in a corner, and never with a tooltip. */
+export const BulbGlyph = stroked(<>
+  <path d="M9.2 17.2a6 6 0 1 1 5.6 0" />
+  <path d="M9.6 17.5h4.8M10.4 20.4h3.2" />
+</>);
+export const KeyboardGlyph = stroked(<>
+  <rect x="2.5" y="6" width="19" height="12.5" rx="2.5" />
+  <path d="M6.5 9.6h.01M10 9.6h.01M13.5 9.6h.01M17 9.6h.01M6.5 12.6h.01M10 12.6h.01M13.5 12.6h.01M17 12.6h.01M8 15.6h8" />
+</>);
 export const InfoGlyph = stroked(<>
   <circle cx="12" cy="12" r="8.5" />
   <path d="M12 10.8v5.7M12 7.7v.3" />
