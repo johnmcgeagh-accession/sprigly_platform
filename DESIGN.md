@@ -205,13 +205,29 @@ The deviation is scoped and justified on three grounds, all of which have to hol
 prose of any kind — uses `chrome`/`muted` on `surface`, or `accent-800` on `accent-100` at 6.67.
 The deviation buys short labels on fills and nothing else.
 
-**On registering this with the detector:** there is nothing to suppress today. The static detector
-ships **no contrast rule** — verified, `detect.mjs` contains zero occurrences of the string — so
-contrast is only evaluated on rendered-URL scans, which these file-based mockups never trigger. An
-ignore registered now would be against an invented rule id and would read as coverage that does not
-exist. **If a contrast finding does appear** (most likely a URL scan of the built app), scope the
-ignore to these components only — `.navpill`, `.navmic`, `.readypill`, `.wday .num`, `.badge`,
-`.sumbar`, `.btn.primary`, `.shapefoot .submit` — with the reason above. Never blanket.
+**On registering this with the detector:** there is nothing to suppress. The static detector ships
+**no contrast rule** — verified, `detect.mjs` contains zero occurrences of the string — so contrast
+is only evaluated on rendered-URL scans, which the file-based mockups never trigger.
+
+**Axe does evaluate it, and it fires.** The e2e a11y suite runs axe over the built app, where
+`color-contrast` reads white-on-`accent-650` at 3.40 and reports it. The ignore is **scoped to the
+eight controls this deviation covers and to nothing else** — the mockup selectors below, and their
+built equivalents:
+
+| Mockup selector | Built control |
+|---|---|
+| `.navpill button[aria-selected]` | the nav pill's selected segment |
+| `.navmic` | the microphone |
+| `.readypill` | the `Generate` pill |
+| `.wday .num` | the week strip's and month grid's selected day numeral |
+| `.badge` | the `DRAFT` and `New` badges |
+| `.sumbar` | the what-changed summary chip |
+| `.btn.primary` | `Move it`, `Yes, write them`, the segmented control's selected segment |
+| `.shapefoot .submit` | the shape submit and the voice sheet's typed submit |
+
+A contrast finding on anything else is a real finding and fails the suite. The filter matches
+**nodes**, not rules: a `color-contrast` violation with one node inside the set and one outside is
+reported, because the node outside it is the defect. **Never blanket, and never by rule id alone.**
 
 Measured pairs:
 
@@ -299,7 +315,9 @@ Tabular numerals (`font-variant-numeric: tabular-nums`) on times, counts and tal
 7. **Floating bottom nav** — the `Day · Month · Tasks` pill and the microphone, over the content
 
 **Day, Month and Tasks are peer views**, reached through the nav pill. Month is not a modal and
-carries no ✕; **tapping any day in the grid returns to Day view with that day selected**.
+carries no ✕; **tapping a day in the grid stays on the grid** and shows a brief summary beneath
+it — one compact row per post — from which a tap opens that post's detail sheet. Day view is
+reached through the pill, and only through it.
 
 **One day at a time.** The strip selects; the panel renders that day and nothing else.
 
@@ -372,12 +390,26 @@ word survives as `title` and screen-reader text only.
 **Action rows** are three equal-width buttons filling the row: icon with the **label below**, and
 `Move` carrying its current date **above** the icon. They read as buttons — `surface` fill,
 hairline, and a real pressed state. Round 3 shipped these icon-only and round 4 restored the
-labels, which is the reversal round 3 recorded in advance as the cheap one to make.
+labels, which is the reversal round 3 recorded in advance as the cheap one to make. **Height is
+56px with a 19px glyph** — round 5 specified 68px and the phone read it as a slab; the structure,
+the labels and Delete's fill are unchanged.
 
-**Detail sheet.** Header (format icon, title, date/time, insights toggle) → Caption / Hook /
-Script tabs, caption default, each with a copy control → the action row. Reasoning lives behind
-the insights toggle. **Shape** replaces the tab content in place; it does not stack a popover.
-Copy exists **only here** — it belongs beside the words it copies, not on the card.
+**Sheets** share one chrome: scrim, 92% height, rounded 26px top corners, focus trap, and a
+**grabber that is a control** — drag it down to dismiss, or tap it. Every sheet gets all of that
+from the same component, so a sheet cannot ship without a way out that a thumb finds first.
+
+**Detail sheet.** Header (format icon, title, date/time, insights toggle) → the **format control**
+→ Caption / Hook / Script tabs, caption default, each with a copy control → the words → the post's
+**tasks** → the action row. Reasoning lives behind the insights toggle. **Shape** replaces the tab
+content in place; it does not stack a popover, and while it runs the words it is rewriting carry a
+skeleton rather than staying stale. Copy exists **only here** — it belongs beside the words it
+copies, not on the card. A tab whose field is empty **explains and offers to write it** rather
+than disabling itself.
+
+**Format control.** A compact segmented `image / carousel / reel`, icons with a word, the selected
+segment filled `accent-650` with white. It sits in the detail sheet and in the add sheet, and it is
+the same component in both — choosing a format when you create a post and changing it afterwards
+are the same decision at two moments.
 
 In shape mode the footer is **replaced wholesale**: a full-width `accent-650` submit, and beside
 it a **quiet neutral cancel** — the word *Cancel*, `surface` fill, hairline, `muted` label.
