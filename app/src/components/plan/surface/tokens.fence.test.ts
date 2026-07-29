@@ -104,6 +104,67 @@ describe('narrow viewports (carry-in X7)', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('EVERY colour utility resolves through a token that carries a fallback (R5)', () => {
+    // The failure this guards against is specific and live: Teal v1's token row has fourteen
+    // keys and no `accent650`, so `--t-accent-650` is never injected under the theme that is
+    // ACTIVE right now and Tailwind's fallback is what actually paints. The e2e axe run proved
+    // that path is real — it read the fallback colour off the page.
+    //
+    // So a component reaching for a colour key that is NOT in tailwind.config's themed map
+    // renders whatever Tailwind's own default is (or nothing), and it does it only under a theme
+    // nobody is testing on. Reading the config rather than listing the keys here means the fence
+    // cannot drift from the thing it fences.
+    const cfg = readFileSync(join(process.cwd(), 'tailwind.config.ts'), 'utf8');
+    const themed = new Set(
+      [...cfg.matchAll(/^\s*'?([a-z][a-z0-9-]*)'?:\s*t\('(--t-[a-z0-9-]+)',\s*'([\d ]+)'\)/gim)]
+        .filter((m) => (m[3] ?? '').trim().length > 0)   // a fallback, and a non-empty one
+        .map((m) => m[1]!),
+    );
+    expect(themed.size, 'parsed no themed colours from tailwind.config.ts').toBeGreaterThan(10);
+    expect(themed.has('coral-650'), 'the filled-control tier').toBe(true);
+
+    // Utilities that share a prefix with a colour one but name no colour: border SIDES and
+    // styles, text ALIGNMENT, ring inset, the named shadow. Listed rather than pattern-matched,
+    // so a real colour key can never slip in by resembling one of them.
+    const NEUTRAL = new Set([
+      'white', 'black', 'transparent', 'current', 'inherit', 'none',
+      't', 'r', 'b', 'l', 'x', 'y', 's', 'e', 't-0', 'b-0', 'x-0', 'y-0',
+      'dashed', 'solid', 'dotted', 'double', 'hidden',
+      'left', 'center', 'right', 'justify', 'start', 'end', 'balance', 'pretty', 'wrap', 'nowrap',
+      'inset', 'card',
+    ]);
+    const offenders: string[] = [];
+    for (const f of FILES) {
+      const src = code(readFileSync(f, 'utf8'));
+      // `(?<![-\w])` so a hyphenated word never contributes its tail — `add-to-this-month` is a
+      // test id, not a `to-` gradient stop. Gradients are absent from this surface by design
+      // (DESIGN.md → Don'ts), so their prefixes are not in the list at all.
+      for (const m of src.matchAll(/(?<![-\w])(?:bg|text|border|ring|fill|stroke|shadow|decoration|divide|outline|caret|placeholder:text|placeholder:bg)-([a-z][a-z0-9-]*?)(?:\/\d+)?(?=["'\s`])/g)) {
+        const key = m[1]!;
+        if (NEUTRAL.has(key) || themed.has(key)) continue;
+        offenders.push(`${relative(process.cwd(), f)}: ${m[0]}`);
+      }
+    }
+    expect(offenders, `colour utilities outside the themed map — they cannot follow a theme:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
+  it('the one filled control the ink rule governs paints through accent-650, everywhere', () => {
+    // DESIGN.md's ink rule: filled controls are `accent-650` + white, and `accent-600` never
+    // carries text. A filled control that reached for 600 would be 2.61:1 under EVERY theme,
+    // which is the deviation's whole boundary.
+    const offenders: string[] = [];
+    for (const f of FILES) {
+      const src = code(readFileSync(f, 'utf8'));
+      // `bg-coral-600` on the same element as white ink is the shape to catch.
+      for (const line of src.split('\n')) {
+        if (/\bbg-coral-(600|500)\b/.test(line) && /\btext-white\b/.test(line)) {
+          offenders.push(`${relative(process.cwd(), f)}: ${line.trim().slice(0, 90)}`);
+        }
+      }
+    }
+    expect(offenders, `white on accent-500/600 is 2.09/2.61:1 — filled controls use 650:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
   it('text never dissolves into its background — no alpha on an ink utility unless disabled', () => {
     // The defect this pins is real and this suite could not see it: jsdom computes no colour, so
     // `text-muted/40` on the month grid's padding days rendered at 1.8:1 and shipped through

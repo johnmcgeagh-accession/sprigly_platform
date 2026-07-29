@@ -18,7 +18,6 @@
  *
  * Pure. No React.
  */
-import type { DraftBeatView } from '@/lib/types';
 import { formatNeedsHook, formatNeedsScript } from './format-change';
 
 export interface ApprovalCounts {
@@ -27,7 +26,9 @@ export interface ApprovalCounts {
   scripts: number;
 }
 
-export function approvalCounts(beats: readonly Pick<DraftBeatView, 'format'>[]): ApprovalCounts {
+/** Takes anything carrying a format string: the only field the arithmetic reads, and taking
+ *  more would tie this file to a view type it does not otherwise need. */
+export function approvalCounts(beats: readonly { format: string }[]): ApprovalCounts {
   return {
     captions: beats.length,
     hooks: beats.filter((b) => formatNeedsHook(b.format)).length,

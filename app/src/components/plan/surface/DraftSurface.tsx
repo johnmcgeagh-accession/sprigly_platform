@@ -252,20 +252,14 @@ export function DraftSurface({ data }: { data: PlanData }) {
             open monthName={monthName} busy={m.busy}
             {...(voiceFor ? { question: voiceFor } : {})}
             onClose={() => setVoiceFor(null)}
-            onSubmit={(text, source) => {
-              setVoiceFor(null);
-              void m.say(text, source);
-            }}
+            onSubmit={async (text, source) => (await m.say(text, source)).ok}
           />
         )}
         {addFor && (
           <AddSheet
             open date={addFor} pillars={draft?.pillars ?? []} busy={m.busy}
             onClose={() => setAddFor(null)}
-            onSubmit={({ format, subject, pillar }) => {
-              setAddFor(null);
-              void m.add(addFor, format, pillar ?? '', subject);
-            }}
+            onSubmit={async ({ format, subject, pillar }) => (await m.add(addFor, format, pillar ?? '', subject)).ok}
           />
         )}
       </>}

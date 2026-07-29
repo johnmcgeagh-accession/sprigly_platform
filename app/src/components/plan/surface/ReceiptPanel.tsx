@@ -70,7 +70,7 @@ function Single({
       <h2 className="mb-2 text-[20px] font-bold tracking-[-.025em] text-chrome">
         {evergreen ? (receipt.reason === 'couldnt_apply' ? 'We couldn’t apply this' : 'Saved to your ideas') : 'What changed'}
       </h2>
-      <p data-testid="receipt-source" className="mb-3 text-[13.5px] italic leading-normal text-muted">“{receipt.sourceText}”</p>
+      <p data-testid="receipt-source" className="mb-3 break-words text-[13.5px] italic leading-normal text-muted">“{receipt.sourceText}”</p>
 
       {evergreen ? (
         <p className="text-[15px] leading-[1.5] text-chrome">
@@ -149,7 +149,10 @@ function Item({
         {/* 15px leading, per round 4's note on this panel: the segment is the thing to find,
             and its machinery sits under it at 12.5px uppercase — a distinct role rather than a
             smaller version of the same one. */}
-        <span className="min-w-0 flex-1 text-[15px] font-medium leading-[1.4] text-chrome">{item.span}</span>
+        {/* WRAPS rather than truncating: a client has to recognise their own instruction to
+            judge what we did with it, and half of it is not enough. `break-words` for the one
+            segment that is a URL with nowhere to break. */}
+        <span className="min-w-0 flex-1 break-words text-[15px] font-medium leading-[1.4] text-chrome">{item.span}</span>
       </div>
 
       {applied && item.lines.length > 0 && (

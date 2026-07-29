@@ -49,7 +49,9 @@ export function AddSheet({
   pillars: string[] | null;
   busy: boolean;
   onClose: () => void;
-  onSubmit: (spec: AddSpec) => void;
+  /** Resolves TRUE when the post was created. False keeps the sheet, the format and the
+   *  subject — a refused write must not also discard what the client typed. */
+  onSubmit: (spec: AddSpec) => Promise<boolean>;
 }) {
   const [format, setFormat] = useState<PostFormat>('single');
   const [subject, setSubject] = useState('');
@@ -66,9 +68,10 @@ export function AddSheet({
 
   if (!open) return null;
 
-  const submit = () => {
+  const submit = async () => {
     if (busy) return;
-    onSubmit(pillars ? { format, subject: subject.trim(), pillar } : { format, subject: subject.trim() });
+    const ok = await onSubmit(pillars ? { format, subject: subject.trim(), pillar } : { format, subject: subject.trim() });
+    if (ok) onClose();
   };
 
   return (
@@ -115,7 +118,7 @@ export function AddSheet({
 
         <div className="flex flex-none gap-2 border-t border-line/30 bg-surface px-[18px] pb-[26px] pt-3">
           <button
-            type="button" data-testid="add-confirm" onClick={submit} disabled={busy}
+            type="button" data-testid="add-confirm" onClick={() => void submit()} disabled={busy}
             className="flex min-h-[50px] flex-1 items-center justify-center rounded-[14px] bg-coral-650 text-[15px] font-bold text-white shadow-[0_10px_26px_-6px_rgb(var(--t-accent-600,232_112_95)_/_0.58)] disabled:bg-line-soft disabled:text-muted disabled:shadow-none"
           >
             {busy ? 'Adding…' : 'Add it'}

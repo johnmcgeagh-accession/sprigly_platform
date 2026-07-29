@@ -62,7 +62,12 @@ export function VoiceSheet({
    */
   question?: string | undefined;
   onClose: () => void;
-  onSubmit: (text: string, source: 'web' | 'voice') => void;
+  /**
+   * Resolves TRUE when the write landed. The sheet closes on true and stays open on false with
+   * every word still in the field — a dictated brief can be several hundred of them, and a
+   * network failure that also throws them away is the one loss a toast cannot undo.
+   */
+  onSubmit: (text: string, source: 'web' | 'voice') => Promise<boolean>;
 }) {
   const [mode, setMode] = useState<Mode>('speak');
   const [text, setText] = useState('');
@@ -88,13 +93,16 @@ export function VoiceSheet({
 
   if (!open) return null;
 
-  const submit = () => {
+  const submit = async () => {
     const value = text.trim();
     if (!value || busy) return;
     speech.stop();
     // The transport is what actually happened: if any of this arrived through the microphone,
     // it is voice, even when the client tidied it up by hand afterwards.
-    onSubmit(value, mode === 'speak' || listening ? 'voice' : 'web');
+    const ok = await onSubmit(value, mode === 'speak' || listening ? 'voice' : 'web');
+    // A refusal keeps the sheet, the words and the mode. The failure is reported in the shell's
+    // feedback slot, over the sheet, where it can be read without losing what was said.
+    if (ok) onClose();
   };
 
   const useStarter = (s: string) => {
@@ -118,7 +126,7 @@ export function VoiceSheet({
     : 'One sentence is enough.';
 
   return (
-    <Sheet open={open} label={`Tell us about ${monthName}`} testid="voice-sheet" onClose={onClose}>
+    <Sheet open={open} label={`Tell us about ${monthName}`} testid="voice-sheet" onClose={onClose} hasOwnClose>
       <>
         <div className="flex flex-none items-start gap-3 px-[18px] pb-2 pt-1.5">
           <div className="min-w-0 flex-1">
@@ -215,7 +223,7 @@ export function VoiceSheet({
               and not re-opened. It carries an aria-label, which is the part that matters. */}
           <button
             type="button" data-testid="voice-submit" aria-label="Send this to Sprigly"
-            disabled={!text.trim() || busy} onClick={submit}
+            disabled={!text.trim() || busy} onClick={() => void submit()}
             className="flex min-h-[56px] flex-1 items-center justify-center rounded-2xl bg-coral-650 text-white shadow-[0_10px_26px_-6px_rgb(var(--t-accent-600,232_112_95)_/_0.58)] disabled:bg-line-soft disabled:text-muted disabled:shadow-none"
           >
             <SendGlyph className="h-[26px] w-[26px] [stroke-width:2.2]" />

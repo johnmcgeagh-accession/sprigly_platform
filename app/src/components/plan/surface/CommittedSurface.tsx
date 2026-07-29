@@ -199,10 +199,7 @@ export function CommittedSurface({ data }: { data: PlanData }) {
           <AddSheet
             open date={addFor} pillars={null} busy={data.busy}
             onClose={() => setAddFor(null)}
-            onSubmit={({ format, subject }) => {
-              setAddFor(null);
-              void data.addShapedPost(addFor, format, subject);
-            }}
+            onSubmit={({ format, subject }) => data.addShapedPost(addFor, format, subject)}
           />
         )}
         {movePost && (

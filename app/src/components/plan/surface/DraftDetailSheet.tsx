@@ -62,7 +62,9 @@ export function DraftDetailSheet({
           <div className="flex items-start gap-3">
             <FormatTile format={beat.format} large />
             <div className="min-w-0 flex-1">
-              <h2 className="mb-1 text-[20px] font-bold leading-[1.25] tracking-[-.025em] text-chrome">{beat.title}</h2>
+              {/* The SHEET is where a long title is allowed to be long — it is the surface the
+                  card's clamp sends you to. `break-words` only, no clamp. */}
+              <h2 className="mb-1 break-words text-[20px] font-bold leading-[1.25] tracking-[-.025em] text-chrome">{beat.title}</h2>
               <p data-testid="detail-meta" className="text-[13.5px] font-medium text-muted">
                 {[dayTitle(beat.date), beat.pillar].filter(Boolean).join(' · ')}
               </p>

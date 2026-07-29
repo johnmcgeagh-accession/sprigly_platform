@@ -87,7 +87,7 @@ export function MoveSheet({
     // layer 1: Move opens FROM the detail sheet, which stays mounted underneath. The two are
     // ordered in z rather than sharing a layer, and each has its own focus trap — without one,
     // Tab walked straight back out into the sheet behind.
-    <Sheet open={open} label={`Move ${postHeading}`} testid="move-sheet" onClose={onClose} layer={1}>
+    <Sheet open={open} label={`Move ${postHeading}`} testid="move-sheet" onClose={onClose} layer={1} hasOwnClose>
       <>
         <div className="flex flex-none items-start gap-3 border-b border-line/30 px-[18px] pb-3.5 pt-1.5">
           <div className="min-w-0 flex-1">

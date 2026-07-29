@@ -236,20 +236,25 @@ export function usePlanData(init: PlanDataInit) {
    *  (applyResultLocally) so the editor keeps the caret, and the per-save toast is dropped
    *  in favour of the field's own inline "Saving… / Saved" hint. Structural writes keep
    *  the toast + refresh. A localApply that can't splice (missing post) falls back too. */
-  const call = useCallback(async (url: string, method: string, payload?: unknown, localApply = false): Promise<void> => {
-    if (readOnly) return;
+  /** Returns whether the write LANDED. Most callers ignore it — they are fire-and-forget edits
+   *  whose failure the toast reports. A caller holding something the client typed does not:
+   *  a sheet that closes on a failed write throws their words away, which is the one loss the
+   *  toast cannot undo. */
+  const call = useCallback(async (url: string, method: string, payload?: unknown, localApply = false): Promise<boolean> => {
+    if (readOnly) return false;
     setBusy(true);
     try {
       const init2: RequestInit = { method };
       if (payload !== undefined) { init2.headers = { 'content-type': 'application/json' }; init2.body = JSON.stringify(payload); }
       const res = await fetch(url, init2);
-      if (!res.ok) { flash('Something went wrong. Please try again.'); return; }
+      if (!res.ok) { flash('Something went wrong. Please try again.'); return false; }
       const r = (await res.json()) as ShapeResult;
       if (r.mode === 'applied') {
-        if (localApply && applyResultLocally(r)) return;
+        if (localApply && applyResultLocally(r)) return true;
         flash(r.summary); await refreshPlan();
       }
-    } catch { flash('Network error. Please try again.'); }
+      return true;
+    } catch { flash('Network error. Please try again.'); return false; }
     finally { setBusy(false); }
   }, [readOnly, flash, refreshPlan, applyResultLocally]);
 

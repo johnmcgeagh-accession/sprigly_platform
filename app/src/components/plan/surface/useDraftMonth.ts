@@ -115,9 +115,11 @@ export function useDraftMonth(data: PlanData) {
     });
   }, [write]);
 
-  const add = useCallback(async (date: string, format: string, pillar: string, subject: string) => {
-    await write('/api/plan/draft', { op: 'add', date, format, pillar, ...(subject ? { subject } : {}) });
-  }, [write]);
+  const add = useCallback(
+    async (date: string, format: string, pillar: string, subject: string) =>
+      write('/api/plan/draft', { op: 'add', date, format, pillar, ...(subject ? { subject } : {}) }),
+    [write],
+  );
 
   /**
    * One sentence in, a reshaped month and a receipt out. The north-star path.

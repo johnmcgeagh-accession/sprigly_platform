@@ -45,11 +45,23 @@ export interface SheetProps {
   /** 0 = a sheet over the surface. 1 = a sheet over a sheet (Move opens FROM the detail sheet,
    *  which stays mounted underneath it). Layers are ordered in z rather than sharing one. */
   layer?: 0 | 1;
+  /**
+   * True when the caller renders its own ✕ in the sheet's header.
+   *
+   * The grabber is then DECORATIVE for assistive tech — pointer-only, `tabIndex={-1}`, hidden
+   * from the accessibility tree — which is how a real iOS sheet models it: the handle is a
+   * gesture affordance, and VoiceOver dismisses with its own escape, not by finding the bar.
+   * Exposing both would put two buttons called "Close" on one sheet, doing one thing.
+   *
+   * Where there is no ✕ (the detail and add sheets) the grabber IS the close control and carries
+   * the name. Escape works either way — the focus trap owns it.
+   */
+  hasOwnClose?: boolean;
   /** Sheet body. The caller owns the whole inside — this component owns only the frame. */
   children: React.ReactNode;
 }
 
-export function Sheet({ open, label, testid, onClose, layer = 0, children }: SheetProps) {
+export function Sheet({ open, label, testid, onClose, layer = 0, hasOwnClose = false, children }: SheetProps) {
   const ref = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   // `travelled` is the largest ABSOLUTE movement seen, which is what separates a tap from a
@@ -114,7 +126,10 @@ export function Sheet({ open, label, testid, onClose, layer = 0, children }: She
           {/* The grabber's hit area is 34px tall around a 5px bar — visually inert, and it clears
               the touch floor for a control a thumb reaches for without looking. */}
           <button
-            type="button" data-testid={`${testid}-grabber`} aria-label="Close"
+            type="button" data-testid={`${testid}-grabber`}
+            {...(hasOwnClose
+              ? { 'aria-hidden': true as const, tabIndex: -1 }
+              : { 'aria-label': 'Close' })}
             onPointerDown={onPointerDown} onPointerMove={onPointerMove}
             onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
             className="flex h-[34px] w-full flex-none touch-none items-center justify-center"

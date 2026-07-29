@@ -167,7 +167,7 @@ export function DetailSheet({
           <div className="flex items-start gap-3">
             <FormatTile format={post.format} large />
             <div className="min-w-0 flex-1">
-              <h2 className="mb-1 text-[20px] font-bold leading-[1.25] tracking-[-.025em] text-chrome">{heading}</h2>
+              <h2 className="mb-1 break-words text-[20px] font-bold leading-[1.25] tracking-[-.025em] text-chrome">{heading}</h2>
               <p data-testid="detail-meta" className="text-[13.5px] font-medium text-muted">
                 {[dayTitle(post.date), post.postingTime, post.pillar].filter(Boolean).join(' · ')}
               </p>

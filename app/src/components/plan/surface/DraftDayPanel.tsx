@@ -149,7 +149,11 @@ function DraftCard({ beat, changed, onOpen }: { beat: DraftBeatView; changed: bo
           </span>
         )}
       </div>
-      <h4 className="mb-[5px] text-[16.5px] font-semibold leading-[1.3] tracking-[-.02em] text-chrome">{beat.title}</h4>
+      {/* CLAMPED. ivy-t's titles are 200-character input echoes, and an unclamped one turns a
+          120px card into a 400px wall that pushes the day's second post off the fold. Two lines
+          is the same budget the committed card's heading has. `break-words` covers the pasted
+          URL that has no space to break at. */}
+      <h4 className="mb-[5px] line-clamp-2 break-words text-[16.5px] font-semibold leading-[1.3] tracking-[-.02em] text-chrome">{beat.title}</h4>
       {reason && <p data-testid="card-reason" className="line-clamp-3 text-[13.5px] leading-normal text-muted">{reason}</p>}
     </button>
   );

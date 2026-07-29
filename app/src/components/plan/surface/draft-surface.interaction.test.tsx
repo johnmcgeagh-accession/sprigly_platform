@@ -776,3 +776,76 @@ describe('approval — the one door that spends money', () => {
     expect(screen.getByTestId('approval-sheet')).toBeTruthy();
   });
 });
+
+describe('hardened against what a real client throws at it', () => {
+  /** ivy-t's 3 August title, verbatim, clipping included. */
+  const LONG = '14th August — the stock leaves the factory for our next drop. Tease it: can you show the '
+    + 'boxes being packed and the labels going on, without showing the pieces themselves';
+
+  it('a 200-character title is CLAMPED on the card and whole in the sheet', () => {
+    render(<DraftSurface data={fakeData({}, [beat({ title: LONG })])} />);
+    const heading = screen.getByTestId('draft-card').querySelector('h4')!;
+    // Two lines on the card, so one post cannot push the day's second off the fold…
+    expect(heading.className).toContain('line-clamp-2');
+    expect(heading.className).toContain('break-words');
+
+    // …and the sheet the clamp sends you to shows all of it.
+    fireEvent.click(screen.getByTestId('draft-card'));
+    expect(screen.getByTestId('detail-sheet').querySelector('h2')!.textContent).toBe(LONG);
+  });
+
+  it('a title with nowhere to break still cannot widen the page', () => {
+    render(<DraftSurface data={fakeData({}, [beat({ title: 'https://ivy-t.example/a-very-long-unbroken-path-with-no-spaces-at-all-whatsoever' })])} />);
+    expect(screen.getByTestId('draft-card').querySelector('h4')!.className).toContain('break-words');
+  });
+
+  it('a REFUSED reshape keeps the sheet, the words and the mode', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false, json: async () => ({ ok: false, message: 'This month’s draft is closed for changes.' }),
+    }) as unknown as Response));
+    const data = fakeData();
+    render(<DraftSurface data={data} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+    fireEvent.click(screen.getByTestId('voice-mode'));
+    fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'a sentence worth keeping' } });
+    await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+
+    // A dictated brief can be several hundred words. Losing them to a network blip is the one
+    // failure a toast cannot undo.
+    expect(screen.getByTestId('voice-sheet')).toBeTruthy();
+    expect((screen.getByTestId('voice-input') as HTMLTextAreaElement).value).toBe('a sentence worth keeping');
+    await waitFor(() => expect(data.flash).toHaveBeenCalledWith('This month’s draft is closed for changes.'));
+  });
+
+  it('a REFUSED add keeps the sheet, the subject and the format', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false, json: async () => ({ ok: false, message: 'That isn’t one of your content pillars.' }),
+    }) as unknown as Response));
+    render(<DraftSurface data={fakeData()} />);
+    fireEvent.click(screen.getByTestId('add-slot'));
+    fireEvent.click(within(screen.getByTestId('add-format')).getByTestId('format-reel'));
+    fireEvent.change(screen.getByTestId('add-subject'), { target: { value: 'the candle' } });
+    await act(async () => { fireEvent.click(screen.getByTestId('add-confirm')); });
+
+    expect(screen.getByTestId('add-sheet')).toBeTruthy();
+    expect((screen.getByTestId('add-subject') as HTMLTextAreaElement).value).toBe('the candle');
+    expect(within(screen.getByTestId('add-format')).getByTestId('format-reel').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('an empty month says so and offers nothing it cannot honour', () => {
+    render(<DraftSurface data={fakeData({}, [])} />);
+    expect(screen.getByTestId('day-count').textContent).toBe('Nothing drafted');
+    expect(screen.queryByTestId('ready-pill')).toBeNull();     // nothing to approve
+    expect(screen.queryByTestId('thin-month')).toBeNull();     // and nothing to acknowledge
+    expect(screen.getByTestId('add-slot')).toBeTruthy();       // but you can still start it
+    expect(screen.getByTestId('nav-mic')).toBeTruthy();
+  });
+
+  it('a client with no configured pillars gets no pillar picker it could not satisfy', () => {
+    const data = fakeData();
+    (data.draft as { pillars: string[] }).pillars = [];
+    render(<DraftSurface data={data} />);
+    fireEvent.click(screen.getByTestId('add-slot'));
+    expect(screen.queryByTestId('add-pillar')).toBeNull();
+  });
+});

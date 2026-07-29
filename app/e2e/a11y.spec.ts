@@ -128,6 +128,20 @@ test('no serious/critical axe violations across the primary surfaces', async ({ 
     await expect(page.getByTestId('move-sheet')).toBeVisible();
     expect(await seriousViolations(page), 'move sheet').toEqual([]);
     await page.getByTestId('move-close').click();
+
+    // 2c. The empty-field state (round 6, P3) — a tab that explains and offers rather than
+    // greying itself out. Its Generate button is a filled control, so it exercises the
+    // deviation's boundary as well as the state.
+    await page.getByTestId('tab-script').click();
+    await expect(page.getByTestId('empty-field')).toBeVisible();
+    expect(await seriousViolations(page), 'empty field').toEqual([]);
+    await page.getByTestId('detail-sheet-grabber').click();
+
+    // 2d. The add sheet (round 6, P1): a segmented control, a free field and a primary.
+    await page.getByTestId('add-slot').click();
+    await expect(page.getByTestId('add-sheet')).toBeVisible();
+    expect(await seriousViolations(page), 'add sheet').toEqual([]);
+    await page.getByTestId('add-sheet-grabber').click();
   }
 
   // 3. Agent sheet (desktop only — the mobile mic's own sheet is Session B)

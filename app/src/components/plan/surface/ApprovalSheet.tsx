@@ -51,7 +51,7 @@ export function ApprovalSheet({
   if (!open) return null;
 
   return (
-    <Sheet open={open} label={`Ready to go? ${monthLabel}`} testid="approval-sheet" onClose={onClose}>
+    <Sheet open={open} label={`Ready to go? ${monthLabel}`} testid="approval-sheet" onClose={onClose} hasOwnClose>
       <>
         <div className="flex flex-none items-start gap-3 px-[18px] pb-3 pt-1.5">
           <div className="min-w-0 flex-1">

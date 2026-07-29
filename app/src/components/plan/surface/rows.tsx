@@ -76,7 +76,9 @@ export function MonthDaySummary({
   return (
     <section data-testid="month-summary" data-date={date} className="pt-4">
       <div className="mb-2 flex items-baseline gap-2.5">
-        <h3 className="text-[15px] font-semibold tracking-[-.01em] text-chrome">{dayTitle(date)}</h3>
+        {/* h2, not h3: the heading ladder is h1 month → h2 day → h3 section → h4 card, and this
+            IS the day, seen from the month view. h3 here skipped a level. */}
+        <h2 className="text-[15px] font-semibold tracking-[-.01em] text-chrome">{dayTitle(date)}</h2>
         <span className="flex-1" />
         <span className="text-[12.5px] font-semibold tabular-nums text-muted">
           {items.length === 0 ? empty : `${items.length} ${noun}${items.length === 1 ? '' : 's'}`}

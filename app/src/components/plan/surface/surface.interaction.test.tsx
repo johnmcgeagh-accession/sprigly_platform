@@ -16,7 +16,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
-import { render, screen, within, cleanup, fireEvent } from '@testing-library/react';
+import { render, screen, within, cleanup, fireEvent, act } from '@testing-library/react';
 
 vi.mock('@sprigly/db', () => ({ db: {}, contentCycles: {}, contentCyclePosts: {} }));
 
@@ -54,7 +54,7 @@ function fakeData(over: Partial<PlanData> = {}): PlanData {
     canEdit: () => true,
     switchCycle: vi.fn(async () => {}),
     addPost: vi.fn(async () => {}),
-    addShapedPost: vi.fn(async () => {}),
+    addShapedPost: vi.fn(async () => true),
     track: vi.fn(),
     flash: vi.fn(),
     toggleStep: vi.fn(async () => {}),
@@ -263,24 +263,24 @@ describe('the per-day add slot', () => {
     expect(data.addShapedPost).not.toHaveBeenCalled();
   });
 
-  it('adds to the day you are LOOKING at, not to the month, with the format you chose', () => {
+  it('adds to the day you are LOOKING at, not to the month, with the format you chose', async () => {
     const data = fakeData({ posts: [post()] });
     render(<CommittedSurface data={data} />);
     fireEvent.click(document.querySelector('[data-testid="week-day"][data-date="2026-10-03"]')!);
     fireEvent.click(screen.getByTestId('add-slot'));
     fireEvent.click(within(screen.getByTestId('add-format')).getByTestId('format-carousel'));
     fireEvent.change(screen.getByTestId('add-subject'), { target: { value: 'The candle, back in stock' } });
-    fireEvent.click(screen.getByTestId('add-confirm'));
+    await act(async () => { fireEvent.click(screen.getByTestId('add-confirm')); });
 
     expect(data.addShapedPost).toHaveBeenCalledWith('2026-10-03', 'carousel', 'The candle, back in stock');
     expect(screen.queryByTestId('add-sheet')).toBeNull();
   });
 
-  it('a subject is genuinely optional — submitting without one still creates the slot', () => {
+  it('a subject is genuinely optional — submitting without one still creates the slot', async () => {
     const data = fakeData({ posts: [post()] });
     render(<CommittedSurface data={data} />);
     fireEvent.click(screen.getByTestId('add-slot'));
-    fireEvent.click(screen.getByTestId('add-confirm'));
+    await act(async () => { fireEvent.click(screen.getByTestId('add-confirm')); });
 
     expect(data.addShapedPost).toHaveBeenCalledWith(TODAY, 'single', '');
   });
@@ -448,4 +448,20 @@ describe('narrow viewports (round-5.1 carry-in X7)', () => {
       expect(screen.getAllByTestId('grid-cell').length).toBeGreaterThan(27);
     });
   }
+});
+
+describe('a refused write never also throws away what was typed (harden)', () => {
+  it('the add sheet stays open, with the subject and the format still in it', async () => {
+    const data = fakeData({ posts: [post()], addShapedPost: vi.fn(async () => false) });
+    render(<CommittedSurface data={data} />);
+    fireEvent.click(screen.getByTestId('add-slot'));
+    fireEvent.click(within(screen.getByTestId('add-format')).getByTestId('format-reel'));
+    fireEvent.change(screen.getByTestId('add-subject'), { target: { value: 'the candle, back in stock' } });
+    await act(async () => { fireEvent.click(screen.getByTestId('add-confirm')); });
+
+    // The failure is reported in the feedback slot; the words are still here to send again.
+    expect(screen.getByTestId('add-sheet')).toBeTruthy();
+    expect((screen.getByTestId('add-subject') as HTMLTextAreaElement).value).toBe('the candle, back in stock');
+    expect(within(screen.getByTestId('add-format')).getByTestId('format-reel').getAttribute('aria-pressed')).toBe('true');
+  });
 });
