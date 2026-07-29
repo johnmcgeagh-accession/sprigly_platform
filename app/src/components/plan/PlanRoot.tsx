@@ -5,6 +5,7 @@ import { usePlanData, type PlanDataInit } from './usePlanData';
 import { DraftPlan } from '../DraftPlan';
 import { PlanDesktop } from './PlanDesktop';
 import { CommittedSurface } from './surface/CommittedSurface';
+import { DraftSurface } from './surface/DraftSurface';
 import { IntakeCapture } from './IntakeCapture';
 import { Toast } from './primitives';
 import { prevMonth } from '@/lib/cycle-nav';
@@ -70,12 +71,27 @@ export function PlanRoot(props: PlanDataInit) {
   // Nothing renders until the breakpoint is measured (avoids an SSR/client mismatch).
   if (desktop === null) return null;
 
-  // Draft month. Still `DraftPlan` on BOTH form factors in this session: moving it onto the
-  // shell is the largest single piece of the redesign and it is Session B's, not a corner of
-  // this one. What has changed is where it sits — inside the fork, so the mobile branch has a
-  // shell to move into.
+  /**
+   * Draft month.
+   *
+   * ── The move Session A left one `if` away ──────────────────────────────────────────
+   *
+   * On a PHONE the draft month is now `DraftSurface`, which is `PlanShell` with different
+   * children — the same frame, strip, grid, nav pill and sheets the committed month uses. That
+   * was the point of inverting the fork: reconciling the two shells is what spec §1.3 named as
+   * the single largest piece of work the redesign implies, and this is it.
+   *
+   * On DESKTOP it is still `DraftPlan`, deliberately. `PlanDesktop`'s own redesign is a later
+   * session and the shell must not break it in the meantime; what crosses over when that session
+   * runs is everything width-agnostic — the detail sheet as a right-hand panel, the summary chip,
+   * the approval sheet — plus the month control and its arrows.
+   *
+   * `key` remounts the surface on a month switch, so a client returning to a draft month cannot
+   * see the month they left: `DraftSurface` holds the selected day and the highlight marks in
+   * local state, and both belong to one month.
+   */
   if (isDraft && data.draft) {
-    return (
+    return desktop ? (
       <DraftPlan
         beats={data.draft.beats}
         monthLabel={viewedMonthLabel}
@@ -89,6 +105,8 @@ export function PlanRoot(props: PlanDataInit) {
         onSwitchCycle={data.switchCycle}
         switching={data.switching}
       />
+    ) : (
+      <DraftSurface key={data.viewedCycleId} data={data} />
     );
   }
 

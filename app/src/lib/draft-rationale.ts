@@ -27,6 +27,25 @@ const formatWord = (f: string): string => FORMAT_WORD[f] ?? `${f} posts`;
 const posts = (n: number): string => `${n} post${n === 1 ? '' : 's'}`;
 
 /**
+ * How much of the client's own sentence a card quotes back.
+ *
+ * A single instruction is short — "The Wilderness candle relaunches on the 24th, can we build up
+ * to it?" is 74 characters. A segment of a pasted brief can be much longer: Sally's August brief
+ * ran ~700 words across 14 instructions, and one of its segments is a 200-character paragraph.
+ * A card has two lines. 120 characters is roughly those two lines at 13.5px on a 350px measure.
+ */
+const QUOTE_MAX = 120;
+
+/** Trim to a word boundary, never mid-word, and only when it is actually too long. */
+function trimQuote(text: string): string {
+  const t = text.trim().replace(/\s+/g, ' ');
+  if (t.length <= QUOTE_MAX) return t;
+  const cut = t.slice(0, QUOTE_MAX);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > QUOTE_MAX * 0.6 ? cut.slice(0, lastSpace) : cut).replace(/[,;:.\s]+$/, '')}…`;
+}
+
+/**
  * The one-line reason this beat is here.
  *
  * Returns '' when the evidence supports nothing sayable — the caller renders no rationale
@@ -36,6 +55,28 @@ export function rationaleFor(evidence: BeatEvidence, pillar: string): string {
   switch (evidence.basis) {
     case 'client_added':
       return 'You added this one.';
+
+    /**
+     * The strongest rationale in the system, and until now the only one rendering blank.
+     *
+     * Spec gap 4. Every post a launch / event / series / beat_spec transform creates carries
+     * `{basis:'client_input', reason: sourceText}` — the client's own words, stored, verbatim.
+     * There was no branch for it, so it fell through to '' and those posts — the ones that came
+     * from something the client actually said — showed NO reason at all, while a hand-added post
+     * said "You added this one."
+     *
+     * Quoting them back is not decoration. Every other branch here is us telling the client
+     * something about their feed that they have to take on trust; this one is us showing them
+     * their own sentence and saying *this is why*. It is the cheapest fix in the gap list and the
+     * one with the largest effect on whether a client believes the rest.
+     *
+     * A `client_input` beat with no recorded text says nothing rather than inventing a sentence —
+     * the same rule every other branch follows.
+     */
+    case 'client_input':
+      return evidence.reason?.trim()
+        ? `From what you told us: “${trimQuote(evidence.reason)}”`
+        : '';
 
     case 'emphasis_reweight':
       // Deliberately cites the client's own words and NOTHING about the old pillar. The

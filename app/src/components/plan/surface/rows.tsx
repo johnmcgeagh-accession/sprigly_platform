@@ -63,11 +63,15 @@ export function rowsFromPosts(posts: PlanPost[], timeOf: (p: PlanPost) => string
  * because a client tapping around a calendar to see its shape has not asked to create anything.
  */
 export function MonthDaySummary({
-  date, items, onOpen,
+  date, items, onOpen, noun = 'post', empty = 'Nothing planned',
 }: {
   date: string;
   items: RowItem[];
   onOpen: (id: string) => void;
+  /** 'planned post' on a draft month. The word "beat" appears on no client surface (§7), and
+   *  a draft month's items are planned posts rather than posts. */
+  noun?: string;
+  empty?: string;
 }) {
   return (
     <section data-testid="month-summary" data-date={date} className="pt-4">
@@ -75,7 +79,7 @@ export function MonthDaySummary({
         <h3 className="text-[15px] font-semibold tracking-[-.01em] text-chrome">{dayTitle(date)}</h3>
         <span className="flex-1" />
         <span className="text-[12.5px] font-semibold tabular-nums text-muted">
-          {items.length === 0 ? 'Nothing planned' : `${items.length} post${items.length === 1 ? '' : 's'}`}
+          {items.length === 0 ? empty : `${items.length} ${noun}${items.length === 1 ? '' : 's'}`}
         </span>
       </div>
       {items.length > 0 && <CompactRows items={items} onOpen={onOpen} testid="summary-row" lead="format" />}

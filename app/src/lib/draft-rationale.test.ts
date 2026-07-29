@@ -82,6 +82,43 @@ describe('rationaleFor — client_added', () => {
   });
 });
 
+describe('rationaleFor — client_input (gap 4)', () => {
+  it('quotes the client’s own sentence back — the strongest reason in the system', () => {
+    const said = 'The Wilderness candle relaunches on the 24th, can we build up to it?';
+    expect(rationaleFor({ basis: 'client_input', reason: said }, 'Home & Space'))
+      .toBe(`From what you told us: “${said}”`);
+  });
+
+  it('claims nothing about the feed — this branch has no metrics and invents none', () => {
+    const out = rationaleFor({ basis: 'client_input', reason: 'a mini-series, one post every three weeks' }, 'Understands Real Women');
+    expect(out).not.toMatch(/average|%|likes|history/);
+  });
+
+  it('says NOTHING when the text was not recorded, rather than reaching for a sentence', () => {
+    expect(rationaleFor({ basis: 'client_input' }, 'x')).toBe('');
+    expect(rationaleFor({ basis: 'client_input', reason: '   ' }, 'x')).toBe('');
+  });
+
+  it('trims a long segment at a word boundary, never mid-word', () => {
+    // ivy-t's briefs contain 200-character segments; a card has two lines.
+    const long = '15th August — our factory in Portugal starts its annual summer shutdown until 7th September, '
+      + 'so everything ordered after the 12th ships when they are back and we should say so clearly';
+    const out = rationaleFor({ basis: 'client_input', reason: long }, 'x');
+
+    expect(out.length).toBeLessThan(long.length);
+    expect(out).toMatch(/…”$/);
+    const quoted = out.slice(out.indexOf('“') + 1, -2);
+    // Every word kept is a whole word from the original.
+    expect(long.startsWith(quoted)).toBe(true);
+    expect(long[quoted.length] === ' ' || long[quoted.length] === undefined).toBe(true);
+  });
+
+  it('collapses whitespace so a pasted brief does not render its own line breaks', () => {
+    expect(rationaleFor({ basis: 'client_input', reason: 'one\n\n  two' }, 'x'))
+      .toBe('From what you told us: “one two”');
+  });
+});
+
 describe('rationaleFor — emphasis_reweight', () => {
   it('cites the client’s words and NEVER the old pillar’s share', () => {
     const out = rationaleFor({ basis: 'emphasis_reweight', reason: 'more product this month' }, 'Product & Fragrance');
