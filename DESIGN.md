@@ -394,12 +394,17 @@ dashed, because it is the one that changed while you were looking.
 framed image with a horizon (single). 17px inside a 28px tile, `accent-800` on `accent-100`. The
 word survives as `title` and screen-reader text only.
 
-**Action rows** are three equal-width buttons filling the row: icon with the **label below**, and
-`Move` carrying its current date **above** the icon. They read as buttons — `surface` fill,
-hairline, and a real pressed state. Round 3 shipped these icon-only and round 4 restored the
-labels, which is the reversal round 3 recorded in advance as the cheap one to make. **Height is
-56px with a 19px glyph** — round 5 specified 68px and the phone read it as a slab; the structure,
-the labels and Delete's fill are unchanged.
+**Action rows** are three equal-width buttons filling the row, at **stock-iOS weight**: the glyph
+and the label on ONE line, a 17px glyph at 1.5 stroke, a 15px label, a quiet `line-soft` fill and
+a real pressed state. **44px** — 68 in round 5, 56 in round 6, and the phone still read those as
+slabs. Round 3 shipped them icon-only and round 4 restored the labels, which is the reversal
+round 3 recorded in advance as the cheap one to make.
+
+**Delete is `danger` on its own 10% tint**, not a solid block. Round-4 S1 ruled that a destructive
+action must not have to be inferred from the colour of its text, and that still holds: it is
+marked by its fill, its colour AND its bin together. What changed is that a saturated block is no
+longer the loudest object on a sheet whose common action is *read the caption, maybe move it* —
+round 5.1's V1 observation, which becomes right once the other two buttons go quiet.
 
 **Sheets** share one chrome: scrim, 92% height, rounded 26px top corners, focus trap, and a
 **grabber that is a control** — drag it down to dismiss, or tap it. Every sheet gets all of that

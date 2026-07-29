@@ -113,9 +113,9 @@ export function DraftDetailSheet({
 
         {editable && (
           <div className="flex flex-none gap-2 border-t border-line/30 bg-surface px-[18px] pb-[26px] pt-3">
-            <ActionBtn testid="act-move" label="Move" onClick={onMove}><CalGlyph className="h-[19px] w-[19px]" /></ActionBtn>
+            <ActionBtn testid="act-move" label="Move" onClick={onMove}><CalGlyph className="h-[17px] w-[17px] [stroke-width:1.5]" /></ActionBtn>
             <ActionBtn testid="act-delete" label="Delete" destructive onClick={onDelete}>
-              <BinGlyph className="h-[19px] w-[19px]" />
+              <BinGlyph className="h-[17px] w-[17px] [stroke-width:1.5]" />
             </ActionBtn>
           </div>
         )}
@@ -124,8 +124,8 @@ export function DraftDetailSheet({
   );
 }
 
-/** The same button as the committed sheet's, at the same 56px (round 6, P12). Two of them here
- *  rather than three, because Shape has nothing to act on. */
+/** The same button as the committed sheet's, restyled with it (round 7, fix 5). Two of
+ *  them here rather than three, because Shape has nothing to act on. */
 function ActionBtn({
   testid, label, onClick, children, destructive,
 }: {
@@ -135,16 +135,16 @@ function ActionBtn({
     <button
       type="button" data-testid={testid} onClick={onClick}
       className={[
-        'flex min-h-[56px] flex-1 flex-col items-center justify-center gap-[3px] rounded-[14px] px-1 py-1.5 transition-colors duration-100',
+        'flex min-h-[44px] flex-1 flex-row items-center justify-center gap-1.5 rounded-[12px] px-2 transition-colors duration-100',
         destructive
-          // White on danger is 5.94:1. The only saturated fill on the surface, on the only
-          // action that destroys something.
-          ? 'bg-danger text-white active:bg-danger/[.86]'
-          : 'bg-surface text-chrome ring-1 ring-inset ring-line/55 active:bg-line-soft active:ring-line',
+          // `danger` on its own 10% tint over surface — the destructive action is carried by the
+          // fill, the colour AND the bin, so nothing about it has to be inferred (S1).
+          ? 'bg-danger/10 text-danger active:bg-danger/[.18]'
+          : 'bg-line-soft text-chrome active:bg-line/25',
       ].join(' ')}
     >
       {children}
-      <span className="text-[12px] font-semibold tracking-[-.01em]">{label}</span>
+      <span className="text-[15px] font-medium tracking-[-.01em]">{label}</span>
     </button>
   );
 }

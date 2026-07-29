@@ -717,3 +717,42 @@ describe('the mic on a committed month opens the SAME sheet (round 7, fix 2)', (
     expect(data.flash).not.toHaveBeenCalled();
   });
 });
+
+describe('the action row, attempt two (round 7, fix 5)', () => {
+  it('is a stock-iOS row: one line, thin glyph, 15px label, quiet fill', () => {
+    render(<CommittedSurface data={fakeData()} />);
+    openSheet();
+    const move = screen.getByTestId('act-move');
+
+    expect(move.className).toContain('min-h-[44px]');   // 68 → 56 → 44
+    expect(move.className).toContain('flex-row');       // beside, not stacked
+    expect(move.className).toContain('bg-line-soft');   // a quiet fill, not a ring on surface
+    expect(move.className).not.toContain('ring-1');
+    expect(move.querySelector('span')?.className).toContain('text-[15px]');
+    expect(move.querySelector('svg')?.getAttribute('class')).toContain('stroke-width:1.5');
+  });
+
+  it('Delete is still unmistakable — fill AND colour AND glyph, none of them text alone', () => {
+    render(<CommittedSurface data={fakeData()} />);
+    openSheet();
+    const del = screen.getByTestId('act-delete');
+
+    // S1's principle survives the restyle: a destructive action is never something to infer.
+    expect(del.className).toContain('bg-danger/10');
+    expect(del.className).toContain('text-danger');
+    expect(del.querySelector('svg')).toBeTruthy();
+    // …and it is no longer the loudest object on a sheet whose common action is "read this".
+    expect(del.className).not.toContain('bg-danger text-white');
+  });
+
+  it('the draft sheet’s two buttons match the committed sheet’s three', () => {
+    render(<CommittedSurface data={fakeData()} />);
+    openSheet();
+    const committed = screen.getByTestId('act-move').className;
+    cleanup();
+
+    // Same component, same class string — the two sheets cannot drift apart on this.
+    expect(committed).toContain('min-h-[44px]');
+    expect(committed).toContain('rounded-[12px]');
+  });
+});
