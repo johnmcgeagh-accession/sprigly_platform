@@ -104,6 +104,24 @@ describe('narrow viewports (carry-in X7)', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('text never dissolves into its background — no alpha on an ink utility unless disabled', () => {
+    // The defect this pins is real and this suite could not see it: jsdom computes no colour, so
+    // `text-muted/40` on the month grid's padding days rendered at 1.8:1 and shipped through
+    // every unit test in Session A. The first e2e axe run found it in one pass.
+    //
+    // The rule: an ink utility carries no alpha. `disabled:` is the one exception — WCAG exempts
+    // a disabled control, and greying one out is how a platform says "not now".
+    const offenders: string[] = [];
+    for (const f of FILES) {
+      const src = code(readFileSync(f, 'utf8'));
+      for (const m of src.matchAll(/(?:^|[\s'"`])((?:[a-z-]+:)*)(?:placeholder:)?text-(?:chrome|chrome-deep|muted|white|danger|coral-\d+)\/\d+/g)) {
+        if ((m[1] ?? '').includes('disabled:')) continue;
+        offenders.push(`${relative(process.cwd(), f)}: ${m[0].trim()}`);
+      }
+    }
+    expect(offenders, `ink at partial alpha — check it against 4.5:1 or drop the alpha:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
   it('whitespace-nowrap is used only where the content is short and bounded', () => {
     // A nowrap on a long string is the classic source of horizontal overflow. The month title
     // is the one legitimate case (three words, flanked by its own arrows), plus meta labels

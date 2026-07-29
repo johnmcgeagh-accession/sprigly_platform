@@ -73,7 +73,7 @@ export function MonthGrid({
                   isSelected
                     // The same filled control as the strip's selected day: accent-650 + white.
                     ? 'h-7 w-7 rounded-full bg-coral-650 font-bold text-white'
-                    : inMonth ? 'font-medium text-chrome' : 'font-medium text-muted/40',
+                    : inMonth ? 'font-medium text-chrome' : 'font-medium text-muted',
                   !isSelected && iso === today ? 'h-7 w-7 rounded-full shadow-[inset_0_0_0_2px_rgb(var(--t-accent-600,232_112_95))]' : '',
                 ].join(' ')}
               >

@@ -101,7 +101,11 @@ export function WeekStrip({
             <span aria-hidden="true"
               className={[
                 'text-[10.5px] font-semibold uppercase tracking-[.1em]',
-                isSelected ? 'text-chrome' : outside ? 'text-muted/70' : 'text-muted',
+                // Outside the month used to be `muted/70` here and `muted/40` on the numeral —
+                // 1.8:1, which the first e2e axe run caught (round 6). A padding day is a real,
+                // tappable date, so it is READABLE and de-emphasised by weight and by the
+                // numeral's `muted` against the month's `chrome`, not by dissolving it.
+                isSelected ? 'text-chrome' : 'text-muted',
               ].join(' ')}
             >
               {DOW_SHORT[i]}
@@ -111,7 +115,7 @@ export function WeekStrip({
                 'flex h-[34px] w-[34px] items-center justify-center rounded-full text-[16.5px] tabular-nums',
                 // THE INK RULE: the selected day is a filled control — accent-650 + white.
                 isSelected ? 'bg-coral-650 font-bold text-white'
-                  : outside ? 'font-medium text-muted/70' : 'font-medium text-chrome',
+                  : outside ? 'font-medium text-muted' : 'font-medium text-chrome',
                 // Today unselected is an accent-600 ring: a non-text use, nothing sits on it.
                 isToday && !isSelected ? 'shadow-[inset_0_0_0_2px_rgb(var(--t-accent-600,232_112_95))]' : '',
               ].join(' ')}

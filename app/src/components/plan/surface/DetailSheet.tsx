@@ -251,7 +251,7 @@ export function DetailSheet({
               <textarea
                 data-testid="shape-input" autoFocus value={instruction} onChange={(e) => setInstruction(e.target.value)}
                 placeholder="Warmer, and mention the relaunch earlier"
-                className="mt-3 min-h-[120px] w-full rounded-[14px] border border-line/55 bg-surface p-3.5 text-[16.5px] leading-[1.45] text-chrome outline-none placeholder:text-muted/70"
+                className="mt-3 min-h-[120px] w-full rounded-[14px] border border-line/55 bg-surface p-3.5 text-[16.5px] leading-[1.45] text-chrome outline-none placeholder:text-muted"
               />
             </>
           ) : onWay ? (

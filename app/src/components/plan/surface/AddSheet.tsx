@@ -98,13 +98,13 @@ export function AddSheet({
           )}
 
           <h3 className="mb-2 mt-5 text-[11px] font-bold uppercase tracking-[.1em] text-muted">
-            What is it? <span className="font-semibold normal-case tracking-normal text-muted/80">— optional</span>
+            What is it? <span className="font-semibold normal-case tracking-normal text-muted">— optional</span>
           </h3>
           <textarea
             data-testid="add-subject" value={subject} disabled={busy}
             onChange={(e) => setSubject(e.target.value)}
             placeholder="The Wilderness candle, back in stock"
-            className="min-h-[96px] w-full rounded-[14px] border border-line/55 bg-surface p-3.5 text-[16.5px] leading-[1.45] text-chrome outline-none placeholder:text-muted/70"
+            className="min-h-[96px] w-full rounded-[14px] border border-line/55 bg-surface p-3.5 text-[16.5px] leading-[1.45] text-chrome outline-none placeholder:text-muted"
           />
           <p className="mt-2 text-[12.5px] leading-normal text-muted">
             {pillars

@@ -1,11 +1,9 @@
 /**
  * mobile.spec.ts — the committed plan surface, on a phone.
  *
- * ⚠️ REWRITTEN FOR THE NEW SHELL AND **NOT YET RUN**. Playwright needs a built app, Postgres,
- * Redis and a seeded fixture, none of which were available in the session that made this
- * change; the surface itself is covered by simulated-interaction tests
- * (`src/components/plan/surface/surface.interaction.test.tsx`, 28 cases, jsdom) which DID run.
- * Treat the first execution of this file as part of the uat check, not as a regression pass.
+ * Rewritten for the new shell in Session A, where it could not be run — the port its container
+ * needs was held by something that was not ours to stop. **It runs now**, and this file is what
+ * round 6's rulings look like from outside the app.
  *
  * ── What changed, and why the old assertions could not simply be re-pointed ──────────
  *
@@ -57,14 +55,34 @@ test('swiping the strip moves a week; Today comes back', async ({ page }) => {
   await expect(page.getByTestId('day-panel')).toHaveAttribute('data-date', '2026-07-08');
 });
 
-test('the month grid is a peer view, and a picker', async ({ page }) => {
+test('the week pager steps a week and stops at the month edge (round 6, P5)', async ({ page }) => {
+  await page.getByTestId('next-week').click();
+  await expect(page.getByTestId('day-panel')).toHaveAttribute('data-date', '2026-07-15');
+  await page.getByTestId('prev-week').click();
+  await expect(page.getByTestId('day-panel')).toHaveAttribute('data-date', '2026-07-08');
+
+  // Walk to the last week of July; the next one is entirely August, whose posts are not loaded.
+  await page.getByTestId('next-week').click();
+  await page.getByTestId('next-week').click();
+  await page.getByTestId('next-week').click();
+  await expect(page.getByTestId('day-panel')).toHaveAttribute('data-date', '2026-07-29');
+  await expect(page.getByTestId('next-week')).toBeDisabled();
+});
+
+test('the month grid is a peer view you STAY in (round 6, P6)', async ({ page }) => {
   await page.getByTestId('nav-month').click();
   await expect(page.getByTestId('month-grid')).toBeVisible();
   await expect(page.getByTestId('week-strip')).toHaveCount(0);
 
   await page.locator('[data-testid="grid-cell"][data-date="2026-07-22"]').click();
+  // The calendar is still the view; the day appears as a summary beneath it.
+  await expect(page.getByTestId('month-grid')).toBeVisible();
+  await expect(page.getByTestId('day-panel')).toHaveCount(0);
+  await expect(page.getByTestId('month-summary')).toHaveAttribute('data-date', '2026-07-22');
+
+  // The selection is shared, so Day lands where we were reading, strip re-anchored.
+  await page.getByTestId('nav-day').click();
   await expect(page.getByTestId('day-panel')).toHaveAttribute('data-date', '2026-07-22');
-  // The strip re-anchored to that week rather than staying on the one we left.
   await expect(page.locator('[data-testid="week-day"][data-date="2026-07-22"]')).toHaveCount(1);
 });
 
@@ -74,10 +92,20 @@ test('Tasks is a peer view too, and still shows the work-back board', async ({ p
   await expect(page.getByTestId('task-row').first()).toBeVisible();
 });
 
-test('the add slot is per-day, and the only add affordance', async ({ page }) => {
+test('the add slot is per-day, the only add affordance, and it SHAPES (round 6, P1)', async ({ page }) => {
   await expect(page.getByTestId('add-slot')).toHaveCount(1);
   await expect(page.getByText('Add to your plan')).toHaveCount(0);
   await expect(page.getByText('Brief this month')).toHaveCount(0);
+
+  await page.getByTestId('add-slot').click();
+  // A sheet, not a blank card called Untitled.
+  await expect(page.getByTestId('add-sheet')).toBeVisible();
+  await expect(page.getByTestId('add-format')).toBeVisible();
+  await expect(page.getByTestId('add-subject')).toBeVisible();
+
+  // The grabber is a control now (P7): a plain tap on it closes the sheet.
+  await page.getByTestId('add-sheet-grabber').click();
+  await expect(page.getByTestId('add-sheet')).toHaveCount(0);
 });
 
 test('the microphone floats beside the nav pill, labelled for the committed month', async ({ page }) => {
