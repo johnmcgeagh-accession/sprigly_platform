@@ -43,9 +43,14 @@ function fakeData(over: Partial<PlanData> = {}): PlanData {
     today: TODAY, clientName: 'Earl of East', readOnly: false,
     canEdit: () => true,
     shapingIds: new Set<string>(),
+    hookGenerating: new Set<string>(), hookCandidates: new Map<string, string[]>(), hookError: new Map<string, string>(),
+    scriptGenerating: new Set<string>(), scriptError: new Map<string, string>(), shapeErrors: new Map<string, string>(),
     switchCycle: vi.fn(async () => {}), addPost: vi.fn(async () => {}),
     reschedule: vi.fn(), removePost: vi.fn(async () => {}), shape: vi.fn(async () => {}),
     track: vi.fn(), flash: vi.fn(), toggleStep: vi.fn(async () => {}),
+    changeFormat: vi.fn(async () => {}), regenerateChecklist: vi.fn(async () => {}),
+    generateHooks: vi.fn(async () => {}), generateScript: vi.fn(async () => {}),
+    saveHook: vi.fn(async () => {}), clearHookCandidates: vi.fn(),
     ...over,
   } as unknown as PlanData;
 }
@@ -74,11 +79,27 @@ describe('opening a post', () => {
     expect(screen.getByTestId('act-move').textContent).toBe('Move');
   });
 
-  it('caption is the default tab; a field with nothing in it is disabled', () => {
+  it('caption is the default tab; an empty one is OPEN, not disabled (round 6, P3)', () => {
     render(<CommittedSurface data={fakeData()} />);
     openSheet();
     expect(screen.getByTestId('tab-caption').getAttribute('aria-selected')).toBe('true');
-    expect((screen.getByTestId('tab-script') as HTMLButtonElement).disabled).toBe(true);
+    // The post is a reel with no script. Round 5 greyed this out, which said "broken" and
+    // nothing else; it now opens onto the thing that writes it.
+    expect((screen.getByTestId('tab-script') as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByTestId('tab-script'));
+    expect(screen.getByTestId('empty-field').textContent).toContain('No script yet');
+    expect(screen.getByTestId('generate-script')).toBeTruthy();
+  });
+
+  it('a single post has no hook or script tab at all — absent is not empty', () => {
+    render(<CommittedSurface data={fakeData({ posts: [post({ format: 'single', hook: null })] })} />);
+    openSheet();
+    expect(screen.queryByTestId('tab-hook')).toBeNull();
+    expect(screen.queryByTestId('tab-script')).toBeNull();
+    // And with one field there is no tab BAR either — a tablist of one is a label pretending
+    // to be a choice. The caption is simply the sheet's body.
+    expect(screen.queryByLabelText('Post fields')).toBeNull();
+    expect(screen.getByTestId('field-body').textContent).toContain('Wilderness is back.');
   });
 
   it('switching tab switches the words', () => {
@@ -420,5 +441,187 @@ describe('the grabber is a control (round 6, P7)', () => {
 
     expect(screen.queryByTestId('move-sheet')).toBeNull();
     expect(screen.getByTestId('detail-sheet')).toBeTruthy();   // the sheet it opened from stays
+  });
+});
+
+describe('the format control (round 6, P2)', () => {
+  it('is in the sheet, wired to the format mutation, and does not re-send the format it is on', () => {
+    const data = fakeData();
+    render(<CommittedSurface data={data} />);
+    openSheet();
+
+    expect(screen.getByTestId('format-control')).toBeTruthy();
+    expect(screen.getByTestId('format-reel').getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(screen.getByTestId('format-reel'));
+    expect(data.changeFormat).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('format-carousel'));
+    expect(data.changeFormat).toHaveBeenCalledWith('p1', 'carousel');
+  });
+
+  it('states the consequence honestly — nothing is cleared, so it does not say it was', async () => {
+    render(<CommittedSurface data={fakeData({ posts: [post({ script: 'Open on the shelf.' })] })} />);
+    openSheet();
+    await act(async () => { fireEvent.click(screen.getByTestId('format-single')); });
+
+    const note = screen.getByTestId('format-note').textContent ?? '';
+    expect(note).toContain('still saved');
+    expect(note).toContain('doesn’t use them');
+    expect(note).not.toMatch(/remov|delet|clear/i);
+  });
+
+  it('names what the NEW format still needs', async () => {
+    render(<CommittedSurface data={fakeData({ posts: [post({ format: 'single', hook: null })] })} />);
+    openSheet();
+    await act(async () => { fireEvent.click(screen.getByTestId('format-reel')); });
+
+    expect(screen.getByTestId('format-note').textContent).toContain('needs a hook and a script');
+  });
+
+  it('regenerates the checklist silently when nothing has been ticked', async () => {
+    const steps = [{ id: 's1', label: 'Shoot it', leadDays: 3, done: false, doneAt: null, sort: 0, createdBy: 'agent' as const }];
+    const data = fakeData({ posts: [post({ steps })] });
+    render(<CommittedSurface data={data} />);
+    openSheet();
+    await act(async () => { fireEvent.click(screen.getByTestId('format-carousel')); });
+
+    expect(data.regenerateChecklist).toHaveBeenCalledWith('p1');
+    expect(screen.queryByTestId('checklist-choice')).toBeNull();
+  });
+
+  it('ASKS when there is progress to lose, and keeping it calls nothing', async () => {
+    const steps = [{ id: 's1', label: 'Shoot it', leadDays: 3, done: true, doneAt: '2026-09-30T10:00:00Z', sort: 0, createdBy: 'agent' as const }];
+    const data = fakeData({ posts: [post({ steps })] });
+    render(<CommittedSurface data={data} />);
+    openSheet();
+    await act(async () => { fireEvent.click(screen.getByTestId('format-carousel')); });
+
+    expect(screen.getByTestId('checklist-choice')).toBeTruthy();
+    expect(data.regenerateChecklist).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('checklist-keep'));
+    expect(screen.queryByTestId('checklist-choice')).toBeNull();
+    expect(data.regenerateChecklist).not.toHaveBeenCalled();
+  });
+
+  it('is absent on a read-only day — you can read the post, not reshape it', () => {
+    render(<CommittedSurface data={fakeData({ canEdit: () => false })} />);
+    openSheet();
+    expect(screen.queryByTestId('format-control')).toBeNull();
+  });
+});
+
+describe('writing a missing hook or script (round 6, P3)', () => {
+  it('an empty hook tab explains and offers the action, and does NOT offer Shape', () => {
+    const data = fakeData({ posts: [post({ hook: null })] });
+    render(<CommittedSurface data={data} />);
+    openSheet();
+    fireEvent.click(screen.getByTestId('tab-hook'));
+
+    expect(screen.getByTestId('empty-field').textContent).toContain('Nothing is wrong with it.');
+    // Shape rewrites words. There are none, and shaping an empty field is a paid no-op.
+    expect(screen.queryByTestId('act-shape')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('generate-hook'));
+    expect(data.generateHooks).toHaveBeenCalledWith('p1');
+  });
+
+  it('the three candidates are a choice, and picking one saves it', () => {
+    const data = fakeData({
+      posts: [post({ hook: null })],
+      hookCandidates: new Map([['p1', ['One', 'Two', 'Three']]]),
+    });
+    render(<CommittedSurface data={data} />);
+    openSheet();
+    fireEvent.click(screen.getByTestId('tab-hook'));
+
+    expect(screen.getAllByTestId('hook-candidate')).toHaveLength(3);
+    fireEvent.click(screen.getAllByTestId('hook-candidate')[1]!);
+    expect(data.saveHook).toHaveBeenCalledWith('p1', 'Two');
+    expect(data.clearHookCandidates).toHaveBeenCalledWith('p1');
+  });
+
+  it('a script with no caption to build on says so and offers NOTHING — a 422 is worse than no offer', () => {
+    render(<CommittedSurface data={fakeData({ posts: [post({ caption: '', hook: null, script: null, title: 'A held slot' })] })} />);
+    openSheet();
+    // Nothing written at all → the planned-post variant, which has no tabs.
+    expect(screen.getByTestId('not-written-yet')).toBeTruthy();
+    expect(screen.queryByTestId('generate-script')).toBeNull();
+  });
+
+  it('the length picker is offered with the script action, seeded from the post', () => {
+    render(<CommittedSurface data={fakeData({ posts: [post({ scriptLengthSeconds: 60 })] })} />);
+    openSheet();
+    fireEvent.click(screen.getByTestId('tab-script'));
+
+    expect(screen.getByTestId('length-60').getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByTestId('length-15'));
+    fireEvent.click(screen.getByTestId('generate-script'));
+    // The chosen length rides along, not the default.
+    expect(screen.getByTestId('length-15').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('a generation in flight shows the skeleton, not the empty state', () => {
+    render(<CommittedSurface data={fakeData({
+      posts: [post({ hook: null })],
+      hookGenerating: new Set(['p1']),
+    })} />);
+    openSheet();
+    fireEvent.click(screen.getByTestId('tab-hook'));
+    expect(screen.getByTestId('skeleton')).toBeTruthy();
+    expect(screen.queryByTestId('empty-field')).toBeNull();
+  });
+});
+
+describe('a shape in flight (round 6, P11)', () => {
+  it('replaces the words being rewritten with a skeleton, so a second tap is not invited', () => {
+    render(<CommittedSurface data={fakeData({ shapingIds: new Set(['p1']) })} />);
+    openSheet();
+
+    expect(screen.getByTestId('skeleton')).toBeTruthy();
+    expect(screen.queryByTestId('field-body')).toBeNull();
+    // And Shape cannot be fired again while it runs.
+    expect((screen.getByTestId('act-shape') as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe('a post’s tasks, in its sheet (round 6, P9)', () => {
+  const steps = [
+    { id: 's1', label: 'Shoot it', leadDays: 3, done: false, doneAt: null, sort: 0, createdBy: 'agent' as const },
+    { id: 's2', label: 'Pick the shots', leadDays: 1, done: true, doneAt: '2026-09-30T10:00:00Z', sort: 1, createdBy: 'agent' as const },
+  ];
+
+  it('renders the post’s own steps, with the done one folded away', () => {
+    render(<CommittedSurface data={fakeData({ posts: [post({ steps })] })} />);
+    openSheet();
+
+    const tasks = screen.getByTestId('sheet-tasks');
+    expect(tasks.textContent).toContain('Shoot it');
+    // Done work is present and countable, but collapsed — never silently gone.
+    expect(tasks.textContent).toContain('Completed');
+    expect(tasks.textContent).not.toContain('Pick the shots');
+
+    fireEvent.click(screen.getByTestId('completed-toggle'));
+    expect(screen.getByTestId('completed-list').textContent).toContain('Pick the shots');
+  });
+
+  it('ticking one sends done, and un-ticking from Completed sends it back', () => {
+    const data = fakeData({ posts: [post({ steps })] });
+    render(<CommittedSurface data={data} />);
+    openSheet();
+
+    fireEvent.click(screen.getAllByTestId('task-check')[0]!);
+    expect(data.toggleStep).toHaveBeenCalledWith('p1', 's1', true);
+
+    fireEvent.click(screen.getByTestId('completed-toggle'));
+    fireEvent.click(screen.getByTestId('completed-list').querySelector('[data-testid="task-check"]')!);
+    expect(data.toggleStep).toHaveBeenCalledWith('p1', 's2', false);
+  });
+
+  it('a post with no steps gets no empty Tasks section', () => {
+    render(<CommittedSurface data={fakeData()} />);
+    openSheet();
+    expect(screen.queryByTestId('sheet-tasks')).toBeNull();
   });
 });

@@ -60,7 +60,16 @@ function fakeData(over: Partial<PlanData> = {}): PlanData {
     shapingIds: new Set<string>(),
     hookGenerating: new Set<string>(),
     hookCandidates: new Map<string, string[]>(),
+    hookError: new Map<string, string>(),
     scriptGenerating: new Set<string>(),
+    scriptError: new Map<string, string>(),
+    shapeErrors: new Map<string, string>(),
+    changeFormat: vi.fn(async () => {}),
+    regenerateChecklist: vi.fn(async () => {}),
+    generateHooks: vi.fn(async () => {}),
+    generateScript: vi.fn(async () => {}),
+    saveHook: vi.fn(async () => {}),
+    clearHookCandidates: vi.fn(),
     ...over,
   };
   return base as unknown as PlanData;

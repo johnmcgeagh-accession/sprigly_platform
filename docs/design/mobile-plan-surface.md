@@ -487,8 +487,8 @@ reel / carousel / single) that no screen would call. Rounds 2–5 flagged the co
 three options without choosing one.
 
 **The operator's phone check of Session A chose, and chose the opposite of the removal: the format
-control is reinstated.** A compact segmented `image / carousel / reel` control in the detail
-sheet's header region, wired to the mutation that already exists — `data.changeFormat` on a
+control is reinstated.** A compact segmented `Single post / Carousel / Reel` control in the
+detail sheet's header region, wired to the mutation that already exists — `data.changeFormat` on a
 committed post, `{op:'format'}` on a draft beat.
 
 **A conflicting ruling arrived in the same review and is superseded, not dropped.** One line of
@@ -519,7 +519,7 @@ that reads as a bug: you tapped *Plan a post for this day* and got a blank card 
 **It now opens a sheet before anything is written.** Two fields, both of them decisions the client
 already has in mind when they tap:
 
-1. **Format** — the same segmented `image / carousel / reel` control as §4.1.
+1. **Format** — the same segmented control as §4.1, with the terminology table's own words.
 2. **What is it?** — one line, free text. Optional, and labelled as optional.
 
 Submit creates the post *shaped*:

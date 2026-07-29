@@ -111,9 +111,10 @@ describe('narrow viewports (carry-in X7)', () => {
     // Each entry is a justification, not an exemption:
     //   PlanShell   — the month title. Three words, flanked by its own 40px arrows, and the
     //                 longest real value ('September 2026') measured inside 390px in round 3.
-    //   TasksPanel  — the due chip: 'Late' or 'Oct 3'. flex-none beside a truncating body, so
-    //                 it is the one thing on the row that must NOT wrap.
-    const allowed = new Set(['PlanShell.tsx', 'TasksPanel.tsx']);
+    //   TaskList    — the due chip: 'Late' or 'Oct 3'. flex-none beside a truncating body, so
+    //                 it is the one thing on the row that must NOT wrap. (It lived in
+    //                 TasksPanel until the row was shared with the detail sheet — round 6, P9.)
+    const allowed = new Set(['PlanShell.tsx', 'TaskList.tsx']);
     const offenders: string[] = [];
     for (const f of FILES) {
       const name = f.split('/').pop()!;

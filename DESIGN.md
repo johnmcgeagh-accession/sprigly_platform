@@ -406,10 +406,12 @@ skeleton rather than staying stale. Copy exists **only here** — it belongs bes
 copies, not on the card. A tab whose field is empty **explains and offers to write it** rather
 than disabling itself.
 
-**Format control.** A compact segmented `image / carousel / reel`, icons with a word, the selected
-segment filled `accent-650` with white. It sits in the detail sheet and in the add sheet, and it is
-the same component in both — choosing a format when you create a post and changing it afterwards
-are the same decision at two moments.
+**Format control.** A compact segmented `Single post / Carousel / Reel`, each an icon with its
+word, the selected segment filled `accent-650` with white. The words are the terminology table's,
+not new ones: `single` is the image format everywhere else on the surface, and a control that
+names formats differently from the cards has to be learned twice. It sits in the detail sheet and
+in the add sheet, and it is the same component in both — choosing a format when you create a post
+and changing it afterwards are the same decision at two moments.
 
 In shape mode the footer is **replaced wholesale**: a full-width `accent-650` submit, and beside
 it a **quiet neutral cancel** — the word *Cancel*, `surface` fill, hairline, `muted` label.
