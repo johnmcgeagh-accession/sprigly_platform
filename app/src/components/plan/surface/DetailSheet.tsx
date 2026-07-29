@@ -33,7 +33,7 @@ import React, { useEffect, useState } from 'react';
 import type { PlanPost } from '@/lib/types';
 import type { PlanData, ShapeTarget } from '../usePlanData';
 import { FormatTile, InfoGlyph, CopyGlyph, CalGlyph, SparkleGlyph, BinGlyph, SendGlyph, FORMAT_WORD } from './icons';
-import { cardText } from './card-text';
+import { cardText, realCaption } from './card-text';
 import { dayTitle } from './dates';
 import { isOnTheWay, ON_THE_WAY_LABEL, ON_THE_WAY_BODY } from '@/lib/generation-state';
 import { Sheet } from './Sheet';
@@ -50,8 +50,13 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'script', label: 'Script' },
 ];
 
+/**
+ * What a tab shows. The caption goes through `realCaption`, so a row still holding
+ * `DRAFT_PLACEHOLDER_CAPTION` reads as EMPTY here exactly as it does on the card — the sheet
+ * asking `!!post.caption` instead is what let a placeholder pose as content (see card-text.ts).
+ */
 const fieldOf = (post: PlanPost, tab: Tab): string =>
-  (tab === 'caption' ? post.caption : tab === 'hook' ? post.hook : post.script) ?? '';
+  (tab === 'caption' ? realCaption(post) : tab === 'hook' ? post.hook : post.script) ?? '';
 
 /**
  * Which tabs this format HAS, as opposed to which ones happen to be filled (round 6, P3).
@@ -111,7 +116,7 @@ export function DetailSheet({
 
   const { heading } = cardText(post);
   const onWay = isOnTheWay(post.status);
-  const written = !!(post.caption || post.hook || post.script);
+  const written = !!(realCaption(post) || post.hook || post.script);
   const editable = data.canEdit(post.date);
   const body = fieldOf(post, tab);
   const busy = data.shapingIds.has(post.id);
@@ -427,7 +432,9 @@ function EmptyField({
     );
   }
 
-  const needsCaption = tab === 'script' && !post.caption.trim();
+  // A script is built around the caption. A placeholder is not a caption, and generating
+  // from one writes a hook and a script about our own scaffolding sentence.
+  const needsCaption = tab === 'script' && !realCaption(post);
   const why = tab === 'hook'
     ? 'This one was written before hooks, or its format changed. Nothing is wrong with it.'
     : 'This one has no script yet — either its format changed, or it was written before scripts.';
