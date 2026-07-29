@@ -1,11 +1,13 @@
 # The phone re-check — fixes
 
-Branch `dev`. Two commits, never pushed, never promoted.
+Branch `dev`. Four commits, never pushed, never promoted.
 
 | | |
 |---|---|
 | `1269673` | fix: the agent follows the month you are looking at |
 | `ee64746` | fix: the surface reads as one sheet, and the agent has one voice |
+| `52487f9` | docs: the phone re-check fixes — the report |
+| `8686ab0` | fix: a transcript is not announced whole *(the audit's own finding)* |
 
 ---
 
@@ -318,7 +320,7 @@ confirmation gets.
 | gate | result |
 |---|---|
 | `tsc --noEmit` | clean |
-| unit / interaction | **816 passed**, 14 skipped |
+| unit / interaction | **821 passed**, 14 skipped |
 | tokens fence | 10 passed — no hex, no Tailwind slate, every colour through `--t-*` |
 | terminology fence | 4 passed — no "beat", no retry/failed in client copy |
 | draft invisibility | 5 passed |
