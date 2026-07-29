@@ -51,3 +51,37 @@ test('the day begins in the top fifth of the screen at 390px', async ({ page }, 
   await expect(page.getByTestId('draft-badge')).toHaveCount(0);
   await expect(page.getByTestId('ready-pill')).toHaveCount(0);
 });
+
+test('nothing overflows sideways at 320px, sheet included', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile', 'a phone-width measurement');
+  reseed();
+  await page.setViewportSize({ width: 320, height: 844 });
+  await page.goto('/');
+  await expect(page.getByTestId('plan-shell')).toBeVisible();
+
+  const overflow = () => page.evaluate(() =>
+    document.documentElement.scrollWidth - document.documentElement.clientWidth);
+
+  expect(await overflow(), 'the month view').toBeLessThanOrEqual(0);
+
+  // The action row is the tightest thing on the surface: three buttons, each a 17px glyph and a
+  // 15px label on ONE line (round 7, fix 5). "Delete" is the widest label.
+  await page.getByTestId('post-card').first().click();
+  await expect(page.getByTestId('detail-sheet')).toBeVisible();
+  expect(await overflow(), 'the detail sheet').toBeLessThanOrEqual(0);
+
+  for (const id of ['act-move', 'act-shape', 'act-delete']) {
+    const box = await page.getByTestId(id).boundingBox();
+    expect(box, id).not.toBeNull();
+    // Still over the 44px thumb floor after the restyle, and inside the viewport.
+    expect(box!.height, `${id} height`).toBeGreaterThanOrEqual(44);
+    expect(box!.x + box!.width, `${id} right edge`).toBeLessThanOrEqual(320);
+  }
+
+  // …and the label is not clipped: the button is at least as wide as its own content.
+  const label = await page.getByTestId('act-delete').evaluate((el) => {
+    const span = el.querySelector('span')!;
+    return { scroll: span.scrollWidth, client: span.clientWidth };
+  });
+  expect(label.scroll, 'Delete label clipped').toBeLessThanOrEqual(label.client + 1);
+});
