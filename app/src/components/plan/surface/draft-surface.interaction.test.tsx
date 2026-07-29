@@ -302,7 +302,15 @@ describe('structural edits, and one slot of undo', () => {
     });
   });
 
-  it('replaces the month from the SERVER’s list rather than predicting the outcome', async () => {
+  /** Every setDraft updater, applied in order to a starting draft — what the client ends up with. */
+  const settled = (data: PlanData, from: DraftBeatView[]) => {
+    const calls = (data.setDraft as unknown as { mock: { calls: [(d: unknown) => unknown][] } }).mock.calls;
+    let state: unknown = { beats: from, pillars: [], editable: true, receipts: [] };
+    for (const [updater] of calls) state = updater(state);
+    return state as { beats: DraftBeatView[] };
+  };
+
+  it('shows the move IMMEDIATELY, then settles on the SERVER’s list (round 7, fix 3)', async () => {
     const authoritative = [beat({ id: 'b1', date: '2026-10-22' }), beat({ id: 'b9', date: '2026-10-30' })];
     stubFetch({ beats: authoritative });
     const data = fakeData();
@@ -312,14 +320,16 @@ describe('structural edits, and one slot of undo', () => {
     fireEvent.click(document.querySelector('[data-testid="grid-cell"][data-date="2026-10-22"]')!);
     await act(async () => { fireEvent.click(screen.getByTestId('move-confirm')); });
 
-    // A rejected mutation can then never leave the client showing a change that did not happen.
-    const updater = (data.setDraft as unknown as { mock: { calls: [(d: unknown) => unknown][] } }).mock.calls[0]![0];
-    expect(updater({ beats: [], pillars: [], editable: true, receipts: [] })).toEqual({
-      beats: authoritative, pillars: [], editable: true, receipts: [],
-    });
+    const calls = (data.setDraft as unknown as { mock: { calls: [(d: unknown) => unknown][] } }).mock.calls;
+    // FIRST the optimistic patch — the card moves under the thumb…
+    const first = calls[0]![0]({ beats: [beat()], pillars: [], editable: true, receipts: [] }) as { beats: DraftBeatView[] };
+    expect(first.beats[0]!.date).toBe('2026-10-22');
+    // …and LAST the server's authoritative list, so a rejected mutation can never leave the
+    // client showing a change that did not happen.
+    expect(settled(data, [beat()]).beats).toEqual(authoritative);
   });
 
-  it('a refused write says so and changes nothing', async () => {
+  it('A REFUSED WRITE ROLLS BACK VISIBLY, and says why', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: false, json: async () => ({ ok: false, message: 'This month’s draft is closed for changes.' }),
     }) as unknown as Response));
@@ -329,8 +339,23 @@ describe('structural edits, and one slot of undo', () => {
     await act(async () => { fireEvent.click(screen.getByTestId('act-delete')); });
 
     await waitFor(() => expect(data.flash).toHaveBeenCalledWith('This month’s draft is closed for changes.'));
-    expect(data.setDraft).not.toHaveBeenCalled();
+    // The beat went, and came back. What matters is where the client ends up: exactly where they
+    // started. A change that silently stays after a refusal is the failure this guards against.
+    expect(settled(data, [beat()]).beats).toEqual([beat()]);
     expect(screen.queryByTestId('feedback-undo')).toBeNull();
+  });
+
+  it('a refused FORMAT change puts the format back', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false, json: async () => ({ ok: false, message: 'That isn’t a format we can plan for.' }),
+    }) as unknown as Response));
+    const data = fakeData();
+    render(<DraftSurface data={data} />);
+    open();
+    await act(async () => { fireEvent.click(screen.getByTestId('format-carousel')); });
+
+    await waitFor(() => expect(data.flash).toHaveBeenCalledWith('That isn’t a format we can plan for.'));
+    expect(settled(data, [beat()]).beats[0]!.format).toBe('reel');
   });
 });
 
