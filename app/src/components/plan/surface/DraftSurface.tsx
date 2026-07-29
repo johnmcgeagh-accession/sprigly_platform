@@ -51,6 +51,9 @@ import { VoiceSheet } from './VoiceSheet';
 import { TasksPanel } from './TasksPanel';
 import { firstAnswerable, assumptionPrompt } from '@/lib/draft-rationale';
 import { Feedback } from './Feedback';
+import { SummaryChip } from './SummaryChip';
+import { ReceiptPanel } from './ReceiptPanel';
+import { chipLabel } from './receipt-summary';
 import { MonthDaySummary } from './rows';
 import { useDraftMonth } from './useDraftMonth';
 import { defaultDayFor, monthOf, monthTitle, monthGrid } from './dates';
@@ -81,6 +84,7 @@ export function DraftSurface({ data }: { data: PlanData }) {
   const [addFor, setAddFor] = useState<string | null>(null);
   /** null = closed. A string = open, answering that question. '' = open, no question. */
   const [voiceFor, setVoiceFor] = useState<string | null>(null);
+  const [receiptOpen, setReceiptOpen] = useState(false);
 
   // Re-anchor the selection when the MONTH changes, not on every render.
   const [anchoredMonth, setAnchoredMonth] = useState(month);
@@ -130,14 +134,6 @@ export function DraftSurface({ data }: { data: PlanData }) {
     : `${monthBeats.length} planned post${monthBeats.length === 1 ? '' : 's'} across ${monthName}. Tap a day to see it.`;
 
   /**
-   * The thin-month acknowledgement, at the FOOT of the day.
-   *
-   * It goes after the client has read what there is, never before it as a caveat: the same
-   * information phrased as an invitation reads as confidence, and phrased as a warning reads as
-   * an excuse. There is no second approval button here — the mic and the Generate pill are both
-   * already on screen.
-   */
-  /**
    * The one assumption worth surfacing, re-voiced as a nudge.
    *
    * The assembler attaches the SAME list to every planned post, so it belongs to the month and
@@ -154,6 +150,24 @@ export function DraftSurface({ data }: { data: PlanData }) {
     return firstAnswerable([...seen]);
   }, [m.beats]);
 
+  /**
+   * The chip's line, derived from the receipt's OWN diff lines — never narrated, and never a
+   * number this surface computed for itself. Empty when the application changed nothing and
+   * filed nothing, in which case there is no chip at all rather than one reading "0 changes".
+   */
+  const label = chipLabel(m.receipt);
+  // The panel cannot outlive its chip: clearing the receipt while expanded would leave the
+  // content region rendering a record that is no longer on screen anywhere.
+  const showingReceipt = receiptOpen && !!m.receipt && !!label;
+
+  /**
+   * The thin-month acknowledgement, at the FOOT of the day.
+   *
+   * It goes after the client has read what there is, never before it as a caveat: the same
+   * information phrased as an invitation reads as confidence, and phrased as a warning reads as
+   * an excuse. There is no second approval button here — the mic and the Generate pill are both
+   * already on screen.
+   */
   const thin = editable && monthBeats.length > 0 && monthBeats.length <= THIN_MONTH_MAX;
   const thinNote = thin ? (
     <p data-testid="thin-month" className="mt-4 px-1 text-[13.5px] leading-normal text-muted">
@@ -179,7 +193,7 @@ export function DraftSurface({ data }: { data: PlanData }) {
       onPrevMonth={prev ? () => void data.switchCycle(prev.cycleId) : undefined}
       onNextMonth={next ? () => void data.switchCycle(next.cycleId) : undefined}
       view={view}
-      onView={(v) => { setView(v); data.track('view_switched', { view: v, surface: 'draft' }); }}
+      onView={(v) => { setView(v); setReceiptOpen(false); data.track('view_switched', { view: v, surface: 'draft' }); }}
       // THE MIC'S CONSEQUENCE HERE IS DIRECT: one sentence adds, moves or replaces planned posts
       // and returns a receipt (`POST /api/plan/draft/apply`). On a committed month the same
       // gesture raises proposals the client then approves. Same icon, different consequence, and
@@ -203,6 +217,7 @@ export function DraftSurface({ data }: { data: PlanData }) {
         </span>
       }
       topSlot={<Feedback undo={m.undo} onDismiss={() => m.setUndo(null)} message={data.toast} />}
+      chip={<SummaryChip label={label} expanded={receiptOpen} onToggle={() => setReceiptOpen((v) => !v)} />}
       overlays={<>
         <DraftDetailSheet
           beat={openBeat} editable={editable} busy={m.busy}
@@ -242,7 +257,7 @@ export function DraftSurface({ data }: { data: PlanData }) {
           />
         )}
       </>}
-      strip={view === 'day' ? (
+      strip={view === 'day' && !showingReceipt ? (
         <WeekStrip
           selected={selected} today={data.today} month={month}
           markFor={markFor} countFor={(iso) => beatsOn(iso).length}
@@ -250,7 +265,23 @@ export function DraftSurface({ data }: { data: PlanData }) {
         />
       ) : null}
     >
-      {view === 'day' && (
+      {/* THE PANEL REPLACES THE VIEW rather than stacking over it. Not a sheet: a sheet implies
+          a task to finish and a way out to find, and this is a thing to read. The nav pill stays
+          live underneath, so leaving is the same gesture as changing view. */}
+      {showingReceipt && m.receipt && (
+        <ReceiptPanel
+          receipt={m.receipt} monthName={monthName} editable={editable} rescuing={m.busy}
+          onRescue={(id) => void m.addToMonth(id, m.rescueDate())}
+          onClear={() => {
+            setReceiptOpen(false);
+            // Clearing the summary NEVER un-marks what changed: "New" is `changedIds`, a
+            // different piece of state with a different lifetime (spec §3).
+            m.setReceipt(null);
+          }}
+        />
+      )}
+
+      {!showingReceipt && view === 'day' && (
         <DraftDayPanel
           date={selected} today={data.today}
           beats={beatsOn(selected)}
@@ -265,7 +296,7 @@ export function DraftSurface({ data }: { data: PlanData }) {
           footer={thinNote}
         />
       )}
-      {view === 'month' && (
+      {!showingReceipt && view === 'month' && (
         <MonthGrid
           month={month} selected={selected} today={data.today}
           marksFor={marksFor} onPick={setSelected} footer={monthFooter}
@@ -278,7 +309,7 @@ export function DraftSurface({ data }: { data: PlanData }) {
           }
         />
       )}
-      {view === 'tasks' && <TasksPanel data={data} onOpen={() => {}} />}
+      {!showingReceipt && view === 'tasks' && <TasksPanel data={data} onOpen={() => {}} />}
     </PlanShell>
   );
 }

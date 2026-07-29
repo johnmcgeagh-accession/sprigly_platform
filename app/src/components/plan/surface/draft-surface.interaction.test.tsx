@@ -477,3 +477,191 @@ describe('the assumption, re-voiced as a nudge', () => {
     expect(screen.queryByTestId('assumption-nudge')).toBeNull();
   });
 });
+
+describe('the what-changed chip (spec §3)', () => {
+  const withReceipt = (r: Record<string, unknown>) => {
+    const data = fakeData();
+    (data.draft as { receipts: unknown[] }).receipts = [r];
+    return data;
+  };
+
+  const ARC = {
+    id: 'r1', at: '', sourceText: 'The Navy Edit launches on 28th August at 7pm', scope: 'month_scoped',
+    changedIds: ['b1'],
+    lines: [
+      'Added: The Navy Edit — Tease, Wed 26 Aug',
+      'Added: The Navy Edit — Launch, Fri 28 Aug',
+      'Added: The Navy Edit — Follow, Sun 30 Aug',
+      'Replaced: Understands Real Women — Reel, Wed 26 Aug',
+      'Replaced: Sustainable & Considered — Single post, Fri 28 Aug',
+      'Replaced: Quality & Craft — Carousel, Sun 30 Aug',
+    ],
+  };
+
+  it('states the counts and NEVER grows — 48px for one change and for fourteen', () => {
+    render(<DraftSurface data={withReceipt(ARC)} />);
+    const chip = screen.getByTestId('summary-chip');
+    expect(screen.getByTestId('summary-counts').textContent).toBe('3 added · 3 replaced');
+    expect(chip.className).toContain('h-12');
+    // Truncation rather than wrapping is what makes the height a promise.
+    expect(screen.getByTestId('summary-counts').className).toContain('truncate');
+  });
+
+  it('is ONE control — the whole chip toggles, and there is no ✕ to hit by accident', () => {
+    render(<DraftSurface data={withReceipt(ARC)} />);
+    const chip = screen.getByTestId('summary-chip');
+    expect(chip.getAttribute('aria-expanded')).toBe('false');
+    expect(within(chip).queryByLabelText(/dismiss|close/i)).toBeNull();
+
+    fireEvent.click(chip);
+    expect(chip.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByTestId('receipt-panel')).toBeTruthy();
+
+    fireEvent.click(chip);
+    expect(screen.queryByTestId('receipt-panel')).toBeNull();
+  });
+
+  it('the panel REPLACES the view rather than stacking over it — no scrim, nav still live', () => {
+    render(<DraftSurface data={withReceipt(ARC)} />);
+    fireEvent.click(screen.getByTestId('summary-chip'));
+
+    expect(screen.queryByTestId('day-panel')).toBeNull();
+    expect(screen.queryByTestId('week-strip')).toBeNull();
+    expect(screen.getByTestId('nav-pill')).toBeTruthy();
+
+    // Changing view is the way out, and it is the gesture already on screen.
+    fireEvent.click(screen.getByTestId('nav-month'));
+    expect(screen.queryByTestId('receipt-panel')).toBeNull();
+    expect(screen.getByTestId('month-grid')).toBeTruthy();
+  });
+
+  it('the expanded panel lists the deltas the receipt recorded, in its own words', () => {
+    render(<DraftSurface data={withReceipt(ARC)} />);
+    fireEvent.click(screen.getByTestId('summary-chip'));
+
+    const lines = screen.getAllByTestId('receipt-line').map((n) => n.textContent);
+    expect(lines).toHaveLength(6);
+    expect(lines[0]).toContain('Added: The Navy Edit — Tease, Wed 26 Aug');
+    expect(screen.getByTestId('receipt-source').textContent).toContain('The Navy Edit launches on 28th August');
+  });
+
+  it('CLEARING KEEPS THE HIGHLIGHTS — they are different state with a different lifetime', () => {
+    render(<DraftSurface data={withReceipt(ARC)} />);
+    expect(screen.getByTestId('draft-card').getAttribute('data-changed')).toBe('true');
+
+    fireEvent.click(screen.getByTestId('summary-chip'));
+    fireEvent.click(screen.getByTestId('clear-summary'));
+
+    expect(screen.queryByTestId('summary-chip')).toBeNull();
+    expect(screen.queryByTestId('receipt-panel')).toBeNull();
+    // The card is still marked. Clearing the summary never un-marks what changed.
+    expect(screen.getByTestId('draft-card').getAttribute('data-changed')).toBe('true');
+    expect(screen.getByTestId('changed-badge')).toBeTruthy();
+  });
+
+  it('there is NO chip when the application changed nothing', () => {
+    render(<DraftSurface data={withReceipt({ id: 'r', at: '', sourceText: 'x', scope: 'month_scoped', lines: [], changedIds: [] })} />);
+    expect(screen.queryByTestId('summary-chip')).toBeNull();
+  });
+
+  it('an evergreen filing still says where it went, and offers the way back', () => {
+    render(<DraftSurface data={withReceipt({
+      id: 'r', at: '', sourceText: 'breakdown of how our sweatshirts are made', scope: 'evergreen',
+      lines: [], changedIds: [], planInputId: 'pi-1',
+    })} />);
+    expect(screen.getByTestId('summary-counts').textContent).toBe('Saved to your ideas');
+
+    fireEvent.click(screen.getByTestId('summary-chip'));
+    expect(screen.getByTestId('receipt-panel').textContent).toContain('kept this for later');
+    expect(screen.getByTestId('add-to-this-month')).toBeTruthy();
+  });
+
+  it('a failed extraction ADMITS it rather than calling it a filing they asked for', () => {
+    render(<DraftSurface data={withReceipt({
+      id: 'r', at: '', sourceText: 'x', scope: 'evergreen', reason: 'couldnt_apply',
+      lines: [], changedIds: [],
+    })} />);
+    expect(screen.getByTestId('summary-counts').textContent).toBe('We couldn’t apply that');
+    fireEvent.click(screen.getByTestId('summary-chip'));
+    expect(screen.getByTestId('receipt-panel').textContent).toContain('couldn’t work this into October');
+  });
+});
+
+describe('the itemised rollup (mockup 08)', () => {
+  /** Sally's August brief, in shape: 14 segments, 8 applied, 6 filed. */
+  const SALLY = {
+    id: 'r1', at: '', sourceText: '~700 words', scope: 'month_scoped', changedIds: [],
+    lines: [], segmentCount: 14,
+    items: [
+      { span: 'The Navy Edit launches on 28th August at 7pm', outcome: 'applied', kind: 'launch',
+        lines: ['Added a launch build-up — 3 posts around Fri 28 Aug'], changedIds: [] },
+      { span: 'Weekend Style Guide every Friday … 4th September', outcome: 'applied', kind: 'series',
+        lines: ['Added 4 posts — Fri 7, 14, 21 and 28 Aug'], changedIds: [], deferredCount: 1 },
+      ...Array.from({ length: 6 }, (_, i) => ({
+        span: `an evergreen idea ${i}`, outcome: 'idea', lines: [], changedIds: [],
+        planInputId: `pi-${i}`, note: 'Kept for later rather than changing August.',
+      })),
+    ],
+  };
+
+  const openRollup = () => {
+    const data = fakeData();
+    (data.draft as { receipts: unknown[] }).receipts = [SALLY];
+    render(<DraftSurface data={data} />);
+    fireEvent.click(screen.getByTestId('summary-chip'));
+  };
+
+  it('the chip counts applied and saved; the panel renders the DECOMPOSER’s segment count', () => {
+    openRollup();
+    expect(screen.getByTestId('summary-counts').textContent).toBe('2 applied · 6 saved');
+    // 14, not 8: segmentCount is what the decomposer found, not what we chose to show.
+    expect(screen.getByTestId('receipt-panel').textContent).toContain('We found 14 things in what you sent');
+  });
+
+  it('one line per segment, in the client’s own words', () => {
+    openRollup();
+    const items = screen.getAllByTestId('brief-item');
+    expect(items).toHaveLength(8);
+    expect(items[0]!.textContent).toContain('The Navy Edit launches on 28th August at 7pm');
+  });
+
+  it('an applied line expands to its own diff, collapsed by default', () => {
+    openRollup();
+    expect(screen.queryByTestId('item-diff')).toBeNull();
+    fireEvent.click(screen.getAllByTestId('item-diff-toggle')[0]!);
+    expect(screen.getByTestId('item-diff').textContent).toContain('Added a launch build-up — 3 posts around Fri 28 Aug');
+  });
+
+  it('says what it deferred rather than dropping it silently', () => {
+    openRollup();
+    expect(screen.getAllByTestId('brief-item')[1]!.textContent).toContain('1 saved for next month');
+  });
+
+  it('NOTHING is silently demoted — an idea line says so and carries the way back', () => {
+    openRollup();
+    const idea = screen.getAllByTestId('brief-item').find((n) => n.getAttribute('data-outcome') === 'idea')!;
+    expect(idea.textContent).toContain('Kept for later rather than changing August.');
+    expect(within(idea).getByTestId('add-to-this-month')).toBeTruthy();
+  });
+
+  it('the rescue tap sends the backlog row and a date inside this month', async () => {
+    const calls = stubFetch({ beats: [beat()] });
+    openRollup();
+    const idea = screen.getAllByTestId('brief-item').find((n) => n.getAttribute('data-outcome') === 'idea')!;
+    await act(async () => { fireEvent.click(within(idea).getByTestId('add-to-this-month')); });
+
+    expect(calls[0]!.url).toBe('/api/plan/draft/apply');
+    expect(calls[0]!.body).toEqual({ op: 'add_to_month', planInputId: 'pi-0', date: TODAY });
+  });
+
+  it('a read-only month reads the rollup and rescues nothing', () => {
+    const data = fakeData();
+    (data.draft as { receipts: unknown[]; editable: boolean }).receipts = [SALLY];
+    (data.draft as { editable: boolean }).editable = false;
+    render(<DraftSurface data={data} />);
+    fireEvent.click(screen.getByTestId('summary-chip'));
+
+    expect(screen.getAllByTestId('brief-item')).toHaveLength(8);
+    expect(screen.queryByTestId('add-to-this-month')).toBeNull();
+  });
+});

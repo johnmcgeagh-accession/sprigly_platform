@@ -41,7 +41,7 @@ export function PlanShell({
   monthLabel, onPrevMonth, onNextMonth,
   view, onView, onMic, micLabel, tasksDot,
   onToday, todayEnabled,
-  badge, headerRight, strip, topSlot, overlays, children,
+  badge, headerRight, chip, strip, topSlot, overlays, children,
 }: {
   monthLabel: string;
   /** Absent → the arrow is disabled, not hidden. A month edge is a fact worth showing. */
@@ -58,6 +58,9 @@ export function PlanShell({
   badge?: React.ReactNode | undefined;
   /** Right of the title row, in the space the round-3 Week|Month switcher vacated. */
   headerRight?: React.ReactNode | undefined;
+  /** The what-changed chip, between the Today row and the strip (spec §3). Fixed height, and
+   *  the only thing allowed to sit here — a receipt must never push the day off the fold. */
+  chip?: React.ReactNode | undefined;
   /** The week strip, on the day view. Month view passes null and renders its grid as children. */
   strip?: React.ReactNode | undefined;
   /** Above everything — the ONE feedback channel, which renders at the TOP so it never sits
@@ -115,6 +118,8 @@ export function PlanShell({
           Today
         </button>
       </div>
+
+      {chip && <div className="flex-none pt-2">{chip}</div>}
 
       {strip}
       {strip && <div className="mx-5 h-px flex-none bg-line/30" aria-hidden="true" />}
