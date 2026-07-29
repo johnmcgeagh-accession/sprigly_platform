@@ -331,6 +331,17 @@ export function usePlanData(init: PlanDataInit) {
   const revert = useCallback((id: string) => call(`/api/posts/${id}/revert`, 'POST'), [call]);
   const removePost = useCallback((id: string) => call(`/api/posts/${id}`, 'DELETE'), [call]);
   const addPost = useCallback((dateIso: string) => call('/api/posts', 'POST', { date: dateIso, cycleId: viewedCycleId }), [call, viewedCycleId]);
+  /**
+   * Add a post the client has already SHAPED (round 6, P1): a format, and optionally what it is
+   * about. With a subject the route takes the slot and starts writing into it; without one it is
+   * `addPost` with a format. One action rather than two so the surface cannot drift into calling
+   * the plain add and then "fixing" the format afterwards, which is what the empty slot forced.
+   */
+  const addShapedPost = useCallback(
+    (dateIso: string, format: string, subject: string) =>
+      call('/api/posts', 'POST', { date: dateIso, cycleId: viewedCycleId, format, ...(subject ? { instruction: subject } : {}) }),
+    [call, viewedCycleId],
+  );
 
   /** Merge a fresh steps array for one post into local state (steps endpoints return
    *  { steps } for that post). */
@@ -613,7 +624,7 @@ export function usePlanData(init: PlanDataInit) {
     hookGenerating, hookCandidates, hookError,
     scriptGenerating, scriptError, weather,
     // actions
-    reschedule, saveCaption, revert, removePost, addPost,
+    reschedule, saveCaption, revert, removePost, addPost, addShapedPost,
     generateChecklist, addStep, toggleStep, renameStep, shape, retryShape, ask, decide, switchCycle,
     refreshProposals, refreshNotes, setAgentReply, setAgentError, flash, track,
     saveHook, generateHooks, clearHookCandidates,

@@ -54,6 +54,7 @@ function fakeData(over: Partial<PlanData> = {}): PlanData {
     canEdit: () => true,
     switchCycle: vi.fn(async () => {}),
     addPost: vi.fn(async () => {}),
+    addShapedPost: vi.fn(async () => {}),
     track: vi.fn(),
     flash: vi.fn(),
     toggleStep: vi.fn(async () => {}),
@@ -252,13 +253,53 @@ describe('the week pager (round 6, P5)', () => {
 });
 
 describe('the per-day add slot', () => {
-  it('adds to the day you are LOOKING at, not to the month', async () => {
+  it('OPENS THE SHAPING SHEET rather than creating an empty post (round 6, P1)', () => {
+    const data = fakeData({ posts: [post()] });
+    render(<CommittedSurface data={data} />);
+    fireEvent.click(screen.getByTestId('add-slot'));
+
+    expect(screen.getByTestId('add-sheet')).toBeTruthy();
+    // Nothing has been written. The old slot created a blank card called "Untitled" here.
+    expect(data.addShapedPost).not.toHaveBeenCalled();
+  });
+
+  it('adds to the day you are LOOKING at, not to the month, with the format you chose', () => {
     const data = fakeData({ posts: [post()] });
     render(<CommittedSurface data={data} />);
     fireEvent.click(document.querySelector('[data-testid="week-day"][data-date="2026-10-03"]')!);
     fireEvent.click(screen.getByTestId('add-slot'));
+    fireEvent.click(within(screen.getByTestId('add-format')).getByTestId('format-carousel'));
+    fireEvent.change(screen.getByTestId('add-subject'), { target: { value: 'The candle, back in stock' } });
+    fireEvent.click(screen.getByTestId('add-confirm'));
 
-    expect(data.addPost).toHaveBeenCalledWith('2026-10-03');
+    expect(data.addShapedPost).toHaveBeenCalledWith('2026-10-03', 'carousel', 'The candle, back in stock');
+    expect(screen.queryByTestId('add-sheet')).toBeNull();
+  });
+
+  it('a subject is genuinely optional — submitting without one still creates the slot', () => {
+    const data = fakeData({ posts: [post()] });
+    render(<CommittedSurface data={data} />);
+    fireEvent.click(screen.getByTestId('add-slot'));
+    fireEvent.click(screen.getByTestId('add-confirm'));
+
+    expect(data.addShapedPost).toHaveBeenCalledWith(TODAY, 'single', '');
+  });
+
+  it('a subject typed for one day does not follow you to another', () => {
+    render(<CommittedSurface data={fakeData({ posts: [post()] })} />);
+    fireEvent.click(screen.getByTestId('add-slot'));
+    fireEvent.change(screen.getByTestId('add-subject'), { target: { value: 'meant for Thursday' } });
+    fireEvent.click(screen.getByTestId('add-sheet-scrim'));
+
+    fireEvent.click(document.querySelector('[data-testid="week-day"][data-date="2026-10-03"]')!);
+    fireEvent.click(screen.getByTestId('add-slot'));
+    expect((screen.getByTestId('add-subject') as HTMLTextAreaElement).value).toBe('');
+  });
+
+  it('a committed month asks no pillar — it has nowhere honest to put the answer', () => {
+    render(<CommittedSurface data={fakeData({ posts: [post()] })} />);
+    fireEvent.click(screen.getByTestId('add-slot'));
+    expect(screen.queryByTestId('add-pillar')).toBeNull();
   });
 
   it('is absent on a day the client may not edit', () => {

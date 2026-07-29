@@ -36,6 +36,7 @@ import { DayPanel } from './DayPanel';
 import { TasksPanel } from './TasksPanel';
 import { DetailSheet } from './DetailSheet';
 import { MoveSheet } from './MoveSheet';
+import { AddSheet } from './AddSheet';
 import { Feedback, type UndoState } from './Feedback';
 import { MonthDaySummary, rowsFromPosts } from './rows';
 import { defaultDayFor, monthOf, monthTitle, monthGrid, shortDate } from './dates';
@@ -53,6 +54,9 @@ export function CommittedSurface({ data }: { data: PlanData }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [moveId, setMoveId] = useState<string | null>(null);
   const [undo, setUndo] = useState<UndoState | null>(null);
+  /** The day the add sheet is open for, or null. Held as a DATE rather than a boolean so the
+   *  sheet cannot be open for one day while the panel shows another. */
+  const [addFor, setAddFor] = useState<string | null>(null);
 
   // Re-anchor the selection when the MONTH changes, not on every render: switching to October
   // while standing on 3 September has to move, and an unrelated post edit must not.
@@ -188,6 +192,19 @@ export function CommittedSurface({ data }: { data: PlanData }) {
           onMove={() => { if (openPost) setMoveId(openPost.id); }}
           onDelete={() => { if (openPost) doDelete(openPost); }}
         />
+        {/* ROUND 6, P1 — the add slot opens this instead of creating an empty post. A committed
+            month needs no pillar: `addGeneratingPost` files a new idea under "New idea" rather
+            than asking the client to categorise something they have not written yet. */}
+        {addFor && (
+          <AddSheet
+            open date={addFor} pillars={null} busy={data.busy}
+            onClose={() => setAddFor(null)}
+            onSubmit={({ format, subject }) => {
+              setAddFor(null);
+              void data.addShapedPost(addFor, format, subject);
+            }}
+          />
+        )}
         {movePost && (
           <MoveSheet
             open onClose={() => setMoveId(null)}
@@ -214,7 +231,7 @@ export function CommittedSurface({ data }: { data: PlanData }) {
           beats={data.beatsOn(selected)}
           canAdd={data.canEdit(selected)}
           onOpen={setOpenId}
-          onAdd={() => void data.addPost(selected)}
+          onAdd={() => setAddFor(selected)}
           onBeat={data.flash}
           outside={outside}
           timeOf={timeOf}
