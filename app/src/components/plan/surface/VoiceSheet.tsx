@@ -237,6 +237,9 @@ export function VoiceSheet({
                   testid="voice-transcript" className="mt-4 w-full"
                   working={listening || starting}
                   label={text ? 'What we heard' : 'Listening'}
+                  // A transcript APPENDS. Announcing it atomically would re-read everything said
+                  // so far after every phrase.
+                  grows
                 >
                   {text || undefined}
                 </AgentSays>

@@ -132,6 +132,16 @@ for (const width of WIDTHS) {
       expect(screen.queryByTestId('voice-sheet')).toBeNull();
     });
 
+    it('THE AGENT BLOCK fits the width — it is the one thing that spans the whole top', () => {
+      render(<DraftSurface data={draftData()} />);
+      fireEvent.click(screen.getByTestId('nav-mic'));
+      // The transcript block is the widest thing the agent renders, and it is inside a sheet
+      // inside a 320px viewport. It must be fluid, never fixed.
+      const block = screen.getByTestId('voice-transcript');
+      expect(block.className).toContain('w-full');
+      expect(block.className).not.toMatch(/\bw-\[\d+px\]|\bmin-w-\[\d{3,}px\]/);
+    });
+
     it('THE APPROVAL SHEET opens with its counts and both answers reachable', () => {
       render(<DraftSurface data={draftData()} />);
       fireEvent.click(screen.getByTestId('ready-pill'));

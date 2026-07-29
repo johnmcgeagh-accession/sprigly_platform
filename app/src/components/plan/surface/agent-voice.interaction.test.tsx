@@ -45,6 +45,21 @@ describe('the block', () => {
     expect(block.getAttribute('aria-label')).toBe('Sprigly');
   });
 
+  /**
+   * A REPLY is atomic; a TRANSCRIPT is not. Announcing an append-only transcript atomically
+   * re-reads the whole paragraph after every phrase, so a client dictating three sentences hears
+   * the first one four times. The audit on this session's own components found it.
+   */
+  it('a finished reply is announced whole', () => {
+    render(<AgentSays>Moved to Friday.</AgentSays>);
+    expect(screen.getByTestId('agent-says').getAttribute('aria-atomic')).toBe('true');
+  });
+
+  it('a GROWING transcript announces only what was added', () => {
+    render(<AgentSays grows>The candle relaunches</AgentSays>);
+    expect(screen.getByTestId('agent-says').getAttribute('aria-atomic')).toBe('false');
+  });
+
   it('working with nothing to say yet is the dots alone', () => {
     render(<AgentSays working />);
     expect(screen.getByTestId('agent-dots')).toBeTruthy();

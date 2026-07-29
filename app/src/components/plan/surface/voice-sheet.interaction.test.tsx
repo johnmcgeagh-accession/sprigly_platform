@@ -139,6 +139,16 @@ describe('capture', () => {
       .toBe('The Wilderness candle relaunches on the 24th');
   });
 
+  it('the transcript is an APPEND-ONLY live region, not an atomic one', () => {
+    open();
+    act(() => { FakeRecognition.live!.say('The candle relaunches on the 24th.'); });
+    const block = screen.getByTestId('voice-transcript');
+    expect(block.getAttribute('aria-live')).toBe('polite');
+    // Atomic here would re-read everything said so far after every phrase — three sentences
+    // dictated means hearing the first one four times.
+    expect(block.getAttribute('aria-atomic')).toBe('false');
+  });
+
   it('two phrases join with a space rather than replacing each other', () => {
     open();
     act(() => { FakeRecognition.live!.say('The candle relaunches on the 24th.'); });

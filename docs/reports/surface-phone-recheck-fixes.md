@@ -369,3 +369,90 @@ as a scoping bug.
 - **The cross-month move limit is still real.** An in-month move now works from any month; a
   move that crosses a month boundary still refuses, honestly, because a post lives in the cycle
   that plans its month. Carrying one across is a separate piece of work.
+
+---
+
+## The audit — changed components
+
+Run against the components this session touched: `AgentVoice`, `VoiceSheet`, `Feedback`,
+`PlanShell`, `NavPill`, `Sheet`, `useSpeechInput`, `usePlanData`, `layout.tsx`, `page.tsx`,
+`theme.ts`, and the agent modules from Part 0.
+
+| # | Dimension | Score | Key finding |
+|---|-----------|-------|-------------|
+| 1 | Accessibility | 3 | One real defect, found here and fixed: the transcript was an atomic live region |
+| 2 | Performance | 4 | No `will-change`, no layout-property animation, no new filters |
+| 3 | Theming | 4 | Every new colour resolves through `--t-*`; the two new literals are theme-layer by necessity |
+| 4 | Responsive | 4 | Nothing new is fixed-width; touch targets unchanged or improved |
+| 5 | Implementation integrity | 4 | Detector: 0 findings. One component replaced three ad-hoc treatments |
+| **Total** | | **19/20** | Excellent |
+
+### Implementation integrity — pass
+
+`AgentVoice.tsx` is the session's structural claim and it holds: three unrelated treatments for
+one meaning collapsed into one component with two exports, imported by the three surfaces rather
+than re-described in each. The detector returns `[]` on every changed file. The tokens fence
+(no hex, no Tailwind slate, every `var()` a `--t-*` with a fallback) passes unchanged.
+
+### The one finding, and it was mine
+
+**[P1] The live transcript was announced atomically.**
+`AgentVoice.tsx` · Accessibility · WCAG 4.1.3 (Status Messages)
+
+`AgentSays` set `aria-atomic="true"` unconditionally, and the voice sheet's transcript uses it.
+A transcript **appends** — so on every recognised phrase the entire accumulated paragraph was
+re-announced. A client dictating three sentences would hear the first one four times, on the one
+surface whose whole purpose is dictation. The previous code was a plain `<p>` with no live region
+at all: silent, so this was not a regression against what shipped, but it was a defect in what
+this session built.
+
+Fixed rather than logged, since it is this session's own code: `AgentSays` takes `grows`, which
+selects `aria-atomic="false"`. A **reply** stays atomic — it arrives whole and all of it is news.
+A **transcript** is append-only and announces only the addition. Covered by
+`agent-voice.interaction.test.tsx` (both branches) and asserted end-to-end in
+`voice-sheet.interaction.test.tsx`.
+
+### Verified, not assumed
+
+**Contrast.** Computed against the mint ramp and re-checked against the coral fallbacks, since
+a surface with no active theme must pass too:
+
+| pair | mint | coral fallback | needs |
+|---|---|---|---|
+| wordmark `accent-700` on canvas | 5.06:1 | 4.09:1 | 3:1 (22px extrabold = large text) |
+| `accent-800` on `accent-100` (the block's text) | 6.67:1 | 7.64:1 on surface | 4.5:1 |
+| dots `accent-700` on `accent-100` | 4.91:1 | — | 3:1 (non-text indicator) |
+| `accent-600` on canvas — **rejected for the wordmark** | 2.35:1 | 3.04:1 | — |
+
+**Reduced motion.** The dots are `motion-safe:animate-dot-pulse`, so under `reduce` the class is
+never applied and they hold at full opacity — a static three-dot mark that still says "working".
+This matters because the surface's global reduced-motion rule is a `.001ms !important` kill
+(`globals.css:65`); an animation applied unconditionally would be frozen at whatever its first
+keyframe happened to be, which for `dot-pulse` is `opacity: 0.28` — three barely-visible dots.
+`motion-safe:` is what avoids that. (The global kill itself is pre-existing and out of scope, but
+it is the reason the prefix is load-bearing rather than decorative.)
+
+**Semantics and keyboard.** `AgentSays` is non-interactive and adds no tab stop. The month is
+still the `h1` and the wordmark is still a `span` — fix 4 moved the scale, not the ladder. The
+dots are `aria-hidden`; the block carries its own name. No new focus target, no new trap.
+
+**Touch targets.** Nothing new is interactive. The nav pill stays 44px and now clears the home
+indicator; the sheet's action row keeps its 56px controls and gains the same clearance. The
+`Today` button remains 40px — pre-existing and already recorded.
+
+**Responsive.** The agent block is `w-full` inside the sheet and `inset-x-4` in the top slot,
+with no fixed width anywhere; asserted at 320px in `narrow.interaction.test.tsx`. The e2e
+no-horizontal-overflow check at 320px passes.
+
+**Theming.** The two new hex literals are `CANVAS_FALLBACK_HEX` and `CORAL_THEME_COLOR`, both in
+`theme.ts` — the theme layer, and both unavoidable: `theme-color` is resolved by Safari before
+any stylesheet and cannot read a CSS variable. `CANVAS_FALLBACK_HEX` is pinned to
+`tailwind.config.ts`'s own `--t-canvas` fallback by a test that parses the config, so the two
+cannot drift.
+
+### What the audit did not cover
+
+Nothing here measured a pixel or a frame. jsdom has no layout engine, and the simulator draws its
+own chrome — so the responsive and chrome findings are structural (fluid units, no fixed widths,
+correct `env()` usage), not geometric. The five on-device steps under **FIX 3** remain the only
+real verification of the seam, and they have not been run.

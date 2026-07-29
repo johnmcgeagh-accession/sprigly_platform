@@ -62,7 +62,7 @@ export function AgentDots({ tone = 'accent', className = '' }: {
 }
 
 export function AgentSays({
-  children, working = false, label = 'Sprigly', testid = 'agent-says', className = '',
+  children, working = false, label = 'Sprigly', testid = 'agent-says', className = '', grows = false,
 }: {
   /** What the agent said. Absent while it is still working — then the dots stand alone. */
   children?: React.ReactNode;
@@ -72,11 +72,21 @@ export function AgentSays({
   label?: string;
   testid?: string;
   className?: string;
+  /**
+   * The text GROWS rather than being replaced — a live transcript, appended phrase by phrase.
+   *
+   * This is the difference between `aria-atomic` true and false, and it is not cosmetic. A reply
+   * is one finished sentence that arrives whole: atomic, announce all of it. A transcript is an
+   * append-only log, and announcing it atomically re-reads the WHOLE paragraph after every
+   * phrase — so a client dictating three sentences hears the first one four times. Non-atomic
+   * announces only what was added, which is what they have not heard yet.
+   */
+  grows?: boolean;
 }) {
   const hasWords = children !== undefined && children !== null && children !== '';
   return (
     <div
-      data-testid={testid} role="status" aria-live="polite" aria-atomic="true" aria-label={label}
+      data-testid={testid} role="status" aria-live="polite" aria-atomic={grows ? 'false' : 'true'} aria-label={label}
       className={[
         'flex items-start gap-2.5 rounded-[14px] border-l-[3px] border-coral-700 bg-coral-100 px-3 py-2.5',
         className,
