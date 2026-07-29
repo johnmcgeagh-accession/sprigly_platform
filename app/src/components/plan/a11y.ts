@@ -25,23 +25,27 @@ export function useFocusTrap(active: boolean, ref: RefObject<HTMLElement | null>
     const opener = document.activeElement as HTMLElement | null;
     const focusables = () => (el ? Array.from(el.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((n) => n.offsetParent !== null) : []);
 
-    const t = setTimeout(() => { const f = focusables(); (f[0] ?? el)?.focus(); }, 30);
+    // `preventScroll` throughout. Focus is being MOVED for a reason the client did not ask for —
+    // a sheet opening, a sheet closing — and letting the browser scroll to follow it drags the
+    // page under them. On close that showed up as the day panel jumping to put the card they had
+    // opened back at the top of a list they had already scrolled. Restoration is not navigation.
+    const t = setTimeout(() => { const f = focusables(); (f[0] ?? el)?.focus({ preventScroll: true }); }, 30);
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.stopPropagation(); onCloseRef.current(); return; }
       if (e.key !== 'Tab') return;
       const f = focusables();
-      if (f.length === 0) { e.preventDefault(); el?.focus(); return; }
+      if (f.length === 0) { e.preventDefault(); el?.focus({ preventScroll: true }); return; }
       const first = f[0]!, last = f[f.length - 1]!;
-      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus({ preventScroll: true }); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus({ preventScroll: true }); }
     };
 
     el?.addEventListener('keydown', onKey);
     return () => {
       clearTimeout(t);
       el?.removeEventListener('keydown', onKey);
-      if (opener && typeof opener.focus === 'function') opener.focus();
+      if (opener && typeof opener.focus === 'function') opener.focus({ preventScroll: true });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- onClose held in a ref on purpose (see note)
   }, [active, ref]);
