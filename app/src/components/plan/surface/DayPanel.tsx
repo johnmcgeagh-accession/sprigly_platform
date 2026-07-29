@@ -68,12 +68,15 @@ export function DayPanel({
     // pt-3 / mb-3, not pt-4 / mb-3.5: the phone check found the day's content starting a third
     // of the way down the screen, and this is the last of the four paddings that caused it
     // (round 6, P4). The rest are in PlanShell.
-    <div data-testid="day-panel" data-date={date} className="flex-1 overflow-y-auto px-5 pb-[104px] pt-3 [scrollbar-width:none]">
+    <div data-testid="day-panel" data-date={date} className="flex-1 overflow-y-auto px-5 pb-[104px] pt-2.5 [scrollbar-width:none]">
       <div className="mb-3 flex items-baseline gap-2.5">
         <h2 data-testid="day-title" className="text-[22px] font-bold tracking-[-.02em] text-chrome">{heading}</h2>
         <span className="flex-1" />
         <WeatherHeaderBadge day={weather} />
-        <span data-testid="day-count" className="text-[12.5px] font-semibold tabular-nums text-muted">
+        {/* nowrap: the count is "1 post" / "12 planned posts" — bounded, and the one thing on
+            this row that must not break. Without it a long day title squeezes it to two lines,
+            which the 390px screenshot showed. */}
+        <span data-testid="day-count" className="flex-none whitespace-nowrap text-[12.5px] font-semibold tabular-nums text-muted">
           {count === 0 ? 'Nothing planned' : `${count} post${count === 1 ? '' : 's'}`}
         </span>
       </div>
@@ -137,12 +140,26 @@ function PostCard({ post, time, onOpen }: { post: PlanPost; time: string; onOpen
           <p className="text-[13.5px] leading-normal text-muted">{ON_THE_WAY_TEASER}</p>
           <div className="mt-2.5 flex items-center gap-2">
             {/* Work in flight: vivid, quiet, no red, nothing asked of the client. The three
-                dots are a non-text use of accent-600 at graduated opacity — the state is
-                carried by the words beside them, not by the colour. */}
-            <span aria-hidden="true" className="inline-flex items-center gap-[3px]">
-              <i className="block h-[5px] w-[5px] rounded-full bg-coral-600 opacity-30" />
-              <i className="block h-[5px] w-[5px] rounded-full bg-coral-600 opacity-60" />
-              <i className="block h-[5px] w-[5px] rounded-full bg-coral-600" />
+                dots are a non-text use of accent-600 — the state is carried by the words beside
+                them, not by the colour, and now not by the motion either.
+
+                ROUND 7, FIX 6: they travel. A static staircase of opacities reads as a
+                decoration; the same three pulsing in sequence read as work in progress, which is
+                the one thing the marker is for. Opacity only, so it composites on the GPU while
+                the page is also polling for the caption, and `motion-safe:` leaves the staircase
+                in place under `prefers-reduced-motion: reduce`. */}
+            <span data-testid="on-the-way-dots" aria-hidden="true" className="inline-flex items-center gap-[3px]">
+              {[0, 160, 320].map((delay, i) => (
+                <i
+                  key={delay}
+                  style={{ animationDelay: `${delay}ms` }}
+                  className={[
+                    'block h-[5px] w-[5px] rounded-full bg-coral-600 motion-safe:animate-dot-pulse',
+                    // The reduced-motion resting state, and the first frame either way.
+                    ['opacity-30', 'opacity-60', 'opacity-100'][i],
+                  ].join(' ')}
+                />
+              ))}
             </span>
             <span data-testid="on-the-way" aria-label={ON_THE_WAY_ARIA} className="text-[12.5px] font-semibold text-muted">
               {ON_THE_WAY_LABEL}

@@ -39,7 +39,7 @@ export default defineConfig({
     },
     {
       name: 'mobile',
-      testMatch: /(common|mobile|a11y)\.spec\.ts/,
+      testMatch: /(common|mobile|a11y|header)\.spec\.ts/,
       dependencies: ['setup'],
       use: { ...devices['Pixel 5'], viewport: { width: 390, height: 844 }, storageState: STATE },
     },

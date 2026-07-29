@@ -394,31 +394,41 @@ dashed, because it is the one that changed while you were looking.
 framed image with a horizon (single). 17px inside a 28px tile, `accent-800` on `accent-100`. The
 word survives as `title` and screen-reader text only.
 
-**Action rows** are three equal-width buttons filling the row: icon with the **label below**, and
-`Move` carrying its current date **above** the icon. They read as buttons — `surface` fill,
-hairline, and a real pressed state. Round 3 shipped these icon-only and round 4 restored the
-labels, which is the reversal round 3 recorded in advance as the cheap one to make. **Height is
-56px with a 19px glyph** — round 5 specified 68px and the phone read it as a slab; the structure,
-the labels and Delete's fill are unchanged.
+**Action rows** are three equal-width buttons filling the row, at **stock-iOS weight**: the glyph
+and the label on ONE line, a 17px glyph at 1.5 stroke, a 15px label, a quiet `line-soft` fill and
+a real pressed state. **44px** — 68 in round 5, 56 in round 6, and the phone still read those as
+slabs. Round 3 shipped them icon-only and round 4 restored the labels, which is the reversal
+round 3 recorded in advance as the cheap one to make.
+
+**Delete is `danger` on its own 10% tint**, not a solid block. Round-4 S1 ruled that a destructive
+action must not have to be inferred from the colour of its text, and that still holds: it is
+marked by its fill, its colour AND its bin together. What changed is that a saturated block is no
+longer the loudest object on a sheet whose common action is *read the caption, maybe move it* —
+round 5.1's V1 observation, which becomes right once the other two buttons go quiet.
 
 **Sheets** share one chrome: scrim, 92% height, rounded 26px top corners, focus trap, and a
 **grabber that is a control** — drag it down to dismiss, or tap it. Every sheet gets all of that
 from the same component, so a sheet cannot ship without a way out that a thumb finds first.
 
-**Detail sheet.** Header (format icon, title, date/time, insights toggle) → the **format control**
-→ Caption / Hook / Script tabs, caption default, each with a copy control → the words → the post's
+**Detail sheet.** Header (format icon, title, date/time, insights toggle) → Caption / Hook /
+Script tabs, caption default, each with a copy control → the words → the post's
 **tasks** → the action row. Reasoning lives behind the insights toggle. **Shape** replaces the tab
-content in place; it does not stack a popover, and while it runs the words it is rewriting carry a
-skeleton rather than staying stale. Copy exists **only here** — it belongs beside the words it
+content in place — the prompt field and the **format control** together; it does not stack a
+popover, and while it runs the words it is rewriting carry a skeleton rather than staying stale. Copy exists **only here** — it belongs beside the words it
 copies, not on the card. A tab whose field is empty **explains and offers to write it** rather
 than disabling itself.
 
 **Format control.** A compact segmented `Single post / Carousel / Reel`, each an icon with its
 word, the selected segment filled `accent-650` with white. The words are the terminology table's,
 not new ones: `single` is the image format everywhere else on the surface, and a control that
-names formats differently from the cards has to be learned twice. It sits in the detail sheet and
-in the add sheet, and it is the same component in both — choosing a format when you create a post
-and changing it afterwards are the same decision at two moments.
+names formats differently from the cards has to be learned twice.
+
+**It lives inside Shape mode**, beside the prompt field — not under the sheet header, where it
+read as a display toggle one tap from a client who had opened the sheet to read their caption. A
+format change is a shaping decision with consequences, so it belongs in the deliberate flow. The
+add sheet has it too, and it is the same component: choosing a format when you create a post and
+changing one afterwards are the same decision at two moments. The draft sheet keeps it visible,
+because a planned post has no words to strand and no Shape mode to put it in.
 
 In shape mode the footer is **replaced wholesale**: a full-width `accent-650` submit, and beside
 it a **quiet neutral cancel** — the word *Cancel*, `surface` fill, hairline, `muted` label.

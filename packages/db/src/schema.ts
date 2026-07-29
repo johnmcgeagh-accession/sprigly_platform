@@ -1096,6 +1096,20 @@ export const DRAFT_PLACEHOLDER_CAPTION =
  *  above, so the two can never drift into disagreeing about what a placeholder looks like. */
 export const DRAFT_PLACEHOLDER_PREFIX = 'Draft idea. Tell Sprigly';
 
+/**
+ * Does this post have a caption a human wrote or a model generated — as opposed to the
+ * scaffolding `addDraft` leaves behind?
+ *
+ * A placeholder is a column that is not empty and content that does not exist. Anything asking
+ * `!post.caption` gets the wrong answer, and two things that spend money did: `/api/plan/script`
+ * and the script worker both accepted a placeholder as the subject to build a reel's hook and
+ * script around. One predicate, in the package both the app and the worker already import.
+ */
+export const hasRealCaption = (caption: string | null | undefined): boolean => {
+  const c = (caption ?? '').trim();
+  return c.length > 0 && !c.startsWith(DRAFT_PLACEHOLDER_PREFIX);
+};
+
 /** Drizzle condition: exclude unapproved draft beats from a plan read.
  *  Use in EVERY query that answers "what is the plan?" — client surfaces, the
  *  agent's plan context, cycle counts, the regen classifier, the weekly audit. */

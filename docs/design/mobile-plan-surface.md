@@ -488,6 +488,33 @@ A fixed 48px bar between the month row and the week strip:
   render in the shell's top slot. The bottom toast — a second, competing channel that landed over
   the nav pill — is removed from this surface entirely.
 
+### 4.1a Where the format control lives — RULED (round 7, P17)
+
+**Third placement, and this one is the ruling.** Round 2 removed it; round 6 put it back under
+the sheet header; the Session B phone check moved it **inside Shape mode**, beside the prompt
+field.
+
+**The rationale, recorded so this stops moving.** A format change is a **shaping decision with
+consequences**: it can strand a hook and a script (§4.1), and it changes what the checklist is
+for. Sitting always-visible under the header it read as a *display toggle* — three segments, one
+tap, on a sheet a client had opened to read their caption. Inside Shape it is in the deliberate
+flow: the client is already there saying what they want different, and the consequence note has
+room to be read before anything is sent.
+
+**What it costs, stated rather than discovered later.** Shape is offered only where there are
+words to rewrite, so a post with no caption yet has no format control. In practice that is the
+window between adding a post and its caption landing — minutes — and the format was chosen in the
+add sheet moments earlier. The cases that stay uncovered are a post whose generation failed
+permanently, and a pre-approval slot on a committed month. **If that turns out to bite, the fix
+is to offer Shape on an empty field as "write it" rather than to move this control a fourth
+time.**
+
+**The draft sheet keeps its always-visible control**, and that is not an exception to the ruling
+but a consequence of it. The ruling's own reason is *consequences*, and a draft beat has none —
+§4.1's table says so: there is no caption, hook or script to strand. A draft beat also has no
+Shape mode at all (nothing is written yet), so following the letter here would delete the only
+way to change a planned post's format.
+
 ### 4.1 Format has a control again — RESOLVED (round 6, P2)
 
 Round 2 removed the format control from the sheet, which left **`swapFormat` with no surface**: a
@@ -915,6 +942,38 @@ now, and the mic is one of them:
 
 The halo fires on the meter's own level detection, debounced so a gap between words is not a
 state change.
+
+### 8.2a One sheet, both months (round 7, fix 2)
+
+§1.2's rule was that the mic is the microphone on **both** month states, the gesture is always
+*talk to your plan*, and **the surface has to say which consequence it has**. Session A wired the
+committed mic to a line of `flash()` copy and opened nothing; Session B built the sheet for the
+draft month only. So the one screen whose whole job was to say which consequence you were getting
+existed on one of the two months.
+
+**It is one sheet now.** Same microphone, same live meter, same keyboard toggle, same submit
+button, same starters-that-are-openers. Two things differ, and they are the two that should:
+
+| | Draft | Committed |
+|---|---|---|
+| **Framing** | “This is your October draft. Tell us what's happening and we'll reshape it…” | “October is written. Say what you want different and we'll put the change up for you to approve — **nothing moves until you say so**.” |
+| **Starters** | “We're launching …”, “There's an event on …”, “Can we do more …” | “Move the …”, “Take out the …”, “Rewrite the …” |
+| **Submit** | `POST /api/plan/draft/apply` — reshapes the month, returns a receipt | `POST /api/plan/agent` — raises proposals, **applies nothing** |
+
+The committed reply is reported in the client's own feedback slot using the agent's own sentence,
+plus the count of proposals raised. Nothing in that copy may say *moved* or *done*, and a test
+asserts it does not — because on this month nothing has been.
+
+`source: 'voice' | 'web'` now rides the agent route too. It has accepted the field since Build 3
+and nothing sent it, so gap 8's committed half was open in the other direction from the draft
+one: the route could tell them apart and the client never told it.
+
+**One thing this exposes and does not fix.** A proposal raised by the mic is approved from the
+plan's Approvals surface, which exists on `PlanDesktop` and **not on the mobile shell**. So a
+client can raise a change on a phone and cannot act on it there. The copy is honest about the
+state — the change is up for approval — but the control is not on this form factor yet. Recorded
+as an open gap rather than papered over; it belongs with the Insights segment as a fourth thing
+the pill has room for.
 
 ### 8.3 `useSpeechInput` moved ONTO the draft surface — it did not leave `IntakeCapture`
 

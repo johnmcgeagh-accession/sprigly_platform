@@ -79,6 +79,29 @@ const config: Config = {
       transitionTimingFunction: {
         sheet: 'cubic-bezier(.22,.61,.36,1)',
       },
+      /**
+       * The "On its way" ellipsis (round 7, fix 6).
+       *
+       * Three dots that travel rather than three dots that sit there. A static staircase of
+       * opacities reads as a decoration; the same three dots pulsing in sequence read as *work
+       * in progress*, which is the one thing the marker exists to say.
+       *
+       * Opacity only — no transform, no layout property — so it composites on the GPU and costs
+       * nothing on a phone that is also polling for the caption. It rests at .28 rather than 0,
+       * because a dot that vanishes leaves a gap and the ellipsis loses its shape.
+       *
+       * Applied through Tailwind's `motion-safe:` variant, so `prefers-reduced-motion: reduce`
+       * gets the static staircase and loses nothing: the words beside it carry the state.
+       */
+      keyframes: {
+        'dot-pulse': {
+          '0%, 70%, 100%': { opacity: '0.28' },
+          '35%':           { opacity: '1' },
+        },
+      },
+      animation: {
+        'dot-pulse': 'dot-pulse 1.4s cubic-bezier(.22,.61,.36,1) infinite',
+      },
     },
   },
   plugins: [],

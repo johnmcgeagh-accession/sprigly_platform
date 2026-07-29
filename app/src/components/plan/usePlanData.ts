@@ -23,6 +23,7 @@ import type { NoteView } from '@/lib/agent/notes';
 import { indexForecast, type WeatherDay, type WeatherWireDay } from '@/lib/weather';
 import { resolveDayCycleId } from '@/lib/cycle-nav';
 import { planMoveGuard, shouldReconcile } from '@/lib/plan-move';
+import { refusalMessage } from '@/lib/refusals';
 
 export interface AgentReply { message: string; proposals: ProposalView[] }
 
@@ -247,16 +248,56 @@ export function usePlanData(init: PlanDataInit) {
       const init2: RequestInit = { method };
       if (payload !== undefined) { init2.headers = { 'content-type': 'application/json' }; init2.body = JSON.stringify(payload); }
       const res = await fetch(url, init2);
-      if (!res.ok) { flash('Something went wrong. Please try again.'); return false; }
+      if (!res.ok) {
+        // NAME WHY. After an optimistic update the question the client is actually asking is
+        // "is my edit still there?", and "Something went wrong" answers neither that nor what
+        // to do instead. The routes have always returned a code; nothing read it until now.
+        let body: unknown = null;
+        try { body = await res.json(); } catch { /* an empty error body is a real case */ }
+        flash(refusalMessage(body, res.status));
+        return false;
+      }
       const r = (await res.json()) as ShapeResult;
       if (r.mode === 'applied') {
         if (localApply && applyResultLocally(r)) return true;
         flash(r.summary); await refreshPlan();
       }
       return true;
-    } catch { flash('Network error. Please try again.'); return false; }
+    } catch { flash(refusalMessage(null, 0)); return false; }
     finally { setBusy(false); }
   }, [readOnly, flash, refreshPlan, applyResultLocally]);
+
+  /**
+   * OPTIMISTIC-FIRST, for the mutations that are reversible (round 7, fix 3).
+   *
+   * Format, move, drop and a task tick all change one field of one row, and every one of them can
+   * be put back exactly. So the UI changes NOW and the server confirms behind it — which is what
+   * a native app does, and what the phone check asked for.
+   *
+   * Generation-class actions are deliberately excluded and keep their pending states: shape,
+   * generate, add-with-instruction. Those are not reversible, they cost money, and "it already
+   * looks done" is precisely the wrong thing to show while a model is still working.
+   *
+   * The rollback is the whole contract. A refusal puts the field back and says why in the one
+   * feedback slot — a change that silently reverts is worse than one that never happened,
+   * because by then the client has stopped looking.
+   */
+  const patchPostLocal = useCallback((id: string, patch: Partial<PlanPost>) => {
+    const apply = (cur: PlanPost[]) =>
+      cur.some((p) => p.id === id) ? cur.map((p) => (p.id === id ? { ...p, ...patch } : p)) : cur;
+    setPosts(apply);
+    setCrossMonthPosts(apply);
+  }, []);
+
+  /** Run a write with the change already on screen, and put it back if the write is refused. */
+  const optimistic = useCallback(async (
+    id: string, patch: Partial<PlanPost>, before: Partial<PlanPost>, run: () => Promise<boolean>,
+  ): Promise<boolean> => {
+    patchPostLocal(id, patch);
+    const ok = await run();
+    if (!ok) patchPostLocal(id, before);
+    return ok;
+  }, [patchPostLocal]);
 
   /** Move a post's date OPTIMISTICALLY: the card moves in local state immediately, the write +
    *  reconcile run in the background, and on failure (gate/network) the card snaps back with the
@@ -301,7 +342,14 @@ export function usePlanData(init: PlanDataInit) {
   const saveCaption = useCallback((id: string, caption: string) => call(`/api/posts/${id}`, 'PATCH', { caption }, true), [call]);
   const saveHook = useCallback((id: string, hook: string) => call(`/api/posts/${id}`, 'PATCH', { hook }, true), [call]);
   const saveScript = useCallback((id: string, script: string) => call(`/api/posts/${id}`, 'PATCH', { script }, true), [call]);
-  const changeFormat = useCallback((id: string, format: string) => call(`/api/posts/${id}`, 'PATCH', { format }), [call]);
+  /** OPTIMISTIC (fix 3). The segmented control moves under the thumb and the write follows. */
+  const changeFormat = useCallback((id: string, format: string) => {
+    const was = [...posts, ...crossMonthPosts].find((p) => p.id === id)?.format;
+    return optimistic(
+      id, { format: format as PlanPost['format'] }, was ? { format: was } : {},
+      () => call(`/api/posts/${id}`, 'PATCH', { format }),
+    );
+  }, [call, optimistic, posts, crossMonthPosts]);
 
   const clearHookCandidates = useCallback((id: string) => {
     setHookCandidates((m) => { if (!m.has(id)) return m; const n = new Map(m); n.delete(id); return n; });
@@ -334,7 +382,24 @@ export function usePlanData(init: PlanDataInit) {
     finally { setHookGenerating((s) => { const n = new Set(s); n.delete(id); return n; }); }
   }, [readOnly, hookGenerating, flash]);
   const revert = useCallback((id: string) => call(`/api/posts/${id}/revert`, 'POST'), [call]);
-  const removePost = useCallback((id: string) => call(`/api/posts/${id}`, 'DELETE'), [call]);
+  /**
+   * OPTIMISTIC (fix 3). The card goes NOW; a refusal puts it back where it was.
+   *
+   * The row is soft-deleted server-side but no route un-deletes, so the surface offers no undo —
+   * the optimism here is about the wait, not about reversibility. Rolling back a refused delete
+   * is still exactly right: nothing was removed, so nothing should look removed.
+   */
+  const removePost = useCallback(async (id: string): Promise<boolean> => {
+    const snapshot = [...posts, ...crossMonthPosts].find((p) => p.id === id);
+    setPosts((cur) => cur.filter((p) => p.id !== id));
+    setCrossMonthPosts((cur) => cur.filter((p) => p.id !== id));
+    const ok = await call(`/api/posts/${id}`, 'DELETE');
+    if (!ok && snapshot) {
+      const restore = (cur: PlanPost[]) => (cur.some((p) => p.id === id) ? cur : [...cur, snapshot]);
+      setPosts(restore);
+    }
+    return ok;
+  }, [call, posts, crossMonthPosts]);
   const addPost = useCallback((dateIso: string) => call('/api/posts', 'POST', { date: dateIso, cycleId: viewedCycleId }), [call, viewedCycleId]);
   /**
    * Add a post the client has already SHAPED (round 6, P1): a format, and optionally what it is
@@ -384,12 +449,28 @@ export function usePlanData(init: PlanDataInit) {
     } catch { flash('Network error. Please try again.'); }
   }, [readOnly, flash, setPostSteps]);
 
+  /**
+   * OPTIMISTIC (fix 3). The tick fills under the thumb.
+   *
+   * A checklist is the one place on this surface where a client makes many small changes in a
+   * row, so a round trip per tick is the difference between a list and a form. The server's own
+   * `steps` array replaces the guess on success — it owns `doneAt` — and a refusal flips the one
+   * step back and says why.
+   */
   const toggleStep = useCallback(async (id: string, stepId: string, done: boolean) => {
     if (readOnly) return;
+    const flip = (v: boolean) => setPosts((cur) => cur.map((p) => (p.id === id
+      ? { ...p, steps: p.steps.map((s) => (s.id === stepId ? { ...s, done: v } : s)) }
+      : p)));
+    flip(done);
     try {
       const res = await fetch(`/api/posts/${id}/steps/${stepId}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ done }) });
-      if (res.ok) { setPostSteps(id, ((await res.json()) as { steps: PostStepView[] }).steps); if (done) track('checklist_step_completed', { postId: id, stepId }); }
-    } catch { flash('Network error. Please try again.'); }
+      if (res.ok) { setPostSteps(id, ((await res.json()) as { steps: PostStepView[] }).steps); if (done) track('checklist_step_completed', { postId: id, stepId }); return; }
+      let body: unknown = null;
+      try { body = await res.json(); } catch { /* empty error body */ }
+      flip(!done);
+      flash(refusalMessage(body, res.status));
+    } catch { flip(!done); flash(refusalMessage(null, 0)); }
   }, [readOnly, flash, setPostSteps, track]);
 
   /** Rename a checklist step's label (autosave on blur/idle → step_renamed ledger). */
@@ -475,7 +556,14 @@ export function usePlanData(init: PlanDataInit) {
   }, [readOnly, scriptGenerating, flash, pollJob]);
 
   /** Talk to your plan → real agent extraction; proposals land in Approvals. */
-  const ask = useCallback(async (instruction: string, selectedPostId: string | null): Promise<AgentReply | null> => {
+  const ask = useCallback(async (
+    instruction: string,
+    selectedPostId: string | null,
+    /** Spoken or typed. `POST /api/plan/agent` has accepted this since Build 3; nothing sent it,
+     *  so the committed month's half of gap 8 was open in the other direction — the draft route
+     *  learned to tell them apart and this one already could. */
+    source: 'web' | 'voice' = 'web',
+  ): Promise<AgentReply | null> => {
     if (readOnly || !instruction.trim() || agentBusy) return null;
     setAgentBusy(true);
     setAgentError(null);
@@ -486,7 +574,7 @@ export function usePlanData(init: PlanDataInit) {
     try {
       const res = await fetch('/api/plan/agent', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ instruction, selectedPostId, conversationId: conversationId.current }),
+        body: JSON.stringify({ instruction, selectedPostId, source, conversationId: conversationId.current }),
         signal: controller.signal,
       });
       if (res.status === 429) { setAgentError('You’re sending changes too quickly. Give it a few seconds and try again.'); return null; }
@@ -500,7 +588,7 @@ export function usePlanData(init: PlanDataInit) {
         setProposals((cur) => [...created.filter((p) => !cur.some((c) => c.id === p.id)), ...cur]);
         setFlashView('approvals'); setTimeout(() => setFlashView(null), 2800);
       } else if (r.message) { flash(r.message); }
-      track('agent_ask_submitted', { proposals: created.length });
+      track('agent_ask_submitted', { proposals: created.length, source });
       void refreshNotes();
       return reply;
     } catch {

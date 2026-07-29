@@ -85,15 +85,24 @@ export function PlanShell({
           a decision. Now: ONE 20px gutter for every row, and the arrow buttons carry a negative
           margin so their 40px hit areas overhang it while their GLYPHS land on the same line as
           the wordmark. Hit-area expansion is visually inert; misalignment is not. */}
-      <div className="flex flex-none items-center gap-[7px] px-5 pt-2">
+      <div className="flex flex-none items-center gap-[7px] px-5 pt-1.5">
         <SprigMarkV2 className="h-[18px] w-[18px] text-coral-600" />
         <span className="font-logo text-[17px] font-extrabold tracking-[-.02em] text-chrome">Sprigly</span>
       </div>
 
-      {/* 3. Title row. The ‹ › arrows are the ONLY lateral month mechanism (G6) — the month
-          pills and the wheel picker are both retired. */}
-      <div className="flex flex-none items-center gap-1.5 px-5 pt-1.5">
-        <div className="-ml-[11px] flex items-center">
+      {/* 3. MONTH ROW — and Today now sits on it (round 7, fix 4).
+          The ‹ › arrows are the ONLY lateral month mechanism (G6); the month pills and the wheel
+          picker are both retired.
+
+          ── What the compression removed ────────────────────────────────────────────
+          Today used to have a row of its own, shared with the Draft badge. On a COMMITTED month
+          that badge is empty, so the row was 44px of nothing between the month and the strip —
+          the dead zone the operator's screenshot marked. Today is right-aligned here instead,
+          which is where the eye already is after reading the month, and the row below now
+          renders only when it has something in it. Measured at 390×844: the day panel starts at
+          156px rather than 200px, and the first card at 232 rather than 276. */}
+      <div className="flex min-h-[40px] flex-none items-center gap-1.5 px-5 pt-1">
+        <div className="-ml-[11px] flex min-w-0 items-center">
           <ArrowBtn dir="prev" onClick={onPrevMonth} />
           {/* The month IS the page's subject, so it is the h1. That gives the surface a clean
               ladder — h1 month, h2 day, h3 section, h4 card — where the old one started at h4
@@ -104,12 +113,6 @@ export function PlanShell({
           <ArrowBtn dir="next" onClick={onNextMonth} />
         </div>
         <span className="flex-1" />
-        {headerRight}
-      </div>
-
-      {/* 4. Today row. */}
-      <div className="flex min-h-[40px] flex-none items-center justify-between gap-3 px-5 pt-1.5">
-        <span className="min-w-0">{badge}</span>
         <button
           type="button" data-testid="today-btn" onClick={onToday} disabled={!todayEnabled}
           // 40px, not the mockups' 34px — nothing interactive sits under the floor (X3).
@@ -119,7 +122,18 @@ export function PlanShell({
         </button>
       </div>
 
-      {chip && <div className="flex-none pt-2">{chip}</div>}
+      {/* 4. The state row: the Draft badge and its one line, with the Generate pill opposite.
+          IT RENDERS ONLY WHEN IT HAS SOMETHING IN IT — a committed month has neither, and an
+          empty row is the thing this fix removed. The Generate pill moved down from the month
+          row so that row is never three controls wide at 390px. */}
+      {(badge || headerRight) && (
+        <div className="flex min-h-[40px] flex-none items-center justify-between gap-3 px-5 pt-1">
+          <span className="min-w-0">{badge}</span>
+          {headerRight}
+        </div>
+      )}
+
+      {chip && <div className="flex-none pt-1.5">{chip}</div>}
 
       {strip}
       {strip && <div className="mx-5 h-px flex-none bg-line/30" aria-hidden="true" />}

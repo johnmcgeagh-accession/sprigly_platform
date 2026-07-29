@@ -33,9 +33,31 @@ const DRAFT_PREFIX = 'Draft idea';
 /** Sentence boundary: a terminator followed by whitespace. */
 const SENTENCE = /(?<=[.!?])\s+/;
 
-export function cardText(post: Pick<PlanPost, 'title' | 'caption'>): CardText {
+/** The full scaffolding sentence `addDraft` writes. Restated here rather than imported: this
+ *  module is client-side and `@sprigly/db` is not. The PREFIX above is what actually matches, so
+ *  the two cannot drift apart in a way that matters. */
+export const PLACEHOLDER_CAPTION =
+  'Draft idea. Tell Sprigly what this post should be about and it’ll write the caption.';
+
+/**
+ * The caption, or '' when there isn't one — INCLUDING when the row holds the placeholder.
+ *
+ * `addDraft` writes `DRAFT_PLACEHOLDER_CAPTION` into the caption column, and that string is
+ * scaffolding rather than content. The data model already treats it as absent: the merge
+ * classifier matches its prefix, and `cardText` has stripped it since it was written.
+ *
+ * The detail sheet did NOT, which is the whole of the fresh-reel bug. It asked `!!post.caption`,
+ * saw a non-empty string, showed three tabs with our own sentence in the first one, and left the
+ * Script tab's Generate offer live — so a client could have a hook and a script written with the
+ * placeholder as their subject. One predicate now, and every surface asks it.
+ */
+export function realCaption(post: Pick<PlanPost, 'caption'>): string {
   const caption = (post.caption ?? '').trim();
-  const usable = caption && !caption.startsWith(DRAFT_PREFIX) ? caption : '';
+  return caption && !caption.startsWith(DRAFT_PREFIX) ? caption : '';
+}
+
+export function cardText(post: Pick<PlanPost, 'title' | 'caption'>): CardText {
+  const usable = realCaption(post);
   const slot = (post.title ?? '').trim();
 
   if (slot) return { heading: slot, source: 'slot', teaser: usable };

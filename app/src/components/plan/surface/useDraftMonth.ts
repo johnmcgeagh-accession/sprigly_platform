@@ -70,6 +70,26 @@ export function useDraftMonth(data: PlanData) {
     data.setDraft((d) => (d ? { ...d, beats: next } : d));
   }, [data]);
 
+  /**
+   * OPTIMISTIC-FIRST, for the reversible ops (round 7, fix 3).
+   *
+   * A move, a format change and a drop each touch one beat and can each be put back exactly, so
+   * the card changes NOW and the write follows. `say()` and `addToMonth()` are deliberately NOT
+   * optimistic: a reshape is a model call whose result is a receipt nobody can predict, and
+   * pretending otherwise would mean drawing a month we invented.
+   *
+   * The rollback restores the WHOLE list rather than un-applying the patch. The server returns
+   * the authoritative beats on success, so the only thing the client should ever hold is a list
+   * it was given — a hand-computed inverse is a second source for the same fact and drifts.
+   */
+  const optimistic = useCallback(async (next: DraftBeatView[], run: () => Promise<DraftWrite>): Promise<DraftWrite> => {
+    const before = data.draft?.beats ?? [];
+    setBeats(next);
+    const r = await run();
+    if (!r.ok) setBeats(before);
+    return r;
+  }, [data.draft, setBeats]);
+
   /** One write, its result folded into the shared draft state, and its failure said out loud. */
   const write = useCallback(async (url: string, body: unknown): Promise<DraftWrite> => {
     setBusy(true);
@@ -84,26 +104,35 @@ export function useDraftMonth(data: PlanData) {
 
   const move = useCallback(async (beat: DraftBeatView, date: string) => {
     const from = beat.date;
-    const r = await write('/api/plan/draft', { op: 'move', postId: beat.id, date });
+    const r = await optimistic(
+      beats.map((b) => (b.id === beat.id ? { ...b, date } : b)),
+      () => write('/api/plan/draft', { op: 'move', postId: beat.id, date }),
+    );
     if (!r.ok) return;
     setUndo({
       message: `Moved to ${short(date)}.`,
       onUndo: () => { void write('/api/plan/draft', { op: 'move', postId: beat.id, date: from }); },
     });
-  }, [write]);
+  }, [write, optimistic, beats]);
 
   const changeFormat = useCallback(async (beat: DraftBeatView, format: string) => {
     const from = beat.format;
-    const r = await write('/api/plan/draft', { op: 'format', postId: beat.id, format });
+    const r = await optimistic(
+      beats.map((b) => (b.id === beat.id ? { ...b, format: format as DraftBeatView['format'] } : b)),
+      () => write('/api/plan/draft', { op: 'format', postId: beat.id, format }),
+    );
     if (!r.ok) return;
     setUndo({
       message: 'Format changed.',
       onUndo: () => { void write('/api/plan/draft', { op: 'format', postId: beat.id, format: from }); },
     });
-  }, [write]);
+  }, [write, optimistic, beats]);
 
   const drop = useCallback(async (beat: DraftBeatView) => {
-    const r = await write('/api/plan/draft', { op: 'drop', postId: beat.id });
+    const r = await optimistic(
+      beats.filter((b) => b.id !== beat.id),
+      () => write('/api/plan/draft', { op: 'drop', postId: beat.id }),
+    );
     if (!r.ok) return;
     // RESTORE, not re-add. The drop hands back the whole row; putting that back keeps the
     // title, the evidence, the position and the assumptions. Rebuilding it from
@@ -113,7 +142,7 @@ export function useDraftMonth(data: PlanData) {
       message: 'Post removed.',
       ...(dropped ? { onUndo: () => { void write('/api/plan/draft', { op: 'restore', beat: dropped }); } } : {}),
     });
-  }, [write]);
+  }, [write, optimistic, beats]);
 
   const add = useCallback(
     async (date: string, format: string, pillar: string, subject: string) =>

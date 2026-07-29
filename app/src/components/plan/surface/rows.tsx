@@ -116,8 +116,10 @@ export function CompactRows({
             : <span className="w-[42px] flex-none text-[12.5px] font-semibold tabular-nums text-muted">{it.time}</span>}
           <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-chrome">{it.title}</span>
           {it.onWay && (
+            // One dot on a compact row rather than three — the row has no space for an
+            // ellipsis — pulsing on the same rhythm as the card's (round 7, fix 6).
             <span data-testid="row-on-the-way" aria-label={ON_THE_WAY_ARIA}
-              className="h-[5px] w-[5px] flex-none rounded-full bg-coral-600" />
+              className="h-[5px] w-[5px] flex-none rounded-full bg-coral-600 motion-safe:animate-dot-pulse" />
           )}
           <ChevronR className="h-4 w-4 flex-none text-muted" />
         </button>

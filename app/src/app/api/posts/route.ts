@@ -25,13 +25,28 @@ import { NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import { db, contentCycles } from '@sprigly/db';
 import { getSession } from '@/lib/auth';
-import { addDraft, addGeneratingPost } from '@/lib/mutations';
+import { addGeneratingPost } from '@/lib/mutations';
 import { startPostGeneration } from '@/lib/post-generation';
 import { loadPlanPosts } from '@/lib/plan';
 import { editScopeToday, canAddPost } from '@/lib/edit-scope';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+const FORMAT_WORD: Record<string, string> = { reel: 'reel', carousel: 'carousel', single: 'single image post' };
+
+/**
+ * The brief for an add with no subject.
+ *
+ * It says only what the client's own act said: this day, this format. No topic is invented — the
+ * generator writes from the client's voice and their plan context, which is what it does for
+ * every other post in the month. An empty instruction would have been rejected by
+ * `startPostGeneration`; a placeholder caption was the alternative, and it was worse.
+ */
+function defaultCaptionBrief(date: string, format: string): string {
+  return `Write a caption for a ${FORMAT_WORD[format] ?? 'post'} going out on ${date}. `
+    + 'No subject was given, so choose one that fits this client’s voice and the rest of the month.';
+}
 
 export async function POST(req: Request) {
   const session = await getSession();
@@ -63,25 +78,32 @@ export async function POST(req: Request) {
     .limit(1);
   if (!cycle) return NextResponse.json({ error: 'no_cycle' }, { status: 404 });
 
-  // No subject → an empty slot, exactly as before. `addDraft` validates the format itself and
-  // falls back to 'single', so a nonsense value cannot land in the column.
-  if (!instruction) {
-    const result = await addDraft(session.clientId, targetCycleId, cycle.channel, date, undefined, format || 'single', today);
-    if (!result) return NextResponse.json({ error: 'read_only' }, { status: 403 });
-    return NextResponse.json(result);
-  }
+  /**
+   * CAPTION GENERATION ENQUEUES REGARDLESS; AN INSTRUCTION ONLY STEERS IT.
+   *
+   * The old branch here left a subject-less add holding `DRAFT_PLACEHOLDER_CAPTION` — a column
+   * that is not empty and content that does not exist. Two things then read that string as a
+   * caption: the detail sheet showed it in a tab, and `/api/plan/script` accepted it as the
+   * subject for a reel's hook and script. The operator got both, written about our own
+   * scaffolding sentence, on a post they would have said had no caption.
+   *
+   * So there is one path now. Without a subject the brief is a neutral one derived from the slot
+   * itself — which is exactly what the client asked for by adding a post to that day in that
+   * format, and nothing more. The post reads *On its way* until the words land, which is true.
+   */
+  const brief = instruction || defaultCaptionBrief(date, format || 'single');
 
-  // A subject → the slot is taken NOW and the caption is written into it. Two calls, in this
-  // order, for the reason the sweep records: a post marked generating with nothing enqueued
-  // reads as work in flight that no process owns.
+  // The slot is taken NOW and the caption is written into it. Two calls, in this order, for the
+  // reason the sweep records: a post marked generating with nothing enqueued reads as work in
+  // flight that no process owns.
   const created = await addGeneratingPost(
     session.clientId, targetCycleId,
-    { channel: cycle.channel, date, instruction, format: format || null },
+    { channel: cycle.channel, date, instruction: brief, format: format || null },
     undefined, today,
   );
   if (!created) return NextResponse.json({ error: 'read_only' }, { status: 403 });
 
-  const gen = await startPostGeneration(session.clientId, targetCycleId, created.postId, instruction, today);
+  const gen = await startPostGeneration(session.clientId, targetCycleId, created.postId, brief, today);
   // A blocked quota or a failed enqueue leaves the post in `generation_failed` with its
   // instruction kept — startPostGeneration stamps that itself. The post still exists and the
   // client still sees "On its way", because the sweep will pick it up; nothing here pretends

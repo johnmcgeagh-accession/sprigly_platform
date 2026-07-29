@@ -5,6 +5,7 @@
  * lengthSeconds }. Returns { mode: 'pending', jobId }; the client polls /api/jobs/:id.
  */
 import { NextResponse } from 'next/server';
+import { hasRealCaption } from '@sprigly/db';
 import { getSession } from '@/lib/auth';
 import { enqueueScriptJob } from '@/lib/queue';
 import { loadPlanPosts } from '@/lib/plan';
@@ -36,8 +37,12 @@ export async function POST(req: Request) {
   const post = posts.find((p) => p.id === targetPostId);
   if (!post) return NextResponse.json({ error: 'not_found' }, { status: 404 });
   if (post.format !== 'reel') return NextResponse.json({ error: 'format_unsupported' }, { status: 422 });
-  // The combined job writes the hook itself; only the caption (the subject) is required.
-  if (!post.caption) return NextResponse.json({ error: 'caption_required' }, { status: 422 });
+  // The combined job writes the hook itself; only the caption (the subject) is required — and a
+  // PLACEHOLDER is not one. `!post.caption` was false for the scaffolding sentence `addDraft`
+  // leaves behind, so a fresh post could have a hook and a script built around
+  // "Draft idea. Tell Sprigly what this post should be about…" as their subject. That is what
+  // the operator hit on a fresh reel.
+  if (!hasRealCaption(post.caption)) return NextResponse.json({ error: 'caption_required' }, { status: 422 });
 
   const r = await enqueueScriptJob({ type: 'script', clientId: session.clientId, cycleId, targetPostId, lengthSeconds });
   if ('error' in r) return NextResponse.json({ error: r.error }, { status: 503 });

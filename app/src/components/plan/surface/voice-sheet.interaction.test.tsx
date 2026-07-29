@@ -224,3 +224,47 @@ describe('answering an assumption', () => {
     expect(onSubmit).toHaveBeenCalledWith('The candle, on the 24th', 'web');
   });
 });
+
+describe('one sheet, two month states (round 7, fix 2)', () => {
+  it('the DRAFT framing shapes the month, and its starters lead into shaping intents', () => {
+    open({ context: 'draft' });
+    expect(screen.getByTestId('voice-framing').textContent).toContain('we’ll reshape it');
+    expect(screen.getAllByTestId('voice-starter').map((n) => n.textContent))
+      .toEqual(['We’re launching…', 'There’s an event on…', 'Can we do more…']);
+  });
+
+  it('the COMMITTED framing says nothing moves until they say so, and offers correcting verbs', () => {
+    open({ context: 'committed' });
+    const blurb = screen.getByTestId('voice-framing').textContent ?? '';
+    // The consequence is the whole reason the sheet exists on this month: the agent APPLIES
+    // NOTHING here, and the copy must not imply the month has already changed.
+    expect(blurb).toContain('October is written');
+    expect(blurb).toContain('approve');
+    expect(blurb).toContain('nothing moves until you say so');
+    expect(screen.getAllByTestId('voice-starter').map((n) => n.textContent))
+      .toEqual(['Move the…', 'Take out the…', 'Rewrite the…']);
+  });
+
+  it('but the CAPTURE is identical — same mic, same meter, same dual input, same submit', () => {
+    for (const context of ['draft', 'committed'] as const) {
+      const { onSubmit } = open({ context });
+      expect(screen.getByTestId('voice-mic')).toBeTruthy();
+      expect(screen.getByTestId('waveform')).toBeTruthy();
+      expect(screen.getByTestId('voice-mode')).toBeTruthy();
+
+      fireEvent.click(screen.getByTestId('voice-mic'));
+      act(() => { FakeRecognition.live!.say('move the Thursday post'); });
+      fireEvent.click(screen.getByTestId('voice-submit'));
+      expect(onSubmit).toHaveBeenCalledWith('move the Thursday post', 'voice');
+      cleanup();
+    }
+  });
+
+  it('the sheet is titled for its context, so a screen reader hears which one it is', () => {
+    open({ context: 'committed' });
+    expect(screen.getByTestId('voice-sheet').getAttribute('aria-label')).toBe('Tell your plan what to change');
+    cleanup();
+    open({ context: 'draft' });
+    expect(screen.getByTestId('voice-sheet').getAttribute('aria-label')).toBe('Tell us about October');
+  });
+});

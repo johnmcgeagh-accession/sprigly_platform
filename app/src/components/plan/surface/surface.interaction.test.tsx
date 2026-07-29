@@ -465,3 +465,35 @@ describe('a refused write never also throws away what was typed (harden)', () =>
     expect(within(screen.getByTestId('add-format')).getByTestId('format-reel').getAttribute('aria-pressed')).toBe('true');
   });
 });
+
+describe('the On-its-way ellipsis travels (round 7, fix 6)', () => {
+  const inFlight = [post({ id: 'g', status: 'generating', caption: '' })];
+
+  it('all three dots animate, staggered, and only when motion is welcome', () => {
+    render(<CommittedSurface data={fakeData({ posts: inFlight })} />);
+    const dots = [...screen.getByTestId('on-the-way-dots').querySelectorAll('i')];
+
+    expect(dots).toHaveLength(3);
+    for (const d of dots) expect(d.className).toContain('motion-safe:animate-dot-pulse');
+    // Staggered, or it is one dot blinking three times as wide.
+    expect(dots.map((d) => (d as HTMLElement).style.animationDelay)).toEqual(['0ms', '160ms', '320ms']);
+  });
+
+  it('and it keeps a resting staircase, so reduced motion loses nothing', () => {
+    render(<CommittedSurface data={fakeData({ posts: inFlight })} />);
+    const dots = [...screen.getByTestId('on-the-way-dots').querySelectorAll('i')];
+    expect(dots.map((d) => d.className.match(/opacity-\d+/)?.[0])).toEqual(['opacity-30', 'opacity-60', 'opacity-100']);
+  });
+
+  it('the state is still carried by WORDS — the motion is never the only channel', () => {
+    render(<CommittedSurface data={fakeData({ posts: inFlight })} />);
+    expect(screen.getByTestId('on-the-way').textContent).toBe('On its way');
+    expect(screen.getByTestId('on-the-way-dots').getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('a compact row gets one dot on the same rhythm — there is no space for an ellipsis', () => {
+    const many = Array.from({ length: 3 }, (_, i) => post({ id: `r${i}`, status: 'generating', caption: '' }));
+    render(<CommittedSurface data={fakeData({ posts: many })} />);
+    expect(screen.getAllByTestId('row-on-the-way')[0]!.className).toContain('motion-safe:animate-dot-pulse');
+  });
+});

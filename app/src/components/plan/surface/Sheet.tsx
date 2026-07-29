@@ -35,6 +35,48 @@ import { useFocusTrap } from '../a11y';
 const DISMISS_PX = 96;
 /** Under this, a pointer sequence was a tap and not a drag. */
 const TAP_SLOP_PX = 6;
+/**
+ * Swallow the click a browser synthesises after the pointer sequence that just dismissed us.
+ *
+ * ── The bug this exists for ──────────────────────────────────────────────────────────
+ *
+ * Dismissal happens on `pointerup`, and the sheet unmounts inside that handler. The browser then
+ * dispatches the `click` for that same sequence at the same coordinates — onto whatever is
+ * underneath NOW. The grabber is a full-width band at the top of a sheet pinned to `bottom-0
+ * h-[92%]`, so at 390×844 it sits at y 67.5–101.5 directly over `PlanShell`'s title row (the ‹ ›
+ * month arrows) and Today row. A ghost click on `next-month` switched the month, and the
+ * surface's re-anchor moved the selected day to the new month's earliest post: the operator
+ * closed a sheet on 13 August and landed on 2 September.
+ *
+ * Capture phase, so it runs before anything on the way down, and scoped THREE ways so it can only
+ * ever eat the one click it is for:
+ *
+ *   - by time: `setTimeout(…, 0)`. A browser dispatches the compatibility click in the same
+ *     input-dispatch turn as the `pointerup` that caused it, so the disarm always runs after that
+ *     click and before the client's next deliberate tap. The grabber carries `touch-action: none`,
+ *     so there is no 300ms tap delay to outlast.
+ *   - by place: within GHOST_RADIUS_PX of where the finger lifted. A compatibility click is at
+ *     the same coordinates by definition; a real tap somewhere else must not be touched.
+ *   - by count: one. It disarms itself the moment it fires.
+ */
+const GHOST_RADIUS_PX = 24;
+
+function swallowNextClick(at: { x: number; y: number }): void {
+  if (typeof window === 'undefined') return;
+  const kill = (e: Event) => {
+    const m = e as MouseEvent;
+    if (Math.abs(m.clientX - at.x) > GHOST_RADIUS_PX || Math.abs(m.clientY - at.y) > GHOST_RADIUS_PX) return;
+    e.stopPropagation();
+    e.preventDefault();
+    disarm();
+  };
+  const disarm = () => {
+    window.removeEventListener('click', kill, true);
+    window.clearTimeout(timer);
+  };
+  const timer = window.setTimeout(disarm, 0);
+  window.addEventListener('click', kill, true);
+}
 
 export interface SheetProps {
   open: boolean;
@@ -67,7 +109,7 @@ export function Sheet({ open, label, testid, onClose, layer = 0, hasOwnClose = f
   // `travelled` is the largest ABSOLUTE movement seen, which is what separates a tap from a
   // gesture. `dy` is the clamped downward offset, which is what separates a dismissal from a
   // hesitation. Two facts, because one number cannot tell an upward drag from a still thumb.
-  const drag = useRef({ y: 0, dy: 0, travelled: 0, active: false });
+  const drag = useRef({ x: 0, y: 0, dy: 0, travelled: 0, active: false });
 
   useFocusTrap(open, ref, onClose);
 
@@ -79,7 +121,7 @@ export function Sheet({ open, label, testid, onClose, layer = 0, hasOwnClose = f
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
-    drag.current = { y: e.clientY, dy: 0, travelled: 0, active: true };
+    drag.current = { x: e.clientX, y: e.clientY, dy: 0, travelled: 0, active: true };
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
 
@@ -92,7 +134,7 @@ export function Sheet({ open, label, testid, onClose, layer = 0, hasOwnClose = f
     setOffset(drag.current.dy);
   };
 
-  const onPointerUp = () => {
+  const onPointerUp = (e: React.PointerEvent) => {
     if (!drag.current.active) return;
     const { dy, travelled } = drag.current;
     drag.current.active = false;
@@ -100,7 +142,13 @@ export function Sheet({ open, label, testid, onClose, layer = 0, hasOwnClose = f
     // A tap IS a drag of no distance, and it closes too. A drag that went far enough down
     // closes as well. Everything between — a hesitation, or a drag that went UP and came to
     // nothing — springs back, because neither is an instruction to dismiss.
-    if (travelled <= TAP_SLOP_PX || dy >= DISMISS_PX) onClose();
+    if (travelled <= TAP_SLOP_PX || dy >= DISMISS_PX) {
+      // ARM THE GUARD FIRST. The sheet unmounts inside `onClose`, and the click the browser is
+      // about to send for this gesture would then land on the shell underneath. It is armed at
+      // the point the finger LIFTED, which is where that click will be.
+      swallowNextClick({ x: e.clientX, y: e.clientY });
+      onClose();
+    }
   };
 
   if (!open) return null;

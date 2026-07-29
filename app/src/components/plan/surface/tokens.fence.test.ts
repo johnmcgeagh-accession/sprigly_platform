@@ -193,7 +193,10 @@ describe('narrow viewports (carry-in X7)', () => {
     //   TaskList    — the due chip: 'Late' or 'Oct 3'. flex-none beside a truncating body, so
     //                 it is the one thing on the row that must NOT wrap. (It lived in
     //                 TasksPanel until the row was shared with the detail sheet — round 6, P9.)
-    const allowed = new Set(['PlanShell.tsx', 'TaskList.tsx']);
+    //   DayPanel /  — the day's post count: "1 post", "12 planned posts". flex-none beside a
+    //   DraftDayPanel   heading that is allowed to wrap, so it is the one thing on the row that
+    //                   must not. A long title otherwise squeezed it onto two lines at 390px.
+    const allowed = new Set(['PlanShell.tsx', 'TaskList.tsx', 'DayPanel.tsx', 'DraftDayPanel.tsx']);
     const offenders: string[] = [];
     for (const f of FILES) {
       const name = f.split('/').pop()!;

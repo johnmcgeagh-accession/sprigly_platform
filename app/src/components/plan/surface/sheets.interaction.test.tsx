@@ -444,11 +444,40 @@ describe('the grabber is a control (round 6, P7)', () => {
   });
 });
 
-describe('the format control (round 6, P2)', () => {
-  it('is in the sheet, wired to the format mutation, and does not re-send the format it is on', () => {
+/**
+ * The format control's THIRD placement, and the operator's ruling: it lives inside Shape mode.
+ *
+ * Always-visible under the header it read as a display toggle — one tap away from a client who
+ * had opened the sheet to read their caption. A format change is a shaping decision WITH
+ * consequences (it can strand a hook and a script, and it changes what the checklist is for), so
+ * it belongs in the deliberate flow, beside the field where the client is already saying what
+ * they want different, with room for its consequence note to be read before anything is sent.
+ */
+const openShape = () => { openSheet(); fireEvent.click(screen.getByTestId('act-shape')); };
+
+describe('the format control, inside Shape mode', () => {
+  it('is NOT on the sheet until Shape is open', () => {
+    render(<CommittedSurface data={fakeData()} />);
+    openSheet();
+    expect(screen.queryByTestId('format-control')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('act-shape'));
+    expect(screen.getByTestId('format-control')).toBeTruthy();
+    // …beside the prompt field, not instead of it.
+    expect(screen.getByTestId('shape-input')).toBeTruthy();
+  });
+
+  it('and it goes again when Shape is cancelled', () => {
+    render(<CommittedSurface data={fakeData()} />);
+    openShape();
+    fireEvent.click(screen.getByTestId('shape-cancel'));
+    expect(screen.queryByTestId('format-control')).toBeNull();
+  });
+
+  it('is wired to the format mutation, and does not re-send the format it is on', () => {
     const data = fakeData();
     render(<CommittedSurface data={data} />);
-    openSheet();
+    openShape();
 
     expect(screen.getByTestId('format-control')).toBeTruthy();
     expect(screen.getByTestId('format-reel').getAttribute('aria-pressed')).toBe('true');
@@ -462,7 +491,7 @@ describe('the format control (round 6, P2)', () => {
 
   it('states the consequence honestly — nothing is cleared, so it does not say it was', async () => {
     render(<CommittedSurface data={fakeData({ posts: [post({ script: 'Open on the shelf.' })] })} />);
-    openSheet();
+    openShape();
     await act(async () => { fireEvent.click(screen.getByTestId('format-single')); });
 
     const note = screen.getByTestId('format-note').textContent ?? '';
@@ -473,7 +502,7 @@ describe('the format control (round 6, P2)', () => {
 
   it('names what the NEW format still needs', async () => {
     render(<CommittedSurface data={fakeData({ posts: [post({ format: 'single', hook: null })] })} />);
-    openSheet();
+    openShape();
     await act(async () => { fireEvent.click(screen.getByTestId('format-reel')); });
 
     expect(screen.getByTestId('format-note').textContent).toContain('needs a hook and a script');
@@ -483,7 +512,7 @@ describe('the format control (round 6, P2)', () => {
     const steps = [{ id: 's1', label: 'Shoot it', leadDays: 3, done: false, doneAt: null, sort: 0, createdBy: 'agent' as const }];
     const data = fakeData({ posts: [post({ steps })] });
     render(<CommittedSurface data={data} />);
-    openSheet();
+    openShape();
     await act(async () => { fireEvent.click(screen.getByTestId('format-carousel')); });
 
     expect(data.regenerateChecklist).toHaveBeenCalledWith('p1');
@@ -494,7 +523,7 @@ describe('the format control (round 6, P2)', () => {
     const steps = [{ id: 's1', label: 'Shoot it', leadDays: 3, done: true, doneAt: '2026-09-30T10:00:00Z', sort: 0, createdBy: 'agent' as const }];
     const data = fakeData({ posts: [post({ steps })] });
     render(<CommittedSurface data={data} />);
-    openSheet();
+    openShape();
     await act(async () => { fireEvent.click(screen.getByTestId('format-carousel')); });
 
     expect(screen.getByTestId('checklist-choice')).toBeTruthy();
@@ -505,9 +534,10 @@ describe('the format control (round 6, P2)', () => {
     expect(data.regenerateChecklist).not.toHaveBeenCalled();
   });
 
-  it('is absent on a read-only day — you can read the post, not reshape it', () => {
+  it('is unreachable on a read-only day — there is no Shape to open', () => {
     render(<CommittedSurface data={fakeData({ canEdit: () => false })} />);
     openSheet();
+    expect(screen.queryByTestId('act-shape')).toBeNull();
     expect(screen.queryByTestId('format-control')).toBeNull();
   });
 });
@@ -623,5 +653,106 @@ describe('a post’s tasks, in its sheet (round 6, P9)', () => {
     render(<CommittedSurface data={fakeData()} />);
     openSheet();
     expect(screen.queryByTestId('sheet-tasks')).toBeNull();
+  });
+});
+
+describe('the mic on a committed month opens the SAME sheet (round 7, fix 2)', () => {
+  const withAgent = (over: Partial<PlanData> = {}) => fakeData({
+    ask: vi.fn(async () => ({ message: 'I’ve put that up for you.', proposals: [{ id: 'pr1' }] })),
+    agentBusy: false,
+    ...over,
+  } as Partial<PlanData>);
+
+  it('opens the voice sheet, not a line of toast copy', () => {
+    render(<CommittedSurface data={withAgent()} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+
+    expect(screen.getByTestId('voice-sheet')).toBeTruthy();
+    expect(screen.getByTestId('voice-mic')).toBeTruthy();
+    expect(screen.getByTestId('waveform')).toBeTruthy();
+  });
+
+  it('submits to the AGENT path, carrying how it was said', async () => {
+    const data = withAgent();
+    render(<CommittedSurface data={data} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+    fireEvent.click(screen.getByTestId('voice-mode'));
+    fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'move the Thursday post to Friday' } });
+    await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+
+    expect(data.ask).toHaveBeenCalledWith('move the Thursday post to Friday', null, 'web');
+    expect(screen.queryByTestId('voice-sheet')).toBeNull();
+  });
+
+  it('reports what the agent DID, and says the change is waiting rather than done', async () => {
+    render(<CommittedSurface data={withAgent()} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+    fireEvent.click(screen.getByTestId('voice-mode'));
+    fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'move it' } });
+    await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+
+    const said = screen.getByTestId('feedback').textContent ?? '';
+    expect(said).toContain('I’ve put that up for you.');
+    expect(said).toContain('1 change to approve.');
+    // The agent applies nothing on a committed month, so nothing here may claim it did.
+    expect(said).not.toMatch(/moved|done|changed it/i);
+  });
+
+  it('a refusal keeps the sheet and the words', async () => {
+    const data = withAgent({ ask: vi.fn(async () => null) } as Partial<PlanData>);
+    render(<CommittedSurface data={data} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+    fireEvent.click(screen.getByTestId('voice-mode'));
+    fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'something worth keeping' } });
+    await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+
+    expect(screen.getByTestId('voice-sheet')).toBeTruthy();
+    expect((screen.getByTestId('voice-input') as HTMLTextAreaElement).value).toBe('something worth keeping');
+  });
+
+  it('THE LEGACY POPUP IS GONE — no flash-only mic on this surface', () => {
+    const data = withAgent();
+    render(<CommittedSurface data={data} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+    expect(data.flash).not.toHaveBeenCalled();
+  });
+});
+
+describe('the action row, attempt two (round 7, fix 5)', () => {
+  it('is a stock-iOS row: one line, thin glyph, 15px label, quiet fill', () => {
+    render(<CommittedSurface data={fakeData()} />);
+    openSheet();
+    const move = screen.getByTestId('act-move');
+
+    expect(move.className).toContain('min-h-[44px]');   // 68 → 56 → 44
+    expect(move.className).toContain('flex-row');       // beside, not stacked
+    expect(move.className).toContain('bg-line-soft');   // a quiet fill, not a ring on surface
+    expect(move.className).not.toContain('ring-1');
+    expect(move.querySelector('span')?.className).toContain('text-[15px]');
+    expect(move.querySelector('svg')?.getAttribute('class')).toContain('stroke-width:1.5');
+  });
+
+  it('Delete is still unmistakable — fill AND colour AND glyph, none of them text alone', () => {
+    render(<CommittedSurface data={fakeData()} />);
+    openSheet();
+    const del = screen.getByTestId('act-delete');
+
+    // S1's principle survives the restyle: a destructive action is never something to infer.
+    expect(del.className).toContain('bg-danger/10');
+    expect(del.className).toContain('text-danger');
+    expect(del.querySelector('svg')).toBeTruthy();
+    // …and it is no longer the loudest object on a sheet whose common action is "read this".
+    expect(del.className).not.toContain('bg-danger text-white');
+  });
+
+  it('the draft sheet’s two buttons match the committed sheet’s three', () => {
+    render(<CommittedSurface data={fakeData()} />);
+    openSheet();
+    const committed = screen.getByTestId('act-move').className;
+    cleanup();
+
+    // Same component, same class string — the two sheets cannot drift apart on this.
+    expect(committed).toContain('min-h-[44px]');
+    expect(committed).toContain('rounded-[12px]');
   });
 });

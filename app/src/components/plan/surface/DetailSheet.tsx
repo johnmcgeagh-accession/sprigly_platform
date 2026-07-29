@@ -15,10 +15,8 @@
  * paragraph on every card. Per-post assumptions are gone entirely — an assumption is a property
  * of the month, and belongs in the month's framing once rather than on ten sheets.
  *
- * THE ACTION ROW IS THREE EQUAL BUTTONS, icon with the label BELOW. Round 3 shipped these
- * icon-only and recorded labels as "the designated cheap reversal"; round 4 exercised it. Delete
- * is a solid `danger` fill with white icon and label (5.94:1) — a destructive action should not
- * have to be inferred from the colour of its text.
+ * THE ACTION ROW IS THREE EQUAL BUTTONS, glyph and label on one line, at stock-iOS weight — see
+ * `ActionBtn` for the three attempts it took and why Delete is a tint rather than a block.
  *
  * SHAPE REPLACES THE FOOTER WHOLESALE. Not relabelled: a button must never change meaning
  * mid-flow, which is exactly what round 4's "Cancel" sitting in the Shape slot did. The cancel
@@ -33,7 +31,7 @@ import React, { useEffect, useState } from 'react';
 import type { PlanPost } from '@/lib/types';
 import type { PlanData, ShapeTarget } from '../usePlanData';
 import { FormatTile, InfoGlyph, CopyGlyph, CalGlyph, SparkleGlyph, BinGlyph, SendGlyph, FORMAT_WORD } from './icons';
-import { cardText } from './card-text';
+import { cardText, realCaption } from './card-text';
 import { dayTitle } from './dates';
 import { isOnTheWay, ON_THE_WAY_LABEL, ON_THE_WAY_BODY } from '@/lib/generation-state';
 import { Sheet } from './Sheet';
@@ -50,8 +48,13 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'script', label: 'Script' },
 ];
 
+/**
+ * What a tab shows. The caption goes through `realCaption`, so a row still holding
+ * `DRAFT_PLACEHOLDER_CAPTION` reads as EMPTY here exactly as it does on the card — the sheet
+ * asking `!!post.caption` instead is what let a placeholder pose as content (see card-text.ts).
+ */
 const fieldOf = (post: PlanPost, tab: Tab): string =>
-  (tab === 'caption' ? post.caption : tab === 'hook' ? post.hook : post.script) ?? '';
+  (tab === 'caption' ? realCaption(post) : tab === 'hook' ? post.hook : post.script) ?? '';
 
 /**
  * Which tabs this format HAS, as opposed to which ones happen to be filled (round 6, P3).
@@ -111,7 +114,7 @@ export function DetailSheet({
 
   const { heading } = cardText(post);
   const onWay = isOnTheWay(post.status);
-  const written = !!(post.caption || post.hook || post.script);
+  const written = !!(realCaption(post) || post.hook || post.script);
   const editable = data.canEdit(post.date);
   const body = fieldOf(post, tab);
   const busy = data.shapingIds.has(post.id);
@@ -193,36 +196,7 @@ export function DetailSheet({
           </div>
         )}
 
-        {/* ROUND 6, P2 — the format control, back. It sits under the header rather than in it:
-            the header answers "which post is this", and this changes the post. */}
-        {editable && !onWay && (
-          <div className="flex-none px-[18px] pt-3">
-            <FormatControl value={post.format} onChange={(f) => void changeFormat(f)} disabled={busy} />
-            {formatNote && (
-              <p data-testid="format-note" role="status" className="mt-2 text-[12.5px] leading-normal text-muted">{formatNote}</p>
-            )}
-            {pendingFormat && (
-              <div data-testid="checklist-choice" className="mt-2.5 rounded-[14px] border border-line/55 bg-line-soft p-3">
-                <p className="text-[13px] leading-normal text-chrome">
-                  You’ve ticked steps on this post’s checklist. Keep them, or start the {FORMAT_WORD[pendingFormat]?.toLowerCase()} checklist instead?
-                </p>
-                <div className="mt-2.5 flex gap-2">
-                  <button type="button" data-testid="checklist-replace"
-                    onClick={() => { setPendingFormat(null); void data.regenerateChecklist(post.id); }}
-                    className="min-h-[40px] flex-1 rounded-[11px] bg-coral-650 px-3 text-[13px] font-bold text-white">
-                    Start the new one
-                  </button>
-                  <button type="button" data-testid="checklist-keep" onClick={() => setPendingFormat(null)}
-                    className="min-h-[40px] flex-1 rounded-[11px] bg-surface px-3 text-[13px] font-semibold text-muted ring-1 ring-inset ring-line/55">
-                    Keep mine
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {written && !onWay && tabs.length > 1 && (
+        {written && !onWay && tabs.length > 1 && !shaping && (
           <div role="tablist" aria-label="Post fields" className="flex flex-none gap-1 px-[18px] pt-3">
             {tabs.map(({ key, label }) => (
               // NOT disabled when empty any more (round 6, P3). An empty tab that this format
@@ -246,13 +220,48 @@ export function DetailSheet({
           {shaping ? (
             <>
               <p className="text-[13.5px] leading-normal text-muted">
-                What should be different? We’ll keep the date, the format and the pillar exactly as they are.
+                What should be different? We’ll keep the date and the pillar exactly as they are.
               </p>
               <textarea
                 data-testid="shape-input" autoFocus value={instruction} onChange={(e) => setInstruction(e.target.value)}
                 placeholder="Warmer, and mention the relaunch earlier"
                 className="mt-3 min-h-[120px] w-full rounded-[14px] border border-line/55 bg-surface p-3.5 text-[16.5px] leading-[1.45] text-chrome outline-none placeholder:text-muted"
               />
+
+              {/* THE FORMAT CONTROL LIVES HERE NOW — third placement, and the operator's ruling.
+                  A format change is a SHAPING decision with consequences: it can strand a hook
+                  and a script, and it changes what the checklist is for. Sitting always-visible
+                  under the header it read as a display toggle, one tap from a client who was
+                  looking at their caption. Inside Shape it is in the deliberate flow, beside the
+                  field where the client is already saying what they want different, and its
+                  consequence note has room to be read before anything is sent. */}
+              {editable && (
+                <div className="mt-5">
+                  <h3 className="mb-2 text-[11px] font-bold uppercase tracking-[.1em] text-muted">Format</h3>
+                  <FormatControl value={post.format} onChange={(f) => void changeFormat(f)} disabled={busy} />
+                  {formatNote && (
+                    <p data-testid="format-note" role="status" className="mt-2 text-[12.5px] leading-normal text-muted">{formatNote}</p>
+                  )}
+                  {pendingFormat && (
+                    <div data-testid="checklist-choice" className="mt-2.5 rounded-[14px] border border-line/55 bg-line-soft p-3">
+                      <p className="text-[13px] leading-normal text-chrome">
+                        You’ve ticked steps on this post’s checklist. Keep them, or start the {FORMAT_WORD[pendingFormat]?.toLowerCase()} checklist instead?
+                      </p>
+                      <div className="mt-2.5 flex gap-2">
+                        <button type="button" data-testid="checklist-replace"
+                          onClick={() => { setPendingFormat(null); void data.regenerateChecklist(post.id); }}
+                          className="min-h-[40px] flex-1 rounded-[11px] bg-coral-650 px-3 text-[13px] font-bold text-white">
+                          Start the new one
+                        </button>
+                        <button type="button" data-testid="checklist-keep" onClick={() => setPendingFormat(null)}
+                          className="min-h-[40px] flex-1 rounded-[11px] bg-surface px-3 text-[13px] font-semibold text-muted ring-1 ring-inset ring-line/55">
+                          Keep mine
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           ) : onWay ? (
             <div data-testid="detail-on-the-way" className="rounded-2xl border border-line/30 bg-line-soft px-4 py-5">
@@ -330,17 +339,17 @@ export function DetailSheet({
           </div>
         ) : editable ? (
           <div className="flex flex-none gap-2 border-t border-line/30 bg-surface px-[18px] pb-[26px] pt-3">
-            <ActionBtn testid="act-move" label="Move" onClick={onMove}><CalGlyph className="h-[19px] w-[19px]" /></ActionBtn>
+            <ActionBtn testid="act-move" label="Move" onClick={onMove}><CalGlyph className="h-[17px] w-[17px] [stroke-width:1.5]" /></ActionBtn>
             {/* Shape is absent when the OPEN TAB has nothing to rewrite — a rewrite of an empty
                 field is not a cheaper version of writing it, it is a paid no-op, and the tab
                 already offers the action that does write it. */}
             {!!body && !onWay && (
               <ActionBtn testid="act-shape" label="Shape" disabled={busy} onClick={() => setShaping(true)}>
-                <SparkleGlyph className="h-[19px] w-[19px]" />
+                <SparkleGlyph className="h-[17px] w-[17px] [stroke-width:1.5]" />
               </ActionBtn>
             )}
             <ActionBtn testid="act-delete" label="Delete" destructive onClick={onDelete}>
-              <BinGlyph className="h-[19px] w-[19px]" />
+              <BinGlyph className="h-[17px] w-[17px] [stroke-width:1.5]" />
             </ActionBtn>
           </div>
         ) : null}
@@ -350,14 +359,25 @@ export function DetailSheet({
 }
 
 /**
- * One of the three. Equal width, icon over label, and a real pressed state so it reads as a
- * button rather than as an icon somebody made tappable.
+ * One of the three. Equal width, glyph and label on ONE line, and a real pressed state.
  *
- * ROUND 6, P12: 56px, not 68px. The structure, the labels and Delete's fill are round 4's and
- * are unchanged — what the phone reported was scale. A 68px slab with a 20px glyph is the height
- * of a list row, and three of them across the foot of a sheet read as a toolbar bolted on rather
- * than as the sheet's own controls. 56px with a 19px glyph is iOS weight and still eleven pixels
- * over the touch floor.
+ * ── Attempt two (round 7, fix 5) ─────────────────────────────────────────────────────
+ *
+ * Round 5 stacked a 20px glyph over a 12px label at 68px; round 6 took it to 56px and the
+ * operator still read it as heavy. The reference given was a stock iOS action row, and the three
+ * things that make one are: the glyph and the label sit on a LINE rather than a stack, the glyph
+ * is THIN, and the fill is QUIET. So: 44px, a 17px glyph at 1.5 stroke, a 15px label beside it,
+ * and a tinted fill instead of a ring.
+ *
+ * DELETE KEEPS ITS OWN COLOUR, on a tint rather than a block. Round-4 S1 ruled that a
+ * destructive action must not have to be inferred from the colour of its text, and round 5.1
+ * upheld it against V1 — so this is a refinement of that ruling and not a reversal: the action is
+ * still marked by its FILL, its COLOUR and its GLYPH together, which is three channels, and none
+ * of them is text colour alone. What changes is that a solid saturated block is no longer the
+ * loudest object on a sheet whose common action is "read the caption, maybe move it" — which was
+ * V1's observation, and it is right once the other two buttons go quiet.
+ *
+ * If the operator wants the solid block back it is the one `destructive` branch below.
  */
 function ActionBtn({
   testid, label, onClick, children, destructive, disabled,
@@ -369,17 +389,17 @@ function ActionBtn({
     <button
       type="button" data-testid={testid} onClick={onClick} disabled={disabled}
       className={[
-        'flex min-h-[56px] flex-1 flex-col items-center justify-center gap-[3px] rounded-[14px] px-1 py-1.5 transition-colors duration-100',
+        'flex min-h-[44px] flex-1 flex-row items-center justify-center gap-1.5 rounded-[12px] px-2 transition-colors duration-100',
         destructive
-          // White on danger is 5.94:1. The only saturated fill on the surface, on the only
-          // action that destroys something.
-          ? 'bg-danger text-white active:bg-danger/[.86]'
-          : 'bg-surface text-chrome ring-1 ring-inset ring-line/55 active:bg-line-soft active:ring-line',
+          // `danger` on its own 10% tint over surface — the destructive action is carried by the
+          // fill, the colour AND the bin, so nothing about it has to be inferred (S1).
+          ? 'bg-danger/10 text-danger active:bg-danger/[.18]'
+          : 'bg-line-soft text-chrome active:bg-line/25',
         disabled ? 'opacity-40' : '',
       ].join(' ')}
     >
       {children}
-      <span className="text-[12px] font-semibold tracking-[-.01em]">{label}</span>
+      <span className="text-[15px] font-medium tracking-[-.01em]">{label}</span>
     </button>
   );
 }
@@ -427,7 +447,9 @@ function EmptyField({
     );
   }
 
-  const needsCaption = tab === 'script' && !post.caption.trim();
+  // A script is built around the caption. A placeholder is not a caption, and generating
+  // from one writes a hook and a script about our own scaffolding sentence.
+  const needsCaption = tab === 'script' && !realCaption(post);
   const why = tab === 'hook'
     ? 'This one was written before hooks, or its format changed. Nothing is wrong with it.'
     : 'This one has no script yet — either its format changed, or it was written before scripts.';

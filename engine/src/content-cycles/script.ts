@@ -16,7 +16,7 @@
  * `hook_saved` and `script_saved` plan_activity rows (origin=agent).
  */
 import { and, eq } from 'drizzle-orm';
-import { contentCycles, contentCyclePosts } from '@sprigly/db';
+import { contentCycles, contentCyclePosts, hasRealCaption } from '@sprigly/db';
 import { assembleShapeContext } from './planning.js';
 import type { PlanningDeps } from './planning.js';
 import { recordPlanActivity } from './ledger.js';
@@ -76,7 +76,9 @@ export async function runScriptForPost(job: ScriptJob, deps: PlanningDeps): Prom
   if (!post) throw new Error(`script: post ${job.targetPostId} not found`);
   if (post.format !== 'reel') throw new Error(`script: format ${post.format} does not support scripts`);
   // No hook precondition any more — this call WRITES the hook. The caption is the subject.
-  if (!post.caption) throw new Error('script: a caption is required');
+  // A placeholder is not a caption: the row is non-empty and the content does not exist.
+  // Guarded here as well as at the route because this is the end that spends money.
+  if (!hasRealCaption(post.caption)) throw new Error('script: a real caption is required');
 
   const ctx = await assembleShapeContext(cycle, deps);
   const patternBlock = await hookPatternBlock(db, post.format);
