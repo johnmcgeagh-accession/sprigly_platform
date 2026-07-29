@@ -40,12 +40,13 @@
  * A surface that starts listening does not also need to suggest what to say. The `starters` field
  * is off `Framing` entirely rather than emptied, so nothing can quietly grow them back.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Sheet } from './Sheet';
 import { MicGlyph, KeyboardGlyph, SendGlyph, CloseGlyph } from './icons';
 import { Waveform } from './Waveform';
 import { AgentSays } from './AgentVoice';
 import { useSpeechInput } from '../useSpeechInput';
+import { MicTracePanel } from '../MicTracePanel';
 
 /**
  * ONE SHEET, TWO MONTH STATES (round 7, fix 2).
@@ -80,6 +81,10 @@ const FRAMING: Record<VoiceContext, (monthName: string) => Framing> = {
 };
 
 type Mode = 'speak' | 'type';
+
+/** How long `onaudioend` is tolerated before the sheet stops claiming to be listening. WebKit
+ *  fires it between utterances, so this has to outlast an ordinary pause between sentences. */
+const AUDIO_GRACE_MS = 2500;
 
 export function VoiceSheet({
   open, monthName, busy, question, context = 'draft', onClose, onSubmit,
@@ -127,6 +132,32 @@ export function VoiceSheet({
   const starting = speech.state === 'starting';
   const { start: startSpeech, stop: stopSpeech } = speech;
 
+  // ── The lie the screen recording caught ──────────────────────────────────────────────
+  // `state === 'recording'` means WE ASKED. `audioLive` means the capture actually opened
+  // (`onaudiostart` fired, `onaudioend` has not). The sheet was reading the first and printing
+  // "Listening…", which is how the operator came to talk into a dead microphone for many
+  // seconds with a flatline meter and a heading that said everything was fine.
+  //
+  // Held for a moment before it is believed: WebKit fires `onaudioend` at the end of every
+  // utterance, and treating that instant as "not listening" would strobe the heading between
+  // every phrase. The grace is long enough to cover the gap and short enough that a genuinely
+  // dead capture is admitted while the client is still standing there.
+  // Three states, not two: `null` is "we have not waited long enough to say". Starting at
+  // `false` would flash the failure copy in the ordinary gap between `onstart` and
+  // `onaudiostart`, which is a lie in the opposite direction.
+  const [audioOk, setAudioOk] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (speech.audioLive) { setAudioOk(true); return; }
+    if (!listening) { setAudioOk(null); return; }
+    const t = setTimeout(() => setAudioOk(false), AUDIO_GRACE_MS);
+    return () => clearTimeout(t);
+  }, [speech.audioLive, listening]);
+  /** Listening, and nothing has told us the capture is dead. */
+  const capturing = listening && audioOk !== false;
+  /** Listening, and the capture never opened — or opened and went away. Named, because it used
+   *  to be indistinguishable from listening, which is the whole of the reported bug. */
+  const stalled = listening && audioOk === false && !starting;
+
   // ── Fix 5: the sheet listens as soon as it exists ────────────────────────────────────
   // Not on a tap. The client came here to talk, and a microphone that waits to be pressed makes
   // them do the same thing twice. It also stops whenever speaking stops being the mode or the
@@ -136,7 +167,16 @@ export function VoiceSheet({
   // The dependency list is the two stable callbacks, NOT the `speech` object — that is a fresh
   // literal on every render, so depending on it re-ran this effect constantly and made "did we
   // already start?" impossible to reason about.
-  useEffect(() => {
+  //
+  // ── Round 9: useLayoutEffect, and it is not a preference ─────────────────────────────
+  // `useEffect` is scheduled AFTER paint, in a later task than the tap that opened the sheet.
+  // WebKit's transient user activation does not survive that gap, and on a cold open — the
+  // first time a client ever speaks, when the permission prompt is still needed — recognition
+  // was therefore asking for the microphone from a context that no longer counted as
+  // user-initiated. `useLayoutEffect` runs synchronously in the same task as the state update
+  // that mounted this sheet, which for a discrete event like a click is still the gesture's
+  // own task. `start()` is now synchronous all the way to `rec.start()` for the same reason.
+  useLayoutEffect(() => {
     if (open && mode === 'speak') startSpeech();
     else stopSpeech();
   }, [open, mode, startSpeech, stopSpeech]);
@@ -166,14 +206,18 @@ export function VoiceSheet({
     : speech.state === 'unsupported' ? 'This browser can’t listen'
     : speech.state === 'error' ? 'The microphone stopped'
     : starting ? 'Getting the mic…'
-    : listening ? (loud ? 'Listening…' : 'Go ahead')
+    : stalled ? 'We’ve lost the microphone'
+    : capturing ? (loud ? 'Listening…' : 'Go ahead')
     : 'Tap the mic and talk';
   const under = mode === 'type' ? 'Same thing, typed.'
     : speech.state === 'no-permission' ? 'Allow it in your browser settings, or type it instead.'
     : speech.state === 'unsupported' ? 'Type it instead — it goes to exactly the same place.'
     : speech.state === 'error' ? 'Tap the mic to pick it up again, or type it instead.'
     : starting ? 'One moment.'
-    : listening ? (loud ? 'Tap the mic again when you’re done.' : 'We can’t hear anything yet.')
+    // Said out loud rather than sat in. Whatever we do next, the client needs to stop talking
+    // into something that is not recording them.
+    : stalled ? 'Nothing is reaching us. Tap the mic to pick it up, or type it instead.'
+    : capturing ? (loud ? 'Tap the mic again when you’re done.' : 'We can’t hear anything yet.')
     : 'One sentence is enough.';
 
   return (
@@ -223,7 +267,10 @@ export function VoiceSheet({
               </button>
 
               <div className="mt-6 w-full">
-                <Waveform active={listening} onLevel={setLoud} />
+                {/* `speaking` + `pulse` are the recogniser's OWN events. Passing them is what
+                    lets the meter run without a second `getUserMedia` on any browser that
+                    arbitrates one audio session — see Waveform.tsx and audio-contention.ts. */}
+                <Waveform active={listening} onLevel={setLoud} speaking={speech.speaking} pulse={speech.pulse} />
               </div>
 
               {/* THE TRANSCRIPT IS THE AGENT'S REGISTER (fix 7). It used to be body copy, one
@@ -294,6 +341,10 @@ export function VoiceSheet({
             <SendGlyph className="h-[26px] w-[26px] [stroke-width:2.2]" />
           </button>
         </div>
+        {/* Renders nothing unless the operator armed `?mic=trace` for this tab. It sits inside
+            the sheet because that is where the microphone is, and it is fixed to the viewport
+            so it survives the sheet's own scrolling. */}
+        <MicTracePanel />
       </>
     </Sheet>
   );

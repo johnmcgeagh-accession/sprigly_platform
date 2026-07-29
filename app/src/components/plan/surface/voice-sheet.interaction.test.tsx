@@ -24,6 +24,12 @@ class FakeRecognition {
   onresult: ((e: unknown) => void) | null = null;
   onerror: ((e: { error: string }) => void) | null = null;
   onend: (() => void) | null = null;
+  /** WebKit fires this when the capture actually OPENS. The sheet now requires it before it
+   *  will claim to be listening — see VoiceSheet's `audioOk`. A fake without it models a
+   *  browser that says "recording" and never records, which is the bug, not the baseline. */
+  onaudiostart: (() => void) | null = null;
+  onspeechstart: (() => void) | null = null;
+  onspeechend: (() => void) | null = null;
   /** The real API fires this when the session actually opens. The hook waits for it before it
    *  claims to be listening, so the fake has to have it or "getting the mic" never resolves. */
   onstart: (() => void) | null = null;
@@ -32,7 +38,7 @@ class FakeRecognition {
    *  constructed on top of a first that had not finished closing. */
   static built = 0;
   constructor() { FakeRecognition.built += 1; }
-  start() { this.started = true; FakeRecognition.live = this; this.onstart?.(); }
+  start() { this.started = true; FakeRecognition.live = this; this.onstart?.(); this.onaudiostart?.(); }
   stop() { this.started = false; this.onend?.(); }
   /** WebKit ends a session on its own after a silence, `continuous` or not. */
   endOnItsOwn() { this.started = false; this.onend?.(); }

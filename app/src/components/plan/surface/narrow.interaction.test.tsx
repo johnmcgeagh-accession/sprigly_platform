@@ -38,7 +38,13 @@ class FakeRecognition {
   onresult: ((e: unknown) => void) | null = null;
   onerror: ((e: { error: string }) => void) | null = null;
   onend: (() => void) | null = null;
-  start() { FakeRecognition.live = this; }
+  /** WebKit fires this when the capture actually OPENS. The sheet now requires it before it
+   *  will claim to be listening — see VoiceSheet's `audioOk`. A fake without it models a
+   *  browser that says "recording" and never records, which is the bug, not the baseline. */
+  onaudiostart: (() => void) | null = null;
+  onspeechstart: (() => void) | null = null;
+  onspeechend: (() => void) | null = null;
+  start() { FakeRecognition.live = this; this.onaudiostart?.(); }
   stop() { this.onend?.(); }
 }
 
