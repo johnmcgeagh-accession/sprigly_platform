@@ -140,12 +140,26 @@ function PostCard({ post, time, onOpen }: { post: PlanPost; time: string; onOpen
           <p className="text-[13.5px] leading-normal text-muted">{ON_THE_WAY_TEASER}</p>
           <div className="mt-2.5 flex items-center gap-2">
             {/* Work in flight: vivid, quiet, no red, nothing asked of the client. The three
-                dots are a non-text use of accent-600 at graduated opacity — the state is
-                carried by the words beside them, not by the colour. */}
-            <span aria-hidden="true" className="inline-flex items-center gap-[3px]">
-              <i className="block h-[5px] w-[5px] rounded-full bg-coral-600 opacity-30" />
-              <i className="block h-[5px] w-[5px] rounded-full bg-coral-600 opacity-60" />
-              <i className="block h-[5px] w-[5px] rounded-full bg-coral-600" />
+                dots are a non-text use of accent-600 — the state is carried by the words beside
+                them, not by the colour, and now not by the motion either.
+
+                ROUND 7, FIX 6: they travel. A static staircase of opacities reads as a
+                decoration; the same three pulsing in sequence read as work in progress, which is
+                the one thing the marker is for. Opacity only, so it composites on the GPU while
+                the page is also polling for the caption, and `motion-safe:` leaves the staircase
+                in place under `prefers-reduced-motion: reduce`. */}
+            <span data-testid="on-the-way-dots" aria-hidden="true" className="inline-flex items-center gap-[3px]">
+              {[0, 160, 320].map((delay, i) => (
+                <i
+                  key={delay}
+                  style={{ animationDelay: `${delay}ms` }}
+                  className={[
+                    'block h-[5px] w-[5px] rounded-full bg-coral-600 motion-safe:animate-dot-pulse',
+                    // The reduced-motion resting state, and the first frame either way.
+                    ['opacity-30', 'opacity-60', 'opacity-100'][i],
+                  ].join(' ')}
+                />
+              ))}
             </span>
             <span data-testid="on-the-way" aria-label={ON_THE_WAY_ARIA} className="text-[12.5px] font-semibold text-muted">
               {ON_THE_WAY_LABEL}
