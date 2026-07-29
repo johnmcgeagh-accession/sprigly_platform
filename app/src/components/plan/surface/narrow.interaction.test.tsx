@@ -122,7 +122,9 @@ for (const width of WIDTHS) {
 
       expect(screen.getByTestId('voice-sheet')).toBeTruthy();
       expect(screen.getByTestId('voice-mic')).toBeTruthy();
-      expect(screen.getAllByTestId('voice-starter')).toHaveLength(3);
+      // The starters are gone (round 8, fix 6). What must still fit at this width is the mic,
+      // the mode toggle and the send — the three controls the sheet cannot work without.
+      expect(screen.queryAllByTestId('voice-starter')).toHaveLength(0);
 
       fireEvent.click(screen.getByTestId('voice-mode'));
       fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'more product this month' } });

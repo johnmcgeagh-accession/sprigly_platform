@@ -24,9 +24,18 @@ class FakeRecognition {
   onresult: ((e: unknown) => void) | null = null;
   onerror: ((e: { error: string }) => void) | null = null;
   onend: (() => void) | null = null;
+  /** The real API fires this when the session actually opens. The hook waits for it before it
+   *  claims to be listening, so the fake has to have it or "getting the mic" never resolves. */
+  onstart: (() => void) | null = null;
   started = false;
-  start() { this.started = true; FakeRecognition.live = this; }
+  /** How many sessions this browser has been asked for. The no-start bug was a SECOND one
+   *  constructed on top of a first that had not finished closing. */
+  static built = 0;
+  constructor() { FakeRecognition.built += 1; }
+  start() { this.started = true; FakeRecognition.live = this; this.onstart?.(); }
   stop() { this.started = false; this.onend?.(); }
+  /** WebKit ends a session on its own after a silence, `continuous` or not. */
+  endOnItsOwn() { this.started = false; this.onend?.(); }
   /** What the browser hands back when it has heard a whole phrase. */
   say(text: string) {
     this.onresult?.({ resultIndex: 0, results: { length: 1, 0: { isFinal: true, 0: { transcript: text } } } });
@@ -55,19 +64,44 @@ describe('the sheet is the one place the framing copy lives', () => {
     expect(document.body.textContent).not.toMatch(/arrives later|coming soon|not yet available/i);
   });
 
-  it('opens listening-ready, not listening — a sheet must not take the mic on sight', () => {
+  /**
+   * ── The one assertion round 8 reverses ─────────────────────────────────────────────
+   * This used to read "opens listening-ready, not listening — a sheet must not take the mic on
+   * sight", and it was the right rule for a sheet that could be opened by accident. It is the
+   * wrong rule for THIS one: it is reached only by tapping a microphone, it says "talk to your
+   * plan" on the way in, and making the client tap a second mic to be heard is asking them to
+   * do the same thing twice. Fix 5 inverts it, and this is the line that inverts.
+   */
+  it('OPENS LISTENING — the client tapped a mic to get here', () => {
     open();
-    expect(screen.getByTestId('voice-heading').textContent).toBe('Tap the mic and talk');
-    expect(screen.getByTestId('voice-mic').getAttribute('aria-pressed')).toBe('false');
-    expect(FakeRecognition.live).toBeNull();
+    expect(screen.getByTestId('voice-mic').getAttribute('aria-pressed')).toBe('true');
+    expect(FakeRecognition.live).not.toBeNull();
+    expect(FakeRecognition.live!.started).toBe(true);
+    expect(screen.getByTestId('voice-heading').textContent).toBe('Go ahead');
+  });
+
+  it('takes the microphone ONCE, not once per render', () => {
+    open();
+    const built = FakeRecognition.built;
+    // A re-render for any reason must not spawn a second session on top of the first — the
+    // shape of the intermittent no-start.
+    act(() => { FakeRecognition.live!.say('anything'); });
+    expect(FakeRecognition.built).toBe(built);
+  });
+
+  it('releases it when the sheet closes', () => {
+    const { onClose } = open();
+    const rec = FakeRecognition.live!;
+    fireEvent.click(screen.getByTestId('voice-close'));
+    expect(onClose).toHaveBeenCalled();
+    cleanup();                          // the sheet unmounts
+    expect(rec.started).toBe(false);
   });
 });
 
 describe('silent and speaking differ by more than the bars (X6)', () => {
   it('listening-but-silent says so in the COPY, and the mic is filled without a halo', () => {
     open();
-    fireEvent.click(screen.getByTestId('voice-mic'));
-
     expect(screen.getByTestId('voice-heading').textContent).toBe('Go ahead');
     expect(screen.getByTestId('voice-state').textContent).toBe('We can’t hear anything yet.');
     const mic = screen.getByTestId('voice-mic');
@@ -75,25 +109,26 @@ describe('silent and speaking differ by more than the bars (X6)', () => {
     expect(mic.className).not.toContain('shadow-[0_0_0_10px');
   });
 
-  it('the idle mic is an OUTLINE — three states, three treatments', () => {
+  it('the idle mic is an OUTLINE — the treatments still differ, they are just reached by tapping OFF', () => {
     open();
+    fireEvent.click(screen.getByTestId('voice-mic'));      // stop
     const mic = screen.getByTestId('voice-mic');
     expect(mic.className).toContain('ring-coral-600');
     expect(mic.className).not.toContain('bg-coral-650');
+    expect(screen.getByTestId('voice-heading').textContent).toBe('Tap the mic and talk');
   });
 
   it('the meter runs only while capturing', () => {
     open();
-    expect(screen.getByTestId('waveform').getAttribute('data-active')).toBeNull();
-    fireEvent.click(screen.getByTestId('voice-mic'));
     expect(screen.getByTestId('waveform').getAttribute('data-active')).toBe('true');
+    fireEvent.click(screen.getByTestId('voice-mic'));      // stop
+    expect(screen.getByTestId('waveform').getAttribute('data-active')).toBeNull();
   });
 });
 
 describe('capture', () => {
   it('a spoken phrase lands in the same field the typed mode edits', () => {
     open();
-    fireEvent.click(screen.getByTestId('voice-mic'));
     act(() => { FakeRecognition.live!.say('The Wilderness candle relaunches on the 24th'); });
 
     expect(screen.getByTestId('voice-transcript').textContent).toBe('The Wilderness candle relaunches on the 24th');
@@ -106,7 +141,6 @@ describe('capture', () => {
 
   it('two phrases join with a space rather than replacing each other', () => {
     open();
-    fireEvent.click(screen.getByTestId('voice-mic'));
     act(() => { FakeRecognition.live!.say('The candle relaunches on the 24th.'); });
     act(() => { FakeRecognition.live!.say('Can we build up to it?'); });
     expect(screen.getByTestId('voice-transcript').textContent)
@@ -115,7 +149,6 @@ describe('capture', () => {
 
   it('SUBMITS AS VOICE when it came through the microphone (gap 8)', () => {
     const { onSubmit } = open();
-    fireEvent.click(screen.getByTestId('voice-mic'));
     act(() => { FakeRecognition.live!.say('More product this month'); });
     fireEvent.click(screen.getByTestId('voice-submit'));
 
@@ -133,7 +166,6 @@ describe('capture', () => {
 
   it('stops the microphone when the mode changes — a capture must not outlive its sheet', () => {
     open();
-    fireEvent.click(screen.getByTestId('voice-mic'));
     const rec = FakeRecognition.live!;
     expect(rec.started).toBe(true);
 
@@ -150,41 +182,27 @@ describe('capture', () => {
 
   it('a refused microphone reports itself rather than failing silently', () => {
     open();
-    fireEvent.click(screen.getByTestId('voice-mic'));
     act(() => { FakeRecognition.live!.onerror?.({ error: 'not-allowed' }); });
     expect(screen.getByTestId('voice-no-permission').textContent).toContain('microphone');
   });
 });
 
-describe('the starters are tappable, and they are starters (X4, R4)', () => {
-  it('a tap seeds the FIELD and switches to typed mode with the caret at the end', async () => {
-    open();
-    fireEvent.click(screen.getAllByTestId('voice-starter')[0]!);
-
-    const field = screen.getByTestId('voice-input') as HTMLTextAreaElement;
-    expect(field.value).toBe('We’re launching ');
-    // The caret is placed on the next frame, after the field has mounted.
-    await act(async () => { await new Promise((r) => requestAnimationFrame(() => r(null))); });
-    // A starter is the beginning of THEIR sentence, so the caret goes after it.
-    expect(field.selectionStart).toBe(field.value.length);
-    expect(document.activeElement).toBe(field);
-  });
-
-  it('every starter is a button — nothing here is a capsule that does nothing', () => {
-    open();
-    const starters = screen.getAllByTestId('voice-starter');
-    expect(starters).toHaveLength(3);
-    for (const s of starters) expect(s.tagName).toBe('BUTTON');
-  });
-
-  it('a starter appends rather than replacing what has already been said', () => {
-    open();
-    fireEvent.click(screen.getByTestId('voice-mic'));
-    act(() => { FakeRecognition.live!.say('Quiet start this month.'); });
-    fireEvent.click(screen.getAllByTestId('voice-starter')[2]!);
-
-    expect((screen.getByTestId('voice-input') as HTMLTextAreaElement).value)
-      .toBe('Quiet start this month. Can we do more ');
+describe('the starters are gone (round 8, fix 6)', () => {
+  /**
+   * X4 built these, and X4 was right about the mockups: three bordered capsules that did
+   * nothing were worse than nothing. The re-check removed the category rather than the
+   * implementation. On a sheet that now opens listening and says "one sentence is enough",
+   * a list of three openers is homework — and tapping one switched the client out of the mode
+   * they had just been put into, to finish OUR sentence rather than say theirs.
+   */
+  it('no starter, no capsule, and no invitation to try starting with anything', () => {
+    for (const context of ['draft', 'committed'] as const) {
+      open({ context });
+      expect(screen.queryAllByTestId('voice-starter')).toHaveLength(0);
+      expect(screen.queryByTestId('voice-starters')).toBeNull();
+      expect(document.body.textContent).not.toMatch(/try starting with/i);
+      cleanup();
+    }
   });
 });
 
@@ -226,11 +244,12 @@ describe('answering an assumption', () => {
 });
 
 describe('one sheet, two month states (round 7, fix 2)', () => {
-  it('the DRAFT framing shapes the month, and its starters lead into shaping intents', () => {
+  it('the DRAFT framing says the month reshapes, and its placeholder leads into a shaping intent', () => {
     open({ context: 'draft' });
     expect(screen.getByTestId('voice-framing').textContent).toContain('we’ll reshape it');
-    expect(screen.getAllByTestId('voice-starter').map((n) => n.textContent))
-      .toEqual(['We’re launching…', 'There’s an event on…', 'Can we do more…']);
+    fireEvent.click(screen.getByTestId('voice-mode'));
+    expect((screen.getByTestId('voice-input') as HTMLTextAreaElement).placeholder)
+      .toContain('relaunches on the 24th');
   });
 
   it('the COMMITTED framing says nothing moves until they say so, and offers correcting verbs', () => {
@@ -241,8 +260,11 @@ describe('one sheet, two month states (round 7, fix 2)', () => {
     expect(blurb).toContain('October is written');
     expect(blurb).toContain('approve');
     expect(blurb).toContain('nothing moves until you say so');
-    expect(screen.getAllByTestId('voice-starter').map((n) => n.textContent))
-      .toEqual(['Move the…', 'Take out the…', 'Rewrite the…']);
+    // The correcting verbs now live in the placeholder — the one example left, and the only
+    // place a suggestion belongs on a sheet that is already listening.
+    fireEvent.click(screen.getByTestId('voice-mode'));
+    expect((screen.getByTestId('voice-input') as HTMLTextAreaElement).placeholder)
+      .toBe('Move the Thursday post to Friday');
   });
 
   it('but the CAPTURE is identical — same mic, same meter, same dual input, same submit', () => {
@@ -252,7 +274,6 @@ describe('one sheet, two month states (round 7, fix 2)', () => {
       expect(screen.getByTestId('waveform')).toBeTruthy();
       expect(screen.getByTestId('voice-mode')).toBeTruthy();
 
-      fireEvent.click(screen.getByTestId('voice-mic'));
       act(() => { FakeRecognition.live!.say('move the Thursday post'); });
       fireEvent.click(screen.getByTestId('voice-submit'));
       expect(onSubmit).toHaveBeenCalledWith('move the Thursday post', 'voice');

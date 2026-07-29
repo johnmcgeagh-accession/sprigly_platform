@@ -149,8 +149,25 @@ export function usePlanData(init: PlanDataInit) {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flash = useCallback((m: string) => {
     setToast(m);
+    setAgentToast(null);            // a plain statement replaces a reply, and never sits beside it
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  /**
+   * The agent's reply, held separately from `toast` so the shell can render it in the agent's
+   * register (round 8, fix 7) rather than in the dark slab a save confirmation uses.
+   *
+   * Longer-lived than a flash. A reply is a sentence somebody has to READ — often naming a date
+   * or asking a real question — and three seconds is the budget for "Saved", not for that.
+   */
+  const [agentToast, setAgentToast] = useState<string | null>(null);
+  const agentToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const agentFlash = useCallback((m: string) => {
+    setToast(null);
+    setAgentToast(m);
+    if (agentToastTimer.current) clearTimeout(agentToastTimer.current);
+    agentToastTimer.current = setTimeout(() => setAgentToast(null), 9000);
   }, []);
 
   /** Fire-and-forget UI telemetry (ui_events). Never blocks or throws. */
@@ -591,7 +608,7 @@ export function usePlanData(init: PlanDataInit) {
       if (created.length) {
         setProposals((cur) => [...created.filter((p) => !cur.some((c) => c.id === p.id)), ...cur]);
         setFlashView('approvals'); setTimeout(() => setFlashView(null), 2800);
-      } else if (r.message) { flash(r.message); }
+      } else if (r.message) { agentFlash(r.message); }
       track('agent_ask_submitted', { proposals: created.length, source });
       void refreshNotes();
       return reply;
@@ -601,7 +618,7 @@ export function usePlanData(init: PlanDataInit) {
         : 'Network error. Your message is still here, try again.');
       return null;
     } finally { clearTimeout(ceiling); setAgentBusy(false); }
-  }, [readOnly, agentBusy, flash, refreshNotes, track, viewedCycleId]);
+  }, [readOnly, agentBusy, agentFlash, refreshNotes, track, viewedCycleId]);
 
   /** Poll an agent-enqueued hook job and surface its candidates in the target post's hook
    *  UI — exactly as a manual "Generate hooks" does (the editor reads hookCandidates). */
@@ -717,7 +734,7 @@ export function usePlanData(init: PlanDataInit) {
     surfaceKind, draft, setDraft,
     // status
     busy, switching, shapingIds, proposalBusy, agentBusy, agentReply, agentError,
-    shapeErrors, loadError, flashView, toast,
+    shapeErrors, loadError, flashView, toast, agentToast,
     hookGenerating, hookCandidates, hookError,
     scriptGenerating, scriptError, weather,
     // actions

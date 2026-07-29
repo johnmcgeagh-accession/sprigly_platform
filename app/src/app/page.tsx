@@ -1,3 +1,4 @@
+import type { Viewport } from 'next';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db, clients, clientConfigs, contentCycles, clientChannels, planInputs } from '@sprigly/db';
 import { BASE_QUESTIONS, type IntakeJson } from '@sprigly/engine';
@@ -6,11 +7,55 @@ import { loadPlanPosts, loadCrossMonthPosts, loadCycleList, beatsInMonth, cycleH
 import { editScopeToday } from '@/lib/edit-scope';
 import { resolveLandingCycleId } from '@/lib/cycle-nav';
 import { readPlanRedesignFlag } from '@/lib/flags';
+import { loadActiveCanvasHex, CORAL_THEME_COLOR } from '@/lib/theme';
 import PlanApp from '@/components/PlanApp';
 import PlanRedesign from '@/components/PlanRedesign';
 import { DraftPlan } from '@/components/DraftPlan';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * `theme-color` — the colour Safari paints the status-bar and toolbar bands.
+ *
+ * ── The seam ─────────────────────────────────────────────────────────────────────────
+ * The app handed those bands the strong coral. On a phone that reads as a coral strip, a
+ * light plan, and a coral strip: three horizontal blocks, where the plan surface is supposed
+ * to be one continuous sheet under the client's thumb. On the redesign the bands now take the
+ * canvas, and there is no seam to see.
+ *
+ * DECISIONS.md §13 rules that theme-color is `coral-strong`, and THIS is the one place that
+ * reverses it — for the redesign only. Two reasons it is a scoping refinement rather than a
+ * reversal. That ruling was written for the marketing identity, where a coral chrome band IS
+ * the brand announcing itself on arrival; the marketing site still emits it
+ * (`site/app/layout.tsx:94`), untouched, and so does every flag-off tenant here. And the plan
+ * surface is an Operate surface the client lives inside, where chrome that announces anything
+ * is chrome competing with the plan. The brand does not get quieter — it moves to the
+ * wordmark, which the header now renders in the accent at the top of the type scale.
+ *
+ * THE DARK ENTRY IS DELIBERATELY THE SAME COLOUR. The surface is `color-scheme: only light`
+ * (globals.css); there is no dark rendering for the bands to match. Without an explicit dark
+ * entry Safari substitutes its own near-black, which is the same seam in the other direction.
+ *
+ * Resolved from the ACTIVE theme, so an admin theme switch carries the bands along with
+ * `bg-bg` rather than stranding them on a stale literal.
+ */
+export async function generateViewport(): Promise<Viewport> {
+  const session = await getSession();
+  if (!session) return { themeColor: CORAL_THEME_COLOR };
+  const [cfg] = await db
+    .select({ settings: clientConfigs.settings })
+    .from(clientConfigs)
+    .where(eq(clientConfigs.clientId, session.clientId))
+    .limit(1);
+  if (!readPlanRedesignFlag(cfg?.settings)) return { themeColor: CORAL_THEME_COLOR };
+  const canvas = await loadActiveCanvasHex();
+  return {
+    themeColor: [
+      { media: '(prefers-color-scheme: light)', color: canvas },
+      { media: '(prefers-color-scheme: dark)', color: canvas },
+    ],
+  };
+}
 
 export default async function Page({ searchParams }: { searchParams: { intake?: string; cycle?: string } }) {
   const session = await getSession();

@@ -190,7 +190,7 @@ export function CommittedSurface({ data }: { data: PlanData }) {
       todayEnabled={todayEnabled}
       // ONE feedback channel, at the top (round 6, P10). `data.toast` used to render in a second
       // bar at the bottom of the page, over the nav pill; it comes here instead.
-      topSlot={<Feedback undo={undo} onDismiss={() => setUndo(null)} message={data.toast} />}
+      topSlot={<Feedback undo={undo} onDismiss={() => setUndo(null)} message={data.toast} agent={data.agentToast} agentWorking={data.agentBusy} />}
       overlays={<>
         <DetailSheet
           post={openPost} data={data} rationale={openPost?.rationale ?? ''}
