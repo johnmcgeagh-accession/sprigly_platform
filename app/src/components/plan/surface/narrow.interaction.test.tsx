@@ -184,11 +184,16 @@ for (const width of WIDTHS) {
       render(<CommittedSurface data={committedData()} />);
       fireEvent.click(screen.getByTestId('post-card'));
 
-      expect(screen.getByTestId('format-control')).toBeTruthy();
       fireEvent.click(screen.getByTestId('tab-script'));
       expect(screen.getByTestId('generate-script')).toBeTruthy();
       expect(screen.getByTestId('act-move')).toBeTruthy();
       expect(screen.getByTestId('act-delete')).toBeTruthy();
+
+      // The format control lives inside Shape now, and Shape is reachable at both widths.
+      fireEvent.click(screen.getByTestId('tab-caption'));
+      fireEvent.click(screen.getByTestId('act-shape'));
+      expect(screen.getByTestId('format-control')).toBeTruthy();
+      expect(screen.getByTestId('shape-input')).toBeTruthy();
     });
 
     it('a sheet can always be left — grabber, scrim and its own close', () => {

@@ -198,36 +198,7 @@ export function DetailSheet({
           </div>
         )}
 
-        {/* ROUND 6, P2 — the format control, back. It sits under the header rather than in it:
-            the header answers "which post is this", and this changes the post. */}
-        {editable && !onWay && (
-          <div className="flex-none px-[18px] pt-3">
-            <FormatControl value={post.format} onChange={(f) => void changeFormat(f)} disabled={busy} />
-            {formatNote && (
-              <p data-testid="format-note" role="status" className="mt-2 text-[12.5px] leading-normal text-muted">{formatNote}</p>
-            )}
-            {pendingFormat && (
-              <div data-testid="checklist-choice" className="mt-2.5 rounded-[14px] border border-line/55 bg-line-soft p-3">
-                <p className="text-[13px] leading-normal text-chrome">
-                  You’ve ticked steps on this post’s checklist. Keep them, or start the {FORMAT_WORD[pendingFormat]?.toLowerCase()} checklist instead?
-                </p>
-                <div className="mt-2.5 flex gap-2">
-                  <button type="button" data-testid="checklist-replace"
-                    onClick={() => { setPendingFormat(null); void data.regenerateChecklist(post.id); }}
-                    className="min-h-[40px] flex-1 rounded-[11px] bg-coral-650 px-3 text-[13px] font-bold text-white">
-                    Start the new one
-                  </button>
-                  <button type="button" data-testid="checklist-keep" onClick={() => setPendingFormat(null)}
-                    className="min-h-[40px] flex-1 rounded-[11px] bg-surface px-3 text-[13px] font-semibold text-muted ring-1 ring-inset ring-line/55">
-                    Keep mine
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {written && !onWay && tabs.length > 1 && (
+        {written && !onWay && tabs.length > 1 && !shaping && (
           <div role="tablist" aria-label="Post fields" className="flex flex-none gap-1 px-[18px] pt-3">
             {tabs.map(({ key, label }) => (
               // NOT disabled when empty any more (round 6, P3). An empty tab that this format
@@ -251,13 +222,48 @@ export function DetailSheet({
           {shaping ? (
             <>
               <p className="text-[13.5px] leading-normal text-muted">
-                What should be different? We’ll keep the date, the format and the pillar exactly as they are.
+                What should be different? We’ll keep the date and the pillar exactly as they are.
               </p>
               <textarea
                 data-testid="shape-input" autoFocus value={instruction} onChange={(e) => setInstruction(e.target.value)}
                 placeholder="Warmer, and mention the relaunch earlier"
                 className="mt-3 min-h-[120px] w-full rounded-[14px] border border-line/55 bg-surface p-3.5 text-[16.5px] leading-[1.45] text-chrome outline-none placeholder:text-muted"
               />
+
+              {/* THE FORMAT CONTROL LIVES HERE NOW — third placement, and the operator's ruling.
+                  A format change is a SHAPING decision with consequences: it can strand a hook
+                  and a script, and it changes what the checklist is for. Sitting always-visible
+                  under the header it read as a display toggle, one tap from a client who was
+                  looking at their caption. Inside Shape it is in the deliberate flow, beside the
+                  field where the client is already saying what they want different, and its
+                  consequence note has room to be read before anything is sent. */}
+              {editable && (
+                <div className="mt-5">
+                  <h3 className="mb-2 text-[11px] font-bold uppercase tracking-[.1em] text-muted">Format</h3>
+                  <FormatControl value={post.format} onChange={(f) => void changeFormat(f)} disabled={busy} />
+                  {formatNote && (
+                    <p data-testid="format-note" role="status" className="mt-2 text-[12.5px] leading-normal text-muted">{formatNote}</p>
+                  )}
+                  {pendingFormat && (
+                    <div data-testid="checklist-choice" className="mt-2.5 rounded-[14px] border border-line/55 bg-line-soft p-3">
+                      <p className="text-[13px] leading-normal text-chrome">
+                        You’ve ticked steps on this post’s checklist. Keep them, or start the {FORMAT_WORD[pendingFormat]?.toLowerCase()} checklist instead?
+                      </p>
+                      <div className="mt-2.5 flex gap-2">
+                        <button type="button" data-testid="checklist-replace"
+                          onClick={() => { setPendingFormat(null); void data.regenerateChecklist(post.id); }}
+                          className="min-h-[40px] flex-1 rounded-[11px] bg-coral-650 px-3 text-[13px] font-bold text-white">
+                          Start the new one
+                        </button>
+                        <button type="button" data-testid="checklist-keep" onClick={() => setPendingFormat(null)}
+                          className="min-h-[40px] flex-1 rounded-[11px] bg-surface px-3 text-[13px] font-semibold text-muted ring-1 ring-inset ring-line/55">
+                          Keep mine
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           ) : onWay ? (
             <div data-testid="detail-on-the-way" className="rounded-2xl border border-line/30 bg-line-soft px-4 py-5">

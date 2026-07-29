@@ -444,11 +444,40 @@ describe('the grabber is a control (round 6, P7)', () => {
   });
 });
 
-describe('the format control (round 6, P2)', () => {
-  it('is in the sheet, wired to the format mutation, and does not re-send the format it is on', () => {
+/**
+ * The format control's THIRD placement, and the operator's ruling: it lives inside Shape mode.
+ *
+ * Always-visible under the header it read as a display toggle — one tap away from a client who
+ * had opened the sheet to read their caption. A format change is a shaping decision WITH
+ * consequences (it can strand a hook and a script, and it changes what the checklist is for), so
+ * it belongs in the deliberate flow, beside the field where the client is already saying what
+ * they want different, with room for its consequence note to be read before anything is sent.
+ */
+const openShape = () => { openSheet(); fireEvent.click(screen.getByTestId('act-shape')); };
+
+describe('the format control, inside Shape mode', () => {
+  it('is NOT on the sheet until Shape is open', () => {
+    render(<CommittedSurface data={fakeData()} />);
+    openSheet();
+    expect(screen.queryByTestId('format-control')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('act-shape'));
+    expect(screen.getByTestId('format-control')).toBeTruthy();
+    // …beside the prompt field, not instead of it.
+    expect(screen.getByTestId('shape-input')).toBeTruthy();
+  });
+
+  it('and it goes again when Shape is cancelled', () => {
+    render(<CommittedSurface data={fakeData()} />);
+    openShape();
+    fireEvent.click(screen.getByTestId('shape-cancel'));
+    expect(screen.queryByTestId('format-control')).toBeNull();
+  });
+
+  it('is wired to the format mutation, and does not re-send the format it is on', () => {
     const data = fakeData();
     render(<CommittedSurface data={data} />);
-    openSheet();
+    openShape();
 
     expect(screen.getByTestId('format-control')).toBeTruthy();
     expect(screen.getByTestId('format-reel').getAttribute('aria-pressed')).toBe('true');
@@ -462,7 +491,7 @@ describe('the format control (round 6, P2)', () => {
 
   it('states the consequence honestly — nothing is cleared, so it does not say it was', async () => {
     render(<CommittedSurface data={fakeData({ posts: [post({ script: 'Open on the shelf.' })] })} />);
-    openSheet();
+    openShape();
     await act(async () => { fireEvent.click(screen.getByTestId('format-single')); });
 
     const note = screen.getByTestId('format-note').textContent ?? '';
@@ -473,7 +502,7 @@ describe('the format control (round 6, P2)', () => {
 
   it('names what the NEW format still needs', async () => {
     render(<CommittedSurface data={fakeData({ posts: [post({ format: 'single', hook: null })] })} />);
-    openSheet();
+    openShape();
     await act(async () => { fireEvent.click(screen.getByTestId('format-reel')); });
 
     expect(screen.getByTestId('format-note').textContent).toContain('needs a hook and a script');
@@ -483,7 +512,7 @@ describe('the format control (round 6, P2)', () => {
     const steps = [{ id: 's1', label: 'Shoot it', leadDays: 3, done: false, doneAt: null, sort: 0, createdBy: 'agent' as const }];
     const data = fakeData({ posts: [post({ steps })] });
     render(<CommittedSurface data={data} />);
-    openSheet();
+    openShape();
     await act(async () => { fireEvent.click(screen.getByTestId('format-carousel')); });
 
     expect(data.regenerateChecklist).toHaveBeenCalledWith('p1');
@@ -494,7 +523,7 @@ describe('the format control (round 6, P2)', () => {
     const steps = [{ id: 's1', label: 'Shoot it', leadDays: 3, done: true, doneAt: '2026-09-30T10:00:00Z', sort: 0, createdBy: 'agent' as const }];
     const data = fakeData({ posts: [post({ steps })] });
     render(<CommittedSurface data={data} />);
-    openSheet();
+    openShape();
     await act(async () => { fireEvent.click(screen.getByTestId('format-carousel')); });
 
     expect(screen.getByTestId('checklist-choice')).toBeTruthy();
@@ -505,9 +534,10 @@ describe('the format control (round 6, P2)', () => {
     expect(data.regenerateChecklist).not.toHaveBeenCalled();
   });
 
-  it('is absent on a read-only day — you can read the post, not reshape it', () => {
+  it('is unreachable on a read-only day — there is no Shape to open', () => {
     render(<CommittedSurface data={fakeData({ canEdit: () => false })} />);
     openSheet();
+    expect(screen.queryByTestId('act-shape')).toBeNull();
     expect(screen.queryByTestId('format-control')).toBeNull();
   });
 });
