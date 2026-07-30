@@ -5,34 +5,46 @@
  * the session's clientId — a forged conversationId belonging to another client is never reused
  * (the cycle's own conversation, or a fresh one, is used instead).
  *
- * ── ONE CONVERSATION PER CYCLE (the conversation sheet) ──────────────────────────────
+ * ── ONE CONVERSATION PER SESSION (operator ruling, round 2) ──────────────────────────
  *
- * The sheet is a thread about ONE month, and the thread has to survive a close, a reload and a
- * fresh magic-link open — "move it back" the next morning refers to yesterday's move. So a turn
- * with no conversationId no longer starts a fresh conversation when the cycle already has one:
- * it attaches to the cycle's LATEST. This is the smallest honest storage — the tables
- * (`conversations`, `agent_messages`, migration 0062) already exist, already carry role,
- * source, timestamps and a metadata blob per message, and were already written by every turn;
- * what was missing was only the read path and the resolve-by-cycle. A separate "threads" table
- * would be a second copy of the same facts.
+ * Round 1 made the thread per-CYCLE and everlasting: reopening the sheet showed every exchange
+ * the month had ever had. The ruling reverses it. Each sheet open is a fresh conversation,
+ * opening on the framing copy; the prior ones stay stored and simply are not rendered.
+ *
+ * Two reasons this is the better shape, and neither is about storage. A month's chat accumulates
+ * for as long as the month exists, so the client arrives at a wall of history they have to scroll
+ * past to say one sentence — and the CONTEXT WINDOW is the same list, so a stale reference from
+ * three weeks ago competes with the thing they just said. A session is the unit the client
+ * actually thinks in: "the conversation I am having now".
+ *
+ * Nothing is deleted. `agent_messages` keeps every turn under its own conversation row, so the
+ * record is intact for anyone who needs it later; what changes is which one the sheet asks for.
+ * The storage is still the smallest honest one — the tables (migration 0062) already carry role,
+ * source, timestamps and a metadata blob per message.
  */
 import { and, desc, eq } from 'drizzle-orm';
 import { db, conversations, agentMessages } from '@sprigly/db';
 import type { InterpretedItem } from './types';
 
-/** The cycle's current conversation — the latest one bound to it — or null. Client-scoped. */
-export async function resolveCycleConversation(clientId: string, cycleId: string): Promise<string | null> {
-  const [row] = await db
-    .select({ id: conversations.id })
-    .from(conversations)
-    .where(and(eq(conversations.clientId, clientId), eq(conversations.cycleId, cycleId)))
-    .orderBy(desc(conversations.lastMessageAt))
-    .limit(1);
-  return row?.id ?? null;
+/**
+ * Start a conversation for this cycle and return its id. One per sheet open — the SESSION is
+ * the unit, so this is called by the sheet on open rather than inferred from what exists.
+ */
+export async function startConversation(clientId: string, cycleId: string | null): Promise<string> {
+  const [created] = await db
+    .insert(conversations)
+    .values({ clientId, cycleId })
+    .returning({ id: conversations.id });
+  return created!.id;
 }
 
-/** Return an owned conversation id: the one passed (if this client's), else the cycle's own,
- *  else a new one. `cycleId` seeds a new conversation's cycle binding. */
+/**
+ * Return an owned conversation id: the one passed (if it is this client's), else a NEW one.
+ *
+ * A turn that arrives with no conversationId no longer adopts the cycle's most recent thread —
+ * that was the per-cycle model, and it is what made a reopened sheet show a month's worth of
+ * history. Without an id, this turn is the start of a session.
+ */
 export async function ensureConversation(
   clientId: string,
   cycleId: string | null,
@@ -46,17 +58,7 @@ export async function ensureConversation(
       .limit(1);
     if (row) return row.id;
   }
-  // No (valid) id passed → the cycle's own thread, so a reopened sheet and a fresh magic-link
-  // open land in the same conversation rather than fragmenting the month across several.
-  if (cycleId) {
-    const existing = await resolveCycleConversation(clientId, cycleId);
-    if (existing) return existing;
-  }
-  const [created] = await db
-    .insert(conversations)
-    .values({ clientId, cycleId })
-    .returning({ id: conversations.id });
-  return created!.id;
+  return startConversation(clientId, cycleId);
 }
 
 export interface AppendMessageArgs {

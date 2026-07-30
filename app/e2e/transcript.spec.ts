@@ -36,7 +36,8 @@ test('TRANSCRIPT: the Emma loop through the conversation sheet', async ({ page }
 
   await page.getByTestId('nav-mic').click();
   await page.getByTestId('voice-sheet').waitFor();
-  await dumpThread(page, '1 · the sheet opens on the month’s own conversation');
+  await page.getByTestId('turn-agent').first().waitFor();
+  await dumpThread(page, '1 · the sheet opens a session — the agent speaks first');
 
   await page.getByTestId('voice-input').fill(`move the reel ${REEL} later and make it a carousel`);
   await page.getByTestId('voice-submit').click();
@@ -64,6 +65,6 @@ test('TRANSCRIPT: the Emma loop through the conversation sheet', async ({ page }
   console.log(`row ▸ ${row?.trim()}\n${lines.map((l) => `  · ${l.replace(/\s+/g, ' ').trim()}`).join('\n')}\n`);
 
   await page.getByTestId('nav-mic').click();
-  await page.getByTestId('interpretation').first().waitFor();
-  await dumpThread(page, '6 · reopened the next day — the same conversation');
+  await page.getByTestId('turn-agent').first().waitFor();
+  await dumpThread(page, '6 · reopened — a new session, on a clean sheet');
 });

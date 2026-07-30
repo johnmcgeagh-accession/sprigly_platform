@@ -340,10 +340,14 @@ export function CommittedSurface({ data }: { data: PlanData }) {
           // The reply renders as thread turns — `silent` keeps the out-of-sheet copies
           // (agentFlash, the Approvals flash) from doubling it over the thread. A pure query's
           // answer rides back as `message` and becomes an agent turn: the dead-end is gone.
-          onSubmit={async (text, source) => {
-            const reply = await data.ask(text, null, source, { silent: true });
+          onSubmit={async (text, source, conversationId) => {
+            const reply = await data.ask(text, null, source, { silent: true, conversationId });
             if (!reply) return { ok: false as const };   // refused or errored — the composer keeps the words
-            return { ok: true as const, items: reply.items, ...(reply.message ? { message: reply.message } : {}) };
+            return {
+              ok: true as const, items: reply.items,
+              ...(reply.message ? { message: reply.message } : {}),
+              ...(reply.conversationId ? { conversationId: reply.conversationId } : {}),
+            };
           }}
           // F4, threaded: the apply runs in the background and the settled report becomes the
           // confirmation turn; chip + highlights land outside the sheet either way.

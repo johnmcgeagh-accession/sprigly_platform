@@ -26,7 +26,11 @@ import { planMoveGuard, shouldReconcile } from '@/lib/plan-move';
 import { refusalMessage } from '@/lib/refusals';
 import { navTrace } from './nav-trace';
 
-export interface AgentReply { message: string; proposals: ProposalView[]; items: InterpretedItem[] }
+export interface AgentReply {
+  message: string; proposals: ProposalView[]; items: InterpretedItem[];
+  /** The conversation this turn landed in — the sheet holds it for the rest of its session. */
+  conversationId?: string;
+}
 
 /** Which field a Shape/refine instruction targets (§26). */
 export type ShapeTarget = 'caption' | 'hook' | 'script';
@@ -144,6 +148,11 @@ export function usePlanData(init: PlanDataInit) {
   // Weather overlay (Slice 4): a date→forecast map. Pure decoration — fetched in
   // parallel after mount, never blocks render, and stays empty on any failure.
   const [weather, setWeather] = useState<Map<string, WeatherDay>>(new Map());
+  /**
+   * The DESKTOP agent bar's conversation. The phone's sheet owns its own — one per sheet open
+   * (the per-session ruling) — and passes it in, so a page-level ref must never be the thing
+   * that decides which conversation a turn belongs to.
+   */
   const conversationId = useRef<string | null>(null);
 
   const [toast, setToast] = useState<string | null>(null);
@@ -598,8 +607,10 @@ export function usePlanData(init: PlanDataInit) {
     source: 'web' | 'voice' = 'web',
     /** `silent` skips the out-of-sheet rendering (agentFlash / the Approvals flash): the
      *  conversation sheet renders the reply as a turn IN the thread, and a second copy over the
-     *  sheet would be the secondary status bar the redesign removes. Desktop callers omit it. */
-    opts: { silent?: boolean } = {},
+     *  sheet would be the secondary status bar the redesign removes. Desktop callers omit it.
+     *  `conversationId` is the SHEET's session when the sheet is asking; absent, the page-level
+     *  ref applies (the desktop agent bar's single running conversation). */
+    opts: { silent?: boolean; conversationId?: string | null } = {},
   ): Promise<AgentReply | null> => {
     if (readOnly || !instruction.trim() || agentBusy) return null;
     setAgentBusy(true);
@@ -615,15 +626,21 @@ export function usePlanData(init: PlanDataInit) {
         // it the agent answered about the session's cycle whichever month the client had
         // navigated to, and said so out loud — "I can only edit posts in the current September
         // 2026 cycle" to someone looking at August. The server re-checks it belongs to them.
-        body: JSON.stringify({ instruction, selectedPostId, source, cycleId: viewedCycleId, conversationId: conversationId.current }),
+        body: JSON.stringify({
+          instruction, selectedPostId, source, cycleId: viewedCycleId,
+          // The SHEET's session when it is asking; the page ref otherwise.
+          conversationId: opts.conversationId !== undefined ? opts.conversationId : conversationId.current,
+        }),
         signal: controller.signal,
       });
       if (res.status === 429) { setAgentError('You’re sending changes too quickly. Give it a few seconds and try again.'); return null; }
       if (!res.ok) { setAgentError('Something went wrong. Your message is still here, try again.'); return null; }
       const r = (await res.json()) as AgentTurn;
-      conversationId.current = r.conversationId;
+      // Only the page-level conversation is remembered here. A sheet session's id belongs to
+      // that sheet — writing it into the shared ref would leak one session into the next.
+      if (opts.conversationId === undefined) conversationId.current = r.conversationId;
       const created = r.proposals ?? [];
-      const reply: AgentReply = { message: r.message, proposals: created, items: r.items ?? [] };
+      const reply: AgentReply = { message: r.message, proposals: created, items: r.items ?? [], conversationId: r.conversationId };
       setAgentReply(reply);
       if (created.length) {
         setProposals((cur) => [...created.filter((p) => !cur.some((c) => c.id === p.id)), ...cur]);

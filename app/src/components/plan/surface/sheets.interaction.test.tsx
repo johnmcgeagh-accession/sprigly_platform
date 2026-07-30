@@ -734,7 +734,7 @@ describe('the mic on a committed month opens the CONVERSATION sheet', () => {
     fireEvent.click(screen.getByTestId('nav-mic'));
     await speak('move the Thursday post to Friday');
 
-    expect(data.ask).toHaveBeenCalledWith('move the Thursday post to Friday', null, 'web', { silent: true });
+    expect(data.ask).toHaveBeenCalledWith('move the Thursday post to Friday', null, 'web', { silent: true, conversationId: null });
     expect(screen.getByTestId('turn-user').textContent).toBe('move the Thursday post to Friday');
     expect(screen.getByTestId('voice-sheet')).toBeTruthy();
     expect(screen.getByTestId('interpretation')).toBeTruthy();

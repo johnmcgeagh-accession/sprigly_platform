@@ -25,16 +25,15 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('the Emma loop: speak → interpretation turn → apply in thread → confirmation → the surface says what changed', async ({ page }) => {
-  // ── 1 · The sheet opens as a conversation ALREADY IN PROGRESS ───────────────────────
-  // The seed carries a prior exchange ("move the sweatshirt post later"), so what this
-  // asserts is the stronger half of the model: the per-cycle thread is loaded from the
-  // server and rendered — history first, composer beneath. (The empty-state framing turn
-  // is pinned by the jsdom suite, where an empty conversation can be arranged.)
+  // ── 1 · The sheet opens a SESSION: the framing speaks, and nothing else is there ─────
+  // Per-session (round 2): each open is its own conversation. The seed's prior exchange
+  // ("move the sweatshirt post later") is stored and deliberately NOT rendered.
   const theme = () => page.locator('meta[name="theme-color"]').first().getAttribute('content');
   const themeCanvas = await theme();
   await page.getByTestId('nav-mic').click();
   await expect(page.getByTestId('voice-sheet')).toBeVisible();
-  await expect(page.getByTestId('turn-user').first()).toContainText('move the sweatshirt post later');
+  await expect(page.getByTestId('turn-agent').first()).toContainText('July is written');
+  await expect(page.getByTestId('turn-user')).toHaveCount(0);
   // The browser chrome follows the sheet (F7c): the band adopts the scrim tone while it is up.
   expect(await theme()).not.toBe(themeCanvas);
 
@@ -74,14 +73,13 @@ test('the Emma loop: speak → interpretation turn → apply in thread → confi
   await page.locator('[data-testid="week-day"][data-date="2026-07-24"]').click();
   await expect(page.locator('[data-testid="post-card"][data-post-id="' + REEL + '"]')).toHaveAttribute('data-changed', 'true');
 
-  // ── 5 · Reopen: the SAME conversation, persisted server-side ────────────────────────
+  // ── 5 · Reopen: a CLEAN SHEET — the last session is stored, not rendered ────────────
   await page.getByTestId('nav-mic').click();
-  await expect(page.getByTestId('turn-user').last()).toContainText('make it a carousel');
-  // The reopened interpretation re-renders from its stored items — resolved, not actionable.
-  await expect(page.getByTestId('interpretation')).toHaveAttribute('data-status', 'resolved');
-  await expect(page.getByTestId('interp-apply')).toHaveCount(0);
+  await expect(page.getByTestId('turn-agent').first()).toContainText('July is written');
+  await expect(page.getByTestId('turn-user')).toHaveCount(0);
+  await expect(page.getByTestId('interpretation')).toHaveCount(0);
 
-  // ── 6 · The conversation continues: a note files as an idea, in the thread ──────────
+  // ── 6 · The new session works from its first turn: a note files as an idea ──────────
   await page.getByTestId('voice-input').fill('remember the candle relaunch is coming');
   await page.getByTestId('voice-submit').click();
   await expect(page.getByTestId('interp-idea')).toContainText('Saved to your ideas');

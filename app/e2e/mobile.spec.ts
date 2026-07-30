@@ -61,11 +61,16 @@ test('the week pager steps a week and stops at the month edge (round 6, P5)', as
   await page.getByTestId('prev-week').click();
   await expect(page.getByTestId('day-panel')).toHaveAttribute('data-date', '2026-07-08');
 
-  // Walk to the last week of July; the next one is entirely August, whose posts are not loaded.
+  // Walk to the last week of July. The pager CLAMPS to the month rather than stepping out of
+  // it (the September jump, round 3): the step past the 29th lands on the 31st — the month's
+  // last day, which the old dead-end at the 29th left unreachable — and then stops, because
+  // beyond it is August, whose posts are not loaded.
   await page.getByTestId('next-week').click();
   await page.getByTestId('next-week').click();
   await page.getByTestId('next-week').click();
   await expect(page.getByTestId('day-panel')).toHaveAttribute('data-date', '2026-07-29');
+  await page.getByTestId('next-week').click();
+  await expect(page.getByTestId('day-panel')).toHaveAttribute('data-date', '2026-07-31');
   await expect(page.getByTestId('next-week')).toBeDisabled();
 });
 

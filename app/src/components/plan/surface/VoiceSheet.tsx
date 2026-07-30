@@ -59,7 +59,7 @@ export type VoiceContext = 'draft' | 'committed';
  */
 export type VoiceOutcome =
   | { ok: false }
-  | { ok: true; items?: readonly InterpretedItem[]; message?: string };
+  | { ok: true; items?: readonly InterpretedItem[]; message?: string; conversationId?: string | null };
 
 /** What an apply settled to — the confirmation turn's own sentence. */
 export interface ApplyReport { text: string }
@@ -112,7 +112,9 @@ export function VoiceSheet({
    *  turn — a question in the thread, answered through the composer like any other. */
   question?: string | undefined;
   onClose: () => void;
-  onSubmit: (text: string, source: 'web' | 'voice') => Promise<VoiceOutcome>;
+  /** `conversationId` is THIS session's — the caller sends it so every turn, and the parser's
+   *  context window with it, belongs to the conversation the client is having now. */
+  onSubmit: (text: string, source: 'web' | 'voice', conversationId: string | null) => Promise<VoiceOutcome>;
   /** Apply the turn's changes — F4: fire the background work and resolve with the settled
    *  outcome, which becomes the confirmation turn. The sheet does not block on it. The turn's
    *  own items ride along so the caller can compose its chip and failure copy from them — a
@@ -126,6 +128,8 @@ export function VoiceSheet({
   const [text, setText] = useState('');
   const [loud, setLoud] = useState(false);
   const [turns, setTurns] = useState<ThreadTurn[]>([]);
+  /** THIS session's conversation. Sent with every turn, so the context window is the session. */
+  const conversationId = useRef<string | null>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const threadEnd = useRef<HTMLDivElement>(null);
   /** Any part of the CURRENT composer text arrived through the microphone. The transport is
@@ -155,34 +159,47 @@ export function VoiceSheet({
   const [wasOpen, setWasOpen] = useState(false);
   if (open !== wasOpen) {
     setWasOpen(open);
-    if (open) { setText(''); setLoud(false); setTurns([]); heard.current = false; historyLoaded.current = false; }
+    if (open) {
+      setText(''); setLoud(false); setTurns([]); heard.current = false;
+      historyLoaded.current = false; conversationId.current = null;   // a new open is a new session
+    }
   }
 
+  /**
+   * ── ONE SESSION PER OPEN (operator ruling, round 2) ──────────────────────────────────
+   *
+   * Opening the sheet STARTS a conversation rather than loading the month's. Round 1 made the
+   * thread per-cycle and everlasting, so a client arrived at every exchange the month had ever
+   * had and had to scroll past it to say one sentence — and the parser's context window was
+   * that same list, so a reference from three weeks ago competed with what they had just said.
+   *
+   * The session's id is carried on every turn (`onSubmit`), which makes it the context window
+   * too: "move it back" resolves against THIS conversation and nothing older. Prior
+   * conversations stay stored under their own rows; they are simply not asked for.
+   */
   useEffect(() => {
-    if (!open) return;
+    if (!open || historyLoaded.current) return;
+    historyLoaded.current = true;
     let cancelled = false;
+    // The framing speaks FIRST and immediately — it does not wait on the network, because a
+    // sheet that opens blank while a request settles is a sheet that opens broken.
+    setTurns([
+      { key: 'framing', kind: 'agent', text: framing.blurb },
+      ...(question ? [{ key: 'question', kind: 'agent' as const, text: question }] : []),
+    ]);
     (async () => {
-      let loaded: ThreadTurn[] = [];
       try {
-        const r = await fetch(`/api/plan/conversation?cycleId=${encodeURIComponent(cycleId)}`);
-        if (r.ok) {
-          const d = (await r.json()) as { conversationId: string | null; turns: ConversationTurn[] };
-          loaded = (d.turns ?? []).map(fromServer);
-        }
-      } catch { /* an unreadable history is an empty one, never a broken sheet */ }
-      if (cancelled || historyLoaded.current) return;
-      historyLoaded.current = true;
-      // EMPTY STATE = one agent turn + the composer: the framing speaks first. A nudge
-      // question arrives as the agent's next turn either way — it is a question IN the
-      // conversation, not a replacement for it.
-      if (!loaded.length) loaded = [{ key: 'framing', kind: 'agent', text: framing.blurb }];
-      if (question) loaded = [...loaded, { key: 'question', kind: 'agent', text: question }];
-      // PREPENDED, never assigned: a fast client can have spoken before the history landed,
-      // and the load must not overwrite their live turns.
-      setTurns((cur) => [...loaded, ...cur]);
+        const r = await fetch('/api/plan/conversation', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ cycleId }),
+        });
+        if (!r.ok || cancelled) return;
+        const d = (await r.json()) as { conversationId: string | null };
+        if (!cancelled && d.conversationId) conversationId.current = d.conversationId;
+      } catch { /* no id → the first turn opens one server-side; the session is still one */ }
     })();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when the sheet (re)opens for a cycle
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one session per open, per cycle
   }, [open, cycleId]);
 
   // ── The composer's mic — the same one-capture pipeline, demoted to a control ─────────
@@ -241,7 +258,10 @@ export function VoiceSheet({
     );
     const wasHeard = heard.current;
     heard.current = false;
-    const out = await onSubmit(value, wasHeard ? 'voice' : 'web');
+    const out = await onSubmit(value, wasHeard ? 'voice' : 'web', conversationId.current);
+    // The server echoes the conversation it used; hold it so the rest of the session lands in
+    // the same one even if the open-time POST never answered.
+    if (out.ok && out.conversationId) conversationId.current = out.conversationId;
     if (!out.ok) {
       // A refusal keeps the WORDS — back into the composer, with their transport — and the
       // thread stays honest: the working turn is removed rather than filled with something
