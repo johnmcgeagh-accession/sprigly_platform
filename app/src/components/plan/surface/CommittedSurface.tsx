@@ -28,8 +28,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { PlanData } from '../usePlanData';
 import type { PlanPost } from '@/lib/types';
+import type { InterpretedItem } from '@/lib/agent/types';
 import { restoreDayFor, saveNavState } from '../nav-state';
 import { navTrace } from '../nav-trace';
+import { SummaryChip } from './SummaryChip';
+import { appliedChipLabel, applyFailureMessage } from './applied-summary';
+import { lineFor } from './Interpretation';
 import { PlanShell } from './PlanShell';
 import type { PlanView } from './NavPill';
 import { WeekStrip, type DayMark } from './WeekStrip';
@@ -78,6 +82,19 @@ export function CommittedSurface({ data }: { data: PlanData }) {
   const [addFor, setAddFor] = useState<string | null>(null);
   const [voiceOpen, setVoiceOpen] = useState(false);
 
+  /**
+   * ── THE WHAT-CHANGED TREATMENT, after a background apply (F4) ─────────────────────────
+   *
+   * Apply closes the sheet immediately; the application runs behind it; and when it settles,
+   * the SAME treatment the draft month uses lands here: a summary chip in the shell's chip
+   * slot, and highlights on the cards that changed. Two pieces of state with two lifetimes,
+   * exactly as spec §3 rules for the draft month — clearing the chip never un-marks a card.
+   * Both reset on a month switch: a receipt belongs to the month it happened on.
+   */
+  const [appliedChip, setAppliedChip] = useState<{ label: string; lines: Extract<InterpretedItem, { kind: 'change' }>[] } | null>(null);
+  const [chipOpen, setChipOpen] = useState(false);
+  const [changedIds, setChangedIds] = useState<readonly string[]>([]);
+
   // Re-anchor the selection when the MONTH changes, not on every render: switching to October
   // while standing on 3 September has to move, and an unrelated post edit must not. The month
   // only ever changes through switchCycle — a gesture — so this is user navigation landing,
@@ -88,7 +105,30 @@ export function CommittedSurface({ data }: { data: PlanData }) {
     setAnchoredMonth(month);
     const kept = restoreDayFor(data.viewedCycleId, month);
     setSelected(kept ?? defaultDayFor(month, data.today, data.calendarPosts.map((p) => p.date)), kept ? 'restore:month-change' : 'user:month-change');
+    // The what-changed treatment belongs to the month it happened on.
+    setAppliedChip(null); setChipOpen(false); setChangedIds([]);
   }
+
+  /**
+   * Run the apply BEHIND the closed sheet (F4). Sequential inside `applyChanges` — the
+   * ordering is load-bearing (a hook proposal resolves the post its add wrote). When it
+   * settles: the chip + highlights land for what applied, and anything that did not is
+   * named in the one feedback channel — still pending, still actionable.
+   */
+  const runApply = (ids: string[]) => {
+    const lines = (data.agentReply?.items ?? [])
+      .filter((i): i is Extract<InterpretedItem, { kind: 'change' }> => i.kind === 'change' && ids.includes(i.proposalId));
+    void (async () => {
+      const r = await data.applyChanges(ids);
+      const appliedLines = lines.filter((l) => r.applied.includes(l.proposalId));
+      const failedLines = lines.filter((l) => r.failed.includes(l.proposalId));
+      if (r.applied.length) {
+        setAppliedChip({ label: appliedChipLabel(appliedLines), lines: appliedLines });
+        setChangedIds((cur) => [...new Set([...cur, ...r.changedPostIds])]);
+      }
+      if (r.failed.length) setUndo({ message: applyFailureMessage(failedLines, r.applied.length) });
+    })();
+  };
 
   // Persist the position on every change — including the anchor's own placement, so an
   // eviction right after a month switch still restores the month the client chose.
@@ -219,6 +259,9 @@ export function CommittedSurface({ data }: { data: PlanData }) {
       // ONE feedback channel, at the top (round 6, P10). `data.toast` used to render in a second
       // bar at the bottom of the page, over the nav pill; it comes here instead.
       topSlot={<Feedback undo={undo} onDismiss={() => setUndo(null)} message={data.toast} agent={data.agentToast} agentWorking={data.agentBusy} />}
+      // The what-changed chip (F4) — the draft month's spec-§3 treatment, on the committed
+      // month. Never grows; tapping toggles the itemised panel; absent until an apply lands.
+      chip={appliedChip ? <SummaryChip label={appliedChip.label} expanded={chipOpen} onToggle={() => setChipOpen((o) => !o)} /> : undefined}
       overlays={<>
         <DetailSheet
           post={openPost} data={data} rationale={openPost?.rationale ?? ''}
@@ -243,14 +286,10 @@ export function CommittedSurface({ data }: { data: PlanData }) {
             if (!reply) return { ok: false as const };   // refused or errored — the sheet keeps the words
             return { ok: true as const, items: reply.items };
           }}
-          onApply={async (ids) => {
-            const ok = await data.applyChanges(ids);
-            // The what-changed treatment now CONFIRMS what the list promised, rather than
-            // reporting something the client is seeing for the first time.
-            if (ok) setUndo({ message: ids.length === 1 ? 'Done — your plan is updated.' : `Done — ${ids.length} changes are in.` });
-            return ok;
-          }}
-          onDiscard={(ids) => data.discardChanges(ids)}
+          // FIRE AND FORGET (F4): the sheet closes on the tap; runApply finishes behind it and
+          // lands the chip + highlights — the treatment CONFIRMS what the list promised.
+          onApply={runApply}
+          onDiscard={(ids) => void data.discardChanges(ids)}
         />
         {addFor && (
           <AddSheet
@@ -278,12 +317,40 @@ export function CommittedSurface({ data }: { data: PlanData }) {
         />
       ) : null}
     >
-      {view === 'day' && (
+      {/* The chip's expanded panel REPLACES the view (the draft receipt's pattern): the lines
+          the client consented to, confirmed. Clearing it keeps the card highlights — different
+          state, different lifetime. */}
+      {chipOpen && appliedChip && (
+        <div data-testid="applied-panel" className="flex-1 overflow-y-auto px-5 pb-[104px] pt-2.5 [scrollbar-width:none]">
+          <h2 className="mb-3 text-[22px] font-bold tracking-[-.02em] text-chrome">What changed</h2>
+          <ul className="flex flex-col gap-2">
+            {appliedChip.lines.map((item) => {
+              const { verb, title, tail } = lineFor(item);
+              return (
+                <li key={item.proposalId} data-testid="applied-line" className="text-[14.5px] leading-[1.45] text-chrome">
+                  <span className="font-semibold">{verb}</span>
+                  {title ? <span> “{title}”</span> : null}
+                  {tail ? <span className="font-semibold"> {tail}</span> : null}
+                </li>
+              );
+            })}
+          </ul>
+          <button
+            type="button" data-testid="applied-clear"
+            onClick={() => { setChipOpen(false); setAppliedChip(null); }}
+            className="mt-4 min-h-[44px] text-[13.5px] font-semibold text-muted"
+          >
+            Clear this summary
+          </button>
+        </div>
+      )}
+      {!chipOpen && view === 'day' && (
         <DayPanel
           date={selected} today={data.today}
           posts={postsOn(selected)}
           beats={data.beatsOn(selected)}
           canAdd={data.canEdit(selected)}
+          changedIds={changedIds}
           onOpen={setOpenId}
           onAdd={() => setAddFor(selected)}
           onBeat={data.flash}
@@ -292,14 +359,14 @@ export function CommittedSurface({ data }: { data: PlanData }) {
           weather={data.weather.get(selected)}
         />
       )}
-      {view === 'month' && (
+      {!chipOpen && view === 'month' && (
         <MonthGrid
           month={month} selected={selected} today={data.today}
           marksFor={marksFor} onPick={pickFromGrid} footer={monthFooter}
           summary={<MonthDaySummary date={selected} items={rowsFromPosts(postsOn(selected), timeOf)} onOpen={setOpenId} />}
         />
       )}
-      {view === 'tasks' && <TasksPanel data={data} onOpen={setOpenId} />}
+      {!chipOpen && view === 'tasks' && <TasksPanel data={data} onOpen={setOpenId} />}
     </PlanShell>
   );
 }

@@ -26,5 +26,8 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
     ...(r.hookPostId ? { hookPostId: r.hookPostId } : {}),
     ...(r.blocked ? { blocked: true } : {}),
     ...(r.message ? { message: r.message } : {}),
+    // The post(s) this approval touched/created — the surface highlights them in the
+    // what-changed treatment after a background apply (F4).
+    ...(r.changedPostIds?.length ? { changedPostIds: r.changedPostIds } : {}),
   });
 }

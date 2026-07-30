@@ -133,13 +133,16 @@ export function VoiceSheet({
    */
   onSubmit: (text: string, source: 'web' | 'voice') => Promise<VoiceOutcome>;
   /**
-   * Apply the interpretation. Resolves true when the plan actually changed, and the sheet closes
-   * into the standard what-changed treatment — which is then confirming what these very lines
-   * promised, rather than reporting something the client has not seen before.
+   * Apply the interpretation — FIRE AND FORGET (F4). The sheet closes the moment Apply is
+   * tapped; the caller runs the (sequential, dependency-ordered) application in the background
+   * and lands the standard what-changed treatment when it finishes — which is then confirming
+   * what these very lines promised. A failure surfaces through the one feedback channel naming
+   * what didn't apply. Holding the sheet open on a chain of proposals — each of which can poll
+   * a generation job for most of a minute — was the sheet held hostage.
    */
-  onApply?: ((proposalIds: string[]) => Promise<boolean>) | undefined;
-  /** Throw the whole interpretation away. Nothing is applied. */
-  onDiscard?: ((proposalIds: string[]) => Promise<void>) | undefined;
+  onApply?: ((proposalIds: string[]) => void) | undefined;
+  /** Throw the whole interpretation away. Nothing is applied; the sheet closes immediately. */
+  onDiscard?: ((proposalIds: string[]) => void) | undefined;
 }) {
   const [mode, setMode] = useState<Mode>('speak');
   const [text, setText] = useState('');
@@ -158,7 +161,6 @@ export function VoiceSheet({
    */
   const [phase, setPhase] = useState<'capture' | 'interpreting'>('capture');
   const [items, setItems] = useState<InterpretedItem[]>([]);
-  const [applyBusy, setApplyBusy] = useState(false);
 
   // Final transcript chunks append into the SAME field the typed mode edits, so switching modes
   // mid-thought keeps everything already said.
@@ -168,7 +170,7 @@ export function VoiceSheet({
   const [wasOpen, setWasOpen] = useState(false);
   if (open !== wasOpen) {
     setWasOpen(open);
-    if (open) { setText(''); setMode('speak'); setLoud(false); setPhase('capture'); setItems([]); setApplyBusy(false); }
+    if (open) { setText(''); setMode('speak'); setLoud(false); setPhase('capture'); setItems([]); }
   }
 
   const listening = speech.state === 'recording';
@@ -245,20 +247,24 @@ export function VoiceSheet({
     setItems([...out.items]);
   };
 
-  /** Apply what the list promised, then leave. */
-  const apply = async () => {
+  /**
+   * Apply what the list promised — and LEAVE, now (F4). The application is the caller's
+   * background job; the sheet's part of the gesture ended when the client said yes. Waiting
+   * here meant a chain of proposals (each possibly polling a generation job) held the sheet
+   * hostage on "Applying…" for up to minutes.
+   */
+  const apply = () => {
     const ids = items.filter((i) => i.kind === 'change').map((i) => (i as { proposalId: string }).proposalId);
     if (!ids.length || !onApply) return;
-    setApplyBusy(true);
-    try { if (await onApply(ids)) onClose(); }
-    finally { setApplyBusy(false); }
+    onApply(ids);
+    onClose();
   };
 
-  const discard = async () => {
+  /** Same shape: the rejects run behind the closed sheet. Discarding is not news. */
+  const discard = () => {
     const ids = items.filter((i) => i.kind === 'change').map((i) => (i as { proposalId: string }).proposalId);
-    setApplyBusy(true);
-    try { await onDiscard?.(ids); }
-    finally { setApplyBusy(false); onClose(); }
+    onDiscard?.(ids);
+    onClose();
   };
 
   /** Leave one line out. The row IS a proposal, so dropping it is a reject on that row alone. */
@@ -321,9 +327,9 @@ export function VoiceSheet({
             <Interpretation
               items={items}
               applying={!items.length}
-              busy={applyBusy || busy}
-              onApply={() => void apply()}
-              onDiscard={() => void discard()}
+              busy={busy}
+              onApply={apply}
+              onDiscard={discard}
               {...(onDiscard ? { onDropItem: dropItem } : {})}
             />
           </div>

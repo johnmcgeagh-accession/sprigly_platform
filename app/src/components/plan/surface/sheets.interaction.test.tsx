@@ -661,13 +661,18 @@ describe('the mic on a committed month opens the SAME sheet (round 7, fix 2)', (
    * The agent now returns an INTERPRETATION as well as proposals, and the sheet holds the client
    * on it rather than closing. `items` is what gets rendered; `proposals` is what Apply executes.
    */
+  const REPLY = {
+    message: 'I’ve put that up for you.',
+    proposals: [{ id: 'pr1' }],
+    items: [{ kind: 'change', proposalId: 'pr1', action: 'move', title: 'Fragrance Note Deep Dive: Summer', fromDate: '2026-10-08', toDate: '2026-10-12' }],
+  };
   const withAgent = (over: Partial<PlanData> = {}) => fakeData({
-    ask: vi.fn(async () => ({
-      message: 'I’ve put that up for you.',
-      proposals: [{ id: 'pr1' }],
-      items: [{ kind: 'change', proposalId: 'pr1', action: 'move', title: 'Fragrance Note Deep Dive: Summer', fromDate: '2026-10-08', toDate: '2026-10-12' }],
-    })),
-    applyChanges: vi.fn(async () => true),
+    posts: [post()],
+    ask: vi.fn(async () => REPLY),
+    // The real hook stores the reply in `agentReply` before `ask` resolves; the surface reads
+    // the interpreted lines back from it when composing the what-changed treatment (F4).
+    agentReply: REPLY,
+    applyChanges: vi.fn(async () => ({ applied: ['pr1'], failed: [], changedPostIds: [] })),
     discardChanges: vi.fn(async () => {}),
     agentBusy: false,
     ...over,
@@ -726,8 +731,42 @@ describe('the mic on a committed month opens the SAME sheet (round 7, fix 2)', (
     expect(screen.queryByTestId('feedback')).toBeNull();
   });
 
-  it('APPLY executes the proposals, closes, and the receipt confirms what the list promised', async () => {
-    const data = withAgent();
+  /**
+   * ── F4: Apply goes background ──────────────────────────────────────────────────────
+   *
+   * This test used to hold the sheet open until `applyChanges` resolved, then assert a toast.
+   * Each proposal in the chain can poll a generation job for most of a minute, so awaiting the
+   * chain was the sheet held hostage. The contract now: the tap CLOSES the sheet immediately,
+   * the application settles behind it, and the standard what-changed treatment (chip +
+   * highlights) lands when it does.
+   */
+  it('APPLY closes the sheet IMMEDIATELY — before the application has resolved', async () => {
+    let settle!: (v: { applied: string[]; failed: string[]; changedPostIds: string[] }) => void;
+    const data = withAgent({
+      applyChanges: vi.fn(() => new Promise((res) => { settle = res; })),
+    } as Partial<PlanData>);
+    render(<CommittedSurface data={data} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+    fireEvent.click(screen.getByTestId('voice-mode'));
+    fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'move it' } });
+    await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+    fireEvent.click(screen.getByTestId('interp-apply'));
+
+    // The sheet is gone NOW, with the apply still in flight.
+    expect(data.applyChanges).toHaveBeenCalledWith(['pr1']);
+    expect(screen.queryByTestId('voice-sheet')).toBeNull();
+    expect(screen.queryByTestId('summary-chip')).toBeNull();   // nothing has landed yet — no premature receipt
+
+    // …and when it settles, the chip + highlights land.
+    await act(async () => { settle({ applied: ['pr1'], failed: [], changedPostIds: ['p1'] }); });
+    expect(screen.getByTestId('summary-chip').textContent).toContain('1 moved');
+    expect(screen.getByTestId('post-card').getAttribute('data-changed')).toBe('true');
+  });
+
+  it('the chip expands into the applied lines, and clearing it KEEPS the highlights', async () => {
+    const data = withAgent({
+      applyChanges: vi.fn(async () => ({ applied: ['pr1'], failed: [], changedPostIds: ['p1'] })),
+    } as Partial<PlanData>);
     render(<CommittedSurface data={data} />);
     fireEvent.click(screen.getByTestId('nav-mic'));
     fireEvent.click(screen.getByTestId('voice-mode'));
@@ -735,9 +774,29 @@ describe('the mic on a committed month opens the SAME sheet (round 7, fix 2)', (
     await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
     await act(async () => { fireEvent.click(screen.getByTestId('interp-apply')); });
 
-    expect(data.applyChanges).toHaveBeenCalledWith(['pr1']);
-    expect(screen.queryByTestId('voice-sheet')).toBeNull();
-    expect(screen.getByTestId('feedback').textContent).toContain('your plan is updated');
+    fireEvent.click(screen.getByTestId('summary-chip'));
+    expect(screen.getByTestId('applied-panel').textContent).toContain('Fragrance Note Deep Dive: Summer');
+    fireEvent.click(screen.getByTestId('applied-clear'));
+    expect(screen.queryByTestId('summary-chip')).toBeNull();
+    // Different state, different lifetime (spec §3): the card stays marked.
+    expect(screen.getByTestId('post-card').getAttribute('data-changed')).toBe('true');
+  });
+
+  it('a failure surfaces through the ONE feedback channel, naming what didn’t apply', async () => {
+    const data = withAgent({
+      applyChanges: vi.fn(async () => ({ applied: [], failed: ['pr1'], changedPostIds: [] })),
+    } as Partial<PlanData>);
+    render(<CommittedSurface data={data} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+    fireEvent.click(screen.getByTestId('voice-mode'));
+    fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'move it' } });
+    await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+    await act(async () => { fireEvent.click(screen.getByTestId('interp-apply')); });
+
+    const said = screen.getByTestId('feedback').textContent ?? '';
+    expect(said).toContain('Move “Fragrance Note Deep Dive: Summer”');
+    expect(said).toContain('still here');
+    expect(screen.queryByTestId('summary-chip')).toBeNull();   // nothing applied, nothing to celebrate
   });
 
   it('DISCARD rejects them and applies nothing', async () => {
