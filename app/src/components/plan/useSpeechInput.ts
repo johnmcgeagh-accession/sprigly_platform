@@ -80,6 +80,9 @@ export function useSpeechInput(onChunk: (text: string) => void) {
   const [speaking, setSpeaking] = useState(false);
   /** Bumped on every sign of life. The synthetic meter animates off the change. */
   const [pulse, setPulse] = useState(0);
+  /** The words the engine has heard but not finalised — the live preview the composer shows
+   *  while the client is still talking. Replaced by each interim, cleared by the final. */
+  const [partial, setPartial] = useState('');
 
   const recRef = useRef<Recognition | null>(null);
   const wantRef = useRef(false);
@@ -88,21 +91,34 @@ export function useSpeechInput(onChunk: (text: string) => void) {
   onChunkRef.current = onChunk;
 
   /**
-   * ── Why `onresult` drives `speaking` too (F7b) ───────────────────────────────────────
+   * ── Why `onresult` drives `speaking`, and why the pulses used to WAIT (F7b → C2) ─────
    *
-   * The one-pipeline fix specified a meter driven by the recogniser's own events, and wired
-   * `speaking` to `onspeechstart`/`onspeechend` alone. iOS WebKit does not reliably fire either
-   * — words arrive through `onresult` while `speaking` stays false forever — so on exactly the
-   * platform the activity meter exists for, the bars never moved: "Listening…" over a flatline,
-   * the same screen the analyser bug produced, now made of honesty instead of contention.
+   * The one-pipeline fix specified a meter driven by the recogniser's own events and wired
+   * `speaking` to `onspeechstart`/`onspeechend` alone. iOS WebKit does not reliably fire
+   * either — words arrive through `onresult` while `speaking` stays false forever — so on
+   * exactly the platform the activity meter exists for, the bars never moved.
+   *
+   * F7b fixed the FLAG by marking `speaking` on `onresult`. It did not fix the TIMING, and the
+   * operator's video is the timing: the bars sat still while they talked and only twitched
+   * when they stopped. The cause is one line — `interimResults = false`. With interims off, a
+   * `SpeechRecognition` fires `onresult` ONCE PER UTTERANCE, at the end, when the engine has
+   * finalised the phrase. Every pulse the meter had was therefore a report that a sentence had
+   * already finished. A live meter cannot be driven by an end-of-sentence event.
+   *
+   * So interims are ON now. They arrive continuously while speech is in progress — several a
+   * second — which is what a meter needs, and they are what streams the transcript into the
+   * composer as the client talks. Only FINAL results are appended to the text (see `onresult`);
+   * interims move the bars, stream the preview, and are discarded.
    *
    * A result IS speech detected — stronger evidence than `onspeechstart`, which merely claims
-   * it. So a result marks `speaking` and a decay timer clears it after RESULT_SPEECH_MS of no
-   * further signs of life. `onspeechend` still clears immediately where it exists; real silence
-   * still flatlines, because silence produces no results.
+   * it. A decay timer clears `speaking` after RESULT_SPEECH_MS of no further signs of life;
+   * `onspeechend` still clears immediately where it exists; real silence still flatlines,
+   * because silence produces no results of either kind.
    */
   const speakDecay = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const RESULT_SPEECH_MS = 2000;
+  /** Shorter than the old 2s: interims arrive several times a second, so a gap this long
+   *  already means the client has stopped. Long enough to ride out the pause between words. */
+  const RESULT_SPEECH_MS = 900;
   const markSpeaking = useCallback(() => {
     setSpeaking(true);
     if (speakDecay.current) clearTimeout(speakDecay.current);
@@ -111,6 +127,7 @@ export function useSpeechInput(onChunk: (text: string) => void) {
   const clearSpeaking = useCallback(() => {
     if (speakDecay.current) { clearTimeout(speakDecay.current); speakDecay.current = null; }
     setSpeaking(false);
+    setPartial('');   // nothing is being heard, so there is no preview to show
   }, []);
 
   const getCtor = (): RecognitionCtor | null => {
@@ -144,7 +161,11 @@ export function useSpeechInput(onChunk: (text: string) => void) {
     if (!Ctor) { setState('unsupported'); return; }
     try {
       const rec = new Ctor();
-      rec.continuous = true; rec.interimResults = false; rec.lang = 'en-GB';
+      // INTERIMS ON (C2). Off, `onresult` fires once per utterance AT THE END — so every pulse
+      // the meter had was a report that a sentence was already over, and the bars only moved
+      // when the client stopped talking. Interims arrive while speech is in progress, which is
+      // what a live meter and a streaming transcript both need. Only FINALS are kept.
+      rec.continuous = true; rec.interimResults = true; rec.lang = 'en-GB';
 
       rec.onstart = () => { micTrace('rec:start'); if (wantRef.current) setState('recording'); };
       // The capture is open. Not "we asked for it" — open.
@@ -159,12 +180,19 @@ export function useSpeechInput(onChunk: (text: string) => void) {
         if (wantRef.current) setState((s) => (s === 'starting' ? 'recording' : s));
         markSpeaking();
         setPulse((n) => n + 1);
+        // FINALS are the transcript; INTERIMS are the live preview the composer streams while
+        // the client is still speaking, and are replaced by the next one rather than appended.
         let got = 0;
+        let interim = '';
         for (let i = e.resultIndex; i < e.results.length; i++) {
           const r = e.results[i];
-          if (r?.isFinal) { const t = r[0]?.transcript?.trim(); if (t) { got += t.length; onChunkRef.current(t); } }
+          const t = r?.[0]?.transcript?.trim();
+          if (!t) continue;
+          if (r?.isFinal) { got += t.length; onChunkRef.current(t); }
+          else interim = interim ? `${interim} ${t}` : t;
         }
-        micTrace('rec:result', `${got} chars`);
+        setPartial(got ? '' : interim);   // a final consumed it — the preview's job is done
+        micTrace('rec:result', got ? `${got} chars` : `interim ${interim.length}`);
       };
 
       rec.onerror = (e) => {
@@ -237,5 +265,5 @@ export function useSpeechInput(onChunk: (text: string) => void) {
   }, []);
 
   const listening = state === 'recording' || state === 'starting';
-  return { state, listening, audioLive, speaking, pulse, start, stop, toggle: () => (listening ? stop() : start()) };
+  return { state, listening, audioLive, speaking, pulse, partial, start, stop, toggle: () => (listening ? stop() : start()) };
 }

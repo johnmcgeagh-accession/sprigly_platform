@@ -100,9 +100,12 @@ afterEach(() => {
   delete (window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition;
 });
 
+// C2: the sheet no longer opens listening — every case here TAPS the mic first, which is
+// the gesture that starts a capture now. The counting is the point and is unchanged.
 describe('on iPhone — one audio session, one claimant', () => {
-  it('OPENING THE SHEET TAKES getUserMedia ZERO TIMES', async () => {
+  it('TAPPING THE MIC TAKES getUserMedia ZERO TIMES', async () => {
     open();
+    fireEvent.click(screen.getByTestId('voice-mic'));
     // Let any stray promise chain settle: a capture deferred into a microtask is still a capture.
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
@@ -113,11 +116,13 @@ describe('on iPhone — one audio session, one claimant', () => {
 
   it('the meter runs in ACTIVITY mode, off the recogniser’s own events', () => {
     open();
+    fireEvent.click(screen.getByTestId('voice-mic'));
     expect(screen.getByTestId('waveform').getAttribute('data-source')).toBe('activity');
   });
 
   it('speaking moves it and silence flatlines it — the meter’s one job survives the change', () => {
     open();
+    fireEvent.click(screen.getByTestId('voice-mic'));
     const rec = FakeRecognition.live!;
     const bars = () => Array.from(screen.getByTestId('waveform').children).map((b) => (b as HTMLElement).style.height);
 
@@ -133,6 +138,7 @@ describe('on iPhone — one audio session, one claimant', () => {
 
   it('and a spoken phrase still lands — the point of all of it', () => {
     open();
+    fireEvent.click(screen.getByTestId('voice-mic'));
     act(() => { FakeRecognition.live!.say('The candle relaunches on the 24th'); });
     // Words land in the COMPOSER now — the one field keyboard and voice share.
     expect((screen.getByTestId('voice-input') as HTMLTextAreaElement).value).toBe('The candle relaunches on the 24th');
@@ -144,6 +150,7 @@ describe('on Chromium — the real analyser is kept', () => {
 
   it('uses the analyser, and opens exactly ONE stream for it', async () => {
     open();
+    fireEvent.click(screen.getByTestId('voice-mic'));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(screen.getByTestId('waveform').getAttribute('data-source')).toBe('analyser');
     // One — the meter's. The hook takes none: the priming warm-up is gone everywhere, not just
@@ -192,6 +199,7 @@ describe('"Listening…" now requires a capture that actually opened', () => {
         this.started = true; FakeRecognition.live = this; this.onstart?.();   // no onaudiostart
       };
       open();
+      fireEvent.click(screen.getByTestId('voice-mic'));
       // The three-state heading is gone; the composer's status line carries the same honesty.
       expect(screen.getByTestId('voice-state').textContent).toContain('Go ahead');   // grace: not yet
       act(() => { vi.advanceTimersByTime(3000); });
@@ -207,6 +215,7 @@ describe('"Listening…" now requires a capture that actually opened', () => {
     vi.useFakeTimers();
     try {
       open();
+      fireEvent.click(screen.getByTestId('voice-mic'));
       const rec = FakeRecognition.live!;
       act(() => { rec.onaudioend?.(); });                 // WebKit does this between phrases
       act(() => { vi.advanceTimersByTime(1200); });       // inside the grace

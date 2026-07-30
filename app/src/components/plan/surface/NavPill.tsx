@@ -25,7 +25,7 @@
  * is the one that spends money.
  */
 import React from 'react';
-import { NavDayGlyph, NavMonthGlyph, NavTasksGlyph, MicGlyph } from './icons';
+import { NavDayGlyph, NavMonthGlyph, NavTasksGlyph, ChatMarkGlyph } from './icons';
 
 export type PlanView = 'day' | 'month' | 'tasks';
 
@@ -112,7 +112,9 @@ export function NavPill({
             'shadow-[0_10px_26px_-6px_rgb(var(--t-accent-600,232_112_95)_/_0.58)]',
           ].join(' ')}
         >
-          <MicGlyph className="h-[26px] w-[26px] [stroke-width:2]" />
+          {/* A CHAT affordance, not a microphone (C2): the sheet is a conversation you can
+              also speak to, and a mic named only one of its two ways in. */}
+          <ChatMarkGlyph className="h-[26px] w-[26px]" />
         </button>
       )}
     </nav>

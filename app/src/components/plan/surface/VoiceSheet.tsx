@@ -211,18 +211,30 @@ export function VoiceSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one session per open, per cycle
   }, [open, cycleId]);
 
-  // ── The composer's mic — the same one-capture pipeline, demoted to a control ─────────
-  // `useLayoutEffect` and a synchronous start remain load-bearing: WebKit's user activation
-  // does not survive a later task, and the cold-start permission prompt depends on it.
-  useLayoutEffect(() => {
-    if (open && entry === 'mic') startSpeech();
-    else if (!open) stopSpeech();
-  }, [open, entry, startSpeech, stopSpeech]);
-
-  // The typed entry point opens with the keyboard, not the microphone.
+  /**
+   * ── THE SHEET OPENS ON THE KEYBOARD, NOT THE MICROPHONE (C2, operator ruling) ────────
+   *
+   * This reverses round 8's fix 5 ("it listens the moment it opens"), and the reversal is the
+   * point: opening a live microphone on sight is a decision made FOR the client, and it is the
+   * wrong one on a sheet that is now a chat. Claude's own composer is the reference — a text
+   * panel with focus, and a mic you TAP when you want it.
+   *
+   * `stopSpeech` on close is unchanged and still load-bearing: a capture that outlives its
+   * sheet is the one bug here nobody would see and everybody would feel.
+   *
+   * `start()` is still synchronous on the gesture's own task (`useSpeechInput`), which is what
+   * the cold-start permission prompt depends on — the tap IS the gesture now, so the
+   * `useLayoutEffect` that existed to keep the OPEN gesture's activation alive is no longer
+   * needed for it.
+   */
   useEffect(() => {
-    if (open && entry === 'type') field.current?.focus({ preventScroll: true });
-  }, [open, entry]);
+    if (!open) stopSpeech();
+  }, [open, stopSpeech]);
+
+  // Focus the composer on open — both entry points, because both open a chat.
+  useEffect(() => {
+    if (open) field.current?.focus({ preventScroll: true });
+  }, [open]);
 
   // Honest capture state, held behind the grace (unchanged from the one-pipeline fix).
   const [audioOk, setAudioOk] = useState<boolean | null>(null);
@@ -402,7 +414,11 @@ export function VoiceSheet({
           <div ref={threadEnd} aria-hidden="true" />
         </div>
 
-        {/* ── THE COMPOSER ────────────────────────────────────────────────────────────── */}
+        {/* ── THE COMPOSER (C2) ────────────────────────────────────────────────────────
+            A FULL-WIDTH TEXT PANEL with the controls beneath it, rather than a field
+            squeezed between two 48px buttons. At 320px that row left the field 176px —
+            about four words — on a surface whose whole promise is "say what you want".
+            The panel is the subject; the mic and the send are its tools. */}
         <div className="flex-none border-t border-line/30 bg-surface px-[18px] pb-[26px] pt-2.5">
           {micLine && (
             <p data-testid="voice-state" {...(micAlert ? { role: 'alert' as const } : {})}
@@ -411,42 +427,54 @@ export function VoiceSheet({
             </p>
           )}
           {/* The meter, inline: proof the capture is live, exactly where the words will land.
-              Same pipeline rules as ever (audio-contention.ts) — no second capture on WebKit. */}
+              Same pipeline rules as ever (audio-contention.ts) — no second capture on WebKit.
+              It pulses off INTERIM results now, so it moves WHILE the client speaks rather
+              than reporting a sentence that has already ended (C2, useSpeechInput). */}
           {(listening || starting) && (
             <div className="mb-1.5">
               <Waveform active={listening} onLevel={setLoud} speaking={speech.speaking} pulse={speech.pulse} />
             </div>
           )}
-          <div className="flex items-end gap-2">
+          <textarea
+            ref={field} data-testid="voice-input" value={text} disabled={busy} rows={2}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void submit(); } }}
+            placeholder={framing.placeholder}
+            aria-label="Message your plan"
+            className="max-h-[160px] min-h-[64px] w-full resize-none rounded-2xl border border-line/55 bg-surface px-3.5 py-3 text-[16.5px] leading-[1.45] text-chrome outline-none placeholder:text-muted"
+          />
+          {/* THE LIVE TRANSCRIPT, streaming. Interims are what the engine has heard and not
+              finalised — shown under the field rather than written into it, so the client's
+              own typing is never overwritten by a guess the engine is about to revise. */}
+          {speech.partial && (
+            <p data-testid="voice-partial" aria-hidden="true" className="mt-1 px-1 text-[14px] italic leading-[1.4] text-muted">
+              {speech.partial}
+            </p>
+          )}
+          <div className="mt-2 flex items-center gap-2">
             <button
               type="button" data-testid="voice-mic" aria-pressed={listening}
               aria-label={listening ? 'Stop listening' : 'Start listening'}
               disabled={speech.state === 'unsupported'}
               onClick={() => (listening || starting ? speech.stop() : speech.start())}
               className={[
-                'flex h-[48px] w-[48px] flex-none items-center justify-center rounded-2xl transition-all duration-200',
+                'flex min-h-[44px] flex-none items-center gap-2 rounded-full px-4 text-[14px] font-semibold transition-all duration-200',
                 listening ? 'bg-coral-650 text-white' :
-                starting ? 'bg-coral-100 text-coral-800 ring-2 ring-inset ring-coral-600'
-                  : 'bg-surface text-coral-800 ring-2 ring-inset ring-coral-600 disabled:text-muted disabled:ring-line/55',
+                starting ? 'bg-coral-100 text-coral-800 ring-1 ring-inset ring-coral-600'
+                  : 'bg-line-soft text-coral-800 disabled:text-muted',
                 loud ? 'shadow-[0_0_0_6px_rgb(var(--t-accent-600,232_112_95)_/_0.18)]' : '',
               ].join(' ')}
             >
-              <MicGlyph className="h-6 w-6 [stroke-width:1.8]" />
+              <MicGlyph className="h-5 w-5 [stroke-width:1.8]" />
+              {listening ? 'Stop' : 'Speak'}
             </button>
-            <textarea
-              ref={field} data-testid="voice-input" value={text} disabled={busy} rows={1}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void submit(); } }}
-              placeholder={framing.placeholder}
-              aria-label="Message your plan"
-              className="max-h-[120px] min-h-[48px] min-w-0 flex-1 resize-none rounded-2xl border border-line/55 bg-surface px-3.5 py-3 text-[16.5px] leading-[1.45] text-chrome outline-none placeholder:text-muted"
-            />
+            <span className="flex-1" />
             <button
               type="button" data-testid="voice-submit" aria-label="Send this to Sprigly"
               disabled={!text.trim() || busy} onClick={() => void submit()}
-              className="flex h-[48px] w-[48px] flex-none items-center justify-center rounded-2xl bg-coral-650 text-white disabled:bg-line-soft disabled:text-muted"
+              className="flex h-[44px] w-[44px] flex-none items-center justify-center rounded-full bg-coral-650 text-white disabled:bg-line-soft disabled:text-muted"
             >
-              <SendGlyph className="h-[22px] w-[22px] [stroke-width:2.2]" />
+              <SendGlyph className="h-[20px] w-[20px] [stroke-width:2.2]" />
             </button>
           </div>
         </div>
