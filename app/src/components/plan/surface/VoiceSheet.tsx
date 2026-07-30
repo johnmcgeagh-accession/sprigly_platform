@@ -59,7 +59,11 @@ export type VoiceContext = 'draft' | 'committed';
  */
 export type VoiceOutcome =
   | { ok: false }
-  | { ok: true; items?: readonly InterpretedItem[]; message?: string; conversationId?: string | null };
+  | {
+      ok: true; items?: readonly InterpretedItem[]; message?: string; conversationId?: string | null;
+      /** Pending proposals this turn AMENDED (C3) — their turns are marked superseded. */
+      supersededProposalIds?: readonly string[];
+    };
 
 /** What an apply settled to — the confirmation turn's own sentence. */
 export interface ApplyReport { text: string }
@@ -114,7 +118,12 @@ export function VoiceSheet({
   onClose: () => void;
   /** `conversationId` is THIS session's — the caller sends it so every turn, and the parser's
    *  context window with it, belongs to the conversation the client is having now. */
-  onSubmit: (text: string, source: 'web' | 'voice', conversationId: string | null) => Promise<VoiceOutcome>;
+  onSubmit: (
+    text: string, source: 'web' | 'voice', conversationId: string | null,
+    /** The proposals of the interpretation turn still OPEN on screen — the referent an
+     *  ambiguous correction amends (C3). Empty when nothing is pending. */
+    pendingProposalIds: string[],
+  ) => Promise<VoiceOutcome>;
   /** Apply the turn's changes — F4: fire the background work and resolve with the settled
    *  outcome, which becomes the confirmation turn. The sheet does not block on it. The turn's
    *  own items ride along so the caller can compose its chip and failure copy from them — a
@@ -258,7 +267,13 @@ export function VoiceSheet({
     );
     const wasHeard = heard.current;
     heard.current = false;
-    const out = await onSubmit(value, wasHeard ? 'voice' : 'web', conversationId.current);
+    // THE OPEN INTERPRETATION IS THE REFERENT (C3): its proposals ride along so a correction
+    // with no target of its own — "instead of a single image make it a reel" — amends it
+    // rather than landing beside it as a second, contradictory change.
+    const openIds = turns.flatMap((t) => (t.kind === 'interpretation' && t.status === 'open'
+      ? t.items.filter((i): i is Extract<InterpretedItem, { kind: 'change' }> => i.kind === 'change').map((i) => i.proposalId)
+      : []));
+    const out = await onSubmit(value, wasHeard ? 'voice' : 'web', conversationId.current, openIds);
     // The server echoes the conversation it used; hold it so the rest of the session lands in
     // the same one even if the open-time POST never answered.
     if (out.ok && out.conversationId) conversationId.current = out.conversationId;
@@ -270,6 +285,17 @@ export function VoiceSheet({
       setText(value);
       heard.current = wasHeard;
       return;
+    }
+    // An AMENDED turn is marked before the new one lands, so the two versions are never both
+    // applicable — and the old one stays visible, because the thread is the record.
+    if (out.supersededProposalIds?.length) {
+      const gone = new Set(out.supersededProposalIds);
+      setTurns((cur) => cur.map((t) => (
+        t.kind === 'interpretation' && t.status === 'open'
+          && t.items.some((i) => i.kind === 'change' && gone.has(i.proposalId))
+          ? { ...t, status: 'superseded' as const }
+          : t
+      )));
     }
     if (out.items && out.items.length) {
       replaceTurn(workingKey, { key: workingKey, kind: 'interpretation', items: [...out.items], status: 'open' });

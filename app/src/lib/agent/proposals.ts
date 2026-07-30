@@ -75,6 +75,25 @@ export async function listPendingProposals(clientId: string): Promise<ProposalVi
   return rows.map(view);
 }
 
+/**
+ * The still-PENDING subset of some ids, with their payloads — the referent an ambiguous
+ * correction amends (C3). Only pending rows come back: a proposal the client already applied
+ * or discarded is not what they are looking at, whatever the sheet last knew.
+ */
+export async function loadPendingPayloads(
+  clientId: string, ids: readonly string[],
+): Promise<Array<{ id: string; intent: string; summary: string; payload: ProposalPayload }>> {
+  if (!ids.length) return [];
+  const rows = await db
+    .select({ id: agentProposals.id, intent: agentProposals.intent, summary: agentProposals.summary, payload: agentProposals.payload, status: agentProposals.status })
+    .from(agentProposals)
+    .where(and(eq(agentProposals.clientId, clientId), eq(agentProposals.status, 'pending')));
+  const wanted = new Set(ids);
+  return rows
+    .filter((r) => wanted.has(r.id))
+    .map((r) => ({ id: r.id, intent: r.intent, summary: r.summary, payload: r.payload as unknown as ProposalPayload }));
+}
+
 async function currentView(clientId: string, id: string): Promise<ProposalView | null> {
   const [row] = await db
     .select(cols)

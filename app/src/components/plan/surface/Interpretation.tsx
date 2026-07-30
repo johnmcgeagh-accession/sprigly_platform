@@ -95,8 +95,15 @@ export function lineFor(item: Extract<InterpretedItem, { kind: 'change' }>): Lin
   }
 }
 
-/** Where an interpretation turn stands in its life. `open` is the only actionable state. */
-export type InterpretationStatus = 'open' | 'applying' | 'resolved' | 'discarded';
+/**
+ * Where an interpretation turn stands in its life. `open` is the only actionable state.
+ *
+ * `superseded` (C3): the client corrected this change before applying it, so a NEWER
+ * interpretation below replaces it and this one's proposals have been rejected. It stays
+ * VISIBLE — the thread is the record of what was said — and stops being applicable, because
+ * two versions of one change must never both be.
+ */
+export type InterpretationStatus = 'open' | 'applying' | 'resolved' | 'discarded' | 'superseded';
 
 /**
  * ── THE INTERPRETATION, AS A TURN (the conversation sheet) ───────────────────────────
@@ -209,6 +216,11 @@ export function InterpretationTurn({
       {status === 'discarded' && (
         <p data-testid="interp-discarded" className="mt-2 text-[12.5px] font-semibold text-coral-700">
           Discarded — nothing changed.
+        </p>
+      )}
+      {status === 'superseded' && (
+        <p data-testid="interp-superseded" className="mt-2 text-[12.5px] font-semibold text-coral-700">
+          Replaced by what you said next.
         </p>
       )}
       {applicable && (

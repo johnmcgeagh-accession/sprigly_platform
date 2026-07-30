@@ -144,7 +144,7 @@ describe('question → answer-in-composer → resolution: the dead-end is gone',
 
     // …and the composer is still there to answer with. No phase to escape from.
     await send('the one called A');
-    expect(onSubmit).toHaveBeenLastCalledWith('the one called A', 'web', 'conv-1');
+    expect(onSubmit).toHaveBeenLastCalledWith('the one called A', 'web', 'conv-1', []);
     expect(screen.getByTestId('interp-apply')).toBeTruthy();   // the follow-up resolved
   });
 
@@ -160,6 +160,78 @@ describe('question → answer-in-composer → resolution: the dead-end is gone',
     const last = screen.getAllByTestId('turn-agent').pop()!;
     expect(last.textContent).not.toContain('*');
     expect(within(last).getAllByTestId('turn-line')).toHaveLength(3);
+  });
+});
+
+/**
+ * ── C3: the pending change is the referent ───────────────────────────────────────────
+ *
+ * While an interpretation is unapplied it is what the client is looking at, so a correction
+ * amends it. The old turn is marked superseded — visible, because the thread is the record,
+ * and not applicable, because two versions of one change must never both be.
+ */
+describe('a correction AMENDS the pending change', () => {
+  const REEL_ITEM: InterpretedItem = {
+    kind: 'change', proposalId: 'pr2', action: 'add',
+    title: 'Atlas Cedar restock', toDate: '2026-08-21', format: 'reel',
+  };
+  const ADD_ITEM: InterpretedItem = {
+    kind: 'change', proposalId: 'pr1', action: 'add',
+    title: 'Atlas Cedar restock', toDate: '2026-08-21', format: 'single',
+  };
+
+  it('sends the OPEN turn’s proposals as the referent, and marks it superseded when they are amended', async () => {
+    const onSubmit = vi.fn()
+      .mockResolvedValueOnce({ ok: true, items: [ADD_ITEM] })
+      .mockResolvedValueOnce({ ok: true, items: [REEL_ITEM], supersededProposalIds: ['pr1'] });
+    sheet({ onSubmit });
+    await screen.findByTestId('turn-agent');
+
+    await send('add something for the restock');
+    // The first ask carried nothing pending — there was nothing on screen yet.
+    expect(onSubmit).toHaveBeenNthCalledWith(1, 'add something for the restock', 'web', 'conv-1', []);
+
+    await send('instead of a single image make it a reel');
+    // The second carried the open interpretation's proposal — the referent.
+    expect(onSubmit).toHaveBeenNthCalledWith(2, 'instead of a single image make it a reel', 'web', 'conv-1', ['pr1']);
+
+    const turns = screen.getAllByTestId('interpretation');
+    expect(turns).toHaveLength(2);
+    // The old one is SUPERSEDED: still readable, no longer applicable.
+    expect(turns[0]!.getAttribute('data-status')).toBe('superseded');
+    expect(turns[0]!.textContent).toContain('Atlas Cedar restock');
+    expect(within(turns[0]!).getByTestId('interp-superseded').textContent).toContain('Replaced by what you said next');
+    expect(within(turns[0]!).queryByTestId('interp-apply')).toBeNull();
+    // The new one is the only thing to apply.
+    expect(turns[1]!.getAttribute('data-status')).toBe('open');
+    expect(within(turns[1]!).getByTestId('interp-apply')).toBeTruthy();
+    expect(screen.getAllByTestId('interp-apply')).toHaveLength(1);
+  });
+
+  it('an UNRELATED ask supersedes nothing — both turns stay applicable', async () => {
+    const onSubmit = vi.fn()
+      .mockResolvedValueOnce({ ok: true, items: [ADD_ITEM] })
+      .mockResolvedValueOnce({ ok: true, items: [MOVE_ITEM] });   // no supersededProposalIds
+    sheet({ onSubmit });
+    await screen.findByTestId('turn-agent');
+
+    await send('add something for the restock');
+    await send('also move the Friday post');
+
+    const turns = screen.getAllByTestId('interpretation');
+    expect(turns.map((t) => t.getAttribute('data-status'))).toEqual(['open', 'open']);
+    expect(screen.getAllByTestId('interp-apply')).toHaveLength(2);
+  });
+
+  it('a RESOLVED turn is not offered as a referent — it is already applied', async () => {
+    const onSubmit = vi.fn(async () => ({ ok: true as const, items: [MOVE_ITEM] }));
+    sheet({ onSubmit });
+    await screen.findByTestId('turn-agent');
+    await send('move it');
+    await act(async () => { fireEvent.click(screen.getByTestId('interp-apply')); });
+
+    await send('make it a reel');
+    expect(onSubmit).toHaveBeenLastCalledWith('make it a reel', 'web', 'conv-1', []);
   });
 });
 
@@ -228,10 +300,11 @@ describe('each open is a fresh session', () => {
 
     await send('move it');
     // The first turn carries whatever the open-time POST returned…
-    expect(onSubmit).toHaveBeenLastCalledWith('move it', 'web', 'conv-1');
+    expect(onSubmit).toHaveBeenLastCalledWith('move it', 'web', 'conv-1', []);
     await send('and make it a carousel');
     // …and every turn after it carries the conversation the server confirmed.
-    expect(onSubmit).toHaveBeenLastCalledWith('and make it a carousel', 'web', 'conv-session-1');
+    // …and the open interpretation from the first turn rides along as the referent (C3).
+    expect(onSubmit).toHaveBeenLastCalledWith('and make it a carousel', 'web', 'conv-session-1', ['pr1']);
   });
 
   it('REOPENING is a clean sheet — the previous session is stored, not rendered', async () => {

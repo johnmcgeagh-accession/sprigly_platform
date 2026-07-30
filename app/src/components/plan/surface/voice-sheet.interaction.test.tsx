@@ -119,7 +119,7 @@ describe('capture lands in the one composer', () => {
     const { onSubmit } = open();
     act(() => { FakeRecognition.live!.say('More product this month'); });
     await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
-    expect(onSubmit).toHaveBeenCalledWith('More product this month', 'voice', null);
+    expect(onSubmit).toHaveBeenCalledWith('More product this month', 'voice', null, []);
   });
 
   it('and as WEB when it was typed — even on a mic-opened sheet', async () => {
@@ -127,7 +127,7 @@ describe('capture lands in the one composer', () => {
     fireEvent.click(screen.getByTestId('voice-mic'));      // mic off
     fireEvent.change(composer(), { target: { value: 'More product this month' } });
     await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
-    expect(onSubmit).toHaveBeenCalledWith('More product this month', 'web', null);
+    expect(onSubmit).toHaveBeenCalledWith('More product this month', 'web', null, []);
   });
 
   it('an unsupported browser says what to do instead, beside the control', () => {
@@ -173,7 +173,7 @@ describe('submitting', () => {
     fireEvent.keyDown(composer(), { key: 'Enter', shiftKey: true });
     expect(onSubmit).not.toHaveBeenCalled();
     await act(async () => { fireEvent.keyDown(composer(), { key: 'Enter' }); });
-    expect(onSubmit).toHaveBeenCalledWith('move the Thursday post', 'web', null);
+    expect(onSubmit).toHaveBeenCalledWith('move the Thursday post', 'web', null, []);
   });
 });
 

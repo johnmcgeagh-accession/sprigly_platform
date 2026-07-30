@@ -30,11 +30,13 @@ export interface AgentReply {
   message: string; proposals: ProposalView[]; items: InterpretedItem[];
   /** The conversation this turn landed in — the sheet holds it for the rest of its session. */
   conversationId?: string;
+  /** Pending proposals this turn amended and therefore rejected (C3). */
+  supersededProposalIds?: string[];
 }
 
 /** Which field a Shape/refine instruction targets (§26). */
 export type ShapeTarget = 'caption' | 'hook' | 'script';
-interface AgentTurn { conversationId: string; message: string; proposals?: ProposalView[]; items?: InterpretedItem[] }
+interface AgentTurn { conversationId: string; message: string; proposals?: ProposalView[]; items?: InterpretedItem[]; supersededProposalIds?: string[] }
 
 export interface PlanDataInit {
   posts: PlanPost[];
@@ -610,7 +612,7 @@ export function usePlanData(init: PlanDataInit) {
      *  sheet would be the secondary status bar the redesign removes. Desktop callers omit it.
      *  `conversationId` is the SHEET's session when the sheet is asking; absent, the page-level
      *  ref applies (the desktop agent bar's single running conversation). */
-    opts: { silent?: boolean; conversationId?: string | null } = {},
+    opts: { silent?: boolean; conversationId?: string | null; pendingProposalIds?: string[] } = {},
   ): Promise<AgentReply | null> => {
     if (readOnly || !instruction.trim() || agentBusy) return null;
     setAgentBusy(true);
@@ -630,6 +632,8 @@ export function usePlanData(init: PlanDataInit) {
           instruction, selectedPostId, source, cycleId: viewedCycleId,
           // The SHEET's session when it is asking; the page ref otherwise.
           conversationId: opts.conversationId !== undefined ? opts.conversationId : conversationId.current,
+          // The unapplied change on screen — the referent an ambiguous correction amends (C3).
+          ...(opts.pendingProposalIds?.length ? { pendingProposalIds: opts.pendingProposalIds } : {}),
         }),
         signal: controller.signal,
       });
@@ -640,7 +644,10 @@ export function usePlanData(init: PlanDataInit) {
       // that sheet — writing it into the shared ref would leak one session into the next.
       if (opts.conversationId === undefined) conversationId.current = r.conversationId;
       const created = r.proposals ?? [];
-      const reply: AgentReply = { message: r.message, proposals: created, items: r.items ?? [], conversationId: r.conversationId };
+      const reply: AgentReply = {
+        message: r.message, proposals: created, items: r.items ?? [], conversationId: r.conversationId,
+        ...(r.supersededProposalIds?.length ? { supersededProposalIds: r.supersededProposalIds } : {}),
+      };
       setAgentReply(reply);
       if (created.length) {
         setProposals((cur) => [...created.filter((p) => !cur.some((c) => c.id === p.id)), ...cur]);

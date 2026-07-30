@@ -75,6 +75,9 @@ vi.mock('@/lib/agent/proposals', () => ({
     h.createCalls.push(args);
     return { id: `pv-${h.createCalls.length}`, intent: args.action, summary: args.summary, status: 'pending', changeSetId: args.changeSetId };
   },
+  // C3: nothing pending in these fixtures — they test resolution, not amendment.
+  loadPendingPayloads: async () => [],
+  rejectProposal: async () => null,
 }));
 vi.mock('@/lib/agent/notes', () => ({ saveNote: async () => undefined }));
 vi.mock('@/lib/agent/query', () => ({ answerQuery: async () => 'answer' }));

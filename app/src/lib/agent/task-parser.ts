@@ -29,6 +29,9 @@ export interface ParserContext {
    *  turns serialised from their RESOLVED items. Empty/absent on a fresh thread. This is what
    *  lets "move it back" and "that one" resolve against the previous exchange. */
   recentThread?: string;
+  /** The UNAPPLIED change the client is looking at, if there is one (C3) — the referent an
+   *  ambiguous correction resolves against before anything else. Absent when nothing pends. */
+  pending?: string;
 }
 
 export const TASK_PARSER_SYSTEM_PROMPT = `You turn a single message from a clothing-brand client into an ordered list of TASKS for their content-plan assistant. The message may be typed or transcribed from speech — messy, rambling, or self-correcting. Read for intent.
@@ -81,6 +84,12 @@ Dates must be ISO 'YYYY-MM-DD'. Every digest post carries its full ISO date, and
 - A date is in the PAST only when its ISO date is EARLIER than today's. Today itself, and every date after it, is NOT past. COMPARE THE ISO DATES — never reason from month names, and never assume a month that is not the one on screen has been and gone. If today is 2026-07-30, then 2026-08-14 is a FORTNIGHT AWAY, and 2026-07-29 is yesterday.
 - The digest marks anything already past as '[past — read-only]'. If a row is not marked, it is not past. NEVER tell the client a date has passed unless its row says so.
 - You do not enforce editability and you do not need to: a past-dated edit is refused downstream, in words that name the real date. Emit the action the client asked for.
+
+THE PENDING CHANGE IS THE REFERENT. When the message includes a PENDING block, the client is looking at a change they have NOT yet applied — it is the most recent thing said and the thing on screen, so an utterance that could plausibly be about it IS about it:
+- A correction with no target of its own — "instead of a single image make it a reel", "make it a carousel", "no, Friday", "actually call it X", "make it 3pm" — AMENDS the pending change. Emit the SAME action as the pending one, with the SAME fields, changing only what the client corrected, and set "amends": true. Do NOT emit a change_format/move against an existing post: there is no post yet, only a proposal.
+- "no", "not that", "cancel that", "forget it" → a "clarify" with "amends": true and question "Dropped that one." (the surface discards the pending change).
+- Only when the utterance PLAINLY names something else — a different date, a different post, a different subject, or a new intent altogether ("also add a reel about the linen") — does normal resolution run and the pending change stay as it is.
+- "amends" is never set when there is no PENDING block.
 
 THE CONVERSATION SO FAR — when the message includes a recent-thread block, it is one running conversation about this month, and the new message may refer BACK into it:
 - "it", "that one", "the reel" with no other anchor → the post the conversation most recently acted on or discussed. Read the ASSISTANT lines: they state each change with the post's title and RESOLVED ISO dates.
@@ -142,6 +151,15 @@ Message: "make the script on the 14th punchier"  (change an EXISTING script → 
 Message: "tighten the hook on the Tuesday reel and rework its CTA"  (two refines on one post → TWO tasks)
 → {"tasks":[{"action":"refine","selector":"the Tuesday reel","target":"hook","instruction":"tighten it","reason":"tighten the hook on the Tuesday reel"},{"action":"refine","selector":"the Tuesday reel","target":"script","instruction":"rework the CTA","reason":"rework its CTA"}]}
 
+Message: "instead of a single image make it a reel"  (with PENDING: add_post, 2026-08-21, single, "Atlas Cedar restock" — the correction AMENDS it: same add, same date, same subject, new format)
+→ {"tasks":[{"action":"add_post","toDate":"2026-08-21","format":"reel","instruction":"Atlas Cedar restock","amends":true,"reason":"make it a reel"}]}
+
+Message: "actually make it the Saturday"  (with PENDING: move_post of the 5th to 2026-08-07 — same move, new destination)
+→ {"tasks":[{"action":"move_post","postId":"<the pending move's postId>","fromDate":"<its fromDate>","toDate":"<that Saturday ISO>","amends":true,"reason":"make it the Saturday"}]}
+
+Message: "also add a reel about the linen"  (with a PENDING add — this plainly names a NEW thing, so it does NOT amend)
+→ {"tasks":[{"action":"add_post","format":"reel","instruction":"The linen.","reason":"also add a reel about the linen"}]}
+
 Message: "um so yeah can you like push the wednesday one back a couple days, to the friday i mean"
 → {"tasks":[{"action":"move_post","selector":"the Wednesday post","toDate":"<friday ISO>","reason":"push the Wednesday one to Friday"}]}`;
 
@@ -173,7 +191,10 @@ THE NEXT 14 DAYS (resolve every relative reference from this table):
 ${dayTable(ctx.today)}
 
 The client is looking at ${ctx.viewedMonth}. Resolve bare dates ("the 5th", "Saturday") in ${ctx.viewedMonth} unless they name another month.
-${ctx.recentThread ? `
+${ctx.pending ? `
+PENDING — the client is looking at this change and has NOT applied it. An ambiguous correction amends IT:
+${ctx.pending}
+` : ''}${ctx.recentThread ? `
 THE CONVERSATION SO FAR (oldest first — "it"/"move it back" resolve against this):
 ${ctx.recentThread}
 ` : ''}
@@ -205,8 +226,14 @@ const isoDate = (v: unknown): string | null => (typeof v === 'string' && /^\d{4}
 const isoMonth = (v: unknown): string | null => (typeof v === 'string' && /^\d{4}-\d{2}$/.test(v) ? v : null);
 const clarify = (question: string, reason?: string | null): ParsedTask => ({ action: 'clarify', question, reason: reason ?? null });
 
-/** Normalise one raw task into a valid ParsedTask, or a clarify if it can't be. */
-function normalizeTask(raw: unknown): ParsedTask {
+/**
+ * Normalise one raw task into a valid ParsedTask, or a clarify if it can't be.
+ *
+ * `amends` is threaded on afterwards (`normalizeTask` below) rather than inside each branch:
+ * it is orthogonal to WHAT the task is — any action can be the amended form of a pending one —
+ * and repeating it per case is how one branch ends up forgetting it.
+ */
+function normalizeOne(raw: unknown): ParsedTask {
   // Clarify copy below is deliberately a STATEMENT of what couldn't be resolved plus a
   // resend path — never a question. The client can't reply to a task in place, but they
   // CAN send a fresh message, so we tell them what to send.
@@ -245,6 +272,7 @@ function normalizeTask(raw: unknown): ParsedTask {
     case 'add_post': {
       // Email posts can't be created here (the format flow is reel/carousel/single only).
       if (r.channel === 'email') return clarify('Email posts aren’t available here yet. I can add an Instagram reel, carousel or single image.', reason);
+      // (amends rides through below — see normalizeTask's tail.)
       // format inferred from wording (reel/carousel/single); null when there's no signal
       // (defaults to single image downstream, shown so the client can correct it).
       const rawFmt = str(r.format)?.toLowerCase();
@@ -283,6 +311,13 @@ function normalizeTask(raw: unknown): ParsedTask {
     default:
       return clarify('I couldn’t map that to a plan change — send another message rephrasing it.', reason);
   }
+}
+
+/** Normalise, then carry `amends` — orthogonal to the action, so it is threaded once. */
+function normalizeTask(raw: unknown): ParsedTask {
+  const task = normalizeOne(raw);
+  const amends = !!(raw && typeof raw === 'object' && (raw as Record<string, unknown>)['amends'] === true);
+  return amends ? { ...task, amends: true } : task;
 }
 
 /** Parse a message into an ordered list of tasks. Never throws. */
