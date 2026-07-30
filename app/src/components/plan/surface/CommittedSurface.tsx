@@ -205,20 +205,24 @@ export function CommittedSurface({ data }: { data: PlanData }) {
           open={voiceOpen} context="committed" monthName={monthTitle(month).split(' ')[0] ?? ''}
           busy={data.agentBusy}
           onClose={() => setVoiceOpen(false)}
+          // ── The sheet no longer hands off ────────────────────────────────────────────
+          // It used to close here and set a message saying N changes were waiting to be
+          // approved — in Approvals, which is a DESKTOP view. On a phone that sentence pointed
+          // at a screen the client could not open, and the changes sat unapplied. Consent now
+          // happens in the sheet, on the interpretation, before anything is written.
           onSubmit={async (text, source) => {
             const reply = await data.ask(text, null, source);
-            if (!reply) return false;   // refused or errored — the sheet keeps the words
-            // The agent APPLIES NOTHING on a committed month; it raises proposals. Say what it
-            // did in its own words, and say how many are waiting rather than implying the month
-            // has already changed.
-            const n = reply.proposals.length;
-            setUndo({
-              message: n > 0
-                ? `${reply.message} ${n} change${n === 1 ? '' : 's'} to approve.`.trim()
-                : reply.message,
-            });
-            return true;
+            if (!reply) return { ok: false as const };   // refused or errored — the sheet keeps the words
+            return { ok: true as const, items: reply.items };
           }}
+          onApply={async (ids) => {
+            const ok = await data.applyChanges(ids);
+            // The what-changed treatment now CONFIRMS what the list promised, rather than
+            // reporting something the client is seeing for the first time.
+            if (ok) setUndo({ message: ids.length === 1 ? 'Done — your plan is updated.' : `Done — ${ids.length} changes are in.` });
+            return ok;
+          }}
+          onDiscard={(ids) => data.discardChanges(ids)}
         />
         {addFor && (
           <AddSheet

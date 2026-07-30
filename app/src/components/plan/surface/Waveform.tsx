@@ -3,33 +3,46 @@
 /**
  * Waveform.tsx — a live meter over the microphone, and the one job it has.
  *
- * It lets the client tell *“not listening”* from *“listening, you haven’t said anything yet”*.
+ * It lets the client tell *"not listening"* from *"listening, you haven't said anything yet"*.
  * That distinction is the whole reason the element exists, so it FLATLINES when silent and peaks
  * while speaking rather than idling with a decorative animation — a waveform that moves when
  * nothing is being heard is worse than none, because it answers the question wrongly.
  *
- * ── How ──────────────────────────────────────────────────────────────────────────────
+ * ── TWO SOURCES, AND WHY THERE HAD TO BE A SECOND ────────────────────────────────────
  *
- * `getUserMedia({audio})` → `AnalyserNode` → `getByteFrequencyData` into BARS values on
- * `requestAnimationFrame`. The bars are written straight to the DOM through refs, never through
- * state: a rAF loop through `setState` re-renders the sheet — its framing copy, its prompts, its
- * submit — sixty times a second while somebody is talking.
+ * This file used to say: *"The stream is a SECOND consumer of the microphone… Browsers allow
+ * that, and the two are deliberately independent."* Chromium allows it. **iOS Safari does not.**
+ * WebKit arbitrates one audio session per page, and opening `getUserMedia` while a
+ * `SpeechRecognition` session is running interrupts the recognition — so the meter that exists
+ * to prove we are listening was the thing stopping us from listening.
  *
- * The stream is a SECOND consumer of the microphone: `useSpeechInput` holds its own through the
- * Web Speech API. Browsers allow that, and the two are deliberately independent — the transcript
- * must keep working if the meter fails, which it does on any browser without `AudioContext`.
- * Every failure path here ends in "no bars", never in "no capture".
+ * The symptom is unmistakable once you know: "Listening…" on screen, a FLATLINE meter, and no
+ * words. The flatline is the tell. It is not "we can hear nothing"; it is the analyser's own
+ * stream having been interrupted by the same fight, so both consumers end up with silence.
  *
- * ── What it reports upward ───────────────────────────────────────────────────────────
+ *   ANALYSER  `getUserMedia` → `AnalyserNode` → real amplitude. Only where a second capture is
+ *             established as safe (`audio-contention.ts` — Chromium, and nothing assumed).
+ *   ACTIVITY  driven from the recogniser's OWN events (`onspeechstart` / `onspeechend` /
+ *             `onresult`). No second stream at all.
  *
- * `onLevel(loud)` — whether anything is being heard right now, debounced by SILENCE_MS so a gap
- * between words is not a state change. The sheet uses it for the copy and the mic's own
- * treatment, because X6 is explicit: silent and speaking must differ by more than the bars.
+ * ── Is the activity meter honest? ────────────────────────────────────────────────────
  *
- * `prefers-reduced-motion` holds the bars at a static mid height. The state is still carried —
- * by the heading, the body line and the mic — so nothing is lost by not animating.
+ * Yes, and arguably more so than the analyser. `speaking` comes from the recogniser reporting
+ * that it has detected speech — which is the actual question the client is asking the meter
+ * ("are my words getting in?"). The analyser answers a near-miss of that question: it shows
+ * amplitude, so it rises for a passing lorry. What the activity meter cannot do is show the
+ * SHAPE of a voice, so its bars are a travelling wave rather than a spectrum — deliberately
+ * legible as an indicator rather than as a recording.
+ *
+ * What it must never do is move when nothing is being heard. It does not: `speaking` false
+ * holds every bar at the flatline, exactly as the analyser does in a silent room.
+ *
+ * `prefers-reduced-motion` holds the bars at a static mid height in both modes. The state is
+ * still carried — by the heading, the body line and the mic — so nothing is lost by not moving.
  */
 import React, { useEffect, useRef } from 'react';
+import { canRunTwoCaptures } from './audio-contention';
+import { micTrace } from '../mic-trace';
 
 /** Bars across the meter. 25 at 350px is ~10px each including the gap. */
 const BARS = 25;
@@ -41,25 +54,39 @@ const SILENCE_MS = 450;
 const FLATLINE_PCT = 6;
 
 export function Waveform({
-  active, onLevel,
+  active, onLevel, speaking, pulse,
 }: {
   /** True while capturing. False tears the stream down — a microphone must stop when it says
    *  it has stopped, and holding it open is the one bug in this file nobody would see. */
   active: boolean;
   onLevel?: ((loud: boolean) => void) | undefined;
+  /**
+   * The recogniser is hearing speech right now. Present → the meter runs in ACTIVITY mode on any
+   * browser that cannot afford a second capture, and never opens a stream of its own.
+   */
+  speaking?: boolean | undefined;
+  /** Bumped on every sign of life from the recogniser; makes the wave travel. */
+  pulse?: number | undefined;
 }) {
   const bars = useRef<(HTMLSpanElement | null)[]>([]);
   const onLevelRef = useRef(onLevel);
   onLevelRef.current = onLevel;
 
+  // The decision is made once, here, so both effects agree about it and the trace records which
+  // pipeline the device actually chose.
+  const useAnalyser = speaking === undefined || canRunTwoCaptures();
+
+  // ── ANALYSER MODE ────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!active) return;
+    if (!active || !useAnalyser) return;
     let raf = 0;
     let ctx: AudioContext | null = null;
     let stream: MediaStream | null = null;
     let stopped = false;
     let loud = false;
     let quietSince = 0;
+    let frames = 0;
+    let nonZero = 0;
 
     const reduced = typeof window.matchMedia === 'function'
       && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -80,8 +107,9 @@ export function Waveform({
       try {
         const media = navigator.mediaDevices;
         if (!media?.getUserMedia) return;
+        micTrace('gum:open', 'meter');
         stream = await media.getUserMedia({ audio: true });
-        if (stopped) { stream.getTracks().forEach((t) => t.stop()); return; }
+        if (stopped) { stream.getTracks().forEach((t) => t.stop()); micTrace('gum:close', 'meter (raced)'); return; }
 
         const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
         if (!Ctor) return;
@@ -102,11 +130,15 @@ export function Waveform({
             let band = 0;
             for (let j = 0; j < step; j++) band = Math.max(band, data[i * step + j] ?? 0);
             sum += band;
-            // Flat when silent, and never below the flatline: a bar of zero height reads as a
-            // broken element rather than as quiet.
             heights.push(band < SILENCE_FLOOR ? FLATLINE_PCT : Math.min(100, FLATLINE_PCT + (band / 255) * 94));
           }
           paint(heights);
+
+          // Sampled, not per-tick: this is a rAF loop. It answers the one question a flatline
+          // cannot — is the stream DEAD, or is the room quiet?
+          frames += 1;
+          if (sum > 0) nonZero += 1;
+          if (frames % 120 === 0) micTrace('gum:frames', `${nonZero}/${frames} non-zero`);
 
           const now = performance.now();
           const heard = sum / BARS >= SILENCE_FLOOR;
@@ -121,6 +153,7 @@ export function Waveform({
       } catch {
         // No permission, no device, no AudioContext: no bars. Capture is a separate path and
         // reports its own failures — this one must not claim the microphone is broken.
+        micTrace('gum:fail', 'meter');
       }
     })();
 
@@ -129,13 +162,68 @@ export function Waveform({
       if (raf) cancelAnimationFrame(raf);
       stream?.getTracks().forEach((t) => t.stop());
       void ctx?.close().catch(() => {});
+      micTrace('gum:close', 'meter');
       onLevelRef.current?.(false);
     };
-  }, [active]);
+  }, [active, useAnalyser]);
+
+  // ── ACTIVITY MODE ────────────────────────────────────────────────────────────────────
+  // No stream, no AudioContext, no second consumer of anything. A travelling wave whose
+  // amplitude is the recogniser's own `speaking`, so the bars move when and only when it is
+  // hearing words. `pulse` advances the phase, which is what makes it read as live rather than
+  // as a looping decoration: a pulse only arrives when something actually happened.
+  useEffect(() => {
+    if (!active || useAnalyser) return;
+    micTrace('meter:activity', 'no second capture');
+
+    const reduced = typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    const paint = (heights: number[]) => {
+      for (let i = 0; i < BARS; i++) {
+        const el = bars.current[i];
+        if (el) el.style.height = `${heights[i] ?? FLATLINE_PCT}%`;
+      }
+    };
+
+    if (reduced) { paint(Array.from({ length: BARS }, () => 34)); return; }
+    if (!speaking) { paint(Array.from({ length: BARS }, () => FLATLINE_PCT)); return; }
+
+    let raf = 0;
+    let phase = (pulse ?? 0) * 0.9;
+    const tick = () => {
+      phase += 0.16;
+      const heights = Array.from({ length: BARS }, (_, i) => {
+        // A wave that swells toward the middle, so it reads as a voice meter rather than a
+        // progress bar. Two frequencies so it never looks mechanically periodic.
+        const centre = 1 - Math.abs(i - (BARS - 1) / 2) / ((BARS - 1) / 2);
+        const wave = 0.5 + 0.5 * Math.sin(phase - i * 0.45) * (0.6 + 0.4 * Math.sin(phase * 0.37 + i * 0.2));
+        return FLATLINE_PCT + wave * (0.28 + 0.72 * centre) * 74;
+      });
+      paint(heights);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      paint(Array.from({ length: BARS }, () => FLATLINE_PCT));
+    };
+  }, [active, useAnalyser, speaking, pulse]);
+
+  // The sheet's copy and the mic's own treatment key off this. In activity mode `speaking` IS
+  // the level, and it is reported upward on the same channel the analyser uses so the caller
+  // never has to know which pipeline is running.
+  useEffect(() => {
+    if (useAnalyser) return;
+    onLevelRef.current?.(!!(active && speaking));
+  }, [active, speaking, useAnalyser]);
 
   return (
     <div
-      data-testid="waveform" data-active={active ? 'true' : undefined} aria-hidden="true"
+      data-testid="waveform"
+      data-active={active ? 'true' : undefined}
+      data-source={useAnalyser ? 'analyser' : 'activity'}
+      aria-hidden="true"
       className="flex h-[54px] w-full items-center justify-center gap-[3px]"
     >
       {Array.from({ length: BARS }, (_, i) => (

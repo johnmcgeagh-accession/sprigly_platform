@@ -24,6 +24,12 @@ class FakeRecognition {
   onresult: ((e: unknown) => void) | null = null;
   onerror: ((e: { error: string }) => void) | null = null;
   onend: (() => void) | null = null;
+  /** WebKit fires this when the capture actually OPENS. The sheet now requires it before it
+   *  will claim to be listening — see VoiceSheet's `audioOk`. A fake without it models a
+   *  browser that says "recording" and never records, which is the bug, not the baseline. */
+  onaudiostart: (() => void) | null = null;
+  onspeechstart: (() => void) | null = null;
+  onspeechend: (() => void) | null = null;
   /** The real API fires this when the session actually opens. The hook waits for it before it
    *  claims to be listening, so the fake has to have it or "getting the mic" never resolves. */
   onstart: (() => void) | null = null;
@@ -32,7 +38,7 @@ class FakeRecognition {
    *  constructed on top of a first that had not finished closing. */
   static built = 0;
   constructor() { FakeRecognition.built += 1; }
-  start() { this.started = true; FakeRecognition.live = this; this.onstart?.(); }
+  start() { this.started = true; FakeRecognition.live = this; this.onstart?.(); this.onaudiostart?.(); }
   stop() { this.started = false; this.onend?.(); }
   /** WebKit ends a session on its own after a silence, `continuous` or not. */
   endOnItsOwn() { this.started = false; this.onend?.(); }
@@ -268,8 +274,10 @@ describe('one sheet, two month states (round 7, fix 2)', () => {
     // The consequence is the whole reason the sheet exists on this month: the agent APPLIES
     // NOTHING here, and the copy must not imply the month has already changed.
     expect(blurb).toContain('October is written');
-    expect(blurb).toContain('approve');
-    expect(blurb).toContain('nothing moves until you say so');
+    // NOT "approve". The blurb used to promise a desktop review queue to a client on a phone;
+    // it now describes the flow the sheet walks — see the interpretation phase.
+    expect(blurb).not.toMatch(/approv/i);
+    expect(blurb).toContain('before anything moves');
     // The correcting verbs now live in the placeholder — the one example left, and the only
     // place a suggestion belongs on a sheet that is already listening.
     fireEvent.click(screen.getByTestId('voice-mode'));

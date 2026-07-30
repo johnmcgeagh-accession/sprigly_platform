@@ -186,3 +186,92 @@ describe('the same client, two months, one agent', () => {
       .toBe(sep!.cycleMonths.replace(/ \[the month on screen\]/, ''));
   });
 });
+
+/**
+ * ── The interpretation, derived ──────────────────────────────────────────────────────
+ *
+ * `items` is what the client consents to, so what it is BUILT FROM is the whole of its honesty.
+ * Every field below comes from the structured task the parser extracted plus the post row it
+ * resolved to — never from a sentence the model wrote. These tests assert the derivation, not
+ * the rendering: the words are the surface's job (`Interpretation.tsx`).
+ */
+describe('the interpretation is computed from resolved targets', () => {
+  it('a move carries the post’s OWN title and both real dates', async () => {
+    h.tasks = [{ action: 'move_post', fromDate: '2026-08-05', toDate: '2026-08-07', reason: 'shift the linen one' }] as ParsedTask[];
+    const r = await ask('cyc-aug', 'move the 5th to the 7th');
+
+    expect(r.items).toHaveLength(1);
+    expect(r.items[0]).toMatchObject({
+      kind: 'change', action: 'move',
+      title: 'Linen, one more time',        // the post's title, resolved — not "the linen one"
+      fromDate: '2026-08-05', toDate: '2026-08-07',
+    });
+    expect(r.items[0]).toHaveProperty('proposalId');
+  });
+
+  it('NOTHING in an item is the client’s phrasing or the model’s paraphrase', async () => {
+    h.tasks = [{ action: 'move_post', fromDate: '2026-08-05', toDate: '2026-08-07', reason: 'shift the linen one' }] as ParsedTask[];
+    const r = await ask('cyc-aug', 'shift the linen one');
+    const json = JSON.stringify(r.items);
+    // `reason` is the transcript echo this rendering exists to replace. It must not ride along.
+    expect(json).not.toContain('shift the linen one');
+    expect(Object.keys(r.items[0] as object)).not.toContain('reason');
+  });
+
+  it('an add carries the extracted SUBJECT, which is structured intent, and the resolved date', async () => {
+    h.tasks = [{ action: 'add_post', toDate: '2026-08-21', format: 'reel', instruction: 'Atlas Cedar restock', reason: 'can we do something for the restock' }] as ParsedTask[];
+    const r = await ask('cyc-aug', 'add something for the restock');
+    expect(r.items[0]).toMatchObject({ kind: 'change', action: 'add', title: 'Atlas Cedar restock', toDate: '2026-08-21', format: 'reel' });
+  });
+
+  it('TWO INTENTS → two items, in the order they were asked', async () => {
+    h.tasks = [
+      { action: 'move_post', fromDate: '2026-08-05', toDate: '2026-08-07' },
+      { action: 'add_post', toDate: '2026-08-21', format: 'single', instruction: 'Atlas Cedar restock' },
+    ] as ParsedTask[];
+    const r = await ask('cyc-aug', 'move the 5th to the 7th and add one for the restock');
+
+    expect(r.items.map((i) => (i as { action?: string }).action)).toEqual(['move', 'add']);
+    expect(r.proposals).toHaveLength(2);
+    // Each line names the proposal it will apply, so per-item discard is a real operation.
+    expect(new Set(r.items.map((i) => (i as { proposalId?: string }).proposalId)).size).toBe(2);
+  });
+
+  it('what could NOT be resolved becomes an unresolved item, beside what could', async () => {
+    h.tasks = [
+      { action: 'move_post', fromDate: '2026-08-05', toDate: '2026-08-07' },
+      { action: 'rewrite_post', selector: 'the other one', reason: 'and warm up the other one' },
+    ] as ParsedTask[];
+    const r = await ask('cyc-aug', 'move the 5th, and warm up the other one');
+
+    expect(r.items).toHaveLength(2);
+    expect(r.items[0]).toMatchObject({ kind: 'change' });
+    expect(r.items[1]!.kind).toBe('unresolved');
+    // One landed, one did not, and the client sees both. Only the first is applicable.
+    expect(r.proposals).toHaveLength(1);
+  });
+
+  it('a note becomes an IDEA — filed, not placed, and nothing to apply', async () => {
+    h.tasks = [{ action: 'add_note', content: 'the candle relaunch is coming' }] as ParsedTask[];
+    const r = await ask('cyc-aug', 'remember the candle relaunch is coming');
+
+    expect(r.items).toEqual([{ kind: 'idea', text: 'the candle relaunch is coming' }]);
+    expect(r.proposals).toHaveLength(0);
+  });
+
+  it('a genuinely past date is an unresolved item, so the refusal is IN the list', async () => {
+    h.postsByCycle['cyc-aug'] = [{ ...AUG_POSTS[0]!, id: 'p-old', date: '2026-07-01' }];
+    h.tasks = [{ action: 'move_post', fromDate: '2026-07-01', toDate: '2026-08-07' }] as ParsedTask[];
+    const r = await ask('cyc-aug', 'move the 1st of july');
+
+    expect(r.items).toHaveLength(1);
+    expect(r.items[0]).toMatchObject({ kind: 'unresolved' });
+    expect((r.items[0] as { question: string }).question).toContain('already passed');
+  });
+
+  it('a pure query produces no items — there is nothing to consent to', async () => {
+    h.tasks = [{ action: 'query', question: 'what am I posting this week?' }] as ParsedTask[];
+    const r = await ask('cyc-aug', 'what am I posting this week?');
+    expect(r.items).toEqual([]);
+  });
+});

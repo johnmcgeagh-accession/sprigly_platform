@@ -1,5 +1,5 @@
 /**
- * terminology.fence.test.ts — two words the client never sees.
+ * terminology.fence.test.ts — the words the client never sees.
  *
  * Spec §7 and G4. Both rules are absolute, and both are the kind that decays quietly:
  *
@@ -10,6 +10,12 @@
  *   FAILURE    the redesign removes the client's retry affordance, so a client is never told a
  *              generation failed. That is only honest because the sweep and the operator list
  *              exist (gap 7) — but the copy rule is what a reader sees, so it is fenced here.
+ *   "APPROVE"  the mobile flow has no approval step and must not imply one. Proposals were an
+ *              internal staging concept with a desktop review view; on a phone the sentence
+ *              "1 change to approve" pointed at a screen the client could not open, and the
+ *              change sat there unapplied. The client now reads an INTERPRETATION and taps
+ *              Apply. "Approve" is also the wrong word on its own terms — you approve somebody
+ *              else's work before they proceed, and this is the client's own plan.
  *
  * The check is a grep the standing invariant already asks for on every session, made permanent.
  * It scans the STRINGS a client could read: quoted literals, template-literal text, and JSX
@@ -51,7 +57,7 @@ const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace
  * identifier: the fence would rather examine a variable name than miss a word on the screen.
  */
 const IDENTIFIER = /^(?:[a-z][a-zA-Z0-9]*|[a-z0-9]+(?:[-_][a-z0-9]+)+)$/;
-const BANNED_BARE = /^(?:beats?|retry|retried|retrying|failed|failure)$/i;
+const BANNED_BARE = /^(?:beats?|retry|retried|retrying|failed|failure|approve|approved|approval|approvals)$/i;
 const isCopy = (v: string) => !!v && (!IDENTIFIER.test(v) || BANNED_BARE.test(v));
 
 /** `${…}` holes are code, not copy. Removed first (one level of nesting is enough for this
@@ -113,5 +119,44 @@ describe('the terminology fence', () => {
     // not a report that a generation broke. What is banned is the vocabulary of OUR failure.
     const hits = offenders(/\b(retry|retried|retrying|failed|failure)\b/i);
     expect(hits, `spec G4: the client is never told a generation failed —\n${hits.join('\n')}`).toEqual([]);
+  });
+
+  /**
+   * ── "approve" is fenced out of the VOICE FLOW ─────────────────────────────────────
+   *
+   * Scoped, not global, and the scope is the point. The DESKTOP surface (`PlanDesktop`,
+   * `ExtractionSummary`, `ApprovalRail`) genuinely has an approval step, built around a review
+   * queue, and its copy is correct for what it does — renaming that would be renaming a real
+   * concept to satisfy a rule about a different surface.
+   *
+   * What must never say it is the flow a phone actually walks: the voice sheet, the
+   * interpretation, and the shells that host them. There, consent happens once, in place, on the
+   * thing being consented to, and the confirm says what it does.
+   */
+  const VOICE_FLOW = [
+    'src/components/plan/surface/VoiceSheet.tsx',
+    'src/components/plan/surface/Interpretation.tsx',
+    'src/components/plan/surface/AgentVoice.tsx',
+    'src/components/plan/surface/Feedback.tsx',
+    'src/components/plan/surface/CommittedSurface.tsx',
+    'src/components/plan/surface/DraftSurface.tsx',
+  ];
+
+  it('the voice flow reads a real set of files (a fence over nothing is not a fence)', () => {
+    for (const rel of VOICE_FLOW) {
+      expect(FILES.some((f) => relative(process.cwd(), f) === rel), rel).toBe(true);
+    }
+  });
+
+  it('never says "approve" or "approval" anywhere a phone can reach', () => {
+    const hits: string[] = [];
+    for (const rel of VOICE_FLOW) {
+      const f = FILES.find((x) => relative(process.cwd(), x) === rel);
+      if (!f) continue;
+      for (const s of clientStrings(readFileSync(f, 'utf8'))) {
+        if (/\bapprov(e|ed|es|ing|al|als)\b/i.test(s)) hits.push(`${rel}: "${s.slice(0, 90)}"`);
+      }
+    }
+    expect(hits, `consent happens in place and the confirm says Apply —\n${hits.join('\n')}`).toEqual([]);
   });
 });

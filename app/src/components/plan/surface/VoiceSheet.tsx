@@ -40,12 +40,15 @@
  * A surface that starts listening does not also need to suggest what to say. The `starters` field
  * is off `Framing` entirely rather than emptied, so nothing can quietly grow them back.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Sheet } from './Sheet';
 import { MicGlyph, KeyboardGlyph, SendGlyph, CloseGlyph } from './icons';
 import { Waveform } from './Waveform';
 import { AgentSays } from './AgentVoice';
+import { Interpretation } from './Interpretation';
+import type { InterpretedItem } from '@/lib/agent/types';
 import { useSpeechInput } from '../useSpeechInput';
+import { MicTracePanel } from '../MicTracePanel';
 
 /**
  * ONE SHEET, TWO MONTH STATES (round 7, fix 2).
@@ -64,6 +67,14 @@ import { useSpeechInput } from '../useSpeechInput';
  */
 export type VoiceContext = 'draft' | 'committed';
 
+/**
+ * What a submitted sentence produced.
+ *
+ * `items` present and non-empty → the sheet shows the interpretation and waits. Absent → it
+ * closes, because the write has already happened.
+ */
+export type VoiceOutcome = { ok: false } | { ok: true; items?: readonly InterpretedItem[] };
+
 interface Framing { title: string; blurb: string; placeholder: string }
 
 const FRAMING: Record<VoiceContext, (monthName: string) => Framing> = {
@@ -74,15 +85,23 @@ const FRAMING: Record<VoiceContext, (monthName: string) => Framing> = {
   }),
   committed: (m) => ({
     title: `Tell your plan what to change`,
-    blurb: `${m} is written. Say what you want different and we’ll put the change up for you to approve — nothing moves until you say so.`,
+    // The blurb describes the flow the sheet actually walks. It used to promise the client we
+    // would "put the change up for you to approve", which was true of a desktop review queue and
+    // false of the only surface most of them will ever open. What it says now is what happens:
+    // we work out what you meant, show it, and change nothing until you say Apply.
+    blurb: `${m} is written. Say what you want different — I’ll show you exactly what I’ll change before anything moves.`,
     placeholder: 'Move the Thursday post to Friday',
   }),
 };
 
 type Mode = 'speak' | 'type';
 
+/** How long `onaudioend` is tolerated before the sheet stops claiming to be listening. WebKit
+ *  fires it between utterances, so this has to outlast an ordinary pause between sentences. */
+const AUDIO_GRACE_MS = 2500;
+
 export function VoiceSheet({
-  open, monthName, busy, question, context = 'draft', onClose, onSubmit,
+  open, monthName, busy, question, context = 'draft', onClose, onSubmit, onApply, onDiscard,
 }: {
   open: boolean;
   monthName: string;
@@ -101,16 +120,45 @@ export function VoiceSheet({
   question?: string | undefined;
   onClose: () => void;
   /**
-   * Resolves TRUE when the write landed. The sheet closes on true and stays open on false with
-   * every word still in the field — a dictated brief can be several hundred of them, and a
-   * network failure that also throws them away is the one loss a toast cannot undo.
+   * What happened to the sentence.
+   *
+   * `{ok:false}` keeps the sheet, the words and the mode — a dictated brief can be several
+   * hundred words, and a network failure that also throws them away is the one loss a toast
+   * cannot undo.
+   *
+   * `{ok:true, items}` moves the sheet into its SECOND phase: the interpretation, which the
+   * client applies or discards without leaving. `{ok:true}` with no items closes, which is the
+   * DRAFT month's shape — a reshape there applies directly and returns a receipt, so there is
+   * nothing to consent to after the fact.
    */
-  onSubmit: (text: string, source: 'web' | 'voice') => Promise<boolean>;
+  onSubmit: (text: string, source: 'web' | 'voice') => Promise<VoiceOutcome>;
+  /**
+   * Apply the interpretation. Resolves true when the plan actually changed, and the sheet closes
+   * into the standard what-changed treatment — which is then confirming what these very lines
+   * promised, rather than reporting something the client has not seen before.
+   */
+  onApply?: ((proposalIds: string[]) => Promise<boolean>) | undefined;
+  /** Throw the whole interpretation away. Nothing is applied. */
+  onDiscard?: ((proposalIds: string[]) => Promise<void>) | undefined;
 }) {
   const [mode, setMode] = useState<Mode>('speak');
   const [text, setText] = useState('');
   const [loud, setLoud] = useState(false);
   const field = useRef<HTMLTextAreaElement>(null);
+  /**
+   * TWO PHASES, ONE SHEET.
+   *
+   *   capture       the mic and the field. What they want to say.
+   *   interpreting  the agent is extracting. Dots, in its own register.
+   *   consent       the itemised interpretation, with Apply and Discard.
+   *
+   * They are phases of one sheet rather than two sheets because the client has not finished the
+   * thought yet. Closing on send and reporting the result somewhere else is what stranded the
+   * changes: the report pointed at Approvals, which does not exist on a phone.
+   */
+  const [phase, setPhase] = useState<'capture' | 'interpreting'>('capture');
+  const [items, setItems] = useState<InterpretedItem[]>([]);
+  const [applyBusy, setApplyBusy] = useState(false);
 
   // Final transcript chunks append into the SAME field the typed mode edits, so switching modes
   // mid-thought keeps everything already said.
@@ -120,12 +168,38 @@ export function VoiceSheet({
   const [wasOpen, setWasOpen] = useState(false);
   if (open !== wasOpen) {
     setWasOpen(open);
-    if (open) { setText(''); setMode('speak'); setLoud(false); }
+    if (open) { setText(''); setMode('speak'); setLoud(false); setPhase('capture'); setItems([]); setApplyBusy(false); }
   }
 
   const listening = speech.state === 'recording';
   const starting = speech.state === 'starting';
   const { start: startSpeech, stop: stopSpeech } = speech;
+
+  // ── The lie the screen recording caught ──────────────────────────────────────────────
+  // `state === 'recording'` means WE ASKED. `audioLive` means the capture actually opened
+  // (`onaudiostart` fired, `onaudioend` has not). The sheet was reading the first and printing
+  // "Listening…", which is how the operator came to talk into a dead microphone for many
+  // seconds with a flatline meter and a heading that said everything was fine.
+  //
+  // Held for a moment before it is believed: WebKit fires `onaudioend` at the end of every
+  // utterance, and treating that instant as "not listening" would strobe the heading between
+  // every phrase. The grace is long enough to cover the gap and short enough that a genuinely
+  // dead capture is admitted while the client is still standing there.
+  // Three states, not two: `null` is "we have not waited long enough to say". Starting at
+  // `false` would flash the failure copy in the ordinary gap between `onstart` and
+  // `onaudiostart`, which is a lie in the opposite direction.
+  const [audioOk, setAudioOk] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (speech.audioLive) { setAudioOk(true); return; }
+    if (!listening) { setAudioOk(null); return; }
+    const t = setTimeout(() => setAudioOk(false), AUDIO_GRACE_MS);
+    return () => clearTimeout(t);
+  }, [speech.audioLive, listening]);
+  /** Listening, and nothing has told us the capture is dead. */
+  const capturing = listening && audioOk !== false;
+  /** Listening, and the capture never opened — or opened and went away. Named, because it used
+   *  to be indistinguishable from listening, which is the whole of the reported bug. */
+  const stalled = listening && audioOk === false && !starting;
 
   // ── Fix 5: the sheet listens as soon as it exists ────────────────────────────────────
   // Not on a tap. The client came here to talk, and a microphone that waits to be pressed makes
@@ -136,7 +210,16 @@ export function VoiceSheet({
   // The dependency list is the two stable callbacks, NOT the `speech` object — that is a fresh
   // literal on every render, so depending on it re-ran this effect constantly and made "did we
   // already start?" impossible to reason about.
-  useEffect(() => {
+  //
+  // ── Round 9: useLayoutEffect, and it is not a preference ─────────────────────────────
+  // `useEffect` is scheduled AFTER paint, in a later task than the tap that opened the sheet.
+  // WebKit's transient user activation does not survive that gap, and on a cold open — the
+  // first time a client ever speaks, when the permission prompt is still needed — recognition
+  // was therefore asking for the microphone from a context that no longer counted as
+  // user-initiated. `useLayoutEffect` runs synchronously in the same task as the state update
+  // that mounted this sheet, which for a discrete event like a click is still the gesture's
+  // own task. `start()` is now synchronous all the way to `rec.start()` for the same reason.
+  useLayoutEffect(() => {
     if (open && mode === 'speak') startSpeech();
     else stopSpeech();
   }, [open, mode, startSpeech, stopSpeech]);
@@ -147,12 +230,41 @@ export function VoiceSheet({
     const value = text.trim();
     if (!value || busy) return;
     speech.stop();
+    // Phase two starts NOW, before the round trip: the client has just spoken and the sheet has
+    // to show it is thinking about it rather than sitting on their words.
+    setPhase('interpreting');
     // The transport is what actually happened: if any of this arrived through the microphone,
     // it is voice, even when the client tidied it up by hand afterwards.
-    const ok = await onSubmit(value, mode === 'speak' || listening ? 'voice' : 'web');
+    const out = await onSubmit(value, mode === 'speak' || listening ? 'voice' : 'web');
     // A refusal keeps the sheet, the words and the mode. The failure is reported in the shell's
     // feedback slot, over the sheet, where it can be read without losing what was said.
-    if (ok) onClose();
+    if (!out.ok) { setPhase('capture'); return; }
+    // No items → the write already happened (a draft month reshapes directly). Nothing to
+    // consent to after the fact, so the sheet gets out of the way.
+    if (!out.items) { onClose(); return; }
+    setItems([...out.items]);
+  };
+
+  /** Apply what the list promised, then leave. */
+  const apply = async () => {
+    const ids = items.filter((i) => i.kind === 'change').map((i) => (i as { proposalId: string }).proposalId);
+    if (!ids.length || !onApply) return;
+    setApplyBusy(true);
+    try { if (await onApply(ids)) onClose(); }
+    finally { setApplyBusy(false); }
+  };
+
+  const discard = async () => {
+    const ids = items.filter((i) => i.kind === 'change').map((i) => (i as { proposalId: string }).proposalId);
+    setApplyBusy(true);
+    try { await onDiscard?.(ids); }
+    finally { setApplyBusy(false); onClose(); }
+  };
+
+  /** Leave one line out. The row IS a proposal, so dropping it is a reject on that row alone. */
+  const dropItem = (proposalId: string) => {
+    setItems((cur) => cur.filter((i) => !(i.kind === 'change' && i.proposalId === proposalId)));
+    void onDiscard?.([proposalId]);
   };
 
   const framing = FRAMING[context](monthName);
@@ -161,19 +273,28 @@ export function VoiceSheet({
   // Every state below is named. The one the re-check caught was the unnamed one: the sheet open,
   // the microphone not running, and nothing on screen admitting it — which read as "listening"
   // to anyone who did not know better, and lost the sentence they said into it.
-  const heading = mode === 'type' ? framing.title
+  /** In consent, the capture states are irrelevant — the microphone is already off. */
+  const consenting = phase === 'interpreting';
+  const heading = consenting ? (items.length ? 'Here’s what I understood' : 'Working it out…')
+    : mode === 'type' ? framing.title
     : speech.state === 'no-permission' ? 'We need the microphone'
     : speech.state === 'unsupported' ? 'This browser can’t listen'
     : speech.state === 'error' ? 'The microphone stopped'
     : starting ? 'Getting the mic…'
-    : listening ? (loud ? 'Listening…' : 'Go ahead')
+    : stalled ? 'We’ve lost the microphone'
+    : capturing ? (loud ? 'Listening…' : 'Go ahead')
     : 'Tap the mic and talk';
-  const under = mode === 'type' ? 'Same thing, typed.'
+  const under = consenting
+    ? (items.length ? 'Check it, then apply. Nothing has changed yet.' : 'One moment.')
+    : mode === 'type' ? 'Same thing, typed.'
     : speech.state === 'no-permission' ? 'Allow it in your browser settings, or type it instead.'
     : speech.state === 'unsupported' ? 'Type it instead — it goes to exactly the same place.'
     : speech.state === 'error' ? 'Tap the mic to pick it up again, or type it instead.'
     : starting ? 'One moment.'
-    : listening ? (loud ? 'Tap the mic again when you’re done.' : 'We can’t hear anything yet.')
+    // Said out loud rather than sat in. Whatever we do next, the client needs to stop talking
+    // into something that is not recording them.
+    : stalled ? 'Nothing is reaching us. Tap the mic to pick it up, or type it instead.'
+    : capturing ? (loud ? 'Tap the mic again when you’re done.' : 'We can’t hear anything yet.')
     : 'One sentence is enough.';
 
   return (
@@ -190,6 +311,23 @@ export function VoiceSheet({
           </button>
         </div>
 
+        {/* ── PHASE TWO: consent ─────────────────────────────────────────────────────────
+            The interpretation replaces the capture UI rather than sitting under it. The mic is
+            off, the field is irrelevant, and the only question left is whether the list is
+            right. Leaving the mic on screen beside it would offer two different next actions
+            for one moment. */}
+        {consenting ? (
+          <div className="flex min-h-0 flex-1 flex-col px-[18px] pb-4 pt-1">
+            <Interpretation
+              items={items}
+              applying={!items.length}
+              busy={applyBusy || busy}
+              onApply={() => void apply()}
+              onDiscard={() => void discard()}
+              {...(onDiscard ? { onDropItem: dropItem } : {})}
+            />
+          </div>
+        ) : (
         <div className="flex flex-1 flex-col overflow-y-auto px-[18px] pb-4 [scrollbar-width:none]">
           {/* THE FRAMING COPY LIVES HERE and nowhere else. Round 3 moved it off the page,
               because a 200px block asking the client to say something sat above the month they
@@ -223,7 +361,10 @@ export function VoiceSheet({
               </button>
 
               <div className="mt-6 w-full">
-                <Waveform active={listening} onLevel={setLoud} />
+                {/* `speaking` + `pulse` are the recogniser's OWN events. Passing them is what
+                    lets the meter run without a second `getUserMedia` on any browser that
+                    arbitrates one audio session — see Waveform.tsx and audio-contention.ts. */}
+                <Waveform active={listening} onLevel={setLoud} speaking={speech.speaking} pulse={speech.pulse} />
               </div>
 
               {/* THE TRANSCRIPT IS THE AGENT'S REGISTER (fix 7). It used to be body copy, one
@@ -275,6 +416,10 @@ export function VoiceSheet({
 
         </div>
 
+        )}
+
+        {/* The send row belongs to capture only — consent has its own Apply / Discard. */}
+        {!consenting && (
         <div className="flex flex-none items-center gap-2 border-t border-line/30 bg-surface px-[18px] pb-[26px] pt-3">
           <button
             type="button" data-testid="voice-mode"
@@ -294,6 +439,11 @@ export function VoiceSheet({
             <SendGlyph className="h-[26px] w-[26px] [stroke-width:2.2]" />
           </button>
         </div>
+        )}
+        {/* Renders nothing unless the operator armed `?mic=trace` for this tab. It sits inside
+            the sheet because that is where the microphone is, and it is fixed to the viewport
+            so it survives the sheet's own scrolling. */}
+        <MicTracePanel />
       </>
     </Sheet>
   );

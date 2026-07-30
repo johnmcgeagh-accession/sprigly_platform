@@ -657,8 +657,18 @@ describe('a post’s tasks, in its sheet (round 6, P9)', () => {
 });
 
 describe('the mic on a committed month opens the SAME sheet (round 7, fix 2)', () => {
+  /**
+   * The agent now returns an INTERPRETATION as well as proposals, and the sheet holds the client
+   * on it rather than closing. `items` is what gets rendered; `proposals` is what Apply executes.
+   */
   const withAgent = (over: Partial<PlanData> = {}) => fakeData({
-    ask: vi.fn(async () => ({ message: 'I’ve put that up for you.', proposals: [{ id: 'pr1' }] })),
+    ask: vi.fn(async () => ({
+      message: 'I’ve put that up for you.',
+      proposals: [{ id: 'pr1' }],
+      items: [{ kind: 'change', proposalId: 'pr1', action: 'move', title: 'Fragrance Note Deep Dive: Summer', fromDate: '2026-10-08', toDate: '2026-10-12' }],
+    })),
+    applyChanges: vi.fn(async () => true),
+    discardChanges: vi.fn(async () => {}),
     agentBusy: false,
     ...over,
   } as Partial<PlanData>);
@@ -681,21 +691,67 @@ describe('the mic on a committed month opens the SAME sheet (round 7, fix 2)', (
     await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
 
     expect(data.ask).toHaveBeenCalledWith('move the Thursday post to Friday', null, 'web');
-    expect(screen.queryByTestId('voice-sheet')).toBeNull();
+    // It no longer closes on send. Sending is the middle of the gesture, not the end of it —
+    // the sheet stays and shows what it understood.
+    expect(screen.getByTestId('voice-sheet')).toBeTruthy();
+    expect(screen.getByTestId('interpretation')).toBeTruthy();
   });
 
-  it('reports what the agent DID, and says the change is waiting rather than done', async () => {
-    render(<CommittedSurface data={withAgent()} />);
+  /**
+   * ── The assertion Fix B reverses ───────────────────────────────────────────────────
+   *
+   * This read: *"reports what the agent DID, and says the change is waiting rather than done"* —
+   * and asserted the toast contained "1 change to approve." It was right that nothing may claim
+   * to have applied, and that half still holds. It was wrong about where the client goes next:
+   * "to approve" meant Approvals, a DESKTOP view. On a phone the sentence pointed at a screen
+   * that does not exist and the change sat there unapplied.
+   *
+   * Consent now happens in the sheet, on the interpretation, and the word "approve" is fenced
+   * out of the flow entirely (terminology.fence.test.ts).
+   */
+  it('shows the INTERPRETATION and applies nothing until the client says so', async () => {
+    const data = withAgent();
+    render(<CommittedSurface data={data} />);
     fireEvent.click(screen.getByTestId('nav-mic'));
     fireEvent.click(screen.getByTestId('voice-mode'));
     fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'move it' } });
     await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
 
-    const said = screen.getByTestId('feedback').textContent ?? '';
-    expect(said).toContain('I’ve put that up for you.');
-    expect(said).toContain('1 change to approve.');
-    // The agent applies nothing on a committed month, so nothing here may claim it did.
-    expect(said).not.toMatch(/moved|done|changed it/i);
+    const said = screen.getByTestId('interpretation').textContent ?? '';
+    expect(said).toContain('Fragrance Note Deep Dive: Summer');
+    expect(said).toContain('Mon 12 Oct');
+    expect(said).not.toMatch(/approve|approval/i);
+    // Nothing applied, and nothing pointing anywhere else.
+    expect(data.applyChanges).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('feedback')).toBeNull();
+  });
+
+  it('APPLY executes the proposals, closes, and the receipt confirms what the list promised', async () => {
+    const data = withAgent();
+    render(<CommittedSurface data={data} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+    fireEvent.click(screen.getByTestId('voice-mode'));
+    fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'move it' } });
+    await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+    await act(async () => { fireEvent.click(screen.getByTestId('interp-apply')); });
+
+    expect(data.applyChanges).toHaveBeenCalledWith(['pr1']);
+    expect(screen.queryByTestId('voice-sheet')).toBeNull();
+    expect(screen.getByTestId('feedback').textContent).toContain('your plan is updated');
+  });
+
+  it('DISCARD rejects them and applies nothing', async () => {
+    const data = withAgent();
+    render(<CommittedSurface data={data} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+    fireEvent.click(screen.getByTestId('voice-mode'));
+    fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'move it' } });
+    await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+    await act(async () => { fireEvent.click(screen.getByTestId('interp-discard')); });
+
+    expect(data.discardChanges).toHaveBeenCalledWith(['pr1']);
+    expect(data.applyChanges).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('voice-sheet')).toBeNull();
   });
 
   it('a refusal keeps the sheet and the words', async () => {
