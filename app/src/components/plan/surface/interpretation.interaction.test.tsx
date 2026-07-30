@@ -3,12 +3,12 @@
  *
  * interpretation.interaction.test.tsx — consent happens on the interpretation, in place.
  *
- * ── What this replaces ───────────────────────────────────────────────────────────────
+ * ── The conversation-sheet form ──────────────────────────────────────────────────────
  *
- * The voice sheet closed on send, the agent's changes landed as pending PROPOSALS, and a toast
- * said "1 change to approve." Approvals is a desktop view. On a phone that sentence pointed at
- * a screen the client could not open, and the change sat unapplied — the north-star gesture
- * ending in a dead end.
+ * The interpretation is now a TURN of the thread (InterpretationTurn) rather than a phase that
+ * replaces the sheet's body: same derivation, same lines, with Apply/Discard inline on the turn
+ * and a lifecycle (`open → applying → resolved | discarded`). The composer never unmounts, so
+ * the turn never needs to steal focus — announcement is the newest-turn live region's job.
  *
  * ── The derivation rule, which is what most of these tests are about ─────────────────
  *
@@ -17,13 +17,13 @@
  * model-narrated prose (approving a sentence about a change is not approving the change). A
  * misheard word has to show up as a wrong TITLE, which is checkable at a glance.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import React from 'react';
-import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 
 vi.mock('@sprigly/db', () => ({ db: {}, contentCycles: {}, contentCyclePosts: {} }));
 
-import { Interpretation, lineFor, shortDate } from './Interpretation';
+import { InterpretationTurn, lineFor, shortDate, type InterpretationStatus } from './Interpretation';
 import type { InterpretedItem } from '@/lib/agent/types';
 
 afterEach(cleanup);
@@ -34,18 +34,17 @@ const change = (over: Partial<Extract<InterpretedItem, { kind: 'change' }>> = {}
   ...over,
 } as InterpretedItem);
 
-function show(items: InterpretedItem[], over: Partial<React.ComponentProps<typeof Interpretation>> = {}) {
+function show(items: InterpretedItem[], over: Partial<React.ComponentProps<typeof InterpretationTurn>> & { status?: InterpretationStatus } = {}) {
   const onApply = vi.fn();
   const onDiscard = vi.fn();
-  render(<Interpretation items={items} onApply={onApply} onDiscard={onDiscard} {...over} />);
+  render(<InterpretationTurn items={items} status={over.status ?? 'open'} onApply={onApply} onDiscard={onDiscard} {...over} />);
   return { onApply, onDiscard };
 }
 
 describe('a line is computed, not narrated', () => {
   it('a move names the RESOLVED title and BOTH resolved dates', () => {
     // F3a: the SOURCE date is the resolved answer to a relative reference ("Friday's post"),
-    // and this line is where a wrong resolution becomes visible before it applies. The old
-    // tail showed the destination only, which hid the one field most worth checking.
+    // and this line is where a wrong resolution becomes visible before it applies.
     expect(lineFor(change() as never)).toEqual({
       verb: 'Move', title: 'Fragrance Note Deep Dive: Summer', tail: 'Sat 8 Aug → Wed 12 Aug',
     });
@@ -78,8 +77,6 @@ describe('a line is computed, not narrated', () => {
   it('dates are rendered by the SURFACE from ISO — never a phrase off the wire', () => {
     expect(shortDate('2026-08-12')).toBe('Wed 12 Aug');
     expect(shortDate('2026-01-01')).toBe('Thu 1 Jan');
-    // Garbage in, the raw string out. A date that will not parse must not become "Invalid Date"
-    // in front of a client.
     expect(shortDate('nonsense')).toBe('nonsense');
   });
 });
@@ -100,7 +97,7 @@ describe('a two-intent utterance renders two lines', () => {
     expect(rows[1]!.textContent).toContain('Fri 4 Sep');
   });
 
-  it('Apply names how many, and hands back every proposal in order', () => {
+  it('Apply names how many, and fires once', () => {
     const { onApply } = show(TWO);
     expect(screen.getByTestId('interp-apply').textContent).toBe('Apply these 2 changes');
     fireEvent.click(screen.getByTestId('interp-apply'));
@@ -112,11 +109,20 @@ describe('a two-intent utterance renders two lines', () => {
     expect(screen.getByTestId('interp-apply').textContent).toBe('Apply this change');
   });
 
-  it('a line can be left out on its own', () => {
+  it('a line can be left out on its own — while the turn is still open', () => {
     const onDropItem = vi.fn();
     show(TWO, { onDropItem });
     fireEvent.click(screen.getAllByTestId('interp-drop')[1]!);
     expect(onDropItem).toHaveBeenCalledWith('pr2');
+  });
+
+  it('a RESOLVED turn offers nothing to press — a receipt does not need a second Apply', () => {
+    show(TWO, { status: 'resolved', onDropItem: vi.fn() });
+    expect(screen.queryByTestId('interp-apply')).toBeNull();
+    expect(screen.queryByTestId('interp-discard')).toBeNull();
+    expect(screen.queryByTestId('interp-drop')).toBeNull();
+    // The lines themselves stay — the thread's record of what was agreed.
+    expect(screen.getAllByTestId('interp-change')).toHaveLength(2);
   });
 });
 
@@ -128,11 +134,13 @@ describe('what could not be resolved says so, and applies nothing', () => {
     expect(said).toContain('couldn’t place a date');
   });
 
-  it('APPLY IS ABSENT when nothing is applicable — a primary action that can only refuse is worse than none', () => {
+  it('APPLY IS ABSENT when nothing is applicable — and so is Discard, because there is nothing to reject', () => {
+    // The old full-sheet phase kept Discard as the way out; in a thread the way out is the
+    // composer beneath, which never unmounts. Buttons on a turn with no proposals would be
+    // controls that can only refuse.
     show([{ kind: 'idea', text: 'something' }, { kind: 'unresolved', question: 'Which post did you mean?' }]);
     expect(screen.queryByTestId('interp-apply')).toBeNull();
-    // Discard is still there: the client needs a way out that is not the ✕.
-    expect(screen.getByTestId('interp-discard')).toBeTruthy();
+    expect(screen.queryByTestId('interp-discard')).toBeNull();
   });
 
   it('a misheard reference renders its real question, not a shrug', () => {
@@ -147,7 +155,6 @@ describe('what could not be resolved says so, and applies nothing', () => {
     ]);
     expect(screen.getByTestId('interp-change')).toBeTruthy();
     expect(screen.getByTestId('interp-unresolved')).toBeTruthy();
-    // One applicable change → Apply is offered, and offers only that one.
     expect(screen.getByTestId('interp-apply').textContent).toBe('Apply this change');
   });
 
@@ -158,10 +165,10 @@ describe('what could not be resolved says so, and applies nothing', () => {
   });
 });
 
-describe('the register, and the words', () => {
+describe('the register, the lifecycle, and the words', () => {
   it('is the agent’s block — the same tint field and accent edge as everywhere else it speaks', () => {
     show([change()]);
-    const block = screen.getByTestId('interpretation').firstElementChild as HTMLElement;
+    const block = screen.getByTestId('interpretation');
     expect(block.className).toContain('bg-coral-100');
     expect(block.className).toContain('border-coral-700');
   });
@@ -172,52 +179,45 @@ describe('the register, and the words', () => {
     expect(screen.getByTestId('interp-apply').textContent).toMatch(/^Apply/);
   });
 
-  it('while the agent is still working it shows the dots and offers nothing to press', () => {
-    show([], { applying: true });
+  it('APPLYING shows the one working indicator and nothing to press', () => {
+    show([change()], { status: 'applying' });
     expect(screen.getByTestId('agent-dots')).toBeTruthy();
     expect(screen.queryByTestId('interp-apply')).toBeNull();
-    expect(screen.queryByTestId('interp-empty')).toBeNull();
+    expect(screen.queryByTestId('interp-discard')).toBeNull();
   });
 
-  it('is announced, and everything is inert while a write is in flight', () => {
+  it('DISCARDED says so on the turn — the thread keeps its history honest', () => {
+    show([change()], { status: 'discarded' });
+    expect(screen.getByTestId('interp-discarded').textContent).toContain('nothing changed');
+    expect(screen.queryByTestId('interp-apply')).toBeNull();
+  });
+
+  it('is a live region ONLY when it is the newest turn', () => {
+    show([change()], { live: true });
+    expect(screen.getByTestId('interpretation').getAttribute('role')).toBe('status');
+    expect(screen.getByTestId('interpretation').getAttribute('aria-live')).toBe('polite');
+    cleanup();
+    show([change()]);
+    expect(screen.getByTestId('interpretation').getAttribute('role')).toBeNull();
+    expect(screen.getByTestId('interpretation').getAttribute('aria-live')).toBeNull();
+  });
+
+  it('does NOT steal focus — the composer is still where the client is standing', () => {
+    show([change()]);
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('everything is inert while a write is in flight', () => {
     show([change()], { busy: true, onDropItem: vi.fn() });
-    const block = screen.getByTestId('interpretation').firstElementChild as HTMLElement;
-    expect(block.getAttribute('role')).toBe('status');
     expect((screen.getByTestId('interp-apply') as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByTestId('interp-discard') as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByTestId('interp-drop') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  /**
-   * Found by the audit: the client pressed Send, the control they pressed is unmounted, and the
-   * sheet's focus trap only runs on OPEN — so a keyboard or screen-reader user got an entirely
-   * new decision in front of them with focus on the body.
-   */
-  it('the list TAKES FOCUS when it lands — and not the Apply button', () => {
-    show([change()]);
-    const block = screen.getByTestId('interpretation').firstElementChild as HTMLElement;
-    expect(document.activeElement).toBe(block);
-    // Landing on Apply would be one Enter from changing their plan without reading it.
-    expect(document.activeElement).not.toBe(screen.getByTestId('interp-apply'));
-    // Focusable programmatically, but not a stop on the way to the buttons.
-    expect(block.getAttribute('tabindex')).toBe('-1');
-  });
-
-  it('does not steal focus while there is still nothing to read', () => {
-    show([], { applying: true });
-    expect(document.activeElement).toBe(document.body);
-  });
-
   it('nothing here echoes the transcript back', () => {
-    // The item type has no field for it, which is the real guard — this asserts the shape so a
-    // later "helpful" addition has to argue with a test.
     const item = change() as Record<string, unknown>;
     expect(Object.keys(item)).not.toContain('transcript');
     expect(Object.keys(item)).not.toContain('reason');
     expect(Object.keys(item)).not.toContain('said');
   });
 });
-
-// The apply/discard round trip through the real sheet lives in sheets.interaction.test.tsx,
-// where the surface and its data hook are already wired together.
-void act;

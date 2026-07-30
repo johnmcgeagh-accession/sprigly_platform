@@ -81,6 +81,9 @@ export function CommittedSurface({ data }: { data: PlanData }) {
    *  sheet cannot be open for one day while the panel shows another. */
   const [addFor, setAddFor] = useState<string | null>(null);
   const [voiceOpen, setVoiceOpen] = useState(false);
+  // Read at apply-settle time, which can be long after the tap — a ref, not the state.
+  const voiceOpenRef = React.useRef(false);
+  voiceOpenRef.current = voiceOpen;
 
   /**
    * ── THE WHAT-CHANGED TREATMENT, after a background apply (F4) ─────────────────────────
@@ -110,24 +113,33 @@ export function CommittedSurface({ data }: { data: PlanData }) {
   }
 
   /**
-   * Run the apply BEHIND the closed sheet (F4). Sequential inside `applyChanges` — the
-   * ordering is load-bearing (a hook proposal resolves the post its add wrote). When it
-   * settles: the chip + highlights land for what applied, and anything that did not is
-   * named in the one feedback channel — still pending, still actionable.
+   * Run the apply in the background (F4). Sequential inside `applyChanges` — the ordering is
+   * load-bearing (a hook proposal resolves the post its add wrote). When it settles: the chip +
+   * highlights land for what applied (the post-apply confirmation OUTSIDE the sheet, unchanged),
+   * and the returned report becomes the thread's confirmation turn INSIDE it. A failure goes to
+   * the one feedback channel only when the sheet is closed at settle time — with it open, the
+   * confirmation turn is the report, and a second banner over the thread would be the secondary
+   * status bar the redesign removes.
+   *
+   * The items come FROM THE TURN (the sheet passes them), not from `agentReply` — a reopened
+   * thread's interpretation has no in-memory reply to read.
    */
-  const runApply = (ids: string[]) => {
-    const lines = (data.agentReply?.items ?? [])
+  const runApply = async (ids: string[], items: readonly InterpretedItem[]): Promise<{ text: string }> => {
+    const lines = items
       .filter((i): i is Extract<InterpretedItem, { kind: 'change' }> => i.kind === 'change' && ids.includes(i.proposalId));
-    void (async () => {
-      const r = await data.applyChanges(ids);
-      const appliedLines = lines.filter((l) => r.applied.includes(l.proposalId));
-      const failedLines = lines.filter((l) => r.failed.includes(l.proposalId));
-      if (r.applied.length) {
-        setAppliedChip({ label: appliedChipLabel(appliedLines), lines: appliedLines });
-        setChangedIds((cur) => [...new Set([...cur, ...r.changedPostIds])]);
-      }
-      if (r.failed.length) setUndo({ message: applyFailureMessage(failedLines, r.applied.length) });
-    })();
+    const r = await data.applyChanges(ids);
+    const appliedLines = lines.filter((l) => r.applied.includes(l.proposalId));
+    const failedLines = lines.filter((l) => r.failed.includes(l.proposalId));
+    if (r.applied.length) {
+      setAppliedChip({ label: appliedChipLabel(appliedLines), lines: appliedLines });
+      setChangedIds((cur) => [...new Set([...cur, ...r.changedPostIds])]);
+    }
+    const failureText = r.failed.length ? applyFailureMessage(failedLines, r.applied.length) : null;
+    if (failureText && !voiceOpenRef.current) setUndo({ message: failureText });
+    return {
+      text: failureText
+        ?? (r.applied.length === 1 ? 'Done — your plan is updated.' : `Done — ${r.applied.length} changes are in.`),
+    };
   };
 
   // Persist the position on every change — including the anchor's own placement, so an
@@ -274,22 +286,22 @@ export function CommittedSurface({ data }: { data: PlanData }) {
             than asking the client to categorise something they have not written yet. */}
         <VoiceSheet
           open={voiceOpen} context="committed" monthName={monthTitle(month).split(' ')[0] ?? ''}
+          cycleId={data.viewedCycleId}
           busy={data.agentBusy}
           onClose={() => setVoiceOpen(false)}
-          // ── The sheet no longer hands off ────────────────────────────────────────────
-          // It used to close here and set a message saying N changes were waiting to be
-          // approved — in Approvals, which is a DESKTOP view. On a phone that sentence pointed
-          // at a screen the client could not open, and the changes sat unapplied. Consent now
-          // happens in the sheet, on the interpretation, before anything is written.
+          // The reply renders as thread turns — `silent` keeps the out-of-sheet copies
+          // (agentFlash, the Approvals flash) from doubling it over the thread. A pure query's
+          // answer rides back as `message` and becomes an agent turn: the dead-end is gone.
           onSubmit={async (text, source) => {
-            const reply = await data.ask(text, null, source);
-            if (!reply) return { ok: false as const };   // refused or errored — the sheet keeps the words
-            return { ok: true as const, items: reply.items };
+            const reply = await data.ask(text, null, source, { silent: true });
+            if (!reply) return { ok: false as const };   // refused or errored — the composer keeps the words
+            return { ok: true as const, items: reply.items, ...(reply.message ? { message: reply.message } : {}) };
           }}
-          // FIRE AND FORGET (F4): the sheet closes on the tap; runApply finishes behind it and
-          // lands the chip + highlights — the treatment CONFIRMS what the list promised.
+          // F4, threaded: the apply runs in the background and the settled report becomes the
+          // confirmation turn; chip + highlights land outside the sheet either way.
           onApply={runApply}
           onDiscard={(ids) => void data.discardChanges(ids)}
+          isPending={(id) => data.proposals.some((p) => p.id === id)}
         />
         {addFor && (
           <AddSheet

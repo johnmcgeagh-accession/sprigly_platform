@@ -271,13 +271,24 @@ export function DraftSurface({ data }: { data: PlanData }) {
         {voiceFor !== null && (
           <VoiceSheet
             open context="draft" monthName={monthName} busy={m.busy}
+            cycleId={data.viewedCycleId}
             {...(voiceFor ? { question: voiceFor } : {})}
             onClose={() => setVoiceFor(null)}
-            // NO interpretation phase on a draft month, and that is not an omission. A reshape
-            // here APPLIES directly and returns a receipt — the client sees the month change and
-            // the summary chip says what moved. There is nothing to consent to after the fact,
-            // and asking would be asking about something already done.
-            onSubmit={async (text, source) => ({ ok: (await m.say(text, source)).ok })}
+            // NO interpretation turns on a draft month, and that is not an omission. A reshape
+            // here APPLIES directly and returns a receipt — so the agent's turn IS the receipt's
+            // own lines, and the conversation continues. The summary chip on the surface still
+            // says what moved; there is nothing to consent to after the fact.
+            onSubmit={async (text, source) => {
+              const r = await m.say(text, source);
+              if (!r.ok) return { ok: false as const };
+              const lines = r.application?.lines ?? [];
+              return {
+                ok: true as const,
+                message: lines.length ? lines.join('\n')
+                  : r.application?.scope === 'evergreen' ? 'Saved to your ideas — nothing on the month changed.'
+                  : 'Done — the month view shows what changed.',
+              };
+            }}
           />
         )}
         {addFor && (

@@ -122,30 +122,28 @@ for (const width of WIDTHS) {
       expect(screen.getByTestId('next-week')).toBeTruthy();
     });
 
-    it('THE VOICE SHEET opens, switches mode, takes a sentence and sends it', async () => {
+    it('THE CONVERSATION SHEET opens, takes a sentence in the composer and sends it — and stays', async () => {
       render(<DraftSurface data={draftData()} />);
       fireEvent.click(screen.getByTestId('nav-mic'));
 
       expect(screen.getByTestId('voice-sheet')).toBeTruthy();
       expect(screen.getByTestId('voice-mic')).toBeTruthy();
-      // The starters are gone (round 8, fix 6). What must still fit at this width is the mic,
-      // the mode toggle and the send — the three controls the sheet cannot work without.
       expect(screen.queryAllByTestId('voice-starter')).toHaveLength(0);
 
-      fireEvent.click(screen.getByTestId('voice-mode'));
+      // One composer for keyboard and voice — no mode toggle to fit any more.
       fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'more product this month' } });
       await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
-      expect(screen.queryByTestId('voice-sheet')).toBeNull();
+      // The thread model: the sheet STAYS, the exchange renders as turns.
+      expect(screen.getByTestId('voice-sheet')).toBeTruthy();
+      expect(screen.getByTestId('turn-user').textContent).toBe('more product this month');
     });
 
-    it('THE AGENT BLOCK fits the width — it is the one thing that spans the whole top', () => {
+    it('THE THREAD fits the width — turns are fluid, never fixed', async () => {
       render(<DraftSurface data={draftData()} />);
       fireEvent.click(screen.getByTestId('nav-mic'));
-      // The transcript block is the widest thing the agent renders, and it is inside a sheet
-      // inside a 320px viewport. It must be fluid, never fixed.
-      const block = screen.getByTestId('voice-transcript');
-      expect(block.className).toContain('w-full');
-      expect(block.className).not.toMatch(/\bw-\[\d+px\]|\bmin-w-\[\d{3,}px\]/);
+      const framing = await screen.findByTestId('turn-agent');
+      expect(framing.className).toContain('self-stretch');
+      expect(framing.className).not.toMatch(/\bw-\[\d+px\]|\bmin-w-\[\d{3,}px\]/);
     });
 
     it('THE APPROVAL SHEET opens with its counts and both answers reachable', () => {
@@ -192,10 +190,11 @@ for (const width of WIDTHS) {
       expect(screen.queryByTestId('summary-chip')).toBeNull();
     });
 
-    it('THE ASSUMPTION NUDGE is reachable and opens the sheet on its question', () => {
+    it('THE ASSUMPTION NUDGE is reachable and opens the sheet on its question — as an agent turn', async () => {
       render(<DraftSurface data={draftData()} />);
       fireEvent.click(screen.getByTestId('assumption-nudge'));
-      expect(screen.getByTestId('voice-framing').textContent).toContain('anything coming up?');
+      const agents = await screen.findAllByTestId('turn-agent');
+      expect(agents[agents.length - 1]!.textContent).toContain('anything coming up?');
     });
 
     it('the COMMITTED sheet still reaches its tabs, its format control and its actions', () => {
@@ -232,11 +231,11 @@ for (const width of WIDTHS) {
             { kind: 'change', proposalId: 'pr2', action: 'add', title: 'Atlas Cedar restock', toDate: '2026-10-20', format: 'single' },
           ],
         })),
-        applyChanges: vi.fn(async () => true),
+        proposals: [{ id: 'pr1' }, { id: 'pr2' }],
+        applyChanges: vi.fn(async () => ({ applied: ['pr1', 'pr2'], failed: [], changedPostIds: [] })),
         discardChanges: vi.fn(async () => {}),
       } as unknown as Partial<PlanData>)} />);
       fireEvent.click(screen.getByTestId('nav-mic'));
-      fireEvent.click(screen.getByTestId('voice-mode'));
       fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'move it and add one' } });
       await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
       {

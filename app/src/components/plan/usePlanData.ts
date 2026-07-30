@@ -584,6 +584,10 @@ export function usePlanData(init: PlanDataInit) {
      *  so the committed month's half of gap 8 was open in the other direction — the draft route
      *  learned to tell them apart and this one already could. */
     source: 'web' | 'voice' = 'web',
+    /** `silent` skips the out-of-sheet rendering (agentFlash / the Approvals flash): the
+     *  conversation sheet renders the reply as a turn IN the thread, and a second copy over the
+     *  sheet would be the secondary status bar the redesign removes. Desktop callers omit it. */
+    opts: { silent?: boolean } = {},
   ): Promise<AgentReply | null> => {
     if (readOnly || !instruction.trim() || agentBusy) return null;
     setAgentBusy(true);
@@ -612,10 +616,9 @@ export function usePlanData(init: PlanDataInit) {
       if (created.length) {
         setProposals((cur) => [...created.filter((p) => !cur.some((c) => c.id === p.id)), ...cur]);
         // The DESKTOP surface still flashes its Approvals view — that view exists there. The
-        // mobile sheet never gets here with a message to flash, because it holds the client in
-        // the interpretation instead of sending them somewhere to find these rows.
-        setFlashView('approvals'); setTimeout(() => setFlashView(null), 2800);
-      } else if (r.message) { agentFlash(r.message); }
+        // conversation sheet passes `silent` and renders everything as thread turns instead.
+        if (!opts.silent) { setFlashView('approvals'); setTimeout(() => setFlashView(null), 2800); }
+      } else if (r.message && !opts.silent) { agentFlash(r.message); }
       track('agent_ask_submitted', { proposals: created.length, source });
       void refreshNotes();
       return reply;
