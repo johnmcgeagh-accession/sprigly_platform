@@ -18,7 +18,7 @@ import { getClientCycleMonths, getCycleMonth, resolveCycleForMonth, cycleDigest 
 import { loadProductIndex } from '@/lib/agent/catalogue';
 import { resolveTargets, resolveMoveSource, postTitle, parseISO } from '@/lib/agent/selectors';
 import { moveSummary, deleteSummary, rewriteSummary, addSummary, formatSummary, generateHookSummary, refineSummary } from '@/lib/agent/summaries';
-import { ensureConversation, appendMessage } from '@/lib/agent/conversation';
+import { ensureConversation, appendMessage, listTurns, threadForParser } from '@/lib/agent/conversation';
 import { createProposal } from '@/lib/agent/proposals';
 import { saveNote } from '@/lib/agent/notes';
 import { answerQuery } from '@/lib/agent/query';
@@ -133,6 +133,13 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
   const { clientId, cycleId, instruction, source } = args;
 
   const convId = await ensureConversation(clientId, cycleId, args.conversationId);
+  // THE THREAD, read BEFORE this turn's message lands so the window is the conversation as it
+  // stood when the client spoke. "Move it back" resolves against the previous exchange, and the
+  // previous exchange is what this captures — assistant turns serialised from their RESOLVED
+  // items (titles + ISO dates), never from prose.
+  let recentThread = '';
+  try { recentThread = threadForParser(await listTurns(clientId, convId)); }
+  catch { /* an unreadable thread degrades to a threadless turn, never a failed one */ }
   const userMeta: Record<string, unknown> = { source };
   if (args.sessionId) userMeta.sessionId = args.sessionId;
   const userMessageId = await appendMessage({ conversationId: convId, role: 'user', content: instruction, source, metadata: userMeta });
@@ -152,6 +159,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
       // with `isEditableDate` rather than left for the model to work out from a month name.
       planDigest: cycleDigest(posts, todayNow),
       productIndex: await loadProductIndex(clientId, 'instagram'),
+      recentThread,
     };
     tasks = await parseTasks(instruction, ctx, getModelClient());
   } catch {
@@ -362,7 +370,10 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
   await appendMessage({
     conversationId: convId, role: 'assistant',
     content: message || `Proposed ${proposals.length} change${proposals.length === 1 ? '' : 's'} for review.`,
-    metadata: { tasks: tasks.map((t) => t.action), changeSetId: resp.changeSetId, proposalIds: proposals.map((p) => p.id) },
+    // `items` persists ON the turn so the thread can re-render its interpretation across a
+    // reopen (the sheet reads it back through listTurns) and so the NEXT turn's parser window
+    // can serialise what this one resolved — "move it back" grips the resolved dates here.
+    metadata: { tasks: tasks.map((t) => t.action), changeSetId: resp.changeSetId, proposalIds: proposals.map((p) => p.id), items },
   });
 
   return resp;

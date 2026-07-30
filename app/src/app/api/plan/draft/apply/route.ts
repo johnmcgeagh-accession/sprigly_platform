@@ -21,6 +21,7 @@ import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { getModelClient } from '@/lib/agent/model';
 import { applyTextToDraft, addBacklogItemToMonth, loadReceipts } from '@/lib/draft-apply';
+import { ensureConversation, appendMessage } from '@/lib/agent/conversation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -76,7 +77,28 @@ export async function POST(req: Request) {
   const res = await applyTextToDraft({
     clientId: session.clientId, cycleId: session.cycleId, text, source, model: getModelClient(),
   });
+
+  // THE THREAD (conversation sheet). A draft reshape is a turn of the same per-cycle
+  // conversation the committed agent writes, so the sheet's thread survives a reopen on a
+  // draft month too. The assistant turn's content is the receipt's own lines — the applied
+  // truth, not a paraphrase. Best-effort: a failed append must never fail a landed reshape.
+  let conversationId: string | null = null;
+  if (res.ok) {
+    try {
+      conversationId = await ensureConversation(session.clientId, session.cycleId);
+      await appendMessage({ conversationId, role: 'user', content: text, source });
+      const lines = res.application?.lines ?? [];
+      await appendMessage({
+        conversationId, role: 'assistant',
+        content: lines.length ? lines.join('\n')
+          : res.application?.scope === 'evergreen' ? 'Saved to your ideas — nothing on the month changed.'
+          : 'Done.',
+        metadata: { receiptId: res.application?.id ?? null, changedIds: res.application?.changedIds ?? [] },
+      });
+    } catch { conversationId = null; }
+  }
+
   return res.ok
-    ? NextResponse.json({ ok: true, application: res.application, beats: res.beats })
+    ? NextResponse.json({ ok: true, application: res.application, beats: res.beats, conversationId })
     : NextResponse.json({ ok: false, error: res.error, message: res.message }, { status: STATUS[res.error] ?? 400 });
 }

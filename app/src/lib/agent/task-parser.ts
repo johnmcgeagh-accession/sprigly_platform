@@ -25,6 +25,10 @@ export interface ParserContext {
   cycleMonths: string;             // formatted list of the client's cycle months
   planDigest: string;              // formatted digest of the whole cycle's posts, by date (with ids)
   productIndex: string;            // formatted index of the client's products (name/style/colourways)
+  /** The conversation so far — a bounded window of recent turns (threadForParser), assistant
+   *  turns serialised from their RESOLVED items. Empty/absent on a fresh thread. This is what
+   *  lets "move it back" and "that one" resolve against the previous exchange. */
+  recentThread?: string;
 }
 
 export const TASK_PARSER_SYSTEM_PROMPT = `You turn a single message from a clothing-brand client into an ordered list of TASKS for their content-plan assistant. The message may be typed or transcribed from speech — messy, rambling, or self-correcting. Read for intent.
@@ -77,6 +81,12 @@ Dates must be ISO 'YYYY-MM-DD'. Every digest post carries its full ISO date, and
 - A date is in the PAST only when its ISO date is EARLIER than today's. Today itself, and every date after it, is NOT past. COMPARE THE ISO DATES — never reason from month names, and never assume a month that is not the one on screen has been and gone. If today is 2026-07-30, then 2026-08-14 is a FORTNIGHT AWAY, and 2026-07-29 is yesterday.
 - The digest marks anything already past as '[past — read-only]'. If a row is not marked, it is not past. NEVER tell the client a date has passed unless its row says so.
 - You do not enforce editability and you do not need to: a past-dated edit is refused downstream, in words that name the real date. Emit the action the client asked for.
+
+THE CONVERSATION SO FAR — when the message includes a recent-thread block, it is one running conversation about this month, and the new message may refer BACK into it:
+- "it", "that one", "the reel" with no other anchor → the post the conversation most recently acted on or discussed. Read the ASSISTANT lines: they state each change with the post's title and RESOLVED ISO dates.
+- "move it back", "undo that", "put it back" after a move → a NEW move that reverses it: the source is the date the post is on NOW (the previous move's destination), the toDate is the previous move's SOURCE date. Emit a move_post with those dates — never a clarify asking which post.
+- "actually make it a carousel" after an add or format change → the same post the thread just handled.
+- The thread NEVER overrides the digest: the digest is the plan as it stands, the thread is how it got there. Resolve WHICH post from the thread; resolve WHERE it currently sits from the digest.
 
 RELATIVE REFERENCES resolve against TODAY, from the day table:
 - A bare weekday — "Friday's post", "the Friday post", "move Friday to Saturday" — means the NEXT such weekday from today (today itself counts when today is that weekday). Read its ISO date from the table and set fromDate/toDate accordingly. Do NOT ask which Friday; a wrong default costs one Discard because the resolved date is SHOWN to the client before anything applies. Ask only when the resolved DAY holds more than one post and the reference doesn't pick between them.
@@ -163,6 +173,10 @@ THE NEXT 14 DAYS (resolve every relative reference from this table):
 ${dayTable(ctx.today)}
 
 The client is looking at ${ctx.viewedMonth}. Resolve bare dates ("the 5th", "Saturday") in ${ctx.viewedMonth} unless they name another month.
+${ctx.recentThread ? `
+THE CONVERSATION SO FAR (oldest first — "it"/"move it back" resolve against this):
+${ctx.recentThread}
+` : ''}
 
 The client's content-plan months (every one of these is theirs to work on; a post can be changed whenever its own date is today or later, whatever the month's status says):
 ${ctx.cycleMonths}
