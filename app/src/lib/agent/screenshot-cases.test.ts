@@ -72,8 +72,10 @@ vi.mock('@/lib/agent/proposals', () => ({
 vi.mock('@/lib/agent/notes', () => ({ saveNote: async () => undefined }));
 vi.mock('@/lib/agent/query', () => ({ answerQuery: async () => 'answer' }));
 // The day of the re-check. August 5th and September 4th are both still ahead of it, which is the
-// only fact the editability rule is allowed to care about.
-vi.mock('@/lib/e2e-fake', () => ({ e2eTodayDate: () => new Date(2026, 6, 29) }));
+// only fact the editability rule is allowed to care about. The turn now reads today through
+// `editScopeToday()` (the write gate's own source), whose chain ends at `e2eTodayIso` — so the
+// freeze goes in through the same door production's e2e freeze does.
+vi.mock('@/lib/e2e-fake', () => ({ e2eTodayIso: () => '2026-07-29', e2eFakeEnabled: () => false }));
 
 import { runPlanAgentTurn } from './turn';
 

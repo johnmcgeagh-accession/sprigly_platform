@@ -22,8 +22,7 @@ import { ensureConversation, appendMessage } from '@/lib/agent/conversation';
 import { createProposal } from '@/lib/agent/proposals';
 import { saveNote } from '@/lib/agent/notes';
 import { answerQuery } from '@/lib/agent/query';
-import { e2eTodayDate } from '@/lib/e2e-fake';
-import { isEditableDate } from '@/lib/edit-scope';
+import { editScopeToday, isEditableDate } from '@/lib/edit-scope';
 import type { AgentTurnResponse, InterpretedItem, ParsedTask, ProposalView } from '@/lib/agent/types';
 
 export interface AgentTurnArgs {
@@ -37,6 +36,24 @@ export interface AgentTurnArgs {
 
 const todayIso = (d = new Date()): string =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/**
+ * THE AGENT'S "TODAY" IS THE GATE'S "TODAY".
+ *
+ * This function used to be called with `e2eTodayDate() ?? new Date()` and read through
+ * `getFullYear/getMonth/getDate` — i.e. the SERVER's local calendar. Every editability decision
+ * in the product is made in Europe/London (`edit-scope.ts:17` → `steps.ts:resolveTodayIso`), and
+ * on a UTC host between 23:00 and midnight London time those two are a DIFFERENT DAY. So the
+ * agent could tell a client a date was still open that the write path would then refuse, or the
+ * reverse, and no test would ever see it because both clocks agree in CI.
+ *
+ * One source now. `editScopeToday()` also honours the non-prod e2e freeze, so the frozen-day
+ * fixtures keep working through the same door as production.
+ */
+const agentToday = (): { iso: string; date: Date } => {
+  const iso = editScopeToday();
+  return { iso, date: parseISO(iso) };
+};
 
 /** Resolve a task's post reference to an owned post, or null (ambiguous/hallucinated). */
 function resolvePost(task: ParsedTask, posts: PlanPost[]): PlanPost | null {
@@ -105,8 +122,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
   const userMessageId = await appendMessage({ conversationId: convId, role: 'user', content: instruction, source, metadata: userMeta });
 
   const posts = await loadPlanPosts(clientId, cycleId);
-  const today = e2eTodayDate() ?? new Date();
-  const todayNow = todayIso(today);
+  const { iso: todayNow, date: today } = agentToday();
   const cycleMonth = await getCycleMonth(clientId, cycleId);
 
   // ── Parse (the only entry point) ──────────────────────────────────────────
@@ -116,7 +132,9 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
       today: todayNow,
       viewedMonth: cycleMonth ? monthName(cycleMonth) : 'this month',
       cycleMonths: await getClientCycleMonths(clientId, cycleId),
-      planDigest: cycleDigest(posts),
+      // `todayNow` rides into the digest so every row carries its own side of today, computed
+      // with `isEditableDate` rather than left for the model to work out from a month name.
+      planDigest: cycleDigest(posts, todayNow),
       productIndex: await loadProductIndex(clientId, 'instagram'),
     };
     tasks = await parseTasks(instruction, ctx, getModelClient());

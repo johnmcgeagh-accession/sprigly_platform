@@ -72,7 +72,11 @@ Resolving post references:
 
 Every task also carries "reason": the user's own phrasing for that request (a short verbatim snippet), used in the confirmation.
 
-Dates must be ISO 'YYYY-MM-DD'. Resolve relative dates ("Saturday", "the 14th", "next Friday") against today's date and the current week.
+DATES — THE RULE, AND THE ONE MISTAKE NEVER TO MAKE.
+Dates must be ISO 'YYYY-MM-DD'. Every digest post carries its full ISO date, and today's ISO date is given at the top of the message.
+- A date is in the PAST only when its ISO date is EARLIER than today's. Today itself, and every date after it, is NOT past. COMPARE THE ISO DATES — never reason from month names, and never assume a month that is not the one on screen has been and gone. If today is 2026-07-30, then 2026-08-14 is a FORTNIGHT AWAY, and 2026-07-29 is yesterday.
+- The digest marks anything already past as '[past — read-only]'. If a row is not marked, it is not past. NEVER tell the client a date has passed unless its row says so.
+- You do not enforce editability and you do not need to: a past-dated edit is refused downstream, in words that name the real date. Emit the action the client asked for.
 
 Output ONLY a JSON object, no prose, no code fences:
 {"tasks": [ { "action": "...", ... } ]}
@@ -128,7 +132,7 @@ Message: "um so yeah can you like push the wednesday one back a couple days, to 
 → {"tasks":[{"action":"move_post","selector":"the Wednesday post","toDate":"<friday ISO>","reason":"push the Wednesday one to Friday"}]}`;
 
 function buildUserMessage(text: string, ctx: ParserContext): string {
-  return `Today is ${ctx.today}.
+  return `TODAY IS ${ctx.today} (ISO). Anything later than that is in the future; only earlier dates are past.
 The client is looking at ${ctx.viewedMonth}. Resolve bare dates ("the 5th", "Saturday") in ${ctx.viewedMonth} unless they name another month.
 
 The client's content-plan months (every one of these is theirs to work on; a post can be changed whenever its own date is today or later, whatever the month's status says):
