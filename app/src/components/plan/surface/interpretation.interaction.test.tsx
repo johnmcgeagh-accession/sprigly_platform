@@ -42,8 +42,17 @@ function show(items: InterpretedItem[], over: Partial<React.ComponentProps<typeo
 }
 
 describe('a line is computed, not narrated', () => {
-  it('a move names the RESOLVED title and the RESOLVED date', () => {
+  it('a move names the RESOLVED title and BOTH resolved dates', () => {
+    // F3a: the SOURCE date is the resolved answer to a relative reference ("Friday's post"),
+    // and this line is where a wrong resolution becomes visible before it applies. The old
+    // tail showed the destination only, which hid the one field most worth checking.
     expect(lineFor(change() as never)).toEqual({
+      verb: 'Move', title: 'Fragrance Note Deep Dive: Summer', tail: 'Sat 8 Aug → Wed 12 Aug',
+    });
+  });
+
+  it('a move with no source date still shows the destination alone', () => {
+    expect(lineFor(change({ fromDate: null }) as never)).toEqual({
       verb: 'Move', title: 'Fragrance Note Deep Dive: Summer', tail: '→ Wed 12 Aug',
     });
   });

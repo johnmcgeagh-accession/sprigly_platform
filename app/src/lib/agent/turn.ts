@@ -16,7 +16,7 @@ import { getModelClient, getEmbeddingClient } from '@/lib/agent/model';
 import { parseTasks } from '@/lib/agent/task-parser';
 import { getClientCycleMonths, getCycleMonth, resolveCycleForMonth, cycleDigest } from '@/lib/agent/cycle-state';
 import { loadProductIndex } from '@/lib/agent/catalogue';
-import { resolvePostSelector, resolveMoveSource, postTitle, parseISO } from '@/lib/agent/selectors';
+import { resolveTargets, resolveMoveSource, postTitle, parseISO } from '@/lib/agent/selectors';
 import { moveSummary, deleteSummary, rewriteSummary, addSummary, formatSummary, generateHookSummary, refineSummary } from '@/lib/agent/summaries';
 import { ensureConversation, appendMessage } from '@/lib/agent/conversation';
 import { createProposal } from '@/lib/agent/proposals';
@@ -55,15 +55,22 @@ const agentToday = (): { iso: string; date: Date } => {
   return { iso, date: parseISO(iso) };
 };
 
-/** Resolve a task's post reference to an owned post, or null (ambiguous/hallucinated). */
-function resolvePost(task: ParsedTask, posts: PlanPost[]): PlanPost | null {
+/**
+ * Resolve a task's post reference: the model's postId (verified), else the selector through
+ * `resolveTargets` — which, with `today`, resolves a bare weekday to the NEXT such day (F3a).
+ * Returns the post, the AMBIGUOUS candidate set (several posts on the resolved day — the
+ * caller lists them), or null (nothing matched / a hallucinated id).
+ */
+type PostRef = { post: PlanPost } | { ambiguous: PlanPost[] } | null;
+function resolvePostRef(task: ParsedTask, posts: PlanPost[], today: string): PostRef {
   if (task.postId) {
     const byId = posts.find((p) => p.id === task.postId);
-    if (byId) return byId;
+    if (byId) return { post: byId };
   }
   if (task.selector) {
-    const id = resolvePostSelector(task.selector, posts);
-    if (id) return posts.find((p) => p.id === id) ?? null;
+    const hits = resolveTargets(task.selector, posts, today);
+    if (hits.length === 1) return { post: hits[0]! };
+    if (hits.length > 1) return { ambiguous: hits };
   }
   return null;
 }
@@ -79,6 +86,15 @@ function defaultAddDate(posts: PlanPost[], today: Date): string {
 
 const whichPost = (reason?: string | null) =>
   `I couldn’t tell which post you meant${reason ? ` for “${reason.trim()}”` : ''}. Could you name its date?`;
+
+/** Ambiguity, LISTING the candidates (F3a): the question names the day and the posts on it,
+ *  so answering it is picking from a list rather than guessing what we can see. */
+function whichOfThese(cands: PlanPost[], reason?: string | null): string {
+  const on = cands[0] && cands.every((p) => p.date === cands[0]!.date) ? ` on ${dayMonth(cands[0]!.date)}` : '';
+  const titles = cands.map((p) => `“${postTitle(p)}”`);
+  const list = titles.length === 2 ? `${titles[0]} or ${titles[1]}` : `${titles.slice(0, -1).join(', ')}, or ${titles[titles.length - 1]}`;
+  return `There are ${cands.length} posts${on} — ${list}? Which one did you mean${reason ? ` by “${reason.trim()}”` : ''}?`;
+}
 
 /** 'YYYY-MM-DD' → '1 August' for human-facing agent copy. */
 const dayMonth = (iso: string): string => {
@@ -182,7 +198,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
   for (const task of tasks) {
     switch (task.action) {
       case 'move_post': {
-        const ref = resolveMoveSource(task, posts);
+        const ref = resolveMoveSource(task, posts, todayNow);
         if (!ref) { cannot(moveNotFound(task)); break; }
         if ('ambiguous' in ref) { cannot(moveAmbiguous(ref.ambiguous, task)); break; }
         const post = ref.post;
@@ -213,23 +229,29 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
         break;
       }
       case 'delete_post': {
-        const post = resolvePost(task, posts);
-        if (!post) { cannot(whichPost(task.reason)); break; }
+        const ref = resolvePostRef(task, posts, todayNow);
+        if (!ref) { cannot(whichPost(task.reason)); break; }
+        if ('ambiguous' in ref) { cannot(whichOfThese(ref.ambiguous, task.reason)); break; }
+        const post = ref.post;
         await propose('delete_post', { kind: 'delete', cycleId, postId: post.id }, deleteSummary(post, task.reason),
           { action: 'remove', title: postTitle(post), fromDate: post.date });
         break;
       }
       case 'rewrite_post': {
-        const post = resolvePost(task, posts);
-        if (!post) { cannot(whichPost(task.reason)); break; }
+        const ref = resolvePostRef(task, posts, todayNow);
+        if (!ref) { cannot(whichPost(task.reason)); break; }
+        if ('ambiguous' in ref) { cannot(whichOfThese(ref.ambiguous, task.reason)); break; }
+        const post = ref.post;
         if (!task.instruction) { cannot('What change should I make to that caption?'); break; }
         await propose('rewrite_post', { kind: 'rewrite', cycleId, postId: post.id, instruction: task.instruction }, rewriteSummary(post, task.reason),
           { action: 'rewrite', title: postTitle(post), fromDate: post.date });
         break;
       }
       case 'change_format': {
-        const post = resolvePost(task, posts);
-        if (!post) { cannot(whichPost(task.reason)); break; }
+        const ref = resolvePostRef(task, posts, todayNow);
+        if (!ref) { cannot(whichPost(task.reason)); break; }
+        if ('ambiguous' in ref) { cannot(whichOfThese(ref.ambiguous, task.reason)); break; }
+        const post = ref.post;
         if (!task.format) { cannot('Which format should it be: reel, carousel or single image?'); break; }
         if (task.format === post.format) { cannot(`“${postTitle(post)}” is already a ${task.format}.`); break; }
         await propose('change_format', { kind: 'format', cycleId, postId: post.id, format: task.format }, formatSummary(post, task.format, task.reason),
@@ -252,8 +274,10 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
       }
       case 'generate_hook': {
         if (task.postId || task.selector) {
-          const post = resolvePost(task, posts);
-          if (!post) { cannot(whichPost(task.reason)); break; }
+          const ref = resolvePostRef(task, posts, todayNow);
+          if (!ref) { cannot(whichPost(task.reason)); break; }
+          if ('ambiguous' in ref) { cannot(whichOfThese(ref.ambiguous, task.reason)); break; }
+          const post = ref.post;
           if (post.format !== 'reel' && post.format !== 'carousel') {
             cannot(`Hooks apply to reels and carousels. “${postTitle(post)}” is ${FMT_WORD[post.format] === 'single image' ? 'a single image' : `an ${FMT_WORD[post.format]}`}. Want me to make it a reel first, then add hooks?`);
             break;
@@ -275,8 +299,10 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
         const target = task.target === 'hook' || task.target === 'script' ? task.target : null;
         if (!target || !task.instruction) { cannot('Should I refine the hook or the script, and what change?'); break; }
         if (task.postId || task.selector) {
-          const post = resolvePost(task, posts);
-          if (!post) { cannot(whichPost(task.reason)); break; }
+          const ref = resolvePostRef(task, posts, todayNow);
+          if (!ref) { cannot(whichPost(task.reason)); break; }
+          if ('ambiguous' in ref) { cannot(whichOfThese(ref.ambiguous, task.reason)); break; }
+          const post = ref.post;
           const formatOk = target === 'hook' ? (post.format === 'reel' || post.format === 'carousel') : post.format === 'reel';
           if (!formatOk) {
             cannot(`${target === 'hook' ? 'Hooks' : 'Scripts'} apply to ${target === 'hook' ? 'reels and carousels' : 'reels'}. “${postTitle(post)}” is ${FMT_WORD[post.format] === 'single image' ? 'a single image' : `an ${FMT_WORD[post.format]}`}.`);

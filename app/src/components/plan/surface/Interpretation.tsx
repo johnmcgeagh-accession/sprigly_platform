@@ -62,7 +62,16 @@ export function lineFor(item: Extract<InterpretedItem, { kind: 'change' }>): Lin
   const fmt = item.format ? FORMAT_WORD[item.format] ?? item.format : null;
   switch (item.action) {
     case 'move':
-      return { verb: 'Move', title: item.title, tail: item.toDate ? `→ ${shortDate(item.toDate)}` : null };
+      // BOTH dates (F3a). The source is the resolved answer to a relative reference —
+      // "Friday's post" resolves to a real Friday, and this line is where a wrong resolution
+      // becomes visible and discardable BEFORE it applies. Omitting the source made the one
+      // field the client most needs to check invisible.
+      return {
+        verb: 'Move', title: item.title,
+        tail: item.toDate
+          ? `${item.fromDate ? `${shortDate(item.fromDate)} ` : ''}→ ${shortDate(item.toDate)}`
+          : item.fromDate ? shortDate(item.fromDate) : null,
+      };
     case 'add':
       // No subject stated → the line names what it can, which is the format and the day. It
       // never invents a topic to fill the gap.
