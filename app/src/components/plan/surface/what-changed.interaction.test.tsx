@@ -16,7 +16,7 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 vi.mock('@sprigly/db', () => ({ db: {}, contentCycles: {}, contentCyclePosts: {} }));
 
 import { CommittedSurface } from './CommittedSurface';
-import { changeWord, changedDays, readAndStampVisit } from './what-changed';
+import { changeWord, changedDays, readAndStampVisit, resetVisitStamps } from './what-changed';
 import type { PlanPost } from '@/lib/types';
 import type { PlanData } from '../usePlanData';
 
@@ -69,6 +69,7 @@ beforeEach(() => {
   window.innerWidth = 390;
   window.sessionStorage.clear();
   window.localStorage.clear();
+  resetVisitStamps();   // each test is its own "page load"
   stubChanges();
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -87,8 +88,13 @@ describe('the helpers', () => {
     expect(changedDays(CHANGES, new Set()).has('2026-10-02')).toBe(true);
   });
 
-  it('readAndStampVisit returns the PREVIOUS stamp and advances it', () => {
+  it('readAndStampVisit returns the PREVIOUS stamp, advances it, and is IDEMPOTENT per page load', () => {
     expect(readAndStampVisit('cyc-9', '2026-10-01T10:00:00Z')).toBeNull();
+    // Same page load (StrictMode's second effect run, a cycle switched away and back):
+    // the SAME answer, not the stamp just planted — read-then-stamp must not eat its own marks.
+    expect(readAndStampVisit('cyc-9', '2026-10-01T10:00:05Z')).toBeNull();
+    // A NEW page load sees the advanced stamp.
+    resetVisitStamps();
     expect(readAndStampVisit('cyc-9', '2026-10-02T10:00:00Z')).toBe('2026-10-01T10:00:00Z');
   });
 });

@@ -34,15 +34,31 @@ export interface ChangeRow {
 
 const SEEN_KEY = (cycleId: string) => `sprigly:seen:${cycleId}`;
 
-/** Read the previous visit's stamp and advance it to now. Returns the PREVIOUS stamp. */
+/**
+ * One "visit" per page load, per cycle. Read-then-stamp is not idempotent, and React's dev
+ * StrictMode runs mount effects twice: the second run read the FIRST run's fresh stamp and
+ * concluded nothing had changed — the marks vanished on exactly the visit they were for. The
+ * memo pins the answer for the lifetime of the page's JS (module state dies with the page,
+ * which is the definition of a visit); repeat calls — StrictMode, a cycle switched away and
+ * back — get the same answer the visit started with.
+ */
+const visitPrev = new Map<string, string | null>();
+
+/** Read the previous visit's stamp and advance it to now. Returns the PREVIOUS stamp;
+ *  idempotent within one page load (see above). */
 export function readAndStampVisit(cycleId: string, nowIso: string): string | null {
   if (typeof window === 'undefined') return null;
+  if (visitPrev.has(cycleId)) return visitPrev.get(cycleId)!;
   try {
     const prev = window.localStorage.getItem(SEEN_KEY(cycleId));
     window.localStorage.setItem(SEEN_KEY(cycleId), nowIso);
+    visitPrev.set(cycleId, prev);
     return prev;
   } catch { return null; }
 }
+
+/** TEST-ONLY: a jsdom module outlives many renders; each test is its own "page load". */
+export function resetVisitStamps(): void { visitPrev.clear(); }
 
 /** The words a receipt row carries. Computed from the ledger action — never model prose. */
 export function changeWord(action: string): string {
