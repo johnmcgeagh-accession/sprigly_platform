@@ -179,6 +179,26 @@ describe('the register, and the words', () => {
     expect((screen.getByTestId('interp-drop') as HTMLButtonElement).disabled).toBe(true);
   });
 
+  /**
+   * Found by the audit: the client pressed Send, the control they pressed is unmounted, and the
+   * sheet's focus trap only runs on OPEN — so a keyboard or screen-reader user got an entirely
+   * new decision in front of them with focus on the body.
+   */
+  it('the list TAKES FOCUS when it lands — and not the Apply button', () => {
+    show([change()]);
+    const block = screen.getByTestId('interpretation').firstElementChild as HTMLElement;
+    expect(document.activeElement).toBe(block);
+    // Landing on Apply would be one Enter from changing their plan without reading it.
+    expect(document.activeElement).not.toBe(screen.getByTestId('interp-apply'));
+    // Focusable programmatically, but not a stop on the way to the buttons.
+    expect(block.getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('does not steal focus while there is still nothing to read', () => {
+    show([], { applying: true });
+    expect(document.activeElement).toBe(document.body);
+  });
+
   it('nothing here echoes the transcript back', () => {
     // The item type has no field for it, which is the real guard — this asserts the shape so a
     // later "helpful" addition has to argue with a test.

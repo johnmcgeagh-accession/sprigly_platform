@@ -36,7 +36,7 @@
  * be renderable in the same register as the decomposer rollup and the diff receipts, and that
  * register lives on the client.
  */
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import type { InterpretedItem } from '@/lib/agent/types';
 import { AgentDots } from './AgentVoice';
 import { SprigMarkV2 } from './icons';
@@ -102,11 +102,36 @@ export function Interpretation({
   const changes = items.filter((i): i is Extract<InterpretedItem, { kind: 'change' }> => i.kind === 'change');
   const applicable = changes.length > 0;
 
+  /**
+   * ── Focus, when the sheet changes what it is ─────────────────────────────────────────
+   *
+   * The client pressed Send, and the control they pressed it with is now unmounted. The sheet's
+   * focus trap runs on OPEN, so it does not re-place focus when the sheet's whole body is
+   * replaced mid-life — leaving a keyboard or screen-reader user with focus on the body while
+   * an entirely new decision appeared in front of them.
+   *
+   * The list takes focus, not the Apply button. Apply is a commitment; landing on it means one
+   * Enter away from changing their plan without having read a word of what it says. The region
+   * is the thing to read, so the region is the thing to focus.
+   *
+   * `preventScroll` for the same reason it is used everywhere else on this surface: focus is
+   * being moved for a reason the client did not ask for.
+   */
+  const region = useRef<HTMLDivElement>(null);
+  const landed = items.length > 0;
+  useEffect(() => {
+    if (landed) region.current?.focus({ preventScroll: true });
+  }, [landed]);
+
   return (
     <div data-testid="interpretation" className="flex min-h-0 flex-1 flex-col">
       <div
+        ref={region}
         role="status" aria-live="polite" aria-label="What we understood"
-        className="min-h-0 flex-1 overflow-y-auto rounded-[14px] border-l-[3px] border-coral-700 bg-coral-100 px-3 py-3 [scrollbar-width:none]"
+        // -1 so it can be focused programmatically without joining the tab order: it is a
+        // destination, not a stop on the way to the buttons.
+        tabIndex={-1}
+        className="min-h-0 flex-1 overflow-y-auto rounded-[14px] border-l-[3px] border-coral-700 bg-coral-100 px-3 py-3 outline-none [scrollbar-width:none]"
       >
         <div className="mb-2 flex items-center gap-2">
           <SprigMarkV2 aria-hidden="true" className="h-[15px] w-[15px] flex-none text-coral-700" />

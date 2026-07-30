@@ -95,7 +95,7 @@ const draftData = (receipts: unknown[] = []) => base({
   draft: { beats: [draftBeat()], pillars: ['Home & Space', 'Everyday Ritual'], editable: true, receipts },
 } as Partial<PlanData>);
 
-const committedData = () => base({ posts: [post()], calendarPosts: [post()] });
+const committedData = (over: Partial<PlanData> = {}) => base({ posts: [post()], calendarPosts: [post()], ...over });
 
 beforeEach(() => {
   FakeRecognition.live = null;
@@ -223,5 +223,35 @@ for (const width of WIDTHS) {
       fireEvent.click(screen.getByTestId('voice-close'));
       expect(screen.queryByTestId('voice-sheet')).toBeNull();
     });
+    it('THE INTERPRETATION fits: no fixed widths, and Apply never runs off the edge', async () => {
+      render(<CommittedSurface data={committedData({
+        ask: vi.fn(async () => ({
+          message: '', proposals: [{ id: 'pr1' }, { id: 'pr2' }],
+          items: [
+            { kind: 'change', proposalId: 'pr1', action: 'move', title: 'Fragrance Note Deep Dive: Summer', fromDate: '2026-10-08', toDate: '2026-10-12' },
+            { kind: 'change', proposalId: 'pr2', action: 'add', title: 'Atlas Cedar restock', toDate: '2026-10-20', format: 'single' },
+          ],
+        })),
+        applyChanges: vi.fn(async () => true),
+        discardChanges: vi.fn(async () => {}),
+      } as unknown as Partial<PlanData>)} />);
+      fireEvent.click(screen.getByTestId('nav-mic'));
+      fireEvent.click(screen.getByTestId('voice-mode'));
+      fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'move it and add one' } });
+      await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+      {
+        const apply = screen.getByTestId('interp-apply');
+        // The label grows with the count — "Apply these 2 changes" beside a Discard button at
+        // 320px is where a fixed width would show. It is fluid, and it wraps rather than clips.
+        expect(apply.className).toContain('flex-1');
+        expect(apply.className).not.toMatch(/\bw-\[\d+px\]/);
+        expect(screen.getByTestId('interp-discard').className).toContain('flex-none');
+        // Every line is a full-width row inside a scrolling region, not a fixed column.
+        for (const row of screen.getAllByTestId('interp-change')) {
+          expect(row.className).not.toMatch(/\bw-\[\d+px\]|\bmin-w-\[\d{3,}px\]/);
+        }
+      }
+    });
+
   });
 }
