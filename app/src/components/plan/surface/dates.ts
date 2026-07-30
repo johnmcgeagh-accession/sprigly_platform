@@ -80,6 +80,19 @@ export function monthGrid(month: string): { iso: string; day: number; inMonth: b
   return cells;
 }
 
+/**
+ * Pull an ISO day back inside `month` — to its first day if it fell before, its last if after.
+ *
+ * The strip's three lateral controls (chevrons, swipe, arrow keys) all move by arithmetic, and
+ * arithmetic walks out of the month. Leaving it is the ‹ › MONTH arrows' job, because that is
+ * the mechanism that refetches; a day picked past the edge renders a week whose posts were never
+ * loaded, which reads as the plan losing a month (the September jump, round 3).
+ */
+export function clampToMonth(iso: string, month: string): string {
+  if (monthOf(iso) === month) return iso;
+  return iso < `${month}-01` ? `${month}-01` : `${month}-${pad(daysInMonth(month))}`;
+}
+
 /** 'October 2026' for a 'YYYY-MM'. */
 export function monthTitle(month: string): string {
   const [y, m] = month.split('-').map(Number);

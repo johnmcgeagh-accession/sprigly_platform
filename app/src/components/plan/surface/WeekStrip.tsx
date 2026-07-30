@@ -33,7 +33,7 @@
  * (60px tall) — recorded rather than hidden, and the swipe and arrow keys still reach every week.
  */
 import React, { useRef } from 'react';
-import { DOW_SHORT, weekOf, addDays, monthOf, fromIso, MONTHS_FULL } from './dates';
+import { DOW_SHORT, weekOf, addDays, monthOf, fromIso, MONTHS_FULL, clampToMonth } from './dates';
 import { ChevronL, ChevronR } from './icons';
 
 export type DayMark = 'none' | 'draft' | 'committed' | 'onway';
@@ -55,9 +55,32 @@ export function WeekStrip({
   const week = weekOf(selected);
   const drag = useRef({ x: 0, active: false });
 
-  /** Can the strip reach the week `n` weeks away without leaving the month entirely? */
-  const canPage = (n: number) => weekOf(addDays(selected, n * 7)).some((iso) => monthOf(iso) === month);
-  const page = (n: number) => onSelect(addDays(selected, n * 7));
+  /**
+   * ── THE SEPTEMBER JUMP (round 3) ─────────────────────────────────────────────────────
+   *
+   * `canPage` asks whether the WEEK it would land on overlaps the viewed month, and `page`
+   * then set the DAY seven days on. From 28 August the week of Mon 31 Aug overlaps August —
+   * it contains the 31st — so the chevron was ENABLED, and the day it selected was **4
+   * September**. The guard tested one thing and the action did another.
+   *
+   * The consequence is the whole bug report: the day header reads *Friday 4 September*, the
+   * week renders seven days whose posts belong to a cycle nobody fetched, and the month title
+   * still says August. The plan has jumped a month and taken the posts with it.
+   *
+   * Three controls did it — the chevrons, the swipe and the arrow keys — because all three
+   * moved by arithmetic and only the chevrons consulted a guard at all. So the clamp lives on
+   * `move()`, which is now the ONLY way any of them changes the selection: a day outside the
+   * viewed month is pulled back to that month's nearest edge. Leaving the month is the ‹ ›
+   * MONTH arrows' job, and they refetch.
+   */
+  const move = (days: number) => {
+    const next = clampToMonth(addDays(selected, days), month);
+    if (next !== selected) onSelect(next);
+  };
+  /** Is there anywhere to page to — i.e. does the clamp still leave somewhere to go? */
+  const canPage = (n: number) =>
+    clampToMonth(addDays(selected, n * 7), month) !== selected;
+  const page = (n: number) => move(n * 7);
 
   /** Horizontal swipe → ±7 days, keeping the weekday you were on. 48px is past the point
    *  where a vertical scroll would have claimed the gesture. */
@@ -67,13 +90,13 @@ export function WeekStrip({
     drag.current.active = false;
     const dx = e.clientX - drag.current.x;
     if (Math.abs(dx) < 48) return;
-    onSelect(addDays(selected, dx < 0 ? 7 : -7));
+    move(dx < 0 ? 7 : -7);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
     e.preventDefault();
-    onSelect(addDays(selected, e.key === 'ArrowRight' ? 1 : -1));
+    move(e.key === 'ArrowRight' ? 1 : -1);
   };
 
   return (

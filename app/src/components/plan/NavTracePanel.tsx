@@ -65,9 +65,12 @@ export function NavTracePanel() {
                 <td style={{ textAlign: 'right', paddingRight: 8, opacity: 0.55, whiteSpace: 'nowrap' }}>{r.t}</td>
                 <td style={{ paddingRight: 8, color: TONE(r.ev), whiteSpace: 'nowrap' }}>{r.ev}</td>
                 <td style={{ opacity: 0.8 }}>{r.detail ?? ''}</td>
+                {/* WHO CALLED. A reason is what the call site claims; this is what it is, and
+                    the two disagreeing is how the next unfound mover gets caught. */}
+                <td style={{ opacity: 0.5, whiteSpace: 'nowrap', paddingLeft: 8 }}>{r.from ?? ''}</td>
               </tr>
             ))}
-            {!rows.length && <tr><td colSpan={3} style={{ opacity: 0.6 }}>nothing yet — move around the plan</td></tr>}
+            {!rows.length && <tr><td colSpan={4} style={{ opacity: 0.6 }}>nothing yet — move around the plan</td></tr>}
           </tbody>
         </table>
       )}
