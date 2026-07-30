@@ -136,6 +136,10 @@ export const MicGlyph = stroked(<>
   <rect x="9" y="2.5" width="6" height="11" rx="3" />
   <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" />
 </>);
+export const PencilGlyph = stroked(<>
+  <path d="M15.5 4.5l4 4L8.2 19.8l-4.9 1.2 1.2-4.9L15.5 4.5Z" />
+  <path d="M13.5 6.5l4 4" />
+</>);
 export const CopyGlyph = stroked(<>
   <rect x="8.5" y="8.5" width="11" height="11" rx="2.5" />
   <path d="M15.5 5.5v-.5a2 2 0 0 0-2-2H6a2.5 2.5 0 0 0-2.5 2.5v7.5a2 2 0 0 0 2 2h.5" />

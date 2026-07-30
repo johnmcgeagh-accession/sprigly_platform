@@ -30,7 +30,7 @@
 import React, { useEffect, useState } from 'react';
 import type { PlanPost } from '@/lib/types';
 import type { PlanData, ShapeTarget } from '../usePlanData';
-import { FormatTile, InfoGlyph, CopyGlyph, CalGlyph, SparkleGlyph, BinGlyph, SendGlyph, FORMAT_WORD } from './icons';
+import { FormatTile, InfoGlyph, CopyGlyph, PencilGlyph, CalGlyph, SparkleGlyph, BinGlyph, SendGlyph, FORMAT_WORD } from './icons';
 import { cardText, realCaption } from './card-text';
 import { dayTitle } from './dates';
 import { isOnTheWay, ON_THE_WAY_LABEL, ON_THE_WAY_BODY } from '@/lib/generation-state';
@@ -88,6 +88,18 @@ export function DetailSheet({
   const [insights, setInsights] = useState(false);
   const [shaping, setShaping] = useState(false);
   const [instruction, setInstruction] = useState('');
+  /**
+   * MANUAL EDITING (F6). The pencil swaps the read-only field for a plain textarea IN PLACE —
+   * same sheet, no modal-on-modal — and Save goes through the exact update path typing in the
+   * old editor used (`saveCaption`/`saveHook`/`saveScript` → PATCH /api/posts/:id → patchPost's
+   * caption_saved/hook_saved/script_saved ledger rows, actor 'client' via the session). Cancel
+   * throws the draft away and the field is byte-identical. A refused save KEEPS the textarea
+   * and the words — losing a hand-typed caption to a network error is the one loss the toast
+   * cannot undo.
+   */
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState<Tab | null>(null);
   const [formatNote, setFormatNote] = useState('');
   /** Set when a format change left completed checklist steps to decide about. */
@@ -103,6 +115,9 @@ export function DetailSheet({
     setInsights(false);
     setShaping(false);
     setInstruction('');
+    setEditing(false);
+    setDraft('');
+    setSaving(false);
     setFormatNote('');
     setPendingFormat(null);
     setScriptLen(post.scriptLengthSeconds ?? 30);
@@ -134,6 +149,17 @@ export function DetailSheet({
     setShaping(false);
     setInstruction('');
   };
+
+  /** Begin editing the open tab's field, seeded with what is there. */
+  const startEdit = () => { setDraft(fieldOf(post, openTab)); setEditing(true); };
+  /** Save through the existing per-field path. Success exits; a refusal keeps the words. */
+  const saveEdit = async () => {
+    const save = openTab === 'caption' ? data.saveCaption : openTab === 'hook' ? data.saveHook : data.saveScript;
+    setSaving(true);
+    try { if (await save(post.id, draft)) { setEditing(false); setDraft(''); } }
+    finally { setSaving(false); }
+  };
+  const cancelEdit = () => { setEditing(false); setDraft(''); };
 
   /**
    * Change the format, then reconcile the two things that follow it.
@@ -196,7 +222,7 @@ export function DetailSheet({
           </div>
         )}
 
-        {written && !onWay && tabs.length > 1 && !shaping && (
+        {written && !onWay && tabs.length > 1 && !shaping && !editing && (
           <div role="tablist" aria-label="Post fields" className="flex flex-none gap-1 px-[18px] pt-3">
             {tabs.map(({ key, label }) => (
               // NOT disabled when empty any more (round 6, P3). An empty tab that this format
@@ -272,9 +298,29 @@ export function DetailSheet({
             // ROUND 6, P11 — the words being rewritten say so, in place, for as long as it takes.
             // Before this the old text simply sat there and the client tapped Shape twice.
             <Skeleton />
+          ) : editing ? (
+            // F6 — the field, editable IN PLACE. A plain textarea where the words were: same
+            // sheet, no modal-on-modal, and the footer below swaps to Save / Cancel.
+            <textarea
+              data-testid="edit-input" autoFocus value={draft} disabled={saving}
+              aria-label={`Edit the ${openTab}`}
+              onChange={(e) => setDraft(e.target.value)}
+              className="min-h-[220px] w-full rounded-[14px] border border-line/55 bg-surface p-3.5 text-[16.5px] leading-[1.45] text-chrome outline-none"
+            />
           ) : body ? (
             <>
-              <div className="mb-1.5 flex justify-end">
+              <div className="mb-1.5 flex justify-end gap-1.5">
+                {/* F6 — the pencil. Editing an existing field by hand is free, unlike Shape,
+                    and it was the one thing the tabs could not do. */}
+                {editable && !onWay && (
+                  <button
+                    type="button" data-testid="edit-field" onClick={startEdit}
+                    aria-label={`Edit the ${openTab}`}
+                    className="flex h-11 w-11 items-center justify-center rounded-full bg-line-soft text-chrome"
+                  >
+                    <PencilGlyph className="h-[17px] w-[17px]" />
+                  </button>
+                )}
                 <button
                   type="button" data-testid="copy-field" onClick={() => void copy()}
                   aria-label={`Copy the ${openTab}`}
@@ -312,7 +358,7 @@ export function DetailSheet({
 
           {/* ROUND 6, P9 — the post's own tasks, where the post is. They existed on the row and
               were visible only in a view that groups every post's tasks by due date. */}
-          {post.steps.length > 0 && !shaping && (
+          {post.steps.length > 0 && !shaping && !editing && (
             <TaskList
               steps={post.steps} date={post.date} editable={editable}
               onToggle={(stepId, done) => void data.toggleStep(post.id, stepId, done)}
@@ -320,7 +366,27 @@ export function DetailSheet({
           )}
         </div>
 
-        {shaping ? (
+        {editing ? (
+          // F6 — Save through the existing update path; Cancel discards and the field is
+          // byte-identical. Save is disabled while unchanged: a write that writes nothing is
+          // a ledger row about nothing.
+          <div className="flex flex-none gap-2 border-t border-line/30 bg-surface px-[18px] pb-[26px] pt-3">
+            <button
+              type="button" data-testid="edit-save"
+              disabled={saving || draft === body} onClick={() => void saveEdit()}
+              className="flex min-h-[56px] flex-1 items-center justify-center rounded-2xl bg-coral-650 text-[15.5px] font-bold text-white shadow-[0_10px_26px_-6px_rgb(var(--t-accent-600,232_112_95)_/_0.58)] disabled:bg-line-soft disabled:text-muted disabled:shadow-none"
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            {/* QUIET NEUTRAL, never red (X1) — same ruling as Shape's cancel. */}
+            <button
+              type="button" data-testid="edit-cancel" onClick={cancelEdit} disabled={saving}
+              className="flex min-h-[56px] w-[88px] flex-none items-center justify-center rounded-2xl bg-surface text-[15px] font-semibold text-muted ring-1 ring-inset ring-line/55"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : shaping ? (
           <div className="flex flex-none gap-2 border-t border-line/30 bg-surface px-[18px] pb-[26px] pt-3">
             <button
               type="button" data-testid="shape-submit" aria-label="Send this instruction"
