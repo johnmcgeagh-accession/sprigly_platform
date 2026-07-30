@@ -33,8 +33,10 @@ class FakeRecognition {
   constructor() { FakeRecognition.built += 1; }
   start() { this.started = true; FakeRecognition.live = this; this.onstart?.(); this.onaudiostart?.(); }
   stop() { this.started = false; this.onend?.(); }
-  say(text: string) {
-    this.onresult?.({ resultIndex: 0, results: { length: 1, 0: { isFinal: true, 0: { transcript: text } } } });
+  say(text: string) { this.hear(text, true); }
+  /** The real API's shape: interims arrive while speech is in progress, finals at the end. */
+  hear(text: string, isFinal: boolean) {
+    this.onresult?.({ resultIndex: 0, results: { length: 1, 0: { isFinal, 0: { transcript: text } } } });
   }
 }
 
@@ -62,23 +64,61 @@ afterEach(() => {
   delete (window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition;
 });
 
-describe('the microphone, demoted to a composer control and still one capture', () => {
-  it('OPENS LISTENING on the mic entry — the client tapped a mic to get here', () => {
+/**
+ * ── THE SHEET OPENS ON THE KEYBOARD (C2, operator ruling) ────────────────────────────
+ *
+ * This reverses round 8's "it listens the moment it opens". Opening a live microphone on
+ * sight is a decision made FOR the client, and the wrong one on a sheet that is now a chat:
+ * a text panel with focus, and a mic you TAP. The capture rules underneath are unchanged —
+ * one session, synchronous start on the tap's own task, released on close.
+ */
+describe('the microphone is a TAP control on a keyboard-first composer', () => {
+  it('does NOT open listening — the composer has focus and the mic is idle', () => {
     open();
-    expect(screen.getByTestId('voice-mic').getAttribute('aria-pressed')).toBe('true');
-    expect(FakeRecognition.live).not.toBeNull();
-    expect(FakeRecognition.live!.started).toBe(true);
-    expect(screen.getByTestId('voice-state').textContent).toContain('Go ahead');
+    expect(FakeRecognition.live).toBeNull();
+    expect(screen.getByTestId('voice-mic').getAttribute('aria-pressed')).toBe('false');
+    expect(document.activeElement).toBe(composer());
   });
 
-  it('the TYPED entry point opens with the keyboard, not the microphone', () => {
-    open({ entry: 'type' });
+  it('the mic entry point behaves the same — both entries open a chat', () => {
+    open({ entry: 'mic' });
     expect(FakeRecognition.live).toBeNull();
     expect(document.activeElement).toBe(composer());
   });
 
+  it('TAPPING it starts listening, and tapping again stops', () => {
+    open();
+    fireEvent.click(screen.getByTestId('voice-mic'));
+    expect(FakeRecognition.live).not.toBeNull();
+    expect(FakeRecognition.live!.started).toBe(true);
+    expect(screen.getByTestId('voice-mic').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('voice-state').textContent).toContain('Go ahead');
+
+    fireEvent.click(screen.getByTestId('voice-mic'));
+    expect(FakeRecognition.live!.started).toBe(false);
+  });
+
+  it('INTERIM RESULTS ARE ON — a live meter cannot be driven by an end-of-sentence event', () => {
+    open();
+    fireEvent.click(screen.getByTestId('voice-mic'));
+    expect(FakeRecognition.live!.interimResults).toBe(true);
+  });
+
+  it('an interim streams as a preview and is NOT written into the field; the final is', () => {
+    open();
+    fireEvent.click(screen.getByTestId('voice-mic'));
+    act(() => { FakeRecognition.live!.hear('the candle relaunches', false); });
+    expect(screen.getByTestId('voice-partial').textContent).toBe('the candle relaunches');
+    expect(composer().value).toBe('');                     // the client's own typing is safe
+
+    act(() => { FakeRecognition.live!.hear('The candle relaunches on the 24th.', true); });
+    expect(composer().value).toBe('The candle relaunches on the 24th.');
+    expect(screen.queryByTestId('voice-partial')).toBeNull();
+  });
+
   it('takes the microphone ONCE, not once per render', () => {
     open();
+    fireEvent.click(screen.getByTestId('voice-mic'));
     const built = FakeRecognition.built;
     act(() => { FakeRecognition.live!.say('anything'); });
     expect(FakeRecognition.built).toBe(built);
@@ -86,6 +126,7 @@ describe('the microphone, demoted to a composer control and still one capture', 
 
   it('releases it when the sheet closes', () => {
     const { onClose } = open();
+    fireEvent.click(screen.getByTestId('voice-mic'));
     const rec = FakeRecognition.live!;
     fireEvent.click(screen.getByTestId('voice-close'));
     expect(onClose).toHaveBeenCalled();
@@ -95,6 +136,7 @@ describe('the microphone, demoted to a composer control and still one capture', 
 
   it('the meter strip renders inline while capturing, and leaves when it stops', () => {
     open();
+    fireEvent.click(screen.getByTestId('voice-mic'));
     expect(screen.getByTestId('waveform').getAttribute('data-active')).toBe('true');
     fireEvent.click(screen.getByTestId('voice-mic'));      // stop
     expect(screen.queryByTestId('waveform')).toBeNull();   // the strip is FOR the capture
@@ -104,12 +146,14 @@ describe('the microphone, demoted to a composer control and still one capture', 
 describe('capture lands in the one composer', () => {
   it('a spoken phrase lands in the composer field — keyboard and voice are one flow', () => {
     open();
+    fireEvent.click(screen.getByTestId('voice-mic'));
     act(() => { FakeRecognition.live!.say('The Wilderness candle relaunches on the 24th'); });
     expect(composer().value).toBe('The Wilderness candle relaunches on the 24th');
   });
 
   it('two phrases join with a space rather than replacing each other', () => {
     open();
+    fireEvent.click(screen.getByTestId('voice-mic'));
     act(() => { FakeRecognition.live!.say('The candle relaunches on the 24th.'); });
     act(() => { FakeRecognition.live!.say('Can we build up to it?'); });
     expect(composer().value).toBe('The candle relaunches on the 24th. Can we build up to it?');
@@ -117,17 +161,17 @@ describe('capture lands in the one composer', () => {
 
   it('SUBMITS AS VOICE when any of it came through the microphone (gap 8)', async () => {
     const { onSubmit } = open();
+    fireEvent.click(screen.getByTestId('voice-mic'));
     act(() => { FakeRecognition.live!.say('More product this month'); });
     await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
-    expect(onSubmit).toHaveBeenCalledWith('More product this month', 'voice');
+    expect(onSubmit).toHaveBeenCalledWith('More product this month', 'voice', null, []);
   });
 
   it('and as WEB when it was typed — even on a mic-opened sheet', async () => {
     const { onSubmit } = open();
-    fireEvent.click(screen.getByTestId('voice-mic'));      // mic off
     fireEvent.change(composer(), { target: { value: 'More product this month' } });
     await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
-    expect(onSubmit).toHaveBeenCalledWith('More product this month', 'web');
+    expect(onSubmit).toHaveBeenCalledWith('More product this month', 'web', null, []);
   });
 
   it('an unsupported browser says what to do instead, beside the control', () => {
@@ -140,6 +184,7 @@ describe('capture lands in the one composer', () => {
 
   it('a refused microphone reports itself as an alert rather than failing silently', () => {
     open();
+    fireEvent.click(screen.getByTestId('voice-mic'));
     act(() => { FakeRecognition.live!.onerror?.({ error: 'not-allowed' }); });
     const state = screen.getByTestId('voice-state');
     expect(state.textContent).toContain('microphone');
@@ -173,7 +218,7 @@ describe('submitting', () => {
     fireEvent.keyDown(composer(), { key: 'Enter', shiftKey: true });
     expect(onSubmit).not.toHaveBeenCalled();
     await act(async () => { fireEvent.keyDown(composer(), { key: 'Enter' }); });
-    expect(onSubmit).toHaveBeenCalledWith('move the Thursday post', 'web');
+    expect(onSubmit).toHaveBeenCalledWith('move the Thursday post', 'web', null, []);
   });
 });
 

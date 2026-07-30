@@ -52,6 +52,36 @@ export function SprigMarkV2({ className }: P) {
   );
 }
 
+/**
+ * CHAT — the Sprigly leaf inside a speech bubble (C2). The plan FAB used to be a microphone,
+ * which named ONE way in to a surface that is now a conversation: a chat you can also speak to.
+ * The bubble says "talk to it"; the leaf says who.
+ *
+ * Drawn as a filled bubble with the leaf CUT OUT of it — one shape, no second colour, legible
+ * as a silhouette at 26px where a stroked leaf-inside-a-stroked-bubble turns to mush (checked
+ * at size: the leaf reads at 22px and holds to about 18px, below which it needs the bubble
+ * dropped rather than shrunk further).
+ */
+export function ChatMarkGlyph({ className }: P) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      {/* The bubble: filled, with the tail on the lower left so it reads as speech and not as
+          a badge. `currentColor`, so it takes the accent or the ink of whatever holds it. */}
+      <path
+        fillRule="evenodd" clipRule="evenodd" fill="currentColor"
+        d="M12 2.2C6.6 2.2 2.3 5.9 2.3 10.5c0 2.6 1.4 4.9 3.6 6.45v3.1a.75.75 0 0 0 1.18.61l3.06-2.16c.6.1 1.22.15 1.86.15 5.4 0 9.7-3.7 9.7-8.15S17.4 2.2 12 2.2Z"
+      />
+      {/* The leaf, KNOCKED OUT of the bubble — two halves meeting on a centre stem, which is
+          the mark's own construction. `fill-surface` rather than white so a themed bubble
+          knocks through to the sheet it sits on rather than to a hard-coded colour. */}
+      <path
+        className="fill-surface"
+        d="M12 5.4c-3.05 1.05-4.6 3.1-4.6 5.3 0 2.05 1.5 3.75 3.75 4.35V11.1c0-2 .45-3.9.85-5.7Zm0 0c3.05 1.05 4.6 3.1 4.6 5.3 0 2.05-1.5 3.75-3.75 4.35V11.1c0-2-.45-3.9-.85-5.7Z"
+      />
+    </svg>
+  );
+}
+
 // ── Format icons (v2) ────────────────────────────────────────────────────────────────
 
 /** Reel — a FILLED clapperboard slate with the diagonals cut OUT of it. The cut-outs are

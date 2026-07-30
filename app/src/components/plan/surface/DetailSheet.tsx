@@ -513,21 +513,36 @@ function EmptyField({
     );
   }
 
-  // A script is built around the caption. A placeholder is not a caption, and generating
+  /**
+   * ── ON A REEL, BOTH TABS ARE THE SAME ACT (C4) ─────────────────────────────────────
+   *
+   * A reel's hook and script are one coherent pair written by one model call from the caption
+   * (`script.ts`). The Hook tab used to offer "Write the hook", which reached the standalone
+   * hook job — so a reel could be handed a hook a later script had never seen, and the two
+   * disagreed on screen. `/api/plan/hooks` now redirects a reel to the combined job; this copy
+   * stops the button promising less than it does.
+   */
+  const reelPair = post.format === 'reel';
+  // Both fields are built around the caption. A placeholder is not a caption, and generating
   // from one writes a hook and a script about our own scaffolding sentence.
-  const needsCaption = tab === 'script' && !realCaption(post);
-  const why = tab === 'hook'
-    ? 'This one was written before hooks, or its format changed. Nothing is wrong with it.'
-    : 'This one has no script yet — either its format changed, or it was written before scripts.';
+  const needsCaption = (tab === 'script' || reelPair) && !realCaption(post);
+  const why = reelPair
+    ? 'A reel’s hook and script are written together, so they say the same thing. Nothing is wrong with this one.'
+    : tab === 'hook'
+      ? 'This one was written before hooks, or its format changed. Nothing is wrong with it.'
+      : 'This one has no script yet — either its format changed, or it was written before scripts.';
 
   return (
     <div data-testid="empty-field" className="rounded-2xl border border-line/30 bg-line-soft px-4 py-5">
       <p className="text-[15px] font-semibold text-chrome">No {tab} yet</p>
       <p className="mt-1.5 text-[13.5px] leading-normal text-muted">{needsCaption
+        // CAPTION ABSENT → REFUSED, not generated. Nothing here writes a caption first; the
+        // routes 422 `caption_required` and this is that refusal in words.
         ? 'The hook and the script are built around the caption, so that has to come first.'
         : why}</p>
 
-      {editable && !needsCaption && tab === 'script' && (
+      {/* The length belongs to the pair, so it is offered on either tab of a reel. */}
+      {editable && !needsCaption && (tab === 'script' || reelPair) && (
         <div data-testid="script-length" className="mt-3.5 flex items-center gap-1.5">
           <span className="mr-0.5 text-[12.5px] font-semibold text-muted">Length</span>
           {SCRIPT_LENGTHS.map((s) => (
@@ -544,11 +559,11 @@ function EmptyField({
       {editable && !needsCaption && (
         <button
           type="button" data-testid={`generate-${tab}`}
-          onClick={tab === 'hook' ? onGenerateHook : onGenerateScript}
+          onClick={tab === 'hook' && !reelPair ? onGenerateHook : onGenerateScript}
           className="mt-3.5 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-[14px] bg-coral-650 text-[15px] font-bold text-white"
         >
           <SparkleGlyph className="h-[17px] w-[17px]" />
-          {tab === 'hook' ? 'Write the hook' : 'Write the hook and script'}
+          {reelPair || tab === 'script' ? 'Write the hook and script' : 'Write the hook'}
         </button>
       )}
     </div>

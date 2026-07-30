@@ -59,7 +59,11 @@ export type VoiceContext = 'draft' | 'committed';
  */
 export type VoiceOutcome =
   | { ok: false }
-  | { ok: true; items?: readonly InterpretedItem[]; message?: string };
+  | {
+      ok: true; items?: readonly InterpretedItem[]; message?: string; conversationId?: string | null;
+      /** Pending proposals this turn AMENDED (C3) — their turns are marked superseded. */
+      supersededProposalIds?: readonly string[];
+    };
 
 /** What an apply settled to — the confirmation turn's own sentence. */
 export interface ApplyReport { text: string }
@@ -112,7 +116,14 @@ export function VoiceSheet({
    *  turn — a question in the thread, answered through the composer like any other. */
   question?: string | undefined;
   onClose: () => void;
-  onSubmit: (text: string, source: 'web' | 'voice') => Promise<VoiceOutcome>;
+  /** `conversationId` is THIS session's — the caller sends it so every turn, and the parser's
+   *  context window with it, belongs to the conversation the client is having now. */
+  onSubmit: (
+    text: string, source: 'web' | 'voice', conversationId: string | null,
+    /** The proposals of the interpretation turn still OPEN on screen — the referent an
+     *  ambiguous correction amends (C3). Empty when nothing is pending. */
+    pendingProposalIds: string[],
+  ) => Promise<VoiceOutcome>;
   /** Apply the turn's changes — F4: fire the background work and resolve with the settled
    *  outcome, which becomes the confirmation turn. The sheet does not block on it. The turn's
    *  own items ride along so the caller can compose its chip and failure copy from them — a
@@ -126,6 +137,8 @@ export function VoiceSheet({
   const [text, setText] = useState('');
   const [loud, setLoud] = useState(false);
   const [turns, setTurns] = useState<ThreadTurn[]>([]);
+  /** THIS session's conversation. Sent with every turn, so the context window is the session. */
+  const conversationId = useRef<string | null>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const threadEnd = useRef<HTMLDivElement>(null);
   /** Any part of the CURRENT composer text arrived through the microphone. The transport is
@@ -155,48 +168,73 @@ export function VoiceSheet({
   const [wasOpen, setWasOpen] = useState(false);
   if (open !== wasOpen) {
     setWasOpen(open);
-    if (open) { setText(''); setLoud(false); setTurns([]); heard.current = false; historyLoaded.current = false; }
+    if (open) {
+      setText(''); setLoud(false); setTurns([]); heard.current = false;
+      historyLoaded.current = false; conversationId.current = null;   // a new open is a new session
+    }
   }
 
+  /**
+   * ── ONE SESSION PER OPEN (operator ruling, round 2) ──────────────────────────────────
+   *
+   * Opening the sheet STARTS a conversation rather than loading the month's. Round 1 made the
+   * thread per-cycle and everlasting, so a client arrived at every exchange the month had ever
+   * had and had to scroll past it to say one sentence — and the parser's context window was
+   * that same list, so a reference from three weeks ago competed with what they had just said.
+   *
+   * The session's id is carried on every turn (`onSubmit`), which makes it the context window
+   * too: "move it back" resolves against THIS conversation and nothing older. Prior
+   * conversations stay stored under their own rows; they are simply not asked for.
+   */
   useEffect(() => {
-    if (!open) return;
+    if (!open || historyLoaded.current) return;
+    historyLoaded.current = true;
     let cancelled = false;
+    // The framing speaks FIRST and immediately — it does not wait on the network, because a
+    // sheet that opens blank while a request settles is a sheet that opens broken.
+    setTurns([
+      { key: 'framing', kind: 'agent', text: framing.blurb },
+      ...(question ? [{ key: 'question', kind: 'agent' as const, text: question }] : []),
+    ]);
     (async () => {
-      let loaded: ThreadTurn[] = [];
       try {
-        const r = await fetch(`/api/plan/conversation?cycleId=${encodeURIComponent(cycleId)}`);
-        if (r.ok) {
-          const d = (await r.json()) as { conversationId: string | null; turns: ConversationTurn[] };
-          loaded = (d.turns ?? []).map(fromServer);
-        }
-      } catch { /* an unreadable history is an empty one, never a broken sheet */ }
-      if (cancelled || historyLoaded.current) return;
-      historyLoaded.current = true;
-      // EMPTY STATE = one agent turn + the composer: the framing speaks first. A nudge
-      // question arrives as the agent's next turn either way — it is a question IN the
-      // conversation, not a replacement for it.
-      if (!loaded.length) loaded = [{ key: 'framing', kind: 'agent', text: framing.blurb }];
-      if (question) loaded = [...loaded, { key: 'question', kind: 'agent', text: question }];
-      // PREPENDED, never assigned: a fast client can have spoken before the history landed,
-      // and the load must not overwrite their live turns.
-      setTurns((cur) => [...loaded, ...cur]);
+        const r = await fetch('/api/plan/conversation', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ cycleId }),
+        });
+        if (!r.ok || cancelled) return;
+        const d = (await r.json()) as { conversationId: string | null };
+        if (!cancelled && d.conversationId) conversationId.current = d.conversationId;
+      } catch { /* no id → the first turn opens one server-side; the session is still one */ }
     })();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when the sheet (re)opens for a cycle
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one session per open, per cycle
   }, [open, cycleId]);
 
-  // ── The composer's mic — the same one-capture pipeline, demoted to a control ─────────
-  // `useLayoutEffect` and a synchronous start remain load-bearing: WebKit's user activation
-  // does not survive a later task, and the cold-start permission prompt depends on it.
-  useLayoutEffect(() => {
-    if (open && entry === 'mic') startSpeech();
-    else if (!open) stopSpeech();
-  }, [open, entry, startSpeech, stopSpeech]);
-
-  // The typed entry point opens with the keyboard, not the microphone.
+  /**
+   * ── THE SHEET OPENS ON THE KEYBOARD, NOT THE MICROPHONE (C2, operator ruling) ────────
+   *
+   * This reverses round 8's fix 5 ("it listens the moment it opens"), and the reversal is the
+   * point: opening a live microphone on sight is a decision made FOR the client, and it is the
+   * wrong one on a sheet that is now a chat. Claude's own composer is the reference — a text
+   * panel with focus, and a mic you TAP when you want it.
+   *
+   * `stopSpeech` on close is unchanged and still load-bearing: a capture that outlives its
+   * sheet is the one bug here nobody would see and everybody would feel.
+   *
+   * `start()` is still synchronous on the gesture's own task (`useSpeechInput`), which is what
+   * the cold-start permission prompt depends on — the tap IS the gesture now, so the
+   * `useLayoutEffect` that existed to keep the OPEN gesture's activation alive is no longer
+   * needed for it.
+   */
   useEffect(() => {
-    if (open && entry === 'type') field.current?.focus({ preventScroll: true });
-  }, [open, entry]);
+    if (!open) stopSpeech();
+  }, [open, stopSpeech]);
+
+  // Focus the composer on open — both entry points, because both open a chat.
+  useEffect(() => {
+    if (open) field.current?.focus({ preventScroll: true });
+  }, [open]);
 
   // Honest capture state, held behind the grace (unchanged from the one-pipeline fix).
   const [audioOk, setAudioOk] = useState<boolean | null>(null);
@@ -241,7 +279,16 @@ export function VoiceSheet({
     );
     const wasHeard = heard.current;
     heard.current = false;
-    const out = await onSubmit(value, wasHeard ? 'voice' : 'web');
+    // THE OPEN INTERPRETATION IS THE REFERENT (C3): its proposals ride along so a correction
+    // with no target of its own — "instead of a single image make it a reel" — amends it
+    // rather than landing beside it as a second, contradictory change.
+    const openIds = turns.flatMap((t) => (t.kind === 'interpretation' && t.status === 'open'
+      ? t.items.filter((i): i is Extract<InterpretedItem, { kind: 'change' }> => i.kind === 'change').map((i) => i.proposalId)
+      : []));
+    const out = await onSubmit(value, wasHeard ? 'voice' : 'web', conversationId.current, openIds);
+    // The server echoes the conversation it used; hold it so the rest of the session lands in
+    // the same one even if the open-time POST never answered.
+    if (out.ok && out.conversationId) conversationId.current = out.conversationId;
     if (!out.ok) {
       // A refusal keeps the WORDS — back into the composer, with their transport — and the
       // thread stays honest: the working turn is removed rather than filled with something
@@ -250,6 +297,17 @@ export function VoiceSheet({
       setText(value);
       heard.current = wasHeard;
       return;
+    }
+    // An AMENDED turn is marked before the new one lands, so the two versions are never both
+    // applicable — and the old one stays visible, because the thread is the record.
+    if (out.supersededProposalIds?.length) {
+      const gone = new Set(out.supersededProposalIds);
+      setTurns((cur) => cur.map((t) => (
+        t.kind === 'interpretation' && t.status === 'open'
+          && t.items.some((i) => i.kind === 'change' && gone.has(i.proposalId))
+          ? { ...t, status: 'superseded' as const }
+          : t
+      )));
     }
     if (out.items && out.items.length) {
       replaceTurn(workingKey, { key: workingKey, kind: 'interpretation', items: [...out.items], status: 'open' });
@@ -356,7 +414,11 @@ export function VoiceSheet({
           <div ref={threadEnd} aria-hidden="true" />
         </div>
 
-        {/* ── THE COMPOSER ────────────────────────────────────────────────────────────── */}
+        {/* ── THE COMPOSER (C2) ────────────────────────────────────────────────────────
+            A FULL-WIDTH TEXT PANEL with the controls beneath it, rather than a field
+            squeezed between two 48px buttons. At 320px that row left the field 176px —
+            about four words — on a surface whose whole promise is "say what you want".
+            The panel is the subject; the mic and the send are its tools. */}
         <div className="flex-none border-t border-line/30 bg-surface px-[18px] pb-[26px] pt-2.5">
           {micLine && (
             <p data-testid="voice-state" {...(micAlert ? { role: 'alert' as const } : {})}
@@ -365,42 +427,54 @@ export function VoiceSheet({
             </p>
           )}
           {/* The meter, inline: proof the capture is live, exactly where the words will land.
-              Same pipeline rules as ever (audio-contention.ts) — no second capture on WebKit. */}
+              Same pipeline rules as ever (audio-contention.ts) — no second capture on WebKit.
+              It pulses off INTERIM results now, so it moves WHILE the client speaks rather
+              than reporting a sentence that has already ended (C2, useSpeechInput). */}
           {(listening || starting) && (
             <div className="mb-1.5">
               <Waveform active={listening} onLevel={setLoud} speaking={speech.speaking} pulse={speech.pulse} />
             </div>
           )}
-          <div className="flex items-end gap-2">
+          <textarea
+            ref={field} data-testid="voice-input" value={text} disabled={busy} rows={2}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void submit(); } }}
+            placeholder={framing.placeholder}
+            aria-label="Message your plan"
+            className="max-h-[160px] min-h-[64px] w-full resize-none rounded-2xl border border-line/55 bg-surface px-3.5 py-3 text-[16.5px] leading-[1.45] text-chrome outline-none placeholder:text-muted"
+          />
+          {/* THE LIVE TRANSCRIPT, streaming. Interims are what the engine has heard and not
+              finalised — shown under the field rather than written into it, so the client's
+              own typing is never overwritten by a guess the engine is about to revise. */}
+          {speech.partial && (
+            <p data-testid="voice-partial" aria-hidden="true" className="mt-1 px-1 text-[14px] italic leading-[1.4] text-muted">
+              {speech.partial}
+            </p>
+          )}
+          <div className="mt-2 flex items-center gap-2">
             <button
               type="button" data-testid="voice-mic" aria-pressed={listening}
               aria-label={listening ? 'Stop listening' : 'Start listening'}
               disabled={speech.state === 'unsupported'}
               onClick={() => (listening || starting ? speech.stop() : speech.start())}
               className={[
-                'flex h-[48px] w-[48px] flex-none items-center justify-center rounded-2xl transition-all duration-200',
+                'flex min-h-[44px] flex-none items-center gap-2 rounded-full px-4 text-[14px] font-semibold transition-all duration-200',
                 listening ? 'bg-coral-650 text-white' :
-                starting ? 'bg-coral-100 text-coral-800 ring-2 ring-inset ring-coral-600'
-                  : 'bg-surface text-coral-800 ring-2 ring-inset ring-coral-600 disabled:text-muted disabled:ring-line/55',
+                starting ? 'bg-coral-100 text-coral-800 ring-1 ring-inset ring-coral-600'
+                  : 'bg-line-soft text-coral-800 disabled:text-muted',
                 loud ? 'shadow-[0_0_0_6px_rgb(var(--t-accent-600,232_112_95)_/_0.18)]' : '',
               ].join(' ')}
             >
-              <MicGlyph className="h-6 w-6 [stroke-width:1.8]" />
+              <MicGlyph className="h-5 w-5 [stroke-width:1.8]" />
+              {listening ? 'Stop' : 'Speak'}
             </button>
-            <textarea
-              ref={field} data-testid="voice-input" value={text} disabled={busy} rows={1}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void submit(); } }}
-              placeholder={framing.placeholder}
-              aria-label="Message your plan"
-              className="max-h-[120px] min-h-[48px] min-w-0 flex-1 resize-none rounded-2xl border border-line/55 bg-surface px-3.5 py-3 text-[16.5px] leading-[1.45] text-chrome outline-none placeholder:text-muted"
-            />
+            <span className="flex-1" />
             <button
               type="button" data-testid="voice-submit" aria-label="Send this to Sprigly"
               disabled={!text.trim() || busy} onClick={() => void submit()}
-              className="flex h-[48px] w-[48px] flex-none items-center justify-center rounded-2xl bg-coral-650 text-white disabled:bg-line-soft disabled:text-muted"
+              className="flex h-[44px] w-[44px] flex-none items-center justify-center rounded-full bg-coral-650 text-white disabled:bg-line-soft disabled:text-muted"
             >
-              <SendGlyph className="h-[22px] w-[22px] [stroke-width:2.2]" />
+              <SendGlyph className="h-[20px] w-[20px] [stroke-width:2.2]" />
             </button>
           </div>
         </div>

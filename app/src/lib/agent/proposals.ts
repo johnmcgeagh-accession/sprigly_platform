@@ -9,11 +9,14 @@
  * double-approve never double-applies.
  */
 import { and, desc, eq } from 'drizzle-orm';
-import { db, agentProposals, contentCycles, contentCyclePosts, planActivity } from '@sprigly/db';
+import { db, agentProposals, contentCycles, contentCyclePosts, planActivity, hasRealCaption } from '@sprigly/db';
 import type { AgentProposalRow } from '@sprigly/db';
 import { patchPost, softDeletePost, addDraft, addGeneratedPost, addGeneratingPost } from '../mutations';
 import type { ActivityActor } from '../activity';
-import { enqueueShape, enqueueHookJob } from '../queue';
+import { enqueueShape, enqueueHookJob, enqueueScriptJob } from '../queue';
+
+/** Matches the interactive default and script-ready.ts's fan-out default. */
+const DEFAULT_SCRIPT_SECONDS = 30;
 import { getUsageForCycle, isRewriteBlocked } from '../usage';
 import { startPostGeneration, enqueueFollowOnGeneration } from '../post-generation';
 import { resolvePostForEdit, isEditableDate, canAddPost, editScopeToday } from '../edit-scope';
@@ -70,6 +73,25 @@ export async function listPendingProposals(clientId: string): Promise<ProposalVi
     .where(and(eq(agentProposals.clientId, clientId), eq(agentProposals.status, 'pending')))
     .orderBy(desc(agentProposals.createdAt));
   return rows.map(view);
+}
+
+/**
+ * The still-PENDING subset of some ids, with their payloads — the referent an ambiguous
+ * correction amends (C3). Only pending rows come back: a proposal the client already applied
+ * or discarded is not what they are looking at, whatever the sheet last knew.
+ */
+export async function loadPendingPayloads(
+  clientId: string, ids: readonly string[],
+): Promise<Array<{ id: string; intent: string; summary: string; payload: ProposalPayload }>> {
+  if (!ids.length) return [];
+  const rows = await db
+    .select({ id: agentProposals.id, intent: agentProposals.intent, summary: agentProposals.summary, payload: agentProposals.payload, status: agentProposals.status })
+    .from(agentProposals)
+    .where(and(eq(agentProposals.clientId, clientId), eq(agentProposals.status, 'pending')));
+  const wanted = new Set(ids);
+  return rows
+    .filter((r) => wanted.has(r.id))
+    .map((r) => ({ id: r.id, intent: r.intent, summary: r.summary, payload: r.payload as unknown as ProposalPayload }));
 }
 
 async function currentView(clientId: string, id: string): Promise<ProposalView | null> {
@@ -131,7 +153,7 @@ async function postCreatedByProposal(clientId: string, proposalId: string): Prom
 async function resolveHookTarget(
   clientId: string,
   p: Extract<ProposalPayload, { kind: 'generate_hook' }>,
-): Promise<{ ready: true; postId: string } | { ready: false; message: string }> {
+): Promise<{ ready: true; postId: string; format: string; scriptLengthSeconds: number | null; hasCaption: boolean } | { ready: false; message: string }> {
   let postId = p.postId ?? null;
   if (!postId && p.refProposalId) {
     postId = await postCreatedByProposal(clientId, p.refProposalId);
@@ -139,7 +161,10 @@ async function resolveHookTarget(
   }
   if (!postId) return { ready: false, message: 'I couldn’t find the post to generate hooks for.' };
   const [post] = await db
-    .select({ format: contentCyclePosts.format, deletedAt: contentCyclePosts.deletedAt })
+    .select({
+      format: contentCyclePosts.format, deletedAt: contentCyclePosts.deletedAt,
+      caption: contentCyclePosts.caption, scriptLengthSeconds: contentCyclePosts.scriptLengthSeconds,
+    })
     .from(contentCyclePosts)
     .where(and(eq(contentCyclePosts.id, postId), eq(contentCyclePosts.clientId, clientId), eq(contentCyclePosts.cycleId, p.cycleId)))
     .limit(1);
@@ -147,7 +172,11 @@ async function resolveHookTarget(
   if (post.format !== 'reel' && post.format !== 'carousel') {
     return { ready: false, message: 'Hooks apply to reels and carousels. Change the format first, then generate hooks.' };
   }
-  return { ready: true, postId };
+  return {
+    ready: true, postId, format: post.format,
+    scriptLengthSeconds: post.scriptLengthSeconds ?? null,
+    hasCaption: hasRealCaption(post.caption),
+  };
 }
 
 /** Resolve a refine payload to a post whose target field EXISTS (non-empty). `ready:false`
@@ -283,6 +312,30 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
       if (isRewriteBlocked(usage)) {
         await setStatus(clientId, id, 'failed', `You’ve used all ${usage.limit} AI changes this month.`, false);
         return { proposal: view({ ...row, status: 'failed' }) };
+      }
+      // A REEL takes the COMBINED hook+script job (C4). This was the agent's own solo-hook
+      // route — the second of the two that could weld a mismatched hook onto a reel, and the
+      // one reachable by simply asking for hooks out loud. Not ready without a caption: both
+      // fields are written FROM it, and nothing here writes one first.
+      if (target.format === 'reel') {
+        if (!target.hasCaption) {
+          await db.update(agentProposals)
+            .set({ status: 'pending', resolvedAt: null, resolvedBy: null, error: null, appliedAt: null })
+            .where(and(eq(agentProposals.id, id), eq(agentProposals.clientId, clientId)));
+          return {
+            proposal: view({ ...row, status: 'pending' }), blocked: true,
+            message: 'A reel’s hook and script are written together, from its caption — so the caption has to land first.',
+          };
+        }
+        const combined = await enqueueScriptJob({
+          type: 'script', clientId: row.clientId, cycleId: payload.cycleId, targetPostId: target.postId,
+          lengthSeconds: target.scriptLengthSeconds ?? DEFAULT_SCRIPT_SECONDS,
+        });
+        if ('error' in combined) throw new Error(combined.error);
+        await setStatus(clientId, id, 'applied', null, true);
+        // No `hookPostId`: the combined job WRITES both fields onto the post rather than
+        // returning candidates to pick, so the client polls it like a script job.
+        return { proposal: view({ ...row, status: 'applied' }), jobId: combined.jobId, changedPostIds: [target.postId] };
       }
       const r = await enqueueHookJob({ type: 'hook', clientId: row.clientId, cycleId: payload.cycleId, targetPostId: target.postId });
       if ('error' in r) throw new Error(r.error);

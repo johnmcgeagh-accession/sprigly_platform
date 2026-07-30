@@ -26,11 +26,17 @@ import { planMoveGuard, shouldReconcile } from '@/lib/plan-move';
 import { refusalMessage } from '@/lib/refusals';
 import { navTrace } from './nav-trace';
 
-export interface AgentReply { message: string; proposals: ProposalView[]; items: InterpretedItem[] }
+export interface AgentReply {
+  message: string; proposals: ProposalView[]; items: InterpretedItem[];
+  /** The conversation this turn landed in — the sheet holds it for the rest of its session. */
+  conversationId?: string;
+  /** Pending proposals this turn amended and therefore rejected (C3). */
+  supersededProposalIds?: string[];
+}
 
 /** Which field a Shape/refine instruction targets (§26). */
 export type ShapeTarget = 'caption' | 'hook' | 'script';
-interface AgentTurn { conversationId: string; message: string; proposals?: ProposalView[]; items?: InterpretedItem[] }
+interface AgentTurn { conversationId: string; message: string; proposals?: ProposalView[]; items?: InterpretedItem[]; supersededProposalIds?: string[] }
 
 export interface PlanDataInit {
   posts: PlanPost[];
@@ -144,6 +150,11 @@ export function usePlanData(init: PlanDataInit) {
   // Weather overlay (Slice 4): a date→forecast map. Pure decoration — fetched in
   // parallel after mount, never blocks render, and stays empty on any failure.
   const [weather, setWeather] = useState<Map<string, WeatherDay>>(new Map());
+  /**
+   * The DESKTOP agent bar's conversation. The phone's sheet owns its own — one per sheet open
+   * (the per-session ruling) — and passes it in, so a page-level ref must never be the thing
+   * that decides which conversation a turn belongs to.
+   */
   const conversationId = useRef<string | null>(null);
 
   const [toast, setToast] = useState<string | null>(null);
@@ -372,6 +383,19 @@ export function usePlanData(init: PlanDataInit) {
     );
   }, [call, optimistic, posts, crossMonthPosts]);
 
+  /** Poll a shape job until it settles; returns the terminal status. */
+  const pollJob = useCallback(async (jobId: string): Promise<'done' | 'error' | 'gone' | 'timeout'> => {
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 1600));
+      let j: { status: string; posts?: PlanPost[]; summary?: string };
+      try { const res = await fetch(`/api/jobs/${jobId}`); if (!res.ok) continue; j = (await res.json()) as typeof j; } catch { continue; }
+      if (j.status === 'done') { flash(j.summary ?? 'Updated the caption.'); await refreshPlan(); return 'done'; }
+      if (j.status === 'error') { return 'error'; }
+      if (j.status === 'gone') { await refreshPlan(); return 'gone'; }
+    }
+    return 'timeout';
+  }, [flash, refreshPlan]);
+
   const clearHookCandidates = useCallback((id: string) => {
     setHookCandidates((m) => { if (!m.has(id)) return m; const n = new Map(m); n.delete(id); return n; });
   }, []);
@@ -386,8 +410,20 @@ export function usePlanData(init: PlanDataInit) {
     try {
       const res = await fetch('/api/plan/hooks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ targetPostId: id }) });
       if (!res.ok) { setHookError((m) => new Map(m).set(id, 'Couldn’t start hook generation.')); return; }
-      const r = (await res.json()) as { mode?: string; jobId?: string; summary?: string };
+      const r = (await res.json()) as { mode?: string; jobId?: string; summary?: string; combined?: boolean };
       if (r.mode === 'noop') { flash(r.summary ?? 'Already generating hooks.'); return; }
+      /**
+       * A REEL came back with the COMBINED hook+script job (C4): the route redirects, because a
+       * reel's two fields are one coherent pair. It WRITES both onto the post rather than
+       * returning candidates to pick, so it polls like a script job and the plan re-reads.
+       */
+      if (r.mode === 'pending' && r.jobId && r.combined) {
+        const status = await pollJob(r.jobId);
+        if (status === 'error' || status === 'timeout') {
+          setHookError((m) => new Map(m).set(id, status === 'timeout' ? 'That’s taking longer than expected.' : 'Couldn’t write the hook and script. Try again.'));
+        }
+        return;
+      }
       if (r.mode === 'pending' && r.jobId) {
         for (let i = 0; i < 30; i++) {
           await new Promise((done) => setTimeout(done, 1200));
@@ -401,7 +437,7 @@ export function usePlanData(init: PlanDataInit) {
       }
     } catch { setHookError((m) => new Map(m).set(id, 'Network error. Please try again.')); }
     finally { setHookGenerating((s) => { const n = new Set(s); n.delete(id); return n; }); }
-  }, [readOnly, hookGenerating, flash]);
+  }, [readOnly, hookGenerating, flash, pollJob]);
   const revert = useCallback((id: string) => call(`/api/posts/${id}/revert`, 'POST'), [call]);
   /**
    * OPTIMISTIC (fix 3). The card goes NOW; a refusal puts it back where it was.
@@ -503,19 +539,6 @@ export function usePlanData(init: PlanDataInit) {
     } catch { flash('Network error. Please try again.'); }
   }, [readOnly, flash, setPostSteps]);
 
-  /** Poll a shape job until it settles; returns the terminal status. */
-  const pollJob = useCallback(async (jobId: string): Promise<'done' | 'error' | 'gone' | 'timeout'> => {
-    for (let i = 0; i < 30; i++) {
-      await new Promise((r) => setTimeout(r, 1600));
-      let j: { status: string; posts?: PlanPost[]; summary?: string };
-      try { const res = await fetch(`/api/jobs/${jobId}`); if (!res.ok) continue; j = (await res.json()) as typeof j; } catch { continue; }
-      if (j.status === 'done') { flash(j.summary ?? 'Updated the caption.'); await refreshPlan(); return 'done'; }
-      if (j.status === 'error') { return 'error'; }
-      if (j.status === 'gone') { await refreshPlan(); return 'gone'; }
-    }
-    return 'timeout';
-  }, [flash, refreshPlan]);
-
   const clearShapeError = useCallback((id: string) => {
     setShapeErrors((m) => { if (!m.has(id)) return m; const n = new Map(m); n.delete(id); return n; });
   }, []);
@@ -586,8 +609,10 @@ export function usePlanData(init: PlanDataInit) {
     source: 'web' | 'voice' = 'web',
     /** `silent` skips the out-of-sheet rendering (agentFlash / the Approvals flash): the
      *  conversation sheet renders the reply as a turn IN the thread, and a second copy over the
-     *  sheet would be the secondary status bar the redesign removes. Desktop callers omit it. */
-    opts: { silent?: boolean } = {},
+     *  sheet would be the secondary status bar the redesign removes. Desktop callers omit it.
+     *  `conversationId` is the SHEET's session when the sheet is asking; absent, the page-level
+     *  ref applies (the desktop agent bar's single running conversation). */
+    opts: { silent?: boolean; conversationId?: string | null; pendingProposalIds?: string[] } = {},
   ): Promise<AgentReply | null> => {
     if (readOnly || !instruction.trim() || agentBusy) return null;
     setAgentBusy(true);
@@ -603,15 +628,26 @@ export function usePlanData(init: PlanDataInit) {
         // it the agent answered about the session's cycle whichever month the client had
         // navigated to, and said so out loud — "I can only edit posts in the current September
         // 2026 cycle" to someone looking at August. The server re-checks it belongs to them.
-        body: JSON.stringify({ instruction, selectedPostId, source, cycleId: viewedCycleId, conversationId: conversationId.current }),
+        body: JSON.stringify({
+          instruction, selectedPostId, source, cycleId: viewedCycleId,
+          // The SHEET's session when it is asking; the page ref otherwise.
+          conversationId: opts.conversationId !== undefined ? opts.conversationId : conversationId.current,
+          // The unapplied change on screen — the referent an ambiguous correction amends (C3).
+          ...(opts.pendingProposalIds?.length ? { pendingProposalIds: opts.pendingProposalIds } : {}),
+        }),
         signal: controller.signal,
       });
       if (res.status === 429) { setAgentError('You’re sending changes too quickly. Give it a few seconds and try again.'); return null; }
       if (!res.ok) { setAgentError('Something went wrong. Your message is still here, try again.'); return null; }
       const r = (await res.json()) as AgentTurn;
-      conversationId.current = r.conversationId;
+      // Only the page-level conversation is remembered here. A sheet session's id belongs to
+      // that sheet — writing it into the shared ref would leak one session into the next.
+      if (opts.conversationId === undefined) conversationId.current = r.conversationId;
       const created = r.proposals ?? [];
-      const reply: AgentReply = { message: r.message, proposals: created, items: r.items ?? [] };
+      const reply: AgentReply = {
+        message: r.message, proposals: created, items: r.items ?? [], conversationId: r.conversationId,
+        ...(r.supersededProposalIds?.length ? { supersededProposalIds: r.supersededProposalIds } : {}),
+      };
       setAgentReply(reply);
       if (created.length) {
         setProposals((cur) => [...created.filter((p) => !cur.some((c) => c.id === p.id)), ...cur]);

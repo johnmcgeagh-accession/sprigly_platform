@@ -19,7 +19,7 @@ import { loadProductIndex } from '@/lib/agent/catalogue';
 import { resolveTargets, resolveMoveSource, postTitle, parseISO } from '@/lib/agent/selectors';
 import { moveSummary, deleteSummary, rewriteSummary, addSummary, formatSummary, generateHookSummary, refineSummary } from '@/lib/agent/summaries';
 import { ensureConversation, appendMessage, listTurns, threadForParser } from '@/lib/agent/conversation';
-import { createProposal } from '@/lib/agent/proposals';
+import { createProposal, loadPendingPayloads, rejectProposal } from '@/lib/agent/proposals';
 import { saveNote } from '@/lib/agent/notes';
 import { answerQuery } from '@/lib/agent/query';
 import { editScopeToday, isEditableDate } from '@/lib/edit-scope';
@@ -32,6 +32,12 @@ export interface AgentTurnArgs {
   source:          'web' | 'voice';
   sessionId?:      string | undefined;
   conversationId?: string | undefined;
+  /**
+   * The proposals the client is LOOKING AT and has not applied — the interpretation turn still
+   * open on their screen (C3). Sent by the sheet, because only the sheet knows which of the
+   * client's pending proposals is the one in front of them right now.
+   */
+  pendingProposalIds?: readonly string[] | undefined;
 }
 
 const todayIso = (d = new Date()): string =>
@@ -148,6 +154,22 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
   const { iso: todayNow, date: today } = agentToday();
   const cycleMonth = await getCycleMonth(clientId, cycleId);
 
+  /**
+   * ── THE PENDING CHANGE IS THE REFERENT (C3) ──────────────────────────────────────────
+   *
+   * An interpretation the client has NOT applied is the most recent thing said AND the thing
+   * on their screen, so a correction with no target of its own is about IT. "Instead of a
+   * single image make it a reel" was landing as a `change_format` against a post that does not
+   * exist yet — the add was still a proposal — and the client ended up with two adds or none.
+   *
+   * Only rows that are STILL pending count: the sheet's list is what it last knew, and a
+   * proposal applied or discarded since is not what they are looking at.
+   */
+  const pending = await loadPendingPayloads(clientId, args.pendingProposalIds ?? []);
+  const pendingBlock = pending.length
+    ? pending.map((p) => `- id=${p.id} | ${p.intent} | ${JSON.stringify(p.payload)}`).join('\n')
+    : '';
+
   // ── Parse (the only entry point) ──────────────────────────────────────────
   let tasks: ParsedTask[];
   try {
@@ -160,6 +182,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
       planDigest: cycleDigest(posts, todayNow),
       productIndex: await loadProductIndex(clientId, 'instagram'),
       recentThread,
+      ...(pendingBlock ? { pending: pendingBlock } : {}),
     };
     tasks = await parseTasks(instruction, ctx, getModelClient());
   } catch {
@@ -203,7 +226,30 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
   let lastAdd: { proposalId: string; format: string; topic: string } | null = null;
   const FMT_WORD: Record<string, string> = { reel: 'reel', carousel: 'carousel', single: 'single image', email: 'email' };
 
+  /**
+   * SUPERSEDE: an amending task replaces the pending change rather than standing beside it.
+   *
+   * The old proposal is REJECTED — which is exactly what the client meant by "instead of" —
+   * and the new one is created by the ordinary path below, so the amendment goes through the
+   * same derivation, the same guards and the same summary as any other change. The superseded
+   * ids ride back on the response so the sheet can mark that turn and stop offering its Apply.
+   *
+   * Rejecting first is deliberate: if the new proposal then fails a guard (a past date, say),
+   * the client is left with neither — which is the honest outcome of "not that one, this one"
+   * where "this one" is refused, and far better than an Apply that silently does the thing
+   * they just corrected.
+   */
+  const superseded: string[] = [];
+  const supersedePending = async () => {
+    for (const p of pending) {
+      if (superseded.includes(p.id)) continue;
+      await rejectProposal(clientId, p.id, 'client');
+      superseded.push(p.id);
+    }
+  };
+
   for (const task of tasks) {
+    if (task.amends && pending.length) await supersedePending();
     switch (task.action) {
       case 'move_post': {
         const ref = resolveMoveSource(task, posts, todayNow);
@@ -365,7 +411,11 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
   }
 
   const message = replyParts.join('\n') || (proposals.length ? '' : 'Okay.');
-  const resp: AgentTurnResponse = { conversationId: convId, message, proposals, items, changeSetId: proposals.length ? changeSetId : null };
+  const resp: AgentTurnResponse = {
+    conversationId: convId, message, proposals, items,
+    changeSetId: proposals.length ? changeSetId : null,
+    ...(superseded.length ? { supersededProposalIds: superseded } : {}),
+  };
 
   await appendMessage({
     conversationId: convId, role: 'assistant',

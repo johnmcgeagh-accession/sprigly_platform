@@ -49,6 +49,9 @@ vi.mock('@/lib/agent/proposals', () => ({
     h.createCalls.push(args);
     return { id: `pv-${h.createCalls.length}`, intent: args.action, summary: args.summary, status: 'pending', changeSetId: args.changeSetId };
   },
+  // C3: nothing pending in this harness.
+  loadPendingPayloads: async () => [],
+  rejectProposal: async () => null,
 }));
 vi.mock('@/lib/agent/notes', () => ({ saveNote: (...a: unknown[]) => h.saveNote(...a) }));
 vi.mock('@/lib/agent/query', () => ({ answerQuery: (...a: unknown[]) => h.answerQuery(...a) }));

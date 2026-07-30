@@ -25,6 +25,7 @@ const h = vi.hoisted(() => ({
   markNote: vi.fn(),
   enqueue: vi.fn(),
   enqueueHook: vi.fn(),
+  enqueueScript: vi.fn(),
   usage: { used: 0, limit: 30, unlimited: false } as Record<string, unknown>,
   blocked: false,
   // DATE POLICY: default the affected post to far-future (editable); a test can override
@@ -59,7 +60,9 @@ vi.mock('@sprigly/db', () => {
     },
     insert() { return { values() { return { returning: () => Promise.resolve([h.proposalInsertRow]) }; } }; },
   };
-  return { db, agentProposals, contentCycles, contentCyclePosts, planActivity };
+  // The real predicate: a draft placeholder is NOT a caption (C4 refuses on it).
+  const hasRealCaption = (c: unknown) => typeof c === 'string' && c.trim().length > 0 && !c.startsWith('Draft idea.');
+  return { db, agentProposals, contentCycles, contentCyclePosts, planActivity, hasRealCaption };
 });
 
 vi.mock('../mutations', () => ({
@@ -74,7 +77,11 @@ vi.mock('../post-generation', () => ({
   enqueueFollowOnGeneration: (...a: unknown[]) => h.followOn(...a),
 }));
 vi.mock('./notes', () => ({ markNoteIntegrated: (...a: unknown[]) => h.markNote(...a) }));
-vi.mock('../queue', () => ({ enqueueShape: (...a: unknown[]) => h.enqueue(...a), enqueueHookJob: (...a: unknown[]) => h.enqueueHook(...a) }));
+vi.mock('../queue', () => ({
+  enqueueShape: (...a: unknown[]) => h.enqueue(...a),
+  enqueueHookJob: (...a: unknown[]) => h.enqueueHook(...a),
+  enqueueScriptJob: (...a: unknown[]) => h.enqueueScript(...a),
+}));
 vi.mock('../usage', () => ({
   getUsageForCycle: async () => h.usage,
   isRewriteBlocked: () => h.blocked,
@@ -110,6 +117,7 @@ beforeEach(() => {
   h.followOn.mockReset().mockResolvedValue(undefined);
   h.markNote.mockReset(); h.enqueue.mockReset();
   h.enqueueHook.mockReset().mockResolvedValue({ jobId: 'hook_cycle-1_post-9' });
+  h.enqueueScript.mockReset().mockResolvedValue({ jobId: 'script_cycle-1_post-9' });
   h.blocked = false; h.usage = { used: 0, limit: 30, unlimited: false };
   h.resolvePost.mockReset().mockResolvedValue({ cycleId: 'cycle-1', scheduledDate: '2999-01-01', channel: 'instagram' });
 });
@@ -260,14 +268,40 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     expect(r.jobId).toBeUndefined();
   });
 
-  it('a generate_hook for an existing reel enqueues the hook job and returns the target post', async () => {
+  it('a generate_hook for an existing CAROUSEL enqueues the standalone hook job and returns the target post', async () => {
     h.claimQueue = [[{ ...moveRow, intent: 'generate_hook', payload: { kind: 'generate_hook', cycleId: 'cycle-1', postId: 'post-9' } }]];
-    h.currentRow = { format: 'reel', deletedAt: null };   // resolveHookTarget's post lookup
+    h.currentRow = { format: 'carousel', deletedAt: null, caption: 'Five ways to style it' };
     const r = await approveProposal(CLIENT, 'prop-1', 'client');
     expect(r.proposal?.status).toBe('applied');
     expect(h.enqueueHook).toHaveBeenCalledWith({ type: 'hook', clientId: CLIENT, cycleId: 'cycle-1', targetPostId: 'post-9' });
     expect(r.hookPostId).toBe('post-9');
     expect(r.jobId).toBe('hook_cycle-1_post-9');
+  });
+
+  /**
+   * C4: the agent's own solo-hook route — the second of the two that could weld a mismatched
+   * hook onto a reel, and the one reachable by simply asking for hooks out loud.
+   */
+  it('a generate_hook for a REEL takes the COMBINED hook+script job instead', async () => {
+    h.claimQueue = [[{ ...moveRow, intent: 'generate_hook', payload: { kind: 'generate_hook', cycleId: 'cycle-1', postId: 'post-9' } }]];
+    h.currentRow = { format: 'reel', deletedAt: null, caption: 'Sixty seconds on natural fibres', scriptLengthSeconds: 60 };
+    const r = await approveProposal(CLIENT, 'prop-1', 'client');
+    expect(r.proposal?.status).toBe('applied');
+    expect(h.enqueueScript).toHaveBeenCalledWith({ type: 'script', clientId: CLIENT, cycleId: 'cycle-1', targetPostId: 'post-9', lengthSeconds: 60 });
+    expect(h.enqueueHook).not.toHaveBeenCalled();
+    // No hookPostId: the combined job WRITES both fields rather than returning candidates.
+    expect(r.hookPostId).toBeUndefined();
+    expect(r.jobId).toBe('script_cycle-1_post-9');
+  });
+
+  it('a REEL with no real caption is BLOCKED and stays approvable — nothing writes a caption first', async () => {
+    h.claimQueue = [[{ ...moveRow, intent: 'generate_hook', payload: { kind: 'generate_hook', cycleId: 'cycle-1', postId: 'post-9' } }]];
+    h.currentRow = { format: 'reel', deletedAt: null, caption: '' };
+    const r = await approveProposal(CLIENT, 'prop-1', 'client');
+    expect(r.blocked).toBe(true);
+    expect(r.message).toContain('caption has to land first');
+    expect(h.enqueueScript).not.toHaveBeenCalled();
+    expect(h.enqueueHook).not.toHaveBeenCalled();
   });
 
   it('a generate_hook for a single-image post does NOT enqueue and stays approvable (blocked)', async () => {

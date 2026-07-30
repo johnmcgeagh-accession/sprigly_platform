@@ -38,6 +38,17 @@ export interface ParsedTask {
   relevantTo?: string | null;    // add_note (ISO date)
   question?: string | null;      // query / clarify
   reason?: string | null;        // the user's phrasing for this task
+  /**
+   * THIS TASK AMENDS THE PENDING PROPOSAL rather than standing beside it (C3).
+   *
+   * Set by the parser when the utterance corrects something the client has NOT yet applied —
+   * "instead of a single image make it a reel" while an add is still sitting there unresolved.
+   * The turn then SUPERSEDES that proposal: the old one is rejected, a new one is created
+   * carrying the amendment, and the sheet marks the old turn superseded and renders the new
+   * interpretation. Without this the two would sit side by side and the client would apply
+   * both — an add they did not want and an add they did.
+   */
+  amends?: boolean | null;
 }
 
 /** Payload persisted on an agent_proposals row — everything approval needs to
@@ -135,4 +146,8 @@ export interface AgentTurnResponse {
    *  asked. Empty only when the turn was a pure query. */
   items: InterpretedItem[];
   changeSetId: string | null;
+  /** Pending proposals this turn AMENDED and therefore rejected (C3). The sheet marks those
+   *  turns superseded and stops offering their Apply — two versions of one change must never
+   *  both be applicable. */
+  supersededProposalIds?: string[];
 }

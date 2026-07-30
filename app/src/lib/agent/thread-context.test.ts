@@ -28,7 +28,7 @@ const h = vi.hoisted(() => ({
   contexts: [] as unknown[],
   createCalls: [] as Array<Record<string, unknown>>,
   /** The in-memory conversation store the mocked persistence writes to and reads from. */
-  turns: [] as Array<{ role: 'user' | 'assistant'; content: string; metadata?: Record<string, unknown> }>,
+  turns: [] as Array<{ conversationId: string; role: 'user' | 'assistant'; content: string; metadata?: Record<string, unknown> }>,
 }));
 
 vi.mock('@sprigly/db', () => ({ db: {}, contentCycles: {}, contentCyclePosts: {}, conversations: {}, agentMessages: {} }));
@@ -54,15 +54,18 @@ vi.mock('@/lib/agent/conversation', async (orig) => {
   const real = await orig<typeof import('./conversation')>();
   return {
     ...real,
-    ensureConversation: async () => 'conv-1',
-    listTurns: async (): Promise<ConversationTurn[]> =>
-      h.turns.map((t, i) => ({
+    // The SESSION's conversation, as the sheet passes it in on every turn (per-session ruling).
+    ensureConversation: async (_c: string, _cy: string | null, id?: string) => id ?? 'conv-1',
+    // Turns are stored PER CONVERSATION — which is what makes the window a session's, not a
+    // month's. A turn in `conv-2` can never see `conv-1`'s.
+    listTurns: async (_c: string, conversationId: string): Promise<ConversationTurn[]> =>
+      h.turns.filter((t) => t.conversationId === conversationId).map((t, i) => ({
         id: `m${i}`, role: t.role, content: t.content, source: 'voice' as const,
         createdAt: new Date(2026, 7, 1, 12, i).toISOString(),
         ...(t.metadata?.['items'] ? { items: t.metadata['items'] as never } : {}),
       })),
-    appendMessage: async (a: { role: 'user' | 'assistant'; content: string; metadata?: Record<string, unknown> }) => {
-      h.turns.push({ role: a.role, content: a.content, ...(a.metadata ? { metadata: a.metadata } : {}) });
+    appendMessage: async (a: { conversationId: string; role: 'user' | 'assistant'; content: string; metadata?: Record<string, unknown> }) => {
+      h.turns.push({ conversationId: a.conversationId, role: a.role, content: a.content, ...(a.metadata ? { metadata: a.metadata } : {}) });
       return `m${h.turns.length}`;
     },
   };
@@ -72,6 +75,9 @@ vi.mock('@/lib/agent/proposals', () => ({
     h.createCalls.push(args);
     return { id: `pv-${h.createCalls.length}`, intent: args.action, summary: args.summary, status: 'pending', changeSetId: args.changeSetId };
   },
+  // C3: nothing pending in these fixtures — they test resolution, not amendment.
+  loadPendingPayloads: async () => [],
+  rejectProposal: async () => null,
 }));
 vi.mock('@/lib/agent/notes', () => ({ saveNote: async () => undefined }));
 vi.mock('@/lib/agent/query', () => ({ answerQuery: async () => 'answer' }));
@@ -81,8 +87,8 @@ import { runPlanAgentTurn } from './turn';
 import { TASK_PARSER_SYSTEM_PROMPT } from './task-parser';
 import { threadForParser } from './conversation';
 
-const ask = (instruction: string) =>
-  runPlanAgentTurn({ clientId: 'c1', cycleId: 'cyc-aug', instruction, source: 'voice' });
+const ask = (instruction: string, conversationId = 'conv-1') =>
+  runPlanAgentTurn({ clientId: 'c1', cycleId: 'cyc-aug', instruction, source: 'voice', conversationId });
 const lastCtx = () => h.contexts[h.contexts.length - 1] as ParserContext;
 
 beforeEach(() => {
@@ -126,6 +132,27 @@ describe('the fixture: move 3rd → 8th, then "move it back" → 8th → 3rd', (
     const second = (h.contexts[1] as ParserContext).recentThread ?? '';
     expect(second).toContain('CLIENT: first message');
     expect(second).not.toContain('second message');
+  });
+
+  /**
+   * C1: the context window is THIS SESSION's turns, and nothing older. Each sheet open is its
+   * own conversation, so a reference cannot reach back into one the client has closed — the
+   * per-cycle window let a three-week-old exchange compete with what they had just said.
+   */
+  it('a NEW session sees none of the last one — the window is the conversation, not the month', async () => {
+    h.tasks = [{ action: 'move_post', fromDate: '2026-08-03', toDate: '2026-08-08' }] as ParsedTask[];
+    await ask('move the post on the 3rd to the 8th', 'conv-1');
+    expect(h.turns.length).toBeGreaterThan(0);
+
+    // The sheet is closed and reopened: a different conversation entirely.
+    h.tasks = [{ action: 'clarify', question: 'ok' }] as ParsedTask[];
+    await ask('anything', 'conv-2');
+
+    const ctx = lastCtx();
+    expect(ctx.recentThread).toBe('');
+    expect(ctx.recentThread).not.toContain('the 3rd');
+    // …and the earlier session is still STORED, just not read.
+    expect(h.turns.some((t) => t.conversationId === 'conv-1')).toBe(true);
   });
 });
 

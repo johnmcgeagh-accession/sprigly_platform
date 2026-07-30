@@ -42,13 +42,17 @@ export async function POST(req: Request) {
   let source: 'web' | 'voice' = 'web';
   let voiceSessionId: string | undefined;
   let viewedCycleId: string | undefined;
+  let pendingProposalIds: string[] | undefined;
   try {
-    const b = (await req.json()) as { instruction?: unknown; conversationId?: unknown; source?: unknown; sessionId?: unknown; cycleId?: unknown };
+    const b = (await req.json()) as { instruction?: unknown; conversationId?: unknown; source?: unknown; sessionId?: unknown; cycleId?: unknown; pendingProposalIds?: unknown };
     instruction = String(b.instruction ?? '').trim();
     if (b.conversationId) conversationId = String(b.conversationId);
     if (b.source === 'voice') source = 'voice';
     if (b.sessionId) voiceSessionId = String(b.sessionId);
     if (b.cycleId) viewedCycleId = String(b.cycleId);
+    // The unapplied change the client is LOOKING at (C3) — the referent an ambiguous
+    // correction amends. Verified server-side: only rows still pending for this client count.
+    if (Array.isArray(b.pendingProposalIds)) pendingProposalIds = b.pendingProposalIds.map(String).slice(0, 20);
   } catch { /* handled below */ }
   if (!instruction) return NextResponse.json({ error: 'bad_request' }, { status: 400 });
 
@@ -59,6 +63,6 @@ export async function POST(req: Request) {
       ? viewedCycleId
       : cycleId;
 
-  const resp = await runPlanAgentTurn({ clientId, cycleId: turnCycleId, instruction, source, sessionId: voiceSessionId, conversationId });
+  const resp = await runPlanAgentTurn({ clientId, cycleId: turnCycleId, instruction, source, sessionId: voiceSessionId, conversationId, pendingProposalIds });
   return NextResponse.json(resp);
 }

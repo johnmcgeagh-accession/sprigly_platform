@@ -24,13 +24,15 @@ const MOVE_ITEM: InterpretedItem = {
   title: 'Fragrance Note Deep Dive: Summer', fromDate: '2026-10-08', toDate: '2026-10-12',
 };
 
-function stubHistory(turns: unknown[] = []) {
-  vi.stubGlobal('fetch', vi.fn(async () => ({
-    ok: true, json: async () => ({ conversationId: turns.length ? 'conv-1' : null, turns }),
-  })));
+/** The session opener: POST /api/plan/conversation answers with a fresh conversation id. */
+function stubHistory(conversationId: string | null = 'conv-1') {
+  const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ conversationId, turns: [] }) }));
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
 }
 
 function sheet(over: Partial<React.ComponentProps<typeof VoiceSheet>> = {}) {
+  const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
   const onSubmit = over.onSubmit ?? vi.fn(async () => ({ ok: true as const, items: [MOVE_ITEM] }));
   const onApply = over.onApply ?? vi.fn(async () => ({ text: 'Done — your plan is updated.' }));
   const onDiscard = over.onDiscard ?? vi.fn();
@@ -42,7 +44,7 @@ function sheet(over: Partial<React.ComponentProps<typeof VoiceSheet>> = {}) {
       onSubmit={onSubmit} onApply={onApply} onDiscard={onDiscard}
     />,
   );
-  return { onSubmit, onApply, onDiscard, onClose };
+  return { onSubmit, onApply, onDiscard, onClose, fetchMock };
 }
 
 const composer = () => screen.getByTestId('voice-input') as HTMLTextAreaElement;
@@ -142,7 +144,7 @@ describe('question → answer-in-composer → resolution: the dead-end is gone',
 
     // …and the composer is still there to answer with. No phase to escape from.
     await send('the one called A');
-    expect(onSubmit).toHaveBeenLastCalledWith('the one called A', 'web');
+    expect(onSubmit).toHaveBeenLastCalledWith('the one called A', 'web', 'conv-1', []);
     expect(screen.getByTestId('interp-apply')).toBeTruthy();   // the follow-up resolved
   });
 
@@ -158,6 +160,78 @@ describe('question → answer-in-composer → resolution: the dead-end is gone',
     const last = screen.getAllByTestId('turn-agent').pop()!;
     expect(last.textContent).not.toContain('*');
     expect(within(last).getAllByTestId('turn-line')).toHaveLength(3);
+  });
+});
+
+/**
+ * ── C3: the pending change is the referent ───────────────────────────────────────────
+ *
+ * While an interpretation is unapplied it is what the client is looking at, so a correction
+ * amends it. The old turn is marked superseded — visible, because the thread is the record,
+ * and not applicable, because two versions of one change must never both be.
+ */
+describe('a correction AMENDS the pending change', () => {
+  const REEL_ITEM: InterpretedItem = {
+    kind: 'change', proposalId: 'pr2', action: 'add',
+    title: 'Atlas Cedar restock', toDate: '2026-08-21', format: 'reel',
+  };
+  const ADD_ITEM: InterpretedItem = {
+    kind: 'change', proposalId: 'pr1', action: 'add',
+    title: 'Atlas Cedar restock', toDate: '2026-08-21', format: 'single',
+  };
+
+  it('sends the OPEN turn’s proposals as the referent, and marks it superseded when they are amended', async () => {
+    const onSubmit = vi.fn()
+      .mockResolvedValueOnce({ ok: true, items: [ADD_ITEM] })
+      .mockResolvedValueOnce({ ok: true, items: [REEL_ITEM], supersededProposalIds: ['pr1'] });
+    sheet({ onSubmit });
+    await screen.findByTestId('turn-agent');
+
+    await send('add something for the restock');
+    // The first ask carried nothing pending — there was nothing on screen yet.
+    expect(onSubmit).toHaveBeenNthCalledWith(1, 'add something for the restock', 'web', 'conv-1', []);
+
+    await send('instead of a single image make it a reel');
+    // The second carried the open interpretation's proposal — the referent.
+    expect(onSubmit).toHaveBeenNthCalledWith(2, 'instead of a single image make it a reel', 'web', 'conv-1', ['pr1']);
+
+    const turns = screen.getAllByTestId('interpretation');
+    expect(turns).toHaveLength(2);
+    // The old one is SUPERSEDED: still readable, no longer applicable.
+    expect(turns[0]!.getAttribute('data-status')).toBe('superseded');
+    expect(turns[0]!.textContent).toContain('Atlas Cedar restock');
+    expect(within(turns[0]!).getByTestId('interp-superseded').textContent).toContain('Replaced by what you said next');
+    expect(within(turns[0]!).queryByTestId('interp-apply')).toBeNull();
+    // The new one is the only thing to apply.
+    expect(turns[1]!.getAttribute('data-status')).toBe('open');
+    expect(within(turns[1]!).getByTestId('interp-apply')).toBeTruthy();
+    expect(screen.getAllByTestId('interp-apply')).toHaveLength(1);
+  });
+
+  it('an UNRELATED ask supersedes nothing — both turns stay applicable', async () => {
+    const onSubmit = vi.fn()
+      .mockResolvedValueOnce({ ok: true, items: [ADD_ITEM] })
+      .mockResolvedValueOnce({ ok: true, items: [MOVE_ITEM] });   // no supersededProposalIds
+    sheet({ onSubmit });
+    await screen.findByTestId('turn-agent');
+
+    await send('add something for the restock');
+    await send('also move the Friday post');
+
+    const turns = screen.getAllByTestId('interpretation');
+    expect(turns.map((t) => t.getAttribute('data-status'))).toEqual(['open', 'open']);
+    expect(screen.getAllByTestId('interp-apply')).toHaveLength(2);
+  });
+
+  it('a RESOLVED turn is not offered as a referent — it is already applied', async () => {
+    const onSubmit = vi.fn(async () => ({ ok: true as const, items: [MOVE_ITEM] }));
+    sheet({ onSubmit });
+    await screen.findByTestId('turn-agent');
+    await send('move it');
+    await act(async () => { fireEvent.click(screen.getByTestId('interp-apply')); });
+
+    await send('make it a reel');
+    expect(onSubmit).toHaveBeenLastCalledWith('make it a reel', 'web', 'conv-1', []);
   });
 });
 
@@ -190,41 +264,61 @@ describe('discard leaves the plan byte-identical', () => {
   });
 });
 
-describe('the thread survives a reopen (persisted history)', () => {
-  const HISTORY = [
-    { id: 'm1', role: 'user', content: 'move the post on the 3rd to the 8th', source: 'voice', createdAt: '2026-10-01T10:00:00Z' },
-    { id: 'm2', role: 'assistant', content: '', source: 'web', createdAt: '2026-10-01T10:00:05Z', items: [MOVE_ITEM], proposalIds: ['pr1'] },
-    { id: 'm3', role: 'user', content: 'what’s planned on Friday?', source: 'web', createdAt: '2026-10-01T10:01:00Z' },
-    { id: 'm4', role: 'assistant', content: 'One reel — the Weekend Style Guide.', source: 'web', createdAt: '2026-10-01T10:01:05Z' },
-  ];
+/**
+ * ── PER SESSION, not per month (operator ruling, round 2) ────────────────────────────
+ *
+ * Round 1 made the thread per-cycle and everlasting: reopening showed every exchange the month
+ * had ever had, and the parser's context window was that same list. Each open is now its own
+ * conversation — the framing speaks first into an empty sheet, and the prior ones stay stored
+ * without being rendered.
+ */
+describe('each open is a fresh session', () => {
+  it('opens a conversation and shows ONLY the framing turn — no month history', async () => {
+    const { fetchMock } = sheet();
+    const framing = await screen.findByTestId('turn-agent');
+    expect(framing.textContent).toContain('October is written');
+    expect(screen.queryAllByTestId('turn-user')).toHaveLength(0);
+    expect(screen.queryByTestId('interpretation')).toBeNull();
 
-  it('reopening renders the same turns — bubbles, interpretation, answer', async () => {
-    stubHistory(HISTORY);
-    sheet({ isPending: () => true });
-    await screen.findByTestId('interpretation');
-    expect(screen.getAllByTestId('turn-user')).toHaveLength(2);
-    expect(screen.getByTestId('interpretation').textContent).toContain('Fragrance Note Deep Dive: Summer');
-    expect(screen.getAllByTestId('turn-agent').pop()!.textContent).toContain('Weekend Style Guide');
+    // It STARTS one rather than asking what the month has said before.
+    const opened = fetchMock.mock.calls.find((c) => String(c[0]).startsWith('/api/plan/conversation'));
+    expect(opened, 'the sheet opens a session').toBeTruthy();
+    expect((opened![1] as RequestInit | undefined)?.method).toBe('POST');
   });
 
-  it('a reopened interpretation is actionable ONLY while its proposals are pending', async () => {
-    stubHistory(HISTORY);
-    sheet({ isPending: () => true });
-    expect((await screen.findByTestId('interpretation')).getAttribute('data-status')).toBe('open');
-    expect(screen.getByTestId('interp-apply')).toBeTruthy();
+  it('the framing lands IMMEDIATELY — a sheet that waits on the network opens blank', () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));   // never settles
+    sheet();
+    expect(screen.getByTestId('turn-agent').textContent).toContain('October is written');
+    expect(screen.getByTestId('voice-input')).toBeTruthy();
+  });
+
+  it('carries THIS session’s conversation on every turn — the context window is the session', async () => {
+    const onSubmit = vi.fn(async () => ({ ok: true as const, items: [MOVE_ITEM], conversationId: 'conv-session-1' }));
+    sheet({ onSubmit });
+    await screen.findByTestId('turn-agent');
+
+    await send('move it');
+    // The first turn carries whatever the open-time POST returned…
+    expect(onSubmit).toHaveBeenLastCalledWith('move it', 'web', 'conv-1', []);
+    await send('and make it a carousel');
+    // …and every turn after it carries the conversation the server confirmed.
+    // …and the open interpretation from the first turn rides along as the referent (C3).
+    expect(onSubmit).toHaveBeenLastCalledWith('and make it a carousel', 'web', 'conv-session-1', ['pr1']);
+  });
+
+  it('REOPENING is a clean sheet — the previous session is stored, not rendered', async () => {
+    sheet();
+    await screen.findByTestId('turn-agent');
+    await send('move it');
+    expect(screen.getByTestId('turn-user')).toBeTruthy();
     cleanup();
 
-    stubHistory(HISTORY);
-    sheet({ isPending: () => false });
-    expect((await screen.findByTestId('interpretation')).getAttribute('data-status')).toBe('resolved');
-    expect(screen.queryByTestId('interp-apply')).toBeNull();
-  });
-
-  it('the framing turn does NOT render over a real history', async () => {
-    stubHistory(HISTORY);
-    sheet({ isPending: () => false });
-    await screen.findByTestId('interpretation');
-    expect(screen.getByTestId('thread').textContent).not.toContain('October is written');
+    stubHistory();
+    sheet();
+    await screen.findByTestId('turn-agent');
+    expect(screen.queryAllByTestId('turn-user')).toHaveLength(0);
+    expect(screen.queryByTestId('interpretation')).toBeNull();
   });
 });
 
@@ -254,24 +348,22 @@ describe('narrow, motion, and the announcement contract', () => {
     }
   });
 
-  it('ONLY the newest agent turn is a live region — a history must not re-announce itself', async () => {
-    stubHistory([
-      { id: 'm1', role: 'assistant', content: 'First answer.', source: 'web', createdAt: '2026-10-01T10:00:00Z' },
-      { id: 'm2', role: 'assistant', content: 'Second answer.', source: 'web', createdAt: '2026-10-01T10:01:00Z' },
-    ]);
-    sheet();
-    const agents = await screen.findAllByTestId('turn-agent');
+  it('ONLY the newest agent turn is a live region — a thread must not re-announce itself', async () => {
+    sheet({ onSubmit: vi.fn(async () => ({ ok: true as const, items: [], message: 'One reel — the Weekend Style Guide.' })) });
+    await screen.findByTestId('turn-agent');
+    await send('what’s planned on Friday?');
+
+    const agents = screen.getAllByTestId('turn-agent');
+    expect(agents).toHaveLength(2);                                // the framing, then the answer
     expect(agents[0]!.getAttribute('aria-live')).toBeNull();
     expect(agents[1]!.getAttribute('aria-live')).toBe('polite');
     expect(agents[1]!.getAttribute('aria-atomic')).toBe('true');   // a reply arrives whole
   });
 
   it('axe finds nothing on the thread', async () => {
-    stubHistory([
-      { id: 'm1', role: 'user', content: 'move it', source: 'voice', createdAt: '2026-10-01T10:00:00Z' },
-      { id: 'm2', role: 'assistant', content: '', source: 'web', createdAt: '2026-10-01T10:00:05Z', items: [MOVE_ITEM], proposalIds: ['pr1'] },
-    ]);
-    sheet({ isPending: () => true });
+    sheet();
+    await screen.findByTestId('turn-agent');
+    await send('move it');
     await screen.findByTestId('interpretation');
     const results = await axe.run(screen.getByTestId('thread'), {
       // jsdom has no layout engine, so colour-contrast (canvas-based) cannot run here; the

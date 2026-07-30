@@ -25,6 +25,9 @@ export interface NavTraceEntry {
   /** `what:reason`, e.g. `select user:strip`, `cycle restore:session`. */
   ev: string;
   detail?: string | undefined;
+  /** The frame that called — `file:line`, with the function name when the engine gives one.
+   *  The reason is what the call site claims; this is what it is. */
+  from?: string | undefined;
 }
 
 const RING = 120;
@@ -47,11 +50,40 @@ export function navTraceEnabled(): boolean {
   }
 }
 
+/**
+ * WHERE THE CALL CAME FROM.
+ *
+ * Round 2: the jump survived a fix aimed at it, and the log said `select …` without saying who
+ * called. A reason string is what the call site CLAIMS; the stack frame is what it IS — and the
+ * two disagreeing is exactly the shape of a mover nobody has found yet. So every entry carries
+ * the first frame above `navTrace` itself: file, line, function.
+ *
+ * Built from an Error's stack, which every engine this ships to produces. Never throws — a
+ * missing or unparseable stack costs a column, not an instrument.
+ */
+function callSite(): string | undefined {
+  try {
+    const lines = (new Error().stack ?? '').split('\n');
+    // 0 = "Error", 1 = callSite, 2 = navTrace, 3 = the caller we want.
+    const raw = lines[3];
+    if (!raw) return undefined;
+    const m = /at\s+(?:(\S+)\s+)?\(?(?:.*\/)?([^/\s)]+:\d+):\d+\)?/.exec(raw.trim());
+    if (!m) return raw.trim().replace(/^at\s+/, '').slice(0, 60);
+    const fn = m[1] && m[1] !== '<anonymous>' ? `${m[1]} ` : '';
+    return `${fn}${m[2]}`;
+  } catch { return undefined; }
+}
+
 /** Record an event. A no-op when the trace is off, so call sites need no guard of their own. */
 export function navTrace(ev: string, detail?: string): void {
   if (!navTraceEnabled()) return;
   if (!t0) t0 = performance.now();
-  entries = [...entries.slice(-(RING - 1)), { t: Math.round(performance.now() - t0), ev, ...(detail ? { detail } : {}) }];
+  const from = callSite();
+  entries = [...entries.slice(-(RING - 1)), {
+    t: Math.round(performance.now() - t0), ev,
+    ...(detail ? { detail } : {}),
+    ...(from ? { from } : {}),
+  }];
   for (const l of listeners) l();
 }
 
@@ -70,5 +102,7 @@ export function onNavTrace(fn: () => void): () => void {
 
 /** The log as text, for the operator to copy out of the page and paste into the report. */
 export function navTraceText(): string {
-  return entries.map((e) => `${String(e.t).padStart(6)}ms  ${e.ev}${e.detail ? `  ${e.detail}` : ''}`).join('\n');
+  return entries
+    .map((e) => `${String(e.t).padStart(6)}ms  ${e.ev}${e.detail ? `  ${e.detail}` : ''}${e.from ? `   ← ${e.from}` : ''}`)
+    .join('\n');
 }
