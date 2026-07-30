@@ -36,8 +36,10 @@
  * month's, where the same gesture raises proposals the client then approves, and the sheet has
  * to say which. The sheet is the voice sheet (§8).
  */
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { PlanData } from '../usePlanData';
+import { restoreDayFor, saveNavState } from '../nav-state';
+import { navTrace } from '../nav-trace';
 import type { DraftBeatView, PostFormat } from '@/lib/types';
 import { PlanShell } from './PlanShell';
 import type { PlanView } from './NavPill';
@@ -79,7 +81,18 @@ export function DraftSurface({ data }: { data: PlanData }) {
   const editable = !!draft?.editable;
 
   const [view, setView] = useState<PlanView>('day');
-  const [selected, setSelected] = useState(() => defaultDayFor(month, data.today, m.beats.map((b) => b.date)));
+  // The selection rule (F2) — same as CommittedSurface: a gesture, or a restore of where a
+  // gesture last put it. This surface is remounted per cycle (`key={viewedCycleId}`), so a
+  // reload restores through the initialiser and the re-anchor covers in-place month moves.
+  const [selected, setSelectedRaw] = useState(() => {
+    const kept = restoreDayFor(data.viewedCycleId, month);
+    navTrace('select mount', kept ? `restored ${kept}` : 'default');
+    return kept ?? defaultDayFor(month, data.today, m.beats.map((b) => b.date));
+  });
+  const setSelected = useCallback((iso: string, why = 'user:tap') => {
+    navTrace('select ' + why, iso);
+    setSelectedRaw(iso);
+  }, []);
   const [openId, setOpenId] = useState<string | null>(null);
   const [moveId, setMoveId] = useState<string | null>(null);
   const [addFor, setAddFor] = useState<string | null>(null);
@@ -88,12 +101,20 @@ export function DraftSurface({ data }: { data: PlanData }) {
   const [receiptOpen, setReceiptOpen] = useState(false);
   const approval = useApproval(data.viewedCycleId);
 
-  // Re-anchor the selection when the MONTH changes, not on every render.
+  // Re-anchor the selection when the MONTH changes, not on every render. Only switchCycle
+  // moves the month, so this is user navigation landing; a stored day on the entered month
+  // is preferred over the default anchor.
   const [anchoredMonth, setAnchoredMonth] = useState(month);
   if (anchoredMonth !== month) {
     setAnchoredMonth(month);
-    setSelected(defaultDayFor(month, data.today, m.beats.map((b) => b.date)));
+    const kept = restoreDayFor(data.viewedCycleId, month);
+    setSelected(kept ?? defaultDayFor(month, data.today, m.beats.map((b) => b.date)), kept ? 'restore:month-change' : 'user:month-change');
   }
+
+  // Persist the position on every change (see nav-state.ts — the reload nobody pressed).
+  useEffect(() => {
+    saveNavState({ cycleId: data.viewedCycleId, selected, view });
+  }, [data.viewedCycleId, selected, view]);
 
   const byDate = useMemo(() => {
     const map = new Map<string, DraftBeatView[]>();
@@ -123,8 +144,8 @@ export function DraftSurface({ data }: { data: PlanData }) {
   const todayInMonth = monthOf(data.today) === month;
   const todayEnabled = todayInMonth || !!data.todayCycleId;
   const goToday = () => {
-    if (todayInMonth) setSelected(data.today);
-    else if (data.todayCycleId) void data.switchCycle(data.todayCycleId);
+    if (todayInMonth) setSelected(data.today, 'user:today');
+    else if (data.todayCycleId) { navTrace('cycle user:today', data.todayCycleId); void data.switchCycle(data.todayCycleId); }
   };
 
   const monthBeats = useMemo(
@@ -192,8 +213,8 @@ export function DraftSurface({ data }: { data: PlanData }) {
   return (
     <PlanShell
       monthLabel={monthTitle(month)}
-      onPrevMonth={prev ? () => void data.switchCycle(prev.cycleId) : undefined}
-      onNextMonth={next ? () => void data.switchCycle(next.cycleId) : undefined}
+      onPrevMonth={prev ? () => { navTrace('cycle user:prev-month', prev.cycleId); void data.switchCycle(prev.cycleId); } : undefined}
+      onNextMonth={next ? () => { navTrace('cycle user:next-month', next.cycleId); void data.switchCycle(next.cycleId); } : undefined}
       view={view}
       onView={(v) => { setView(v); setReceiptOpen(false); data.track('view_switched', { view: v, surface: 'draft' }); }}
       // THE MIC'S CONSEQUENCE HERE IS DIRECT: one sentence adds, moves or replaces planned posts
@@ -271,7 +292,7 @@ export function DraftSurface({ data }: { data: PlanData }) {
         <WeekStrip
           selected={selected} today={data.today} month={month}
           markFor={markFor} countFor={(iso) => beatsOn(iso).length}
-          onSelect={setSelected}
+          onSelect={(iso) => setSelected(iso, 'user:strip')}
         />
       ) : null}
     >
@@ -309,7 +330,7 @@ export function DraftSurface({ data }: { data: PlanData }) {
       {!showingReceipt && view === 'month' && (
         <MonthGrid
           month={month} selected={selected} today={data.today}
-          marksFor={marksFor} onPick={setSelected} footer={monthFooter}
+          marksFor={marksFor} onPick={(iso) => setSelected(iso, 'user:grid')} footer={monthFooter}
           summary={
             <MonthDaySummary
               date={selected} noun="planned post" empty="Nothing drafted"

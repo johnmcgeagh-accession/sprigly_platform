@@ -76,7 +76,7 @@ function fakeData(over: Partial<PlanData> = {}): PlanData {
   return base as unknown as PlanData;
 }
 
-beforeEach(() => { window.innerWidth = 390; });
+beforeEach(() => { window.innerWidth = 390; window.sessionStorage.clear(); });   // nav-state must not leak a position between tests — each render is a fresh tab
 afterEach(cleanup);
 
 describe('the strip selects and the panel follows', () => {

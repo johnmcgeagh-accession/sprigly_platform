@@ -24,6 +24,7 @@ import { indexForecast, type WeatherDay, type WeatherWireDay } from '@/lib/weath
 import { resolveDayCycleId } from '@/lib/cycle-nav';
 import { planMoveGuard, shouldReconcile } from '@/lib/plan-move';
 import { refusalMessage } from '@/lib/refusals';
+import { navTrace } from './nav-trace';
 
 export interface AgentReply { message: string; proposals: ProposalView[]; items: InterpretedItem[] }
 
@@ -195,6 +196,9 @@ export function usePlanData(init: PlanDataInit) {
   // post across the month boundary (or edits a cross-cycle post) is reflected in the grid.
   const refreshPlan = useCallback(async () => {
     try {
+      // Logged so the `?nav=trace` record shows every refetch beside every selection change —
+      // a jump that lands next to one of these lines has named its trigger.
+      navTrace('refetch plan', viewedCycleId);
       const isHome = viewedCycleId === init.homeCycleId;
       const r = await fetch(isHome ? '/api/plan' : `/api/plan?cycleId=${encodeURIComponent(viewedCycleId)}`);
       if (!r.ok) return;
@@ -691,6 +695,7 @@ export function usePlanData(init: PlanDataInit) {
   const switchCycle = useCallback(async (cycleId: string) => {
     setSwitching(true);
     try {
+      navTrace('cycle switch', cycleId);
       const isHome = cycleId === init.homeCycleId;
       const res = await fetch(isHome ? '/api/plan' : `/api/plan?cycleId=${encodeURIComponent(cycleId)}`);
       if (!res.ok) { flash('Could not open that month.'); return; }

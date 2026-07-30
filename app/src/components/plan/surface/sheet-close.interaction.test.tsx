@@ -87,7 +87,7 @@ function ghostClickOn(testid: string, at: { x: number; y: number } = { x: 195, y
 
 const day = () => screen.getByTestId('day-panel').getAttribute('data-date');
 
-beforeEach(() => { window.innerWidth = 390; });
+beforeEach(() => { window.innerWidth = 390; window.sessionStorage.clear(); });   // nav-state must not leak a position between tests — each render is a fresh tab
 afterEach(cleanup);
 
 describe('A · a dismissed sheet must not leak its click to the shell', () => {

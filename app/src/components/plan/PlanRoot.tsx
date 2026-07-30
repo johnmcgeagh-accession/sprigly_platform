@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { usePlanData, type PlanDataInit } from './usePlanData';
+import { readNavState, urlNamesCycle } from './nav-state';
+import { navTrace } from './nav-trace';
 import { DraftPlan } from '../DraftPlan';
 import { PlanDesktop } from './PlanDesktop';
 import { CommittedSurface } from './surface/CommittedSurface';
@@ -56,6 +58,30 @@ export function PlanRoot(props: PlanDataInit) {
     mq.addEventListener('change', sync);
     return () => mq.removeEventListener('change', sync);
   }, []);
+
+  /**
+   * F2 — RESTORE THE MONTH THE TAB WAS STANDING ON.
+   *
+   * The landing (`page.tsx` → `resolveLandingCycleId`) is a heuristic for a FRESH arrival. On a
+   * reload nobody pressed — iOS Safari reloading an evicted tab, pull-to-refresh — it re-runs
+   * and can land a different month from the one the client had navigated to, which reads as the
+   * plan jumping in time. The tab's own stored position (`nav-state.ts`) is not a guess, so on
+   * mount it outranks the heuristic; an explicit `?cycle=` in the URL (the approval redirect)
+   * outranks both. Phone surfaces only — the desktop shell holds no per-day position.
+   */
+  const restored = useRef(false);
+  const { viewedCycleId, cycles, switchCycle } = data;
+  useEffect(() => {
+    if (desktop !== false || restored.current) return;
+    restored.current = true;
+    navTrace('land mount', viewedCycleId);
+    if (urlNamesCycle()) return;                                   // explicit intent wins
+    const stored = readNavState();
+    if (!stored || stored.cycleId === viewedCycleId) return;
+    if (!cycles.some((c) => c.cycleId === stored.cycleId)) return; // stale or foreign → ignore
+    navTrace('cycle restore:session', stored.cycleId);
+    void switchCycle(stored.cycleId);
+  }, [desktop, viewedCycleId, cycles, switchCycle]);
 
   const viewedCycle = data.cycles.find((c) => c.cycleId === data.viewedCycleId);
   const viewedMonthLabel = viewedCycle?.monthLabel ?? 'this month';

@@ -59,7 +59,7 @@ function fakeData(over: Partial<PlanData> = {}, beats: DraftBeatView[] = [beat()
   } as unknown as PlanData;
 }
 
-beforeEach(() => { window.innerWidth = 390; });
+beforeEach(() => { window.innerWidth = 390; window.sessionStorage.clear(); });   // nav-state must not leak a position between tests — each render is a fresh tab
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('the draft month renders in the SHELL', () => {

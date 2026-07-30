@@ -25,9 +25,11 @@
  * a half of it. On a read-only cycle `data.ask` returns null, so the mic is ABSENT rather than
  * disabled: offering one that refuses is worse than offering none.
  */
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { PlanData } from '../usePlanData';
 import type { PlanPost } from '@/lib/types';
+import { restoreDayFor, saveNavState } from '../nav-state';
+import { navTrace } from '../nav-trace';
 import { PlanShell } from './PlanShell';
 import type { PlanView } from './NavPill';
 import { WeekStrip, type DayMark } from './WeekStrip';
@@ -51,7 +53,23 @@ export function CommittedSurface({ data }: { data: PlanData }) {
   const month = viewedCycle?.displayMonth ?? monthOf(data.today);
 
   const [view, setView] = useState<PlanView>('day');
-  const [selected, setSelected] = useState(() => defaultDayFor(month, data.today, data.calendarPosts.map((p) => p.date)));
+  /**
+   * THE SELECTION RULE (F2): `selected` changes on a GESTURE, or on a restore of where a
+   * gesture last put it. Nothing else. The initialiser prefers the tab's stored position
+   * (`nav-state.ts`) so a reload nobody pressed — iOS Safari evicting a backgrounded tab,
+   * pull-to-refresh — puts the operator back on the day they were standing on rather than
+   * wherever `defaultDayFor` anchors. A stored day is honoured only on its own cycle+month.
+   */
+  const [selected, setSelectedRaw] = useState(() => {
+    const kept = restoreDayFor(data.viewedCycleId, month);
+    navTrace('select mount', kept ? `restored ${kept}` : 'default');
+    return kept ?? defaultDayFor(month, data.today, data.calendarPosts.map((p) => p.date));
+  });
+  /** Every selection change names its mover, so the `?nav=trace` log can convict one. */
+  const setSelected = useCallback((iso: string, why: string) => {
+    navTrace('select ' + why, iso);
+    setSelectedRaw(iso);
+  }, []);
   const [openId, setOpenId] = useState<string | null>(null);
   const [moveId, setMoveId] = useState<string | null>(null);
   const [undo, setUndo] = useState<UndoState | null>(null);
@@ -61,12 +79,22 @@ export function CommittedSurface({ data }: { data: PlanData }) {
   const [voiceOpen, setVoiceOpen] = useState(false);
 
   // Re-anchor the selection when the MONTH changes, not on every render: switching to October
-  // while standing on 3 September has to move, and an unrelated post edit must not.
+  // while standing on 3 September has to move, and an unrelated post edit must not. The month
+  // only ever changes through switchCycle — a gesture — so this is user navigation landing,
+  // not a background move; it still prefers the stored day when the client is returning to a
+  // month they had a position on.
   const [anchoredMonth, setAnchoredMonth] = useState(month);
   if (anchoredMonth !== month) {
     setAnchoredMonth(month);
-    setSelected(defaultDayFor(month, data.today, data.calendarPosts.map((p) => p.date)));
+    const kept = restoreDayFor(data.viewedCycleId, month);
+    setSelected(kept ?? defaultDayFor(month, data.today, data.calendarPosts.map((p) => p.date)), kept ? 'restore:month-change' : 'user:month-change');
   }
+
+  // Persist the position on every change — including the anchor's own placement, so an
+  // eviction right after a month switch still restores the month the client chose.
+  useEffect(() => {
+    saveNavState({ cycleId: data.viewedCycleId, selected, view });
+  }, [data.viewedCycleId, selected, view]);
 
   const byDate = useMemo(() => {
     const m = new Map<string, PlanPost[]>();
@@ -146,14 +174,14 @@ export function CommittedSurface({ data }: { data: PlanData }) {
   const goToday = () => {
     // On the month view Today selects in place rather than leaving the grid — the same P6
     // reasoning as a day tap: a control that also changes view is two acts wearing one label.
-    if (todayInMonth) { setSelected(data.today); if (view === 'day') setView('day'); }
-    else if (data.todayCycleId) void data.switchCycle(data.todayCycleId);
+    if (todayInMonth) { setSelected(data.today, 'user:today'); if (view === 'day') setView('day'); }
+    else if (data.todayCycleId) { navTrace('cycle user:today', data.todayCycleId); void data.switchCycle(data.todayCycleId); }
   };
 
   /** ROUND 6, P6: the grid STAYS the view. A tap selects the day and the summary beneath the
    *  grid renders it; Day view is reached through the nav pill. Nothing is fetched, and the
    *  selection is shared, so switching to Day afterwards lands where you were reading. */
-  const pickFromGrid = (iso: string) => setSelected(iso);
+  const pickFromGrid = (iso: string) => setSelected(iso, 'user:grid');
 
   const monthPosts = useMemo(
     () => monthGrid(month).filter((c) => c.inMonth).flatMap((c) => postsOn(c.iso)),
@@ -173,8 +201,8 @@ export function CommittedSurface({ data }: { data: PlanData }) {
   return (
     <PlanShell
       monthLabel={monthTitle(month)}
-      onPrevMonth={prev ? () => void data.switchCycle(prev.cycleId) : undefined}
-      onNextMonth={next ? () => void data.switchCycle(next.cycleId) : undefined}
+      onPrevMonth={prev ? () => { navTrace('cycle user:prev-month', prev.cycleId); void data.switchCycle(prev.cycleId); } : undefined}
+      onNextMonth={next ? () => { navTrace('cycle user:next-month', next.cycleId); void data.switchCycle(next.cycleId); } : undefined}
       view={view}
       onView={(v) => { setView(v); data.track('view_switched', { view: v }); }}
       // ONE VOICE INTERFACE (round 7, fix 2). The mic opens the SAME sheet as the draft month's
@@ -246,7 +274,7 @@ export function CommittedSurface({ data }: { data: PlanData }) {
         <WeekStrip
           selected={selected} today={data.today} month={month}
           markFor={markFor} countFor={(iso) => postsOn(iso).length}
-          onSelect={setSelected}
+          onSelect={(iso) => setSelected(iso, 'user:strip')}
         />
       ) : null}
     >
