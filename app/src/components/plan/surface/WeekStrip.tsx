@@ -39,7 +39,7 @@ import { ChevronL, ChevronR } from './icons';
 export type DayMark = 'none' | 'draft' | 'committed' | 'onway';
 
 export function WeekStrip({
-  selected, today, month, markFor, countFor, onSelect,
+  selected, today, month, markFor, countFor, changedFor, onSelect,
 }: {
   selected: string;
   today: string;
@@ -47,6 +47,9 @@ export function WeekStrip({
   month: string;
   markFor: (iso: string) => DayMark;
   countFor: (iso: string) => number;
+  /** RECENTLY CHANGED (what-changed visibility): the day holds posts changed since the last
+   *  visit. Draws a second, accent dot beside the mark; decays upstream as days are viewed. */
+  changedFor?: ((iso: string) => boolean) | undefined;
   onSelect: (iso: string) => void;
 }) {
   const week = weekOf(selected);
@@ -123,15 +126,24 @@ export function WeekStrip({
               {d.getDate()}
             </span>
             {/* The pip sits BELOW the numeral, on canvas rather than on the fill — which is why
-                it stays accent when selected. Round 4 turned it white and it simply vanished. */}
-            {mark !== 'none' && (
-              <span aria-hidden="true" data-testid="day-pip" data-mark={mark}
-                className={[
-                  'absolute bottom-0.5 h-[5px] w-[5px] rounded-full',
-                  mark === 'onway' ? 'shadow-[inset_0_0_0_1.5px_rgb(var(--t-chrome,51_65_85))]'
-                    : mark === 'draft' || isSelected ? 'bg-coral-600' : 'bg-chrome',
-                ].join(' ')}
-              />
+                it stays accent when selected. Round 4 turned it white and it simply vanished.
+                A recently-changed day carries a SECOND dot in the accent beside it — the same
+                5px grammar, a different fact — decaying upstream once the day is viewed. */}
+            {(mark !== 'none' || changedFor?.(iso)) && (
+              <span aria-hidden="true" className="absolute bottom-0.5 flex items-center gap-[3px]">
+                {mark !== 'none' && (
+                  <span data-testid="day-pip" data-mark={mark}
+                    className={[
+                      'block h-[5px] w-[5px] rounded-full',
+                      mark === 'onway' ? 'shadow-[inset_0_0_0_1.5px_rgb(var(--t-chrome,51_65_85))]'
+                        : mark === 'draft' || isSelected ? 'bg-coral-600' : 'bg-chrome',
+                    ].join(' ')}
+                  />
+                )}
+                {changedFor?.(iso) && (
+                  <span data-testid="day-changed" className="block h-[5px] w-[5px] rounded-full bg-coral-600" />
+                )}
+              </span>
             )}
           </button>
         );

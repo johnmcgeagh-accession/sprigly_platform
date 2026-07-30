@@ -33,7 +33,8 @@ import { restoreDayFor, saveNavState } from '../nav-state';
 import { navTrace } from '../nav-trace';
 import { SummaryChip } from './SummaryChip';
 import { appliedChipLabel, applyFailureMessage } from './applied-summary';
-import { lineFor } from './Interpretation';
+import { lineFor, shortDate as interpDate } from './Interpretation';
+import { readAndStampVisit, changeWord, changedDays, type ChangeRow } from './what-changed';
 import { PlanShell } from './PlanShell';
 import type { PlanView } from './NavPill';
 import { WeekStrip, type DayMark } from './WeekStrip';
@@ -98,6 +99,39 @@ export function CommittedSurface({ data }: { data: PlanData }) {
   const [chipOpen, setChipOpen] = useState(false);
   const [changedIds, setChangedIds] = useState<readonly string[]>([]);
 
+  /**
+   * ── WHAT-CHANGED VISIBILITY (operator-agreed) ────────────────────────────────────────
+   *
+   * a) Day dots gain a recently-changed state: an accent second dot on days holding posts
+   *    changed since the LAST VISIT (localStorage stamp, what-changed.ts), decaying as each
+   *    marked day is viewed.
+   * b) A "What changed" row from the month header lists the recent receipts (the existing
+   *    plan_activity ledger via /api/plan/changes), tapping through to the day.
+   */
+  const [recentChanges, setRecentChanges] = useState<ChangeRow[]>([]);
+  const [seenDays, setSeenDays] = useState<Set<string>>(new Set());
+  const [whatChangedOpen, setWhatChangedOpen] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const prev = readAndStampVisit(data.viewedCycleId, new Date().toISOString());
+    if (!prev) return;                              // a first visit has no "since" to mark against
+    (async () => {
+      try {
+        const r = await fetch(`/api/plan/changes?cycleId=${encodeURIComponent(data.viewedCycleId)}&since=${encodeURIComponent(prev)}`);
+        if (!r.ok) return;
+        const d = (await r.json()) as { changes?: ChangeRow[] };
+        if (!cancelled && d.changes?.length) setRecentChanges(d.changes);
+      } catch { /* the marks are decoration over the ledger — absence is not an error */ }
+    })();
+    return () => { cancelled = true; };
+  }, [data.viewedCycleId]);
+  // Decay on view: the day the client is standing on stops being news.
+  useEffect(() => {
+    setSeenDays((cur) => (cur.has(selected) ? cur : new Set([...cur, selected])));
+  }, [selected]);
+  const changedDaySet = useMemo(() => changedDays(recentChanges, seenDays), [recentChanges, seenDays]);
+  const dayChanged = useCallback((iso: string) => changedDaySet.has(iso), [changedDaySet]);
+
   // Re-anchor the selection when the MONTH changes, not on every render: switching to October
   // while standing on 3 September has to move, and an unrelated post edit must not. The month
   // only ever changes through switchCycle — a gesture — so this is user navigation landing,
@@ -108,8 +142,9 @@ export function CommittedSurface({ data }: { data: PlanData }) {
     setAnchoredMonth(month);
     const kept = restoreDayFor(data.viewedCycleId, month);
     setSelected(kept ?? defaultDayFor(month, data.today, data.calendarPosts.map((p) => p.date)), kept ? 'restore:month-change' : 'user:month-change');
-    // The what-changed treatment belongs to the month it happened on.
+    // The what-changed treatment belongs to the month it happened on — and so do the marks.
     setAppliedChip(null); setChipOpen(false); setChangedIds([]);
+    setRecentChanges([]); setSeenDays(new Set()); setWhatChangedOpen(false);
   }
 
   /**
@@ -274,6 +309,19 @@ export function CommittedSurface({ data }: { data: PlanData }) {
       // The what-changed chip (F4) — the draft month's spec-§3 treatment, on the committed
       // month. Never grows; tapping toggles the itemised panel; absent until an apply lands.
       chip={appliedChip ? <SummaryChip label={appliedChip.label} expanded={chipOpen} onToggle={() => setChipOpen((o) => !o)} /> : undefined}
+      // The "What changed" row (what-changed visibility, b): recent receipts since the last
+      // visit, from the month header, tap-through to the day. Absent when nothing changed —
+      // a row reading "0 changes" spends its height saying nothing.
+      badge={recentChanges.length > 0 ? (
+        <button
+          type="button" data-testid="what-changed-row" aria-expanded={whatChangedOpen}
+          onClick={() => setWhatChangedOpen((o) => !o)}
+          className="flex min-h-[40px] items-center gap-2 rounded-full border border-line/30 bg-surface px-3.5 text-[13px] font-semibold text-coral-800 shadow-card active:bg-coral-100"
+        >
+          <span aria-hidden="true" className="h-[7px] w-[7px] rounded-full bg-coral-600" />
+          What changed · {recentChanges.length}
+        </button>
+      ) : undefined}
       overlays={<>
         <DetailSheet
           post={openPost} data={data} rationale={openPost?.rationale ?? ''}
@@ -325,6 +373,7 @@ export function CommittedSurface({ data }: { data: PlanData }) {
         <WeekStrip
           selected={selected} today={data.today} month={month}
           markFor={markFor} countFor={(iso) => postsOn(iso).length}
+          changedFor={dayChanged}
           onSelect={(iso) => setSelected(iso, 'user:strip')}
         />
       ) : null}
@@ -356,7 +405,39 @@ export function CommittedSurface({ data }: { data: PlanData }) {
           </button>
         </div>
       )}
-      {!chipOpen && view === 'day' && (
+      {/* The "What changed" list (b): the recent receipts, each tapping through to its day.
+          Replaces the view like the chip's panel does; the words come from the ledger action
+          and the post's own resolved title — never narrated. */}
+      {whatChangedOpen && !chipOpen && (
+        <div data-testid="what-changed-panel" className="flex-1 overflow-y-auto px-5 pb-[104px] pt-2.5 [scrollbar-width:none]">
+          <h2 className="mb-3 text-[22px] font-bold tracking-[-.02em] text-chrome">What changed</h2>
+          <div className="overflow-hidden rounded-[20px] border border-line/30 bg-surface shadow-card">
+            {recentChanges.map((c) => (
+              <button
+                key={c.id} type="button" data-testid="what-changed-line"
+                onClick={() => {
+                  setWhatChangedOpen(false);
+                  if (c.date) { setSelected(c.date, 'user:what-changed'); setView('day'); }
+                }}
+                className="flex min-h-[56px] w-full items-center gap-2.5 px-[13px] py-2.5 text-left transition-colors duration-100 active:bg-line-soft [&+&]:border-t [&+&]:border-line/30"
+              >
+                <span className="min-w-0 flex-1 text-[14.5px] leading-[1.4] text-chrome">
+                  <span className="font-semibold">{changeWord(c.action)}</span>
+                  {c.title ? <span> “{c.title}”</span> : null}
+                </span>
+                {c.date && <span className="flex-none text-[12.5px] font-semibold tabular-nums text-muted">{interpDate(c.date)}</span>}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button" data-testid="what-changed-close" onClick={() => setWhatChangedOpen(false)}
+            className="mt-4 min-h-[44px] text-[13.5px] font-semibold text-muted"
+          >
+            Close
+          </button>
+        </div>
+      )}
+      {!chipOpen && !whatChangedOpen && view === 'day' && (
         <DayPanel
           date={selected} today={data.today}
           posts={postsOn(selected)}
@@ -371,14 +452,14 @@ export function CommittedSurface({ data }: { data: PlanData }) {
           weather={data.weather.get(selected)}
         />
       )}
-      {!chipOpen && view === 'month' && (
+      {!chipOpen && !whatChangedOpen && view === 'month' && (
         <MonthGrid
           month={month} selected={selected} today={data.today}
-          marksFor={marksFor} onPick={pickFromGrid} footer={monthFooter}
+          marksFor={marksFor} changedFor={dayChanged} onPick={pickFromGrid} footer={monthFooter}
           summary={<MonthDaySummary date={selected} items={rowsFromPosts(postsOn(selected), timeOf)} onOpen={setOpenId} />}
         />
       )}
-      {!chipOpen && view === 'tasks' && <TasksPanel data={data} onOpen={setOpenId} />}
+      {!chipOpen && !whatChangedOpen && view === 'tasks' && <TasksPanel data={data} onOpen={setOpenId} />}
     </PlanShell>
   );
 }
