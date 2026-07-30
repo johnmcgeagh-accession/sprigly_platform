@@ -50,6 +50,11 @@ export function rowsFromPosts(posts: PlanPost[], timeOf: (p: PlanPost) => string
     id: p.id,
     time: timeOf(p),
     title: cardText(p).heading,
+    // THE POST'S REAL FORMAT (F7a). This was never set, so every format-led row — the month
+    // view's day summary — fell through `format ?? 'single'` and drew the single-image tile
+    // for reels and carousels alike. One derivation: the same `post.format` the detail sheet
+    // and the day cards already read.
+    format: p.format,
     onWay: isOnTheWay(p.status),
   }));
 }
