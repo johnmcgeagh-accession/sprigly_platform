@@ -372,6 +372,19 @@ export function usePlanData(init: PlanDataInit) {
     );
   }, [call, optimistic, posts, crossMonthPosts]);
 
+  /** Poll a shape job until it settles; returns the terminal status. */
+  const pollJob = useCallback(async (jobId: string): Promise<'done' | 'error' | 'gone' | 'timeout'> => {
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 1600));
+      let j: { status: string; posts?: PlanPost[]; summary?: string };
+      try { const res = await fetch(`/api/jobs/${jobId}`); if (!res.ok) continue; j = (await res.json()) as typeof j; } catch { continue; }
+      if (j.status === 'done') { flash(j.summary ?? 'Updated the caption.'); await refreshPlan(); return 'done'; }
+      if (j.status === 'error') { return 'error'; }
+      if (j.status === 'gone') { await refreshPlan(); return 'gone'; }
+    }
+    return 'timeout';
+  }, [flash, refreshPlan]);
+
   const clearHookCandidates = useCallback((id: string) => {
     setHookCandidates((m) => { if (!m.has(id)) return m; const n = new Map(m); n.delete(id); return n; });
   }, []);
@@ -386,8 +399,20 @@ export function usePlanData(init: PlanDataInit) {
     try {
       const res = await fetch('/api/plan/hooks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ targetPostId: id }) });
       if (!res.ok) { setHookError((m) => new Map(m).set(id, 'Couldn’t start hook generation.')); return; }
-      const r = (await res.json()) as { mode?: string; jobId?: string; summary?: string };
+      const r = (await res.json()) as { mode?: string; jobId?: string; summary?: string; combined?: boolean };
       if (r.mode === 'noop') { flash(r.summary ?? 'Already generating hooks.'); return; }
+      /**
+       * A REEL came back with the COMBINED hook+script job (C4): the route redirects, because a
+       * reel's two fields are one coherent pair. It WRITES both onto the post rather than
+       * returning candidates to pick, so it polls like a script job and the plan re-reads.
+       */
+      if (r.mode === 'pending' && r.jobId && r.combined) {
+        const status = await pollJob(r.jobId);
+        if (status === 'error' || status === 'timeout') {
+          setHookError((m) => new Map(m).set(id, status === 'timeout' ? 'That’s taking longer than expected.' : 'Couldn’t write the hook and script. Try again.'));
+        }
+        return;
+      }
       if (r.mode === 'pending' && r.jobId) {
         for (let i = 0; i < 30; i++) {
           await new Promise((done) => setTimeout(done, 1200));
@@ -401,7 +426,7 @@ export function usePlanData(init: PlanDataInit) {
       }
     } catch { setHookError((m) => new Map(m).set(id, 'Network error. Please try again.')); }
     finally { setHookGenerating((s) => { const n = new Set(s); n.delete(id); return n; }); }
-  }, [readOnly, hookGenerating, flash]);
+  }, [readOnly, hookGenerating, flash, pollJob]);
   const revert = useCallback((id: string) => call(`/api/posts/${id}/revert`, 'POST'), [call]);
   /**
    * OPTIMISTIC (fix 3). The card goes NOW; a refusal puts it back where it was.
@@ -502,19 +527,6 @@ export function usePlanData(init: PlanDataInit) {
       if (res.ok) setPostSteps(id, ((await res.json()) as { steps: PostStepView[] }).steps);
     } catch { flash('Network error. Please try again.'); }
   }, [readOnly, flash, setPostSteps]);
-
-  /** Poll a shape job until it settles; returns the terminal status. */
-  const pollJob = useCallback(async (jobId: string): Promise<'done' | 'error' | 'gone' | 'timeout'> => {
-    for (let i = 0; i < 30; i++) {
-      await new Promise((r) => setTimeout(r, 1600));
-      let j: { status: string; posts?: PlanPost[]; summary?: string };
-      try { const res = await fetch(`/api/jobs/${jobId}`); if (!res.ok) continue; j = (await res.json()) as typeof j; } catch { continue; }
-      if (j.status === 'done') { flash(j.summary ?? 'Updated the caption.'); await refreshPlan(); return 'done'; }
-      if (j.status === 'error') { return 'error'; }
-      if (j.status === 'gone') { await refreshPlan(); return 'gone'; }
-    }
-    return 'timeout';
-  }, [flash, refreshPlan]);
 
   const clearShapeError = useCallback((id: string) => {
     setShapeErrors((m) => { if (!m.has(id)) return m; const n = new Map(m); n.delete(id); return n; });

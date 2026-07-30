@@ -544,7 +544,8 @@ describe('the format control, inside Shape mode', () => {
 
 describe('writing a missing hook or script (round 6, P3)', () => {
   it('an empty hook tab explains and offers the action, and does NOT offer Shape', () => {
-    const data = fakeData({ posts: [post({ hook: null })] });
+    // A CAROUSEL: its hook is its own, so the solo path (and its three candidates) is right.
+    const data = fakeData({ posts: [post({ format: 'carousel', hook: null, script: null })] });
     render(<CommittedSurface data={data} />);
     openSheet();
     fireEvent.click(screen.getByTestId('tab-hook'));
@@ -555,6 +556,39 @@ describe('writing a missing hook or script (round 6, P3)', () => {
 
     fireEvent.click(screen.getByTestId('generate-hook'));
     expect(data.generateHooks).toHaveBeenCalledWith('p1');
+  });
+
+  /**
+   * ── C4: on a REEL both tabs are the same act ───────────────────────────────────────
+   *
+   * The Hook tab used to offer "Write the hook" and reach the standalone hook job, so a reel
+   * could be handed a hook a later script had never seen — the two disagreeing on screen is
+   * the operator's video. A reel's fields are one pair, written together from the caption.
+   */
+  it('a REEL’s hook tab offers the PAIR, and takes the combined path', () => {
+    const data = fakeData({ posts: [post({ format: 'reel', hook: null, script: null })] });
+    render(<CommittedSurface data={data} />);
+    openSheet();
+    fireEvent.click(screen.getByTestId('tab-hook'));
+
+    const empty = screen.getByTestId('empty-field').textContent ?? '';
+    expect(empty).toContain('written together');
+    expect(screen.getByTestId('generate-hook').textContent).toContain('Write the hook and script');
+    // The length belongs to the pair, so it is offered from either tab.
+    expect(screen.getByTestId('script-length')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('generate-hook'));
+    expect(data.generateScript).toHaveBeenCalledWith('p1', 30);
+    expect(data.generateHooks).not.toHaveBeenCalled();
+  });
+
+  it('a REEL with no caption is REFUSED on both tabs — nothing here writes a caption first', () => {
+    const data = fakeData({ posts: [post({ format: 'reel', caption: '', hook: null, script: null })] });
+    render(<CommittedSurface data={data} />);
+    openSheet();
+    // No caption → the sheet has nothing written at all, so it says so and offers no generate.
+    expect(screen.queryByTestId('generate-hook')).toBeNull();
+    expect(screen.getByTestId('not-written-yet')).toBeTruthy();
   });
 
   it('the three candidates are a choice, and picking one saves it', () => {
