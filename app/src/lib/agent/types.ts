@@ -77,11 +77,62 @@ export interface ProposalView {
   changeSetId: string | null;
 }
 
+/**
+ * ── THE INTERPRETATION ───────────────────────────────────────────────────────────────
+ *
+ * What the client is actually consenting to when they tap Apply.
+ *
+ * Not the transcript. The transcript is what they said; it tells them nothing they do not
+ * already know, and echoing it back asks them to check our hearing rather than our understanding.
+ * Not the raw intent either — `{action:'move_post', postId:'…', toDate:'2026-08-12'}` is a fact
+ * about our datastore, not about their plan.
+ *
+ * The consent object is the INTERPRETATION: the concrete changes, with every reference resolved.
+ * "Move 'Fragrance Note Deep Dive: Summer' → Wed 12 Aug" is checkable at a glance in a way that
+ * neither of the other two is.
+ *
+ * ── The derivation rule ──────────────────────────────────────────────────────────────
+ *
+ * Every field below is COMPUTED — from the structured task the parser extracted, and from the
+ * post row it resolved to. Nothing here is a sentence the model wrote. This is the
+ * rationale-evidence rule applied to consent: if the client approves prose, they have approved
+ * a claim about what will happen; if they approve a resolved title and a resolved date, they
+ * have approved the thing itself.
+ *
+ * That is why `title` is the post's own title and never `task.reason` — `reason` is the model's
+ * paraphrase of their phrasing, which is exactly the transcript-echo this replaces.
+ *
+ * The surface renders these. It formats the dates itself, because date rendering is a property
+ * of the surface and not of the agent.
+ */
+export type InterpretedItem =
+  | {
+      kind: 'change';
+      /** The proposal this line will apply. Per-item discard needs it too. */
+      proposalId: string;
+      action: 'move' | 'add' | 'remove' | 'rewrite' | 'format' | 'hook' | 'refine';
+      /** The RESOLVED post title, or the subject of the post being added. Null when adding a
+       *  post with no stated subject — the line then names the format and the date only. */
+      title: string | null;
+      /** ISO 'YYYY-MM-DD'. Resolved, never relative, never a phrase. */
+      fromDate?: string | null;
+      toDate?: string | null;
+      format?: string | null;
+      target?: 'hook' | 'script' | null;
+    }
+  /** Filed rather than placed. The honest state the intake receipts already use. */
+  | { kind: 'idea'; text: string }
+  /** The extractor could not resolve it. Carries the real question, and applies nothing. */
+  | { kind: 'unresolved'; question: string };
+
 /** The /api/plan/agent turn response. Mutations never apply here — they arrive as
  *  proposals to review. */
 export interface AgentTurnResponse {
   conversationId: string;
   message: string;
   proposals: ProposalView[];
+  /** The interpretation, itemised. One entry per thing the client asked for, in the order they
+   *  asked. Empty only when the turn was a pure query. */
+  items: InterpretedItem[];
   changeSetId: string | null;
 }

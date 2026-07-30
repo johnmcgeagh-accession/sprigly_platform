@@ -70,7 +70,7 @@ function setUA(ua: string) {
 }
 
 function open(over: Partial<React.ComponentProps<typeof VoiceSheet>> = {}) {
-  const onSubmit = vi.fn(async () => true);
+  const onSubmit = vi.fn(async () => ({ ok: true as const }));
   const onClose = vi.fn();
   render(<VoiceSheet open monthName="October" busy={false} onClose={onClose} onSubmit={onSubmit} {...over} />);
   return { onSubmit, onClose };

@@ -252,7 +252,11 @@ export function DraftSurface({ data }: { data: PlanData }) {
             open context="draft" monthName={monthName} busy={m.busy}
             {...(voiceFor ? { question: voiceFor } : {})}
             onClose={() => setVoiceFor(null)}
-            onSubmit={async (text, source) => (await m.say(text, source)).ok}
+            // NO interpretation phase on a draft month, and that is not an omission. A reshape
+            // here APPLIES directly and returns a receipt — the client sees the month change and
+            // the summary chip says what moved. There is nothing to consent to after the fact,
+            // and asking would be asking about something already done.
+            onSubmit={async (text, source) => ({ ok: (await m.say(text, source)).ok })}
           />
         )}
         {addFor && (

@@ -24,7 +24,7 @@ import { saveNote } from '@/lib/agent/notes';
 import { answerQuery } from '@/lib/agent/query';
 import { e2eTodayDate } from '@/lib/e2e-fake';
 import { isEditableDate } from '@/lib/edit-scope';
-import type { AgentTurnResponse, ParsedTask, ProposalView } from '@/lib/agent/types';
+import type { AgentTurnResponse, InterpretedItem, ParsedTask, ProposalView } from '@/lib/agent/types';
 
 export interface AgentTurnArgs {
   clientId:        string;
@@ -128,10 +128,33 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
   const changeSetId = randomUUID();
   const proposals: ProposalView[] = [];
   const replyParts: string[] = [];
+  /**
+   * The interpretation, built as each task resolves — which is the only place it CAN be built
+   * honestly, because it is the only place both the structured task and the post row it resolved
+   * to are in hand. Reconstructing it later from the proposal payload would mean re-reading the
+   * post for its title, and re-reading is where a second answer to the same question starts.
+   */
+  const items: InterpretedItem[] = [];
 
-  const propose = async (action: 'move_post' | 'delete_post' | 'rewrite_post' | 'add_post' | 'change_format' | 'generate_hook' | 'refine', payload: Parameters<typeof createProposal>[0]['payload'], summary: string) => {
+  /**
+   * Something the client asked for that we could not place.
+   *
+   * The sentence goes to BOTH channels on purpose: `replyParts` is the prose reply, which the
+   * desktop surface and the conversation log still read, and `items` is what the sheet renders.
+   * One source, two renderings — never two sentences that could disagree.
+   */
+  const cannot = (question: string) => { replyParts.push(question); items.push({ kind: 'unresolved', question }); };
+
+  const propose = async (
+    action: 'move_post' | 'delete_post' | 'rewrite_post' | 'add_post' | 'change_format' | 'generate_hook' | 'refine',
+    payload: Parameters<typeof createProposal>[0]['payload'],
+    summary: string,
+    /** The itemised line, minus the id — which does not exist until the row is written. */
+    change: Omit<Extract<InterpretedItem, { kind: 'change' }>, 'kind' | 'proposalId'>,
+  ) => {
     const pv = await createProposal({ clientId, conversationId: convId, messageId: userMessageId, changeSetId, action, payload, summary });
     proposals.push(pv);
+    items.push({ kind: 'change', proposalId: pv.id, ...change });
     return pv;
   };
 
@@ -142,20 +165,20 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
     switch (task.action) {
       case 'move_post': {
         const ref = resolveMoveSource(task, posts);
-        if (!ref) { replyParts.push(moveNotFound(task)); break; }
-        if ('ambiguous' in ref) { replyParts.push(moveAmbiguous(ref.ambiguous, task)); break; }
+        if (!ref) { cannot(moveNotFound(task)); break; }
+        if ('ambiguous' in ref) { cannot(moveAmbiguous(ref.ambiguous, task)); break; }
         const post = ref.post;
-        if (!task.toDate) { replyParts.push(`Move “${post.caption?.split('\n')[0] || post.pillar}” to when?${task.reason ? ` (you asked: “${task.reason}”)` : ''}`); break; }
+        if (!task.toDate) { cannot(`Move “${postTitle(post)}” to when?`); break; }
         // A move is refused on two grounds, and the cycle's STATUS is neither of them. A date
         // that has passed cannot be changed and cannot be moved onto — that is the whole rule
         // (`edit-scope.ts`), and the apply step enforces the same one. Everything future-dated
         // goes through, in whichever month the client is standing in.
         if (!isEditableDate(post.date, todayNow)) {
-          replyParts.push(`${dayMonth(post.date)} has already passed, so that post can’t move any more.`);
+          cannot(`${dayMonth(post.date)} has already passed, so that post can’t move any more.`);
           break;
         }
         if (!isEditableDate(task.toDate, todayNow)) {
-          replyParts.push(`${dayMonth(task.toDate)} has already passed — I can only move posts to today or later. Which date did you have in mind?`);
+          cannot(`${dayMonth(task.toDate)} has already passed — I can only move posts to today or later. Which date did you have in mind?`);
           break;
         }
         // The one remaining limit is real and is not about permission: a post lives in the cycle
@@ -164,31 +187,35 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
         // compare a plan date against the stored data month — never equal, which is why every
         // in-month move came back refused.
         if (cycleMonth && task.toDate.slice(0, 7) !== cycleMonth) {
-          replyParts.push(`That would move the post into ${monthName(task.toDate)} — moving posts to a different month isn’t available yet.`);
+          cannot(`That would move the post into ${monthName(task.toDate)} — moving posts to a different month isn’t available yet.`);
           break;
         }
-        await propose('move_post', { kind: 'move', cycleId, postId: post.id, toDate: task.toDate }, moveSummary(post, task.toDate, task.reason));
+        await propose('move_post', { kind: 'move', cycleId, postId: post.id, toDate: task.toDate }, moveSummary(post, task.toDate, task.reason),
+          { action: 'move', title: postTitle(post), fromDate: post.date, toDate: task.toDate });
         break;
       }
       case 'delete_post': {
         const post = resolvePost(task, posts);
-        if (!post) { replyParts.push(whichPost(task.reason)); break; }
-        await propose('delete_post', { kind: 'delete', cycleId, postId: post.id }, deleteSummary(post, task.reason));
+        if (!post) { cannot(whichPost(task.reason)); break; }
+        await propose('delete_post', { kind: 'delete', cycleId, postId: post.id }, deleteSummary(post, task.reason),
+          { action: 'remove', title: postTitle(post), fromDate: post.date });
         break;
       }
       case 'rewrite_post': {
         const post = resolvePost(task, posts);
-        if (!post) { replyParts.push(whichPost(task.reason)); break; }
-        if (!task.instruction) { replyParts.push('What change should I make to that caption?'); break; }
-        await propose('rewrite_post', { kind: 'rewrite', cycleId, postId: post.id, instruction: task.instruction }, rewriteSummary(post, task.reason));
+        if (!post) { cannot(whichPost(task.reason)); break; }
+        if (!task.instruction) { cannot('What change should I make to that caption?'); break; }
+        await propose('rewrite_post', { kind: 'rewrite', cycleId, postId: post.id, instruction: task.instruction }, rewriteSummary(post, task.reason),
+          { action: 'rewrite', title: postTitle(post), fromDate: post.date });
         break;
       }
       case 'change_format': {
         const post = resolvePost(task, posts);
-        if (!post) { replyParts.push(whichPost(task.reason)); break; }
-        if (!task.format) { replyParts.push('Which format should it be: reel, carousel or single image?'); break; }
-        if (task.format === post.format) { replyParts.push(`“${post.caption?.split('\n')[0] || post.pillar}” is already a ${task.format}.`); break; }
-        await propose('change_format', { kind: 'format', cycleId, postId: post.id, format: task.format }, formatSummary(post, task.format, task.reason));
+        if (!post) { cannot(whichPost(task.reason)); break; }
+        if (!task.format) { cannot('Which format should it be: reel, carousel or single image?'); break; }
+        if (task.format === post.format) { cannot(`“${postTitle(post)}” is already a ${task.format}.`); break; }
+        await propose('change_format', { kind: 'format', cycleId, postId: post.id, format: task.format }, formatSummary(post, task.format, task.reason),
+          { action: 'format', title: postTitle(post), fromDate: post.date, format: task.format });
         break;
       }
       case 'add_post': {
@@ -197,60 +224,71 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
         const format = inferred ? task.format! : 'single';
         const pv = await propose('add_post',
           { kind: 'add', cycleId, date, channel: task.channel ?? null, instruction: task.instruction ?? null, format },
-          addSummary(date, format, inferred, task.reason, task.instruction));
+          addSummary(date, format, inferred, task.reason, task.instruction),
+          // `instruction` is the SUBJECT the parser extracted, which is structured intent. It is
+          // deliberately not `reason` — that is the model's paraphrase of their phrasing, i.e.
+          // the transcript echo this whole rendering exists to replace.
+          { action: 'add', title: task.instruction?.trim() || null, toDate: date, format });
         lastAdd = { proposalId: pv.id, format, topic: task.instruction?.trim() || task.reason?.trim() || 'the new post' };
         break;
       }
       case 'generate_hook': {
         if (task.postId || task.selector) {
           const post = resolvePost(task, posts);
-          if (!post) { replyParts.push(whichPost(task.reason)); break; }
+          if (!post) { cannot(whichPost(task.reason)); break; }
           if (post.format !== 'reel' && post.format !== 'carousel') {
-            replyParts.push(`Hooks apply to reels and carousels. “${postTitle(post)}” is ${FMT_WORD[post.format] === 'single image' ? 'a single image' : `an ${FMT_WORD[post.format]}`}. Want me to make it a reel first, then add hooks?`);
+            cannot(`Hooks apply to reels and carousels. “${postTitle(post)}” is ${FMT_WORD[post.format] === 'single image' ? 'a single image' : `an ${FMT_WORD[post.format]}`}. Want me to make it a reel first, then add hooks?`);
             break;
           }
-          await propose('generate_hook', { kind: 'generate_hook', cycleId, postId: post.id }, generateHookSummary(`“${postTitle(post)}”`, task.reason));
+          await propose('generate_hook', { kind: 'generate_hook', cycleId, postId: post.id }, generateHookSummary(`“${postTitle(post)}”`, task.reason),
+            { action: 'hook', title: postTitle(post), fromDate: post.date });
           break;
         }
-        if (!lastAdd) { replyParts.push('Which post should I generate hooks for? Name its date, or ask me to create the reel first.'); break; }
+        if (!lastAdd) { cannot('Which post should I generate hooks for? Name its date, or ask me to create the reel first.'); break; }
         if (lastAdd.format !== 'reel' && lastAdd.format !== 'carousel') {
-          replyParts.push(`Hooks apply to reels and carousels. Want me to make “${lastAdd.topic}” a reel so I can add hooks?`);
+          cannot(`Hooks apply to reels and carousels. Want me to make “${lastAdd.topic}” a reel so I can add hooks?`);
           break;
         }
-        await propose('generate_hook', { kind: 'generate_hook', cycleId, refProposalId: lastAdd.proposalId }, generateHookSummary(`the new reel “${lastAdd.topic}”`, task.reason));
+        await propose('generate_hook', { kind: 'generate_hook', cycleId, refProposalId: lastAdd.proposalId }, generateHookSummary(`the new reel “${lastAdd.topic}”`, task.reason),
+          { action: 'hook', title: lastAdd.topic });
         break;
       }
       case 'refine': {
         const target = task.target === 'hook' || task.target === 'script' ? task.target : null;
-        if (!target || !task.instruction) { replyParts.push('Should I refine the hook or the script, and what change?'); break; }
+        if (!target || !task.instruction) { cannot('Should I refine the hook or the script, and what change?'); break; }
         if (task.postId || task.selector) {
           const post = resolvePost(task, posts);
-          if (!post) { replyParts.push(whichPost(task.reason)); break; }
+          if (!post) { cannot(whichPost(task.reason)); break; }
           const formatOk = target === 'hook' ? (post.format === 'reel' || post.format === 'carousel') : post.format === 'reel';
           if (!formatOk) {
-            replyParts.push(`${target === 'hook' ? 'Hooks' : 'Scripts'} apply to ${target === 'hook' ? 'reels and carousels' : 'reels'}. “${postTitle(post)}” is ${FMT_WORD[post.format] === 'single image' ? 'a single image' : `an ${FMT_WORD[post.format]}`}.`);
+            cannot(`${target === 'hook' ? 'Hooks' : 'Scripts'} apply to ${target === 'hook' ? 'reels and carousels' : 'reels'}. “${postTitle(post)}” is ${FMT_WORD[post.format] === 'single image' ? 'a single image' : `an ${FMT_WORD[post.format]}`}.`);
             break;
           }
           const field = target === 'hook' ? post.hook : post.script;
           if (!field || !field.trim()) {
-            replyParts.push(target === 'hook'
+            cannot(target === 'hook'
               ? `There’s no hook on “${postTitle(post)}” yet. Want me to generate some hooks first?`
               : `There’s no script on “${postTitle(post)}” yet. Open it and use Generate script first, then I can refine it.`);
             break;
           }
-          await propose('refine', { kind: 'refine', cycleId, postId: post.id, target, instruction: task.instruction }, refineSummary(target, `“${postTitle(post)}”`, task.reason));
+          await propose('refine', { kind: 'refine', cycleId, postId: post.id, target, instruction: task.instruction }, refineSummary(target, `“${postTitle(post)}”`, task.reason),
+            { action: 'refine', title: postTitle(post), fromDate: post.date, target });
           break;
         }
-        if (!lastAdd) { replyParts.push(`Which post’s ${target} should I refine? Name its date.`); break; }
-        await propose('refine', { kind: 'refine', cycleId, refProposalId: lastAdd.proposalId, target, instruction: task.instruction }, refineSummary(target, `the new reel “${lastAdd.topic}”`, task.reason));
+        if (!lastAdd) { cannot(`Which post’s ${target} should I refine? Name its date.`); break; }
+        await propose('refine', { kind: 'refine', cycleId, refProposalId: lastAdd.proposalId, target, instruction: task.instruction }, refineSummary(target, `the new reel “${lastAdd.topic}”`, task.reason),
+          { action: 'refine', title: lastAdd.topic, target });
         break;
       }
       case 'add_note': {
-        if (!task.content) { replyParts.push('What would you like me to note down?'); break; }
+        if (!task.content) { cannot('What would you like me to note down?'); break; }
         const noteCycle = task.targetMonth ? await resolveCycleForMonth(clientId, task.targetMonth) : cycleId;
         await saveNote({ clientId, cycleId: noteCycle, content: task.content, source, relevantFrom: task.relevantFrom ?? null, relevantTo: task.relevantTo ?? null });
         const window = task.relevantFrom || task.relevantTo ? ` (relevant ${task.relevantFrom ?? '…'} to ${task.relevantTo ?? '…'})` : '';
         replyParts.push(`Noted: ${task.content}${window}`);
+        // The honest state, and the same one the intake receipts already render: it is on record,
+        // it is not on the calendar. Nothing to apply — it is already saved.
+        items.push({ kind: 'idea', text: task.content });
         break;
       }
       case 'query': {
@@ -266,13 +304,16 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
       }
       case 'clarify':
       default:
-        replyParts.push(task.question ?? 'Could you say a bit more about what you’d like?');
+        // A clarify IS an unresolved item: the client asked for something and we could not place
+        // it. Rendering it in the list beside the changes we DID place is the whole point — a
+        // two-intent utterance where one half landed must show both halves.
+        cannot(task.question ?? 'Could you say a bit more about what you’d like?');
         break;
     }
   }
 
   const message = replyParts.join('\n') || (proposals.length ? '' : 'Okay.');
-  const resp: AgentTurnResponse = { conversationId: convId, message, proposals, changeSetId: proposals.length ? changeSetId : null };
+  const resp: AgentTurnResponse = { conversationId: convId, message, proposals, items, changeSetId: proposals.length ? changeSetId : null };
 
   await appendMessage({
     conversationId: convId, role: 'assistant',

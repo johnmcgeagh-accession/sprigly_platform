@@ -274,8 +274,10 @@ describe('one sheet, two month states (round 7, fix 2)', () => {
     // The consequence is the whole reason the sheet exists on this month: the agent APPLIES
     // NOTHING here, and the copy must not imply the month has already changed.
     expect(blurb).toContain('October is written');
-    expect(blurb).toContain('approve');
-    expect(blurb).toContain('nothing moves until you say so');
+    // NOT "approve". The blurb used to promise a desktop review queue to a client on a phone;
+    // it now describes the flow the sheet walks — see the interpretation phase.
+    expect(blurb).not.toMatch(/approv/i);
+    expect(blurb).toContain('before anything moves');
     // The correcting verbs now live in the placeholder — the one example left, and the only
     // place a suggestion belongs on a sheet that is already listening.
     fireEvent.click(screen.getByTestId('voice-mode'));

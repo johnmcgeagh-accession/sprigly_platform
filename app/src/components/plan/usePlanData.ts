@@ -18,18 +18,18 @@ export interface DraftSurfaceData {
   receipts: DraftReceipt[];
 }
 import type { PlanPost, PlanBeat, PlanIntake, DurableItemView, CycleSummary, PostStepView, ShapeResult, ExtractedSummary, IntakeResult } from '@/lib/types';
-import type { ProposalView } from '@/lib/agent/types';
+import type { InterpretedItem, ProposalView } from '@/lib/agent/types';
 import type { NoteView } from '@/lib/agent/notes';
 import { indexForecast, type WeatherDay, type WeatherWireDay } from '@/lib/weather';
 import { resolveDayCycleId } from '@/lib/cycle-nav';
 import { planMoveGuard, shouldReconcile } from '@/lib/plan-move';
 import { refusalMessage } from '@/lib/refusals';
 
-export interface AgentReply { message: string; proposals: ProposalView[] }
+export interface AgentReply { message: string; proposals: ProposalView[]; items: InterpretedItem[] }
 
 /** Which field a Shape/refine instruction targets (§26). */
 export type ShapeTarget = 'caption' | 'hook' | 'script';
-interface AgentTurn { conversationId: string; message: string; proposals?: ProposalView[] }
+interface AgentTurn { conversationId: string; message: string; proposals?: ProposalView[]; items?: InterpretedItem[] }
 
 export interface PlanDataInit {
   posts: PlanPost[];
@@ -603,10 +603,13 @@ export function usePlanData(init: PlanDataInit) {
       const r = (await res.json()) as AgentTurn;
       conversationId.current = r.conversationId;
       const created = r.proposals ?? [];
-      const reply: AgentReply = { message: r.message, proposals: created };
+      const reply: AgentReply = { message: r.message, proposals: created, items: r.items ?? [] };
       setAgentReply(reply);
       if (created.length) {
         setProposals((cur) => [...created.filter((p) => !cur.some((c) => c.id === p.id)), ...cur]);
+        // The DESKTOP surface still flashes its Approvals view — that view exists there. The
+        // mobile sheet never gets here with a message to flash, because it holds the client in
+        // the interpretation instead of sending them somewhere to find these rows.
         setFlashView('approvals'); setTimeout(() => setFlashView(null), 2800);
       } else if (r.message) { agentFlash(r.message); }
       track('agent_ask_submitted', { proposals: created.length, source });
@@ -658,6 +661,30 @@ export function usePlanData(init: PlanDataInit) {
     } catch { flash('Network error. Please try again.'); return false; }
     finally { setProposalBusy(null); }
   }, [proposalBusy, flash, refreshPlan, pollJob, pollHookInto, track]);
+
+  /**
+   * Apply an interpretation — the list the client just read, in the order they asked for it.
+   *
+   * Sequential, not parallel, and that is load-bearing: an ask can create a post AND generate
+   * hooks for it, and the hook proposal resolves its target from the ledger row the add wrote
+   * (`proposals.ts`, refProposalId). Firing them together would race the dependency and the
+   * second would come back blocked.
+   *
+   * A partial failure is reported honestly rather than rolled back: the changes that landed have
+   * landed, and pretending otherwise would mean a plan that disagrees with the receipt.
+   */
+  const applyChanges = useCallback(async (ids: readonly string[]): Promise<boolean> => {
+    let applied = 0;
+    for (const id of ids) { if (await decide(id, 'approve')) applied += 1; }
+    if (applied === ids.length) return true;
+    flash(applied ? `${applied} of ${ids.length} changes went through. The rest are still here.` : 'That didn’t go through. Nothing has changed.');
+    return applied > 0;
+  }, [decide, flash]);
+
+  /** Throw changes away without applying them. Silent — discarding is not news. */
+  const discardChanges = useCallback(async (ids: readonly string[]): Promise<void> => {
+    for (const id of ids) await decide(id, 'reject');
+  }, [decide]);
 
   /** Switch the rendered cycle. Every one of the client's months is now editable — the
    *  per-post `canEdit(date)` gate decides each affordance, so no whole-cycle read-only. */
@@ -739,7 +766,7 @@ export function usePlanData(init: PlanDataInit) {
     scriptGenerating, scriptError, weather,
     // actions
     reschedule, saveCaption, revert, removePost, addPost, addShapedPost,
-    generateChecklist, addStep, toggleStep, renameStep, shape, retryShape, ask, decide, switchCycle,
+    generateChecklist, addStep, toggleStep, renameStep, shape, retryShape, ask, decide, applyChanges, discardChanges, switchCycle,
     refreshProposals, refreshNotes, setAgentReply, setAgentError, flash, track,
     saveHook, generateHooks, clearHookCandidates,
     saveScript, generateScript,
