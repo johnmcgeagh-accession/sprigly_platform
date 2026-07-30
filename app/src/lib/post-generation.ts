@@ -8,7 +8,7 @@
  * the enqueue fails — never the default placeholder.
  */
 import { getUsageForCycle, isRewriteBlocked } from './usage';
-import { enqueueShape } from './queue';
+import { enqueueShape, enqueueHookJob } from './queue';
 import { markPostGenerating, markPostGenerationFailed } from './mutations';
 import { editScopeToday } from './edit-scope';
 import type { PlanActor } from '@sprigly/db';
@@ -47,4 +47,33 @@ export async function startPostGeneration(
   // 'busy' means a shape job for this post is already in flight — its jobId is
   // still the one to poll, so treat it as in-progress.
   return { jobId: r.jobId };
+}
+
+/**
+ * THE FULL GENERATION for an added post (F5): what else its format is owed, beyond the caption.
+ *
+ * The phase-2 fan-out gives every hook-eligible post its hook and every reel its script; a post
+ * added AFTER the fan-out got its caption and nothing else — the machinery existed and the add
+ * path never called it. The split by format mirrors phase2.ts exactly:
+ *
+ *   reel      NOTHING here, deliberately. A reel's hook and script are ONE combined job
+ *             (script.ts) whose input is the caption — which has not been written yet at add
+ *             time. The worker enqueues it the moment the caption lands
+ *             (consumer.ts → enqueueScriptIfReady), for every shape job on any path, so the
+ *             added reel is already in that chain. Enqueuing it here would race the caption
+ *             and burn its retries against a row that isn't ready.
+ *   carousel  the standalone hook job, autoSelect — no human is mid-flow to pick a candidate,
+ *             which is the same reasoning as the fan-out's (phase2.ts). This was the real hole:
+ *             no path enqueued an added carousel's hook at all.
+ *   single    hooks don't apply. Nothing.
+ *
+ * Best-effort by design: a hook is an enhancement to the post, not the post — a failure here
+ * must never fail the add that triggered it (the same rule phase2 records).
+ */
+export async function enqueueFollowOnGeneration(
+  clientId: string, cycleId: string, postId: string, format: string,
+): Promise<void> {
+  if (format !== 'carousel') return;
+  try { await enqueueHookJob({ type: 'hook', clientId, cycleId, targetPostId: postId, autoSelect: true }); }
+  catch { /* enhancement, not the post */ }
 }

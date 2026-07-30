@@ -25,6 +25,10 @@ export interface ParserContext {
   cycleMonths: string;             // formatted list of the client's cycle months
   planDigest: string;              // formatted digest of the whole cycle's posts, by date (with ids)
   productIndex: string;            // formatted index of the client's products (name/style/colourways)
+  /** The conversation so far — a bounded window of recent turns (threadForParser), assistant
+   *  turns serialised from their RESOLVED items. Empty/absent on a fresh thread. This is what
+   *  lets "move it back" and "that one" resolve against the previous exchange. */
+  recentThread?: string;
 }
 
 export const TASK_PARSER_SYSTEM_PROMPT = `You turn a single message from a clothing-brand client into an ordered list of TASKS for their content-plan assistant. The message may be typed or transcribed from speech — messy, rambling, or self-correcting. Read for intent.
@@ -72,7 +76,21 @@ Resolving post references:
 
 Every task also carries "reason": the user's own phrasing for that request (a short verbatim snippet), used in the confirmation.
 
-Dates must be ISO 'YYYY-MM-DD'. Resolve relative dates ("Saturday", "the 14th", "next Friday") against today's date and the current week.
+DATES — THE RULE, AND THE ONE MISTAKE NEVER TO MAKE.
+Dates must be ISO 'YYYY-MM-DD'. Every digest post carries its full ISO date, and the message opens with today's ISO date AND a table of the next 14 days with their weekdays — READ dates off that table rather than computing them.
+- A date is in the PAST only when its ISO date is EARLIER than today's. Today itself, and every date after it, is NOT past. COMPARE THE ISO DATES — never reason from month names, and never assume a month that is not the one on screen has been and gone. If today is 2026-07-30, then 2026-08-14 is a FORTNIGHT AWAY, and 2026-07-29 is yesterday.
+- The digest marks anything already past as '[past — read-only]'. If a row is not marked, it is not past. NEVER tell the client a date has passed unless its row says so.
+- You do not enforce editability and you do not need to: a past-dated edit is refused downstream, in words that name the real date. Emit the action the client asked for.
+
+THE CONVERSATION SO FAR — when the message includes a recent-thread block, it is one running conversation about this month, and the new message may refer BACK into it:
+- "it", "that one", "the reel" with no other anchor → the post the conversation most recently acted on or discussed. Read the ASSISTANT lines: they state each change with the post's title and RESOLVED ISO dates.
+- "move it back", "undo that", "put it back" after a move → a NEW move that reverses it: the source is the date the post is on NOW (the previous move's destination), the toDate is the previous move's SOURCE date. Emit a move_post with those dates — never a clarify asking which post.
+- "actually make it a carousel" after an add or format change → the same post the thread just handled.
+- The thread NEVER overrides the digest: the digest is the plan as it stands, the thread is how it got there. Resolve WHICH post from the thread; resolve WHERE it currently sits from the digest.
+
+RELATIVE REFERENCES resolve against TODAY, from the day table:
+- A bare weekday — "Friday's post", "the Friday post", "move Friday to Saturday" — means the NEXT such weekday from today (today itself counts when today is that weekday). Read its ISO date from the table and set fromDate/toDate accordingly. Do NOT ask which Friday; a wrong default costs one Discard because the resolved date is SHOWN to the client before anything applies. Ask only when the resolved DAY holds more than one post and the reference doesn't pick between them.
+- "tomorrow" = the day after today; "next week" = the week starting the coming Monday; "the 14th" = the 14th of the month on screen (or the named month). All from the table and the viewed month — never from arithmetic you do in your head.
 
 Output ONLY a JSON object, no prose, no code fences:
 {"tasks": [ { "action": "...", ... } ]}
@@ -127,9 +145,38 @@ Message: "tighten the hook on the Tuesday reel and rework its CTA"  (two refines
 Message: "um so yeah can you like push the wednesday one back a couple days, to the friday i mean"
 → {"tasks":[{"action":"move_post","selector":"the Wednesday post","toDate":"<friday ISO>","reason":"push the Wednesday one to Friday"}]}`;
 
+const DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/**
+ * Today + the next 14 days, each with its weekday — the lookup table relative references
+ * resolve from. Stating the table costs a few tokens and removes the entire class of failure
+ * where a small model does calendar arithmetic in its head: "next Friday", "tomorrow" and
+ * "the 14th" all become string lookups. Pure; exported for the fixtures.
+ */
+export function dayTable(todayIso: string): string {
+  const [y, m, d] = todayIso.split('-').map(Number);
+  const base = new Date(y!, (m ?? 1) - 1, d ?? 1);
+  const lines: string[] = [];
+  for (let i = 0; i <= 14; i++) {
+    const dt = new Date(base);
+    dt.setDate(base.getDate() + i);
+    const iso = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+    lines.push(`- ${iso} = ${DOW[dt.getDay()]}${i === 0 ? ' (TODAY)' : i === 1 ? ' (tomorrow)' : ''}`);
+  }
+  return lines.join('\n');
+}
+
 function buildUserMessage(text: string, ctx: ParserContext): string {
-  return `Today is ${ctx.today}.
+  return `TODAY IS ${ctx.today} (ISO). Anything later than that is in the future; only earlier dates are past.
+
+THE NEXT 14 DAYS (resolve every relative reference from this table):
+${dayTable(ctx.today)}
+
 The client is looking at ${ctx.viewedMonth}. Resolve bare dates ("the 5th", "Saturday") in ${ctx.viewedMonth} unless they name another month.
+${ctx.recentThread ? `
+THE CONVERSATION SO FAR (oldest first — "it"/"move it back" resolve against this):
+${ctx.recentThread}
+` : ''}
 
 The client's content-plan months (every one of these is theirs to work on; a post can be changed whenever its own date is today or later, whatever the month's status says):
 ${ctx.cycleMonths}

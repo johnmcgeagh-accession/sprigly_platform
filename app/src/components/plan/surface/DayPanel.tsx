@@ -40,7 +40,7 @@ import type { WeatherDay } from '@/lib/weather';
 import { CompactRows, ROWS_BEFORE_MORE, densityOf, rowsFromPosts } from './rows';
 
 export function DayPanel({
-  date, today, posts, beats, canAdd, onOpen, onAdd, onBeat, outside, timeOf, weather,
+  date, today, posts, beats, canAdd, changedIds, onOpen, onAdd, onBeat, outside, timeOf, weather,
 }: {
   date: string;
   today: string;
@@ -48,6 +48,9 @@ export function DayPanel({
   posts: PlanPost[];
   beats: PlanBeat[];
   canAdd: boolean;
+  /** Posts touched by a background apply (F4) — highlighted with the draft month's changed
+   *  treatment so the client can see what just happened without a receipt to read. */
+  changedIds?: readonly string[] | undefined;
   onOpen: (postId: string) => void;
   onAdd: () => void;
   onBeat: (text: string) => void;
@@ -82,7 +85,7 @@ export function DayPanel({
       </div>
 
       {density === 'cards' && posts.map((p) => (
-        <PostCard key={p.id} post={p} time={timeOf(p)} onOpen={() => onOpen(p.id)} />
+        <PostCard key={p.id} post={p} time={timeOf(p)} changed={!!changedIds?.includes(p.id)} onOpen={() => onOpen(p.id)} />
       ))}
       {density === 'rows' && (
         <div className="mb-2.5">
@@ -119,17 +122,27 @@ export function DayPanel({
 /** A full card: what the day holds, at a glance, with nothing to operate.
  *  Copy is NOT here — it lives in the detail sheet's tabs, beside the words it copies.
  *  A card is a thing you read (spec §4, D1). */
-function PostCard({ post, time, onOpen }: { post: PlanPost; time: string; onOpen: () => void }) {
+function PostCard({ post, time, changed = false, onOpen }: { post: PlanPost; time: string; changed?: boolean; onOpen: () => void }) {
   const onWay = isOnTheWay(post.status);
   const { heading, source, teaser } = cardText(post);
   return (
     <button
-      type="button" data-testid="post-card" data-post-id={post.id} onClick={onOpen}
-      className="mb-2.5 block w-full rounded-[20px] border border-line/30 bg-surface px-3.5 pb-3.5 pt-[13px] text-left shadow-card"
+      type="button" data-testid="post-card" data-post-id={post.id} data-changed={changed ? 'true' : undefined} onClick={onOpen}
+      className={[
+        'mb-2.5 block w-full rounded-[20px] px-3.5 pb-3.5 pt-[13px] text-left',
+        // The draft month's changed treatment, verbatim (F4): a solid accent edge and a wash —
+        // both non-text uses — because this is the card that changed while you weren't looking.
+        changed ? 'border border-coral-600 bg-coral-100' : 'border border-line/30 bg-surface shadow-card',
+      ].join(' ')}
     >
       <div className="mb-2.5 flex items-center gap-2.5">
         <FormatTile format={post.format} />
         <span className="min-w-0 truncate text-[12.5px] font-medium text-muted">{post.pillar}</span>
+        {changed && (
+          <span data-testid="changed-badge" className="flex-none rounded-full bg-coral-650 px-2 py-1 text-[11px] font-bold text-white">
+            Updated
+          </span>
+        )}
         {time && <span className="ml-auto flex-none text-[12.5px] font-semibold tabular-nums text-muted">{time}</span>}
       </div>
       <h4 className="mb-[5px] text-[16.5px] font-semibold leading-[1.3] tracking-[-.02em] text-chrome">

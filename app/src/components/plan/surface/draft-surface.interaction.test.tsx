@@ -59,7 +59,7 @@ function fakeData(over: Partial<PlanData> = {}, beats: DraftBeatView[] = [beat()
   } as unknown as PlanData;
 }
 
-beforeEach(() => { window.innerWidth = 390; });
+beforeEach(() => { window.innerWidth = 390; window.sessionStorage.clear(); });   // nav-state must not leak a position between tests — each render is a fresh tab
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('the draft month renders in the SHELL', () => {
@@ -421,27 +421,30 @@ describe('the microphone, and what it does HERE', () => {
     expect(screen.queryByTestId('nav-mic')).toBeNull();
   });
 
-  it('opens the voice sheet, and the sheet is where the framing copy lives', () => {
+  it('opens the conversation sheet, and the framing is the agent’s FIRST TURN', async () => {
+    stubFetch({ conversationId: null, turns: [] });
     render(<DraftSurface data={fakeData()} />);
     fireEvent.click(screen.getByTestId('nav-mic'));
 
     expect(screen.getByTestId('voice-sheet')).toBeTruthy();
-    expect(screen.getByTestId('voice-framing').textContent).toContain('This is your October draft');
+    expect((await screen.findByTestId('turn-agent')).textContent).toContain('This is your October draft');
     // There is exactly ONE place to say something: the page carries no say-something box.
     expect(screen.queryByLabelText('Anything we should know?')).toBeNull();
   });
 
-  it('sends what was said to the draft apply route, WITH its transport (gap 8)', async () => {
-    const calls = stubFetch({ beats: [beat()], application: { id: 'r', at: '', sourceText: 'x', scope: 'month_scoped', lines: [], changedIds: [] } });
+  it('sends what was said to the draft apply route, WITH its transport (gap 8) — and the receipt is the reply turn', async () => {
+    const calls = stubFetch({ beats: [beat()], application: { id: 'r', at: '', sourceText: 'x', scope: 'month_scoped', lines: ['Added: Wilderness candle relaunch — Launch, Sat 24 Oct'], changedIds: [] } });
     render(<DraftSurface data={fakeData()} />);
     fireEvent.click(screen.getByTestId('nav-mic'));
-    fireEvent.click(screen.getByTestId('voice-mode'));
     fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'The candle relaunches on the 24th' } });
     await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
 
-    expect(calls[0]!.url).toBe('/api/plan/draft/apply');
-    expect(calls[0]!.body).toEqual({ op: 'text', text: 'The candle relaunches on the 24th', source: 'web' });
-    expect(screen.queryByTestId('voice-sheet')).toBeNull();
+    const apply = calls.find((c) => c.url === '/api/plan/draft/apply')!;
+    expect(apply.body).toEqual({ op: 'text', text: 'The candle relaunches on the 24th', source: 'web' });
+    // The sheet STAYS: the reshape's receipt lines are the agent's turn, in the thread.
+    expect(screen.getByTestId('voice-sheet')).toBeTruthy();
+    const agents = screen.getAllByTestId('turn-agent');
+    expect(agents[agents.length - 1]!.textContent).toContain('Wilderness candle relaunch');
   });
 });
 
@@ -475,19 +478,20 @@ describe('the assumption, re-voiced as a nudge', () => {
       .toBeGreaterThan(kids.indexOf(screen.getByTestId('draft-card')));
   });
 
-  it('opens the voice sheet on the question, and sends only the client’s answer', async () => {
+  it('opens the sheet with the question as an agent TURN, and sends only the client’s answer', async () => {
     const calls = stubFetch({ beats: [beat()] });
     render(<DraftSurface data={withAssumptions(['no launches or restocks are on record for this month'])} />);
     fireEvent.click(screen.getByTestId('assumption-nudge'));
 
-    expect(screen.getByTestId('voice-framing').textContent).toContain('anything coming up?');
+    const agents = await screen.findAllByTestId('turn-agent');
+    expect(agents[agents.length - 1]!.textContent).toContain('anything coming up?');
 
-    fireEvent.click(screen.getByTestId('voice-mode'));
     fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'The candle, on the 24th' } });
     await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
 
     // Our question is context for the person, never part of the text a card quotes back.
-    expect(calls[0]!.body).toEqual({ op: 'text', text: 'The candle, on the 24th', source: 'web' });
+    const apply = calls.find((c) => c.url === '/api/plan/draft/apply')!;
+    expect(apply.body).toEqual({ op: 'text', text: 'The candle, on the 24th', source: 'web' });
   });
 
   it('says nothing when every assumption is about our own bookkeeping', () => {
@@ -824,14 +828,13 @@ describe('hardened against what a real client throws at it', () => {
     expect(screen.getByTestId('draft-card').querySelector('h4')!.className).toContain('break-words');
   });
 
-  it('a REFUSED reshape keeps the sheet, the words and the mode', async () => {
+  it('a REFUSED reshape keeps the sheet and the words', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: false, json: async () => ({ ok: false, message: 'This month’s draft is closed for changes.' }),
     }) as unknown as Response));
     const data = fakeData();
     render(<DraftSurface data={data} />);
     fireEvent.click(screen.getByTestId('nav-mic'));
-    fireEvent.click(screen.getByTestId('voice-mode'));
     fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'a sentence worth keeping' } });
     await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
 

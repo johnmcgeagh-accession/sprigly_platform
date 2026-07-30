@@ -29,13 +29,15 @@ import { DOW_INITIAL, monthGrid, fromIso, MONTHS_FULL } from './dates';
 import type { DayMark } from './WeekStrip';
 
 export function MonthGrid({
-  month, selected, today, marksFor, onPick, footer, summary,
+  month, selected, today, marksFor, changedFor, onPick, footer, summary,
 }: {
   month: string;
   selected: string;
   today: string;
   /** Every mark on a day, in order. Density, not a count: three posts draw three dots. */
   marksFor: (iso: string) => DayMark[];
+  /** RECENTLY CHANGED: an extra accent dot beside the day's marks (what-changed visibility). */
+  changedFor?: ((iso: string) => boolean) | undefined;
   onPick: (iso: string) => void;
   /** One sentence under the grid — the count, and the exception if there is one. */
   footer: string;
@@ -91,6 +93,11 @@ export function MonthGrid({
                     ].join(' ')}
                   />
                 ))}
+                {/* Recently changed: the accent dot beside the chrome marks — same 5px grammar,
+                    a different fact, decaying upstream as the day is viewed. */}
+                {changedFor?.(iso) && (
+                  <i data-testid="grid-changed" className="block h-[5px] w-[5px] rounded-full bg-coral-600" />
+                )}
               </span>
             </button>
           );

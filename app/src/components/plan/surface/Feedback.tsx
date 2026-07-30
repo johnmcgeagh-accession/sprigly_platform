@@ -36,6 +36,7 @@
  */
 import React, { useEffect } from 'react';
 import { AgentSays } from './AgentVoice';
+import { agentLines } from './agent-prose';
 
 export interface UndoState {
   message: string;
@@ -77,12 +78,22 @@ export function Feedback({
   // The agent speaking outranks a statement, and undo outranks the agent: undo is time-limited
   // and destructive to lose, and a reply is not.
   if (!undo && (agent || agentWorking)) {
+    // F7d — a digest answer arrives as markdown-ish prose and used to hit a text node whole,
+    // asterisks and all. It renders as its own structure now: a block per line, day-group
+    // headers weighted, markers stripped (agent-prose.ts). One line stays one line.
+    const lines = agent ? agentLines(agent) : [];
     return (
       <AgentSays
         testid="feedback-agent" working={!!agentWorking} label="Sprigly"
-        className="absolute inset-x-4 top-[46px] z-[40] shadow-[0_14px_34px_rgb(30_41_59_/_0.18)]"
+        className="absolute inset-x-4 top-[46px] z-[40] max-h-[46vh] overflow-y-auto shadow-[0_14px_34px_rgb(30_41_59_/_0.18)]"
       >
-        {agent || undefined}
+        {lines.length === 0 ? undefined
+          : lines.length === 1 ? lines[0]!.text
+          : lines.map((l, i) => (
+            <span key={i} data-testid="agent-line" className={`block ${l.header ? `font-semibold${i > 0 ? ' mt-1.5' : ''}` : ''}`}>
+              {l.text}
+            </span>
+          ))}
       </AgentSays>
     );
   }

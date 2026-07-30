@@ -5,6 +5,7 @@
 import { and, eq } from 'drizzle-orm';
 import { db, contentCycles } from '@sprigly/db';
 import { loadPlanPosts } from '../plan';
+import { isEditableDate } from '../edit-scope';
 import type { PlanPost } from '../types';
 import { fmtDate, parseISO, postTitle } from './selectors';
 
@@ -128,15 +129,36 @@ export function currentWeekPosts(posts: PlanPost[], today: Date): PlanPost[] {
   return posts.filter((p) => p.date >= from && p.date < to).sort((a, b) => a.date.localeCompare(b.date));
 }
 
-/** Compact digest of the WHOLE cycle's posts (the viewed plan month), by date, WITH ids — the
- *  parser resolves references like "the post from the 1st August" or "the Thursday reel" against
- *  this. NOT week-scoped: a move between two in-month dates must see the source post even when it
- *  falls outside the current week (the "this week" heritage caused false "no posts" replies). */
-export function cycleDigest(posts: PlanPost[]): string {
+/**
+ * Compact digest of the WHOLE cycle's posts (the viewed plan month), by date, WITH ids — the
+ * parser resolves references like "the post from the 1st August" or "the Thursday reel" against
+ * this. NOT week-scoped: a move between two in-month dates must see the source post even when it
+ * falls outside the current week (the "this week" heritage caused false "no posts" replies).
+ *
+ * ── EVERY DATE CARRIES ITS YEAR, AND ITS SIDE OF TODAY ───────────────────────────────
+ *
+ * It used to print `fmtDate` alone — `Fri 14 Aug`, with **no year**. The model was then asked
+ * whether that date had passed, from a line that does not say which year it is in, and it
+ * answered: *"The post on the 14th of August is in August 2026, which is in the past (today is
+ * 30 July 2026)."* A future date, called past, in the same breath as the correct today.
+ *
+ * Nothing in the prompt had told it otherwise. So two things are stated here rather than left to
+ * be derived: the ISO date, which is unambiguous and directly comparable against today; and
+ * whether the row is `[past]`, computed with the SAME predicate the write gate uses
+ * (`isEditableDate`, edit-scope.ts). The model no longer has to do date arithmetic to answer the
+ * one question it was getting wrong — it reads the answer off the line.
+ *
+ * `today` is optional so the pure digest stays testable without it; omitted, no row is marked
+ * (the ISO dates alone are still unambiguous).
+ */
+export function cycleDigest(posts: PlanPost[], today?: string): string {
   if (!posts.length) return '(no posts in this plan yet)';
   return [...posts]
     .sort((a, b) => a.date.localeCompare(b.date))
-    .map((p) => `- id=${p.id} | ${fmtDate(p.date)} | ${p.channel}/${p.format} | ${postTitle(p)}`)
+    .map((p) => {
+      const past = today && !isEditableDate(p.date, today) ? ' | [past — read-only]' : '';
+      return `- id=${p.id} | ${p.date} (${fmtDate(p.date)})${past} | ${p.channel}/${p.format} | ${postTitle(p)}`;
+    })
     .join('\n');
 }
 
@@ -160,11 +182,22 @@ export function bucketCycleState(posts: PlanPost[], today: Date): CycleState {
   const counts: Record<string, number> = {};
   for (const p of posts) counts[p.status] = (counts[p.status] ?? 0) + 1;
 
-  const line = (p: PlanPost) => `  - ${fmtDate(p.date)} (${p.format}, ${p.pillar || 'no pillar'}): ${(p.caption || '').slice(0, 80)}`;
+  // ── TODAY IS IN THE STATE, AND SO IS EACH ROW'S SIDE OF IT ─────────────────────────
+  // This summary is the ENTIRE plan context the query answerer gets (query.ts), and it used to
+  // contain no today at all — `today` was consumed here for bucketing and then thrown away. So
+  // the one other path that can put free text in front of a client could not tell a past date
+  // from a future one, and answered "is that in the past?" from nothing. Both facts are stated
+  // now, and `[past]` is computed with the write gate's own predicate rather than re-derived.
+  const todayIso = iso(today);
+  const line = (p: PlanPost) => {
+    const past = isEditableDate(p.date, todayIso) ? '' : ' [past — read-only]';
+    return `  - ${p.date} (${fmtDate(p.date)})${past} (${p.format}, ${p.pillar || 'no pillar'}): ${(p.caption || '').slice(0, 80)}`;
+  };
   // Full plan-month listing (not week-scoped) so the query answerer sees the whole cycle and can
   // answer any date/week question from the dates + today — never blinkered to "this week".
   const byDate = [...posts].sort((a, b) => a.date.localeCompare(b.date));
   const summary = [
+    `TODAY IS ${todayIso}. A date is in the FUTURE if it is later than that, and in the PAST only if it is earlier. Compare the ISO dates.`,
     `Plan has ${posts.length} live posts (${Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(', ') || 'none'}).`,
     byDate.length ? 'Posts (by date):' : '(no posts scheduled yet)',
     ...byDate.map(line),

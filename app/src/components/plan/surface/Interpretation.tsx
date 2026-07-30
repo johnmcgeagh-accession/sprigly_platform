@@ -36,7 +36,7 @@
  * be renderable in the same register as the decomposer rollup and the diff receipts, and that
  * register lives on the client.
  */
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import type { InterpretedItem } from '@/lib/agent/types';
 import { AgentDots } from './AgentVoice';
 import { SprigMarkV2 } from './icons';
@@ -62,7 +62,16 @@ export function lineFor(item: Extract<InterpretedItem, { kind: 'change' }>): Lin
   const fmt = item.format ? FORMAT_WORD[item.format] ?? item.format : null;
   switch (item.action) {
     case 'move':
-      return { verb: 'Move', title: item.title, tail: item.toDate ? `→ ${shortDate(item.toDate)}` : null };
+      // BOTH dates (F3a). The source is the resolved answer to a relative reference —
+      // "Friday's post" resolves to a real Friday, and this line is where a wrong resolution
+      // becomes visible and discardable BEFORE it applies. Omitting the source made the one
+      // field the client most needs to check invisible.
+      return {
+        verb: 'Move', title: item.title,
+        tail: item.toDate
+          ? `${item.fromDate ? `${shortDate(item.fromDate)} ` : ''}→ ${shortDate(item.toDate)}`
+          : item.fromDate ? shortDate(item.fromDate) : null,
+      };
     case 'add':
       // No subject stated → the line names what it can, which is the format and the day. It
       // never invents a topic to fill the gap.
@@ -86,134 +95,138 @@ export function lineFor(item: Extract<InterpretedItem, { kind: 'change' }>): Lin
   }
 }
 
-export function Interpretation({
-  items, busy, applying, onApply, onDiscard, onDropItem,
+/** Where an interpretation turn stands in its life. `open` is the only actionable state. */
+export type InterpretationStatus = 'open' | 'applying' | 'resolved' | 'discarded';
+
+/**
+ * ── THE INTERPRETATION, AS A TURN (the conversation sheet) ───────────────────────────
+ *
+ * The consent moment is no longer a phase that REPLACES the sheet's body — it is one turn of
+ * the thread, in the agent's register, with its actions inline. The client reads it where the
+ * conversation happened, answers a question by just talking (the composer never unmounted), and
+ * Apply/Discard live on the turn they act on. The dead-end — a full-screen consent state with
+ * no way to reply — is gone by construction.
+ *
+ * Everything about the DERIVATION is unchanged: every line is built from the resolved fields
+ * on the item (lineFor), never a sentence the model wrote.
+ *
+ * `live` gates the aria-live region: only the NEWEST turn of a thread announces. A history of
+ * ten status regions would re-announce the whole conversation at every render.
+ */
+export function InterpretationTurn({
+  items, status, busy, live = false, onApply, onDiscard, onDropItem,
 }: {
   items: readonly InterpretedItem[];
-  /** A write is in flight somewhere. Everything is inert. */
+  status: InterpretationStatus;
+  /** A write is in flight somewhere. The actions are inert. */
   busy?: boolean | undefined;
-  /** The agent is still working — no items yet, dots only. */
-  applying?: boolean | undefined;
-  onApply: () => void;
-  onDiscard: () => void;
+  live?: boolean | undefined;
+  onApply?: (() => void) | undefined;
+  onDiscard?: (() => void) | undefined;
   /** Per-item discard. Cheap because a change IS a proposal row, and dropping one is a reject. */
   onDropItem?: ((proposalId: string) => void) | undefined;
 }) {
   const changes = items.filter((i): i is Extract<InterpretedItem, { kind: 'change' }> => i.kind === 'change');
-  const applicable = changes.length > 0;
-
-  /**
-   * ── Focus, when the sheet changes what it is ─────────────────────────────────────────
-   *
-   * The client pressed Send, and the control they pressed it with is now unmounted. The sheet's
-   * focus trap runs on OPEN, so it does not re-place focus when the sheet's whole body is
-   * replaced mid-life — leaving a keyboard or screen-reader user with focus on the body while
-   * an entirely new decision appeared in front of them.
-   *
-   * The list takes focus, not the Apply button. Apply is a commitment; landing on it means one
-   * Enter away from changing their plan without having read a word of what it says. The region
-   * is the thing to read, so the region is the thing to focus.
-   *
-   * `preventScroll` for the same reason it is used everywhere else on this surface: focus is
-   * being moved for a reason the client did not ask for.
-   */
-  const region = useRef<HTMLDivElement>(null);
-  const landed = items.length > 0;
-  useEffect(() => {
-    if (landed) region.current?.focus({ preventScroll: true });
-  }, [landed]);
+  const applicable = status === 'open' && changes.length > 0 && !!onApply;
 
   return (
-    <div data-testid="interpretation" className="flex min-h-0 flex-1 flex-col">
-      <div
-        ref={region}
-        role="status" aria-live="polite" aria-label="What we understood"
-        // -1 so it can be focused programmatically without joining the tab order: it is a
-        // destination, not a stop on the way to the buttons.
-        tabIndex={-1}
-        className="min-h-0 flex-1 overflow-y-auto rounded-[14px] border-l-[3px] border-coral-700 bg-coral-100 px-3 py-3 outline-none [scrollbar-width:none]"
-      >
-        <div className="mb-2 flex items-center gap-2">
-          <SprigMarkV2 aria-hidden="true" className="h-[15px] w-[15px] flex-none text-coral-700" />
-          <span className="text-[11px] font-bold uppercase tracking-[.1em] text-coral-800">
-            {applying ? 'Working it out' : 'Here’s what I understood'}
-          </span>
-          {applying && <AgentDots />}
-        </div>
+    <div
+      data-testid="interpretation" data-status={status}
+      {...(live ? { role: 'status' as const, 'aria-live': 'polite' as const } : {})}
+      aria-label="What we understood"
+      className="mr-8 rounded-[14px] border-l-[3px] border-coral-700 bg-coral-100 px-3 py-3"
+    >
+      <div className="mb-2 flex items-center gap-2">
+        <SprigMarkV2 aria-hidden="true" className="h-[15px] w-[15px] flex-none text-coral-700" />
+        <span className="text-[11px] font-bold uppercase tracking-[.1em] text-coral-800">
+          Here’s what I understood
+        </span>
+      </div>
 
-        <ul className="flex flex-col gap-2">
-          {items.map((item, i) => {
-            if (item.kind === 'idea') {
-              return (
-                <li key={`idea-${i}`} data-testid="interp-idea" className="text-[14.5px] leading-[1.45] text-coral-800">
-                  <span className="font-semibold">Saved to your ideas</span>
-                  <span className="text-coral-700"> — couldn’t place a date.</span>
-                  <span className="mt-0.5 block">“{item.text}”</span>
-                </li>
-              );
-            }
-            if (item.kind === 'unresolved') {
-              return (
-                <li key={`un-${i}`} data-testid="interp-unresolved" className="text-[14.5px] leading-[1.45] text-coral-800">
-                  {item.question}
-                </li>
-              );
-            }
-            const { verb, title, tail } = lineFor(item);
+      <ul className="flex flex-col gap-2">
+        {items.map((item, i) => {
+          if (item.kind === 'idea') {
             return (
-              <li key={item.proposalId} data-testid="interp-change" data-proposal-id={item.proposalId}
-                className="flex items-start gap-2 text-[14.5px] leading-[1.45] text-coral-800">
-                <span className="min-w-0 flex-1">
-                  <span className="font-semibold">{verb}</span>
-                  {title ? <span> “{title}”</span> : null}
-                  {tail ? <span className="font-semibold"> {tail}</span> : null}
-                </span>
-                {onDropItem && (
-                  <button
-                    type="button" data-testid="interp-drop" disabled={busy}
-                    aria-label={`Leave out: ${verb}${title ? ` ${title}` : ''}`}
-                    onClick={() => onDropItem(item.proposalId)}
-                    // 44px of hit area around a small glyph — visually inert, thumb-sized.
-                    className="-my-2 -mr-1 flex h-11 w-11 flex-none items-center justify-center text-coral-700 disabled:opacity-40"
-                  >
-                    <span aria-hidden="true" className="text-[17px] leading-none">×</span>
-                  </button>
-                )}
+              <li key={`idea-${i}`} data-testid="interp-idea" className="text-[14.5px] leading-[1.45] text-coral-800">
+                <span className="font-semibold">Saved to your ideas</span>
+                <span className="text-coral-700"> — couldn’t place a date.</span>
+                <span className="mt-0.5 block">“{item.text}”</span>
               </li>
             );
-          })}
-          {!items.length && !applying && (
-            <li data-testid="interp-empty" className="text-[14.5px] leading-[1.45] text-coral-800">
-              I didn’t catch anything to change there. Try again, or type it.
+          }
+          if (item.kind === 'unresolved') {
+            return (
+              <li key={`un-${i}`} data-testid="interp-unresolved" className="text-[14.5px] leading-[1.45] text-coral-800">
+                {item.question}
+              </li>
+            );
+          }
+          const { verb, title, tail } = lineFor(item);
+          return (
+            <li key={item.proposalId} data-testid="interp-change" data-proposal-id={item.proposalId}
+              className="flex items-start gap-2 text-[14.5px] leading-[1.45] text-coral-800">
+              <span className="min-w-0 flex-1">
+                <span className="font-semibold">{verb}</span>
+                {title ? <span> “{title}”</span> : null}
+                {tail ? <span className="font-semibold"> {tail}</span> : null}
+              </span>
+              {onDropItem && status === 'open' && (
+                <button
+                  type="button" data-testid="interp-drop" disabled={busy}
+                  aria-label={`Leave out: ${verb}${title ? ` ${title}` : ''}`}
+                  onClick={() => onDropItem(item.proposalId)}
+                  // 44px of hit area around a small glyph — visually inert, thumb-sized.
+                  className="-my-2 -mr-1 flex h-11 w-11 flex-none items-center justify-center text-coral-700 disabled:opacity-40"
+                >
+                  <span aria-hidden="true" className="text-[17px] leading-none">×</span>
+                </button>
+              )}
             </li>
-          )}
-        </ul>
-      </div>
+          );
+        })}
+        {!items.length && (
+          <li data-testid="interp-empty" className="text-[14.5px] leading-[1.45] text-coral-800">
+            I didn’t catch anything to change there. Try again, or type it.
+          </li>
+        )}
+      </ul>
 
-      <div className="mt-3 flex flex-none items-center gap-2">
-        <button
-          type="button" data-testid="interp-discard" disabled={busy} onClick={onDiscard}
-          className="min-h-[52px] flex-none rounded-2xl bg-line-soft px-5 text-[15px] font-semibold text-chrome disabled:opacity-50"
-        >
-          Discard
-        </button>
-        {/*
-          APPLY. Not "Approve" — the word is fenced out of this flow (terminology.fence.test.ts).
-          Approve is what you do to somebody else's work before they proceed; this is the client's
-          own plan and the button is the moment it changes. It says what it does.
+      {/*
+        APPLY. Not "Approve" — the word is fenced out of this flow (terminology.fence.test.ts).
+        Approve is what you do to somebody else's work before they proceed; this is the client's
+        own plan and the button is the moment it changes.
 
-          Absent, not disabled, when there is nothing applicable: a primary action that can only
-          refuse is worse than no primary action. The unresolved lines above have already said why.
-        */}
-        {applicable && (
+        ABSENT, not disabled, when nothing is applicable — and absent once the turn resolved:
+        a receipt does not need a second Apply. The one working indicator during the apply is
+        the dots (spec: no secondary status bars).
+      */}
+      {status === 'applying' && (
+        <div className="mt-2.5 flex items-center gap-2">
+          <AgentDots />
+          <span className="text-[12.5px] font-semibold text-coral-800">Applying</span>
+        </div>
+      )}
+      {status === 'discarded' && (
+        <p data-testid="interp-discarded" className="mt-2 text-[12.5px] font-semibold text-coral-700">
+          Discarded — nothing changed.
+        </p>
+      )}
+      {applicable && (
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            type="button" data-testid="interp-discard" disabled={busy} onClick={onDiscard}
+            className="min-h-[44px] flex-none rounded-[12px] bg-surface px-4 text-[13.5px] font-semibold text-chrome ring-1 ring-inset ring-line/55 disabled:opacity-50"
+          >
+            Discard
+          </button>
           <button
             type="button" data-testid="interp-apply" disabled={busy} onClick={onApply}
-            className="flex min-h-[52px] flex-1 items-center justify-center rounded-2xl bg-coral-650 text-[15.5px] font-bold text-white shadow-[0_10px_26px_-6px_rgb(var(--t-accent-600,232_112_95)_/_0.58)] disabled:bg-line-soft disabled:text-muted disabled:shadow-none"
+            className="flex min-h-[44px] flex-1 items-center justify-center rounded-[12px] bg-coral-650 text-[14px] font-bold text-white disabled:bg-line-soft disabled:text-muted"
           >
-            {busy ? 'Applying…' : `Apply ${changes.length === 1 ? 'this change' : `these ${changes.length} changes`}`}
+            {`Apply ${changes.length === 1 ? 'this change' : `these ${changes.length} changes`}`}
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

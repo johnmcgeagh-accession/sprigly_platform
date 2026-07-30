@@ -57,7 +57,7 @@ function fakeData(over: Partial<PlanData> = {}): PlanData {
 
 const openSheet = () => fireEvent.click(screen.getByTestId('post-card'));
 
-beforeEach(() => { window.innerWidth = 390; });
+beforeEach(() => { window.innerWidth = 390; window.sessionStorage.clear(); });   // nav-state must not leak a position between tests — each render is a fresh tab
 afterEach(cleanup);
 
 describe('opening a post', () => {
@@ -656,111 +656,172 @@ describe('a post’s tasks, in its sheet (round 6, P9)', () => {
   });
 });
 
-describe('the mic on a committed month opens the SAME sheet (round 7, fix 2)', () => {
+describe('the mic on a committed month opens the CONVERSATION sheet', () => {
   /**
-   * The agent now returns an INTERPRETATION as well as proposals, and the sheet holds the client
-   * on it rather than closing. `items` is what gets rendered; `proposals` is what Apply executes.
+   * The sheet is a thread now: the reply renders as turns, the interpretation is a turn with
+   * inline Apply/Discard, and the apply's settled report becomes the confirmation turn. The
+   * composer never unmounts — there is no mode toggle and no phase to escape from.
    */
+  const REPLY = {
+    message: 'I’ve put that up for you.',
+    proposals: [{ id: 'pr1' }],
+    items: [{ kind: 'change', proposalId: 'pr1', action: 'move', title: 'Fragrance Note Deep Dive: Summer', fromDate: '2026-10-08', toDate: '2026-10-12' }],
+  };
   const withAgent = (over: Partial<PlanData> = {}) => fakeData({
-    ask: vi.fn(async () => ({
-      message: 'I’ve put that up for you.',
-      proposals: [{ id: 'pr1' }],
-      items: [{ kind: 'change', proposalId: 'pr1', action: 'move', title: 'Fragrance Note Deep Dive: Summer', fromDate: '2026-10-08', toDate: '2026-10-12' }],
-    })),
-    applyChanges: vi.fn(async () => true),
+    posts: [post()],
+    ask: vi.fn(async () => REPLY),
+    // The surface's isPending reads the live pending list — Apply only sends what is pending.
+    proposals: REPLY.proposals,
+    agentReply: REPLY,
+    applyChanges: vi.fn(async () => ({ applied: ['pr1'], failed: [], changedPostIds: [] })),
     discardChanges: vi.fn(async () => {}),
     agentBusy: false,
     ...over,
   } as Partial<PlanData>);
 
-  it('opens the voice sheet, not a line of toast copy', () => {
+  const speak = async (value: string) => {
+    fireEvent.change(screen.getByTestId('voice-input'), { target: { value } });
+    await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+  };
+
+  it('opens the conversation sheet: one thread, one composer, one mic control', () => {
     render(<CommittedSurface data={withAgent()} />);
     fireEvent.click(screen.getByTestId('nav-mic'));
 
     expect(screen.getByTestId('voice-sheet')).toBeTruthy();
+    expect(screen.getByTestId('thread')).toBeTruthy();
     expect(screen.getByTestId('voice-mic')).toBeTruthy();
-    expect(screen.getByTestId('waveform')).toBeTruthy();
+    expect(screen.getByTestId('voice-input')).toBeTruthy();
   });
 
-  it('submits to the AGENT path, carrying how it was said', async () => {
+  it('submits to the AGENT path — silent, so nothing doubles over the thread — and the words become a bubble', async () => {
     const data = withAgent();
     render(<CommittedSurface data={data} />);
     fireEvent.click(screen.getByTestId('nav-mic'));
-    fireEvent.click(screen.getByTestId('voice-mode'));
-    fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'move the Thursday post to Friday' } });
-    await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+    await speak('move the Thursday post to Friday');
 
-    expect(data.ask).toHaveBeenCalledWith('move the Thursday post to Friday', null, 'web');
-    // It no longer closes on send. Sending is the middle of the gesture, not the end of it —
-    // the sheet stays and shows what it understood.
+    expect(data.ask).toHaveBeenCalledWith('move the Thursday post to Friday', null, 'web', { silent: true });
+    expect(screen.getByTestId('turn-user').textContent).toBe('move the Thursday post to Friday');
     expect(screen.getByTestId('voice-sheet')).toBeTruthy();
     expect(screen.getByTestId('interpretation')).toBeTruthy();
   });
 
-  /**
-   * ── The assertion Fix B reverses ───────────────────────────────────────────────────
-   *
-   * This read: *"reports what the agent DID, and says the change is waiting rather than done"* —
-   * and asserted the toast contained "1 change to approve." It was right that nothing may claim
-   * to have applied, and that half still holds. It was wrong about where the client goes next:
-   * "to approve" meant Approvals, a DESKTOP view. On a phone the sentence pointed at a screen
-   * that does not exist and the change sat there unapplied.
-   *
-   * Consent now happens in the sheet, on the interpretation, and the word "approve" is fenced
-   * out of the flow entirely (terminology.fence.test.ts).
-   */
-  it('shows the INTERPRETATION and applies nothing until the client says so', async () => {
+  it('shows the INTERPRETATION as a turn and applies nothing until the client says so', async () => {
     const data = withAgent();
     render(<CommittedSurface data={data} />);
     fireEvent.click(screen.getByTestId('nav-mic'));
-    fireEvent.click(screen.getByTestId('voice-mode'));
-    fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'move it' } });
-    await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+    await speak('move it');
 
     const said = screen.getByTestId('interpretation').textContent ?? '';
     expect(said).toContain('Fragrance Note Deep Dive: Summer');
     expect(said).toContain('Mon 12 Oct');
     expect(said).not.toMatch(/approve|approval/i);
-    // Nothing applied, and nothing pointing anywhere else.
     expect(data.applyChanges).not.toHaveBeenCalled();
     expect(screen.queryByTestId('feedback')).toBeNull();
   });
 
-  it('APPLY executes the proposals, closes, and the receipt confirms what the list promised', async () => {
-    const data = withAgent();
+  /**
+   * ── F4, threaded ───────────────────────────────────────────────────────────────────
+   *
+   * Apply still runs in the background — but the sheet STAYS, and the settled report arrives
+   * as the next agent turn. The chip + highlights land outside the sheet either way (the
+   * post-apply confirmation on the plan surface, unchanged).
+   */
+  it('APPLY stays in the thread: dots on the turn, then the confirmation turn — and the chip lands outside', async () => {
+    let settle!: (v: { applied: string[]; failed: string[]; changedPostIds: string[] }) => void;
+    const data = withAgent({
+      applyChanges: vi.fn(() => new Promise((res) => { settle = res; })),
+    } as Partial<PlanData>);
     render(<CommittedSurface data={data} />);
     fireEvent.click(screen.getByTestId('nav-mic'));
-    fireEvent.click(screen.getByTestId('voice-mode'));
-    fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'move it' } });
-    await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
-    await act(async () => { fireEvent.click(screen.getByTestId('interp-apply')); });
+    await speak('move it');
+    fireEvent.click(screen.getByTestId('interp-apply'));
 
+    // In flight: the sheet is open, the turn shows the one working indicator, nothing landed.
     expect(data.applyChanges).toHaveBeenCalledWith(['pr1']);
-    expect(screen.queryByTestId('voice-sheet')).toBeNull();
-    expect(screen.getByTestId('feedback').textContent).toContain('your plan is updated');
+    expect(screen.getByTestId('voice-sheet')).toBeTruthy();
+    expect(screen.getByTestId('interpretation').getAttribute('data-status')).toBe('applying');
+    expect(screen.queryByTestId('summary-chip')).toBeNull();
+
+    await act(async () => { settle({ applied: ['pr1'], failed: [], changedPostIds: ['p1'] }); });
+    // The confirmation is the next agent turn…
+    const agents = screen.getAllByTestId('turn-agent');
+    expect(agents[agents.length - 1]!.textContent).toContain('Done — your plan is updated.');
+    // …and the surface's treatment landed behind the sheet.
+    expect(screen.getByTestId('summary-chip').textContent).toContain('1 moved');
+    fireEvent.click(screen.getByTestId('voice-close'));
+    expect(screen.getByTestId('post-card').getAttribute('data-changed')).toBe('true');
   });
 
-  it('DISCARD rejects them and applies nothing', async () => {
+  it('the chip expands into the applied lines, and clearing it KEEPS the highlights', async () => {
+    const data = withAgent({
+      applyChanges: vi.fn(async () => ({ applied: ['pr1'], failed: [], changedPostIds: ['p1'] })),
+    } as Partial<PlanData>);
+    render(<CommittedSurface data={data} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+    await speak('move it');
+    await act(async () => { fireEvent.click(screen.getByTestId('interp-apply')); });
+    fireEvent.click(screen.getByTestId('voice-close'));
+
+    fireEvent.click(screen.getByTestId('summary-chip'));
+    expect(screen.getByTestId('applied-panel').textContent).toContain('Fragrance Note Deep Dive: Summer');
+    fireEvent.click(screen.getByTestId('applied-clear'));
+    expect(screen.queryByTestId('summary-chip')).toBeNull();
+    // Different state, different lifetime (spec §3): the card stays marked.
+    expect(screen.getByTestId('post-card').getAttribute('data-changed')).toBe('true');
+  });
+
+  it('with the sheet OPEN a failure is the confirmation turn, not a second banner over the thread', async () => {
+    const data = withAgent({
+      applyChanges: vi.fn(async () => ({ applied: [], failed: ['pr1'], changedPostIds: [] })),
+    } as Partial<PlanData>);
+    render(<CommittedSurface data={data} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+    await speak('move it');
+    await act(async () => { fireEvent.click(screen.getByTestId('interp-apply')); });
+
+    const agents = screen.getAllByTestId('turn-agent');
+    expect(agents[agents.length - 1]!.textContent).toContain('Move “Fragrance Note Deep Dive: Summer”');
+    expect(agents[agents.length - 1]!.textContent).toContain('still here');
+    expect(screen.queryByTestId('feedback')).toBeNull();
+    expect(screen.queryByTestId('summary-chip')).toBeNull();   // nothing applied, nothing to celebrate
+  });
+
+  it('with the sheet CLOSED at settle time, the failure goes to the ONE feedback channel', async () => {
+    let settle!: (v: { applied: string[]; failed: string[]; changedPostIds: string[] }) => void;
+    const data = withAgent({
+      applyChanges: vi.fn(() => new Promise((res) => { settle = res; })),
+    } as Partial<PlanData>);
+    render(<CommittedSurface data={data} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+    await speak('move it');
+    fireEvent.click(screen.getByTestId('interp-apply'));
+    fireEvent.click(screen.getByTestId('voice-close'));   // the client left mid-apply
+
+    await act(async () => { settle({ applied: [], failed: ['pr1'], changedPostIds: [] }); });
+    const said = screen.getByTestId('feedback').textContent ?? '';
+    expect(said).toContain('Move “Fragrance Note Deep Dive: Summer”');
+    expect(said).toContain('still here');
+  });
+
+  it('DISCARD rejects them, marks the turn, and the conversation continues', async () => {
     const data = withAgent();
     render(<CommittedSurface data={data} />);
     fireEvent.click(screen.getByTestId('nav-mic'));
-    fireEvent.click(screen.getByTestId('voice-mode'));
-    fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'move it' } });
-    await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+    await speak('move it');
     await act(async () => { fireEvent.click(screen.getByTestId('interp-discard')); });
 
     expect(data.discardChanges).toHaveBeenCalledWith(['pr1']);
     expect(data.applyChanges).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('voice-sheet')).toBeNull();
+    expect(screen.getByTestId('interpretation').getAttribute('data-status')).toBe('discarded');
+    expect(screen.getByTestId('voice-sheet')).toBeTruthy();   // no dead end, no exit forced
   });
 
   it('a refusal keeps the sheet and the words', async () => {
     const data = withAgent({ ask: vi.fn(async () => null) } as Partial<PlanData>);
     render(<CommittedSurface data={data} />);
     fireEvent.click(screen.getByTestId('nav-mic'));
-    fireEvent.click(screen.getByTestId('voice-mode'));
-    fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'something worth keeping' } });
-    await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+    await speak('something worth keeping');
 
     expect(screen.getByTestId('voice-sheet')).toBeTruthy();
     expect((screen.getByTestId('voice-input') as HTMLTextAreaElement).value).toBe('something worth keeping');

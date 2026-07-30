@@ -87,6 +87,32 @@ export function useSpeechInput(onChunk: (text: string) => void) {
   const onChunkRef = useRef(onChunk);
   onChunkRef.current = onChunk;
 
+  /**
+   * ── Why `onresult` drives `speaking` too (F7b) ───────────────────────────────────────
+   *
+   * The one-pipeline fix specified a meter driven by the recogniser's own events, and wired
+   * `speaking` to `onspeechstart`/`onspeechend` alone. iOS WebKit does not reliably fire either
+   * — words arrive through `onresult` while `speaking` stays false forever — so on exactly the
+   * platform the activity meter exists for, the bars never moved: "Listening…" over a flatline,
+   * the same screen the analyser bug produced, now made of honesty instead of contention.
+   *
+   * A result IS speech detected — stronger evidence than `onspeechstart`, which merely claims
+   * it. So a result marks `speaking` and a decay timer clears it after RESULT_SPEECH_MS of no
+   * further signs of life. `onspeechend` still clears immediately where it exists; real silence
+   * still flatlines, because silence produces no results.
+   */
+  const speakDecay = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const RESULT_SPEECH_MS = 2000;
+  const markSpeaking = useCallback(() => {
+    setSpeaking(true);
+    if (speakDecay.current) clearTimeout(speakDecay.current);
+    speakDecay.current = setTimeout(() => setSpeaking(false), RESULT_SPEECH_MS);
+  }, []);
+  const clearSpeaking = useCallback(() => {
+    if (speakDecay.current) { clearTimeout(speakDecay.current); speakDecay.current = null; }
+    setSpeaking(false);
+  }, []);
+
   const getCtor = (): RecognitionCtor | null => {
     if (typeof window === 'undefined') return null;
     const w = window as unknown as { SpeechRecognition?: RecognitionCtor; webkitSpeechRecognition?: RecognitionCtor };
@@ -123,13 +149,15 @@ export function useSpeechInput(onChunk: (text: string) => void) {
       rec.onstart = () => { micTrace('rec:start'); if (wantRef.current) setState('recording'); };
       // The capture is open. Not "we asked for it" — open.
       rec.onaudiostart = () => { micTrace('rec:audiostart'); setAudioLive(true); setPulse((n) => n + 1); if (wantRef.current) setState('recording'); };
-      rec.onaudioend = () => { micTrace('rec:audioend'); setAudioLive(false); setSpeaking(false); };
-      rec.onspeechstart = () => { micTrace('rec:speechstart'); setSpeaking(true); setPulse((n) => n + 1); };
-      rec.onspeechend = () => { micTrace('rec:speechend'); setSpeaking(false); };
+      rec.onaudioend = () => { micTrace('rec:audioend'); setAudioLive(false); clearSpeaking(); };
+      rec.onspeechstart = () => { micTrace('rec:speechstart'); markSpeaking(); setPulse((n) => n + 1); };
+      rec.onspeechend = () => { micTrace('rec:speechend'); clearSpeaking(); };
 
       rec.onresult = (e) => {
-        // A result proves the session is live whatever `onstart` did, and is a pulse for the meter.
+        // A result proves the session is live whatever `onstart` did, and is a pulse for the
+        // meter — AND it is speech detected, on engines that never fire onspeechstart (F7b).
         if (wantRef.current) setState((s) => (s === 'starting' ? 'recording' : s));
+        markSpeaking();
         setPulse((n) => n + 1);
         let got = 0;
         for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -151,7 +179,7 @@ export function useSpeechInput(onChunk: (text: string) => void) {
       rec.onend = () => {
         micTrace('rec:end', wantRef.current ? 'wanted → restart' : 'done');
         recRef.current = null;
-        setAudioLive(false); setSpeaking(false);
+        setAudioLive(false); clearSpeaking();
         if (pendingRef.current || wantRef.current) {
           pendingRef.current = false;
           if (wantRef.current) { spawn(); return; }
@@ -170,7 +198,7 @@ export function useSpeechInput(onChunk: (text: string) => void) {
       recRef.current = null;
       if (wantRef.current) pendingRef.current = true; else setState('error');
     }
-  }, []);
+  }, [markSpeaking, clearSpeaking]);
 
   /**
    * Begin listening. **Synchronous on the gesture's own task** — nothing is awaited before
@@ -199,9 +227,9 @@ export function useSpeechInput(onChunk: (text: string) => void) {
     try { recRef.current?.stop(); } catch { /* already stopped */ }
     // NOT nulled: the instance must live until its own `onend`, or the next start lands on a
     // session WebKit has not released.
-    setSpeaking(false);
+    clearSpeaking();
     setState((s) => (s === 'recording' || s === 'starting' ? 'idle' : s));
-  }, []);
+  }, [clearSpeaking]);
 
   useEffect(() => () => {
     wantRef.current = false; pendingRef.current = false;

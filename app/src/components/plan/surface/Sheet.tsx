@@ -28,8 +28,9 @@
  * `prefers-reduced-motion` is honoured by the spring-back transition, not by the drag: refusing
  * to follow a thumb is not a reduced-motion accommodation, it is a broken control.
  */
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useFocusTrap } from '../a11y';
+import { sheetThemeOpened, sheetThemeClosed } from './theme-color';
 
 /** How far down the sheet has to travel before letting go closes it. */
 const DISMISS_PX = 96;
@@ -112,6 +113,15 @@ export function Sheet({ open, label, testid, onClose, layer = 0, hasOwnClose = f
   const drag = useRef({ x: 0, y: 0, dy: 0, travelled: 0, active: false });
 
   useFocusTrap(open, ref, onClose);
+
+  // F7c — the browser chrome follows the sheet: while any sheet is up, the `theme-color`
+  // band adopts the scrim tone (theme-color.ts), so the status bar stops being a bright
+  // canvas stripe over a dimmed app. Counted, because sheets stack (layer 0 + 1).
+  useEffect(() => {
+    if (!open) return;
+    sheetThemeOpened();
+    return sheetThemeClosed;
+  }, [open]);
 
   const setOffset = (px: number) => {
     const el = panel.current;

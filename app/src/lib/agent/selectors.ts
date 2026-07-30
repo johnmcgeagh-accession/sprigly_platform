@@ -50,15 +50,38 @@ export function postTitle(p: Pick<PlanPost, 'caption' | 'pillar'>): string {
   return base.length > 44 ? `${base.slice(0, 43)}…` : base;
 }
 
-/** Candidate posts a textual reference could mean: weekday, day-number, a format
- *  noun, or a pillar keyword. Returns all matches (0, 1, or many). */
-export function resolveTargets(text: string, posts: PlanPost[]): PlanPost[] {
+/**
+ * Candidate posts a textual reference could mean: weekday, day-number, a format
+ * noun, or a pillar keyword. Returns all matches (0, 1, or many).
+ *
+ * ── THE WEEKDAY RULE (F3a) ───────────────────────────────────────────────────────────
+ *
+ * "Friday's post" means THE NEXT FRIDAY FROM TODAY — today itself when today is a Friday —
+ * not "every post on any Friday this month". The old behaviour returned all weekday hits, so
+ * a month with four posted Fridays made every bare "Friday" ambiguous and the agent asked a
+ * question the calendar already answers. With `today` given, the weekday branch resolves to
+ * the FIRST occurrence of that weekday on-or-after today that actually holds posts; only when
+ * THAT day holds more than one post is the reference genuinely ambiguous (and the caller
+ * lists exactly those). A wrong default is cheap by design: the interpretation line shows
+ * the resolved date, so a bad guess is visible and discardable before anything applies.
+ *
+ * If no on-or-after occurrence holds a post, all weekday hits are returned (legacy shape) —
+ * the one Friday post in the month is still "Friday's post", and a past-dated resolution is
+ * refused honestly downstream rather than silently skipped here.
+ */
+export function resolveTargets(text: string, posts: PlanPost[], today?: string): PlanPost[] {
   const t = text.toLowerCase();
 
   for (const [name, dow] of Object.entries(WEEKDAYS)) {
     if (new RegExp(`\\b${name}\\b`).test(t)) {
       const hits = posts.filter((p) => parseISO(p.date).getDay() === dow);
-      if (hits.length) return hits;
+      if (!hits.length) continue;
+      if (today) {
+        const upcoming = hits.filter((p) => p.date >= today).sort((a, b) => a.date.localeCompare(b.date));
+        // The next such weekday that holds posts: every post on the EARLIEST upcoming date.
+        if (upcoming.length) return upcoming.filter((p) => p.date === upcoming[0]!.date);
+      }
+      return hits;
     }
   }
   const dayM = t.match(/\b(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?\b/);
@@ -105,8 +128,8 @@ export function resolveTargets(text: string, posts: PlanPost[]): PlanPost[] {
  * reference matches zero or more than one post — the caller turns that into a
  * clarify task (an ambiguous reference must never guess).
  */
-export function resolvePostSelector(selector: string, posts: PlanPost[]): string | null {
-  const hits = resolveTargets(selector, posts);
+export function resolvePostSelector(selector: string, posts: PlanPost[], today?: string): string | null {
+  const hits = resolveTargets(selector, posts, today);
   return hits.length === 1 ? hits[0]!.id : null;
 }
 
@@ -119,9 +142,9 @@ export function resolvePostSelector(selector: string, posts: PlanPost[]): string
  * when the id round-trips imperfectly.
  */
 export type MoveSource = { post: PlanPost } | { ambiguous: PlanPost[] } | null;
-export function resolveMoveSource(ref: { postId?: string | null; fromDate?: string | null; selector?: string | null }, posts: PlanPost[]): MoveSource {
+export function resolveMoveSource(ref: { postId?: string | null; fromDate?: string | null; selector?: string | null }, posts: PlanPost[], today?: string): MoveSource {
   if (ref.postId) { const p = posts.find((x) => x.id === ref.postId); if (p) return { post: p }; }
   if (ref.fromDate) { const on = posts.filter((p) => p.date === ref.fromDate); if (on.length === 1) return { post: on[0]! }; if (on.length > 1) return { ambiguous: on }; }
-  if (ref.selector) { const hits = resolveTargets(ref.selector, posts); if (hits.length === 1) return { post: hits[0]! }; if (hits.length > 1) return { ambiguous: hits }; }
+  if (ref.selector) { const hits = resolveTargets(ref.selector, posts, today); if (hits.length === 1) return { post: hits[0]! }; if (hits.length > 1) return { ambiguous: hits }; }
   return null;
 }

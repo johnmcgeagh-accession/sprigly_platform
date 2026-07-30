@@ -73,7 +73,7 @@ function fakeData(over: Partial<PlanData> = {}): PlanData {
 
 const open = () => fireEvent.click(screen.getByTestId('post-card'));
 
-beforeEach(() => { window.innerWidth = 390; });
+beforeEach(() => { window.innerWidth = 390; window.sessionStorage.clear(); });   // nav-state must not leak a position between tests — each render is a fresh tab
 afterEach(cleanup);
 
 describe('2 · the placeholder is not a caption, and now everything agrees', () => {

@@ -62,7 +62,7 @@ export function AgentDots({ tone = 'accent', className = '' }: {
 }
 
 export function AgentSays({
-  children, working = false, label = 'Sprigly', testid = 'agent-says', className = '', grows = false,
+  children, working = false, label = 'Sprigly', testid = 'agent-says', className = '', grows = false, live = true,
 }: {
   /** What the agent said. Absent while it is still working — then the dots stand alone. */
   children?: React.ReactNode;
@@ -82,11 +82,19 @@ export function AgentSays({
    * announces only what was added, which is what they have not heard yet.
    */
   grows?: boolean;
+  /**
+   * Whether this block is a LIVE region (the conversation sheet). In a thread only the NEWEST
+   * agent turn announces — a history of status regions would re-announce the whole conversation
+   * on every render. Default true, so every existing single-block use is unchanged.
+   */
+  live?: boolean;
 }) {
   const hasWords = children !== undefined && children !== null && children !== '';
   return (
     <div
-      data-testid={testid} role="status" aria-live="polite" aria-atomic={grows ? 'false' : 'true'} aria-label={label}
+      data-testid={testid}
+      {...(live ? { role: 'status' as const, 'aria-live': 'polite' as const, 'aria-atomic': grows ? ('false' as const) : ('true' as const) } : {})}
+      aria-label={label}
       className={[
         'flex items-start gap-2.5 rounded-[14px] border-l-[3px] border-coral-700 bg-coral-100 px-3 py-2.5',
         className,

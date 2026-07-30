@@ -21,7 +21,8 @@ export const QUERY_SYSTEM_PROMPT = `You are a clothing brand's content-plan assi
 - If the answer is in the context, answer directly and concisely (UK English).
 - If the question is about the schedule, use the plan state.
 - If the question needs brand knowledge that isn't in the context, say you don't have that on file rather than guessing.
-- Never invent posts, dates, products, or policies. No preamble.`;
+- Never invent posts, dates, products, or policies. No preamble.
+- DATES. The plan state opens with today's date and gives every post its ISO date ('YYYY-MM-DD'). A date is PAST only if its ISO date is EARLIER than today's; today itself and everything after it is not past. Never call a date past unless the plan state marked it '[past — read-only]'. Do NOT reason about month names — compare the ISO dates. If you are about to say a date has passed, check that comparison first.`;
 
 export interface AnswerQueryArgs {
   clientId: string;

@@ -15,7 +15,7 @@ import { patchPost, softDeletePost, addDraft, addGeneratedPost, addGeneratingPos
 import type { ActivityActor } from '../activity';
 import { enqueueShape, enqueueHookJob } from '../queue';
 import { getUsageForCycle, isRewriteBlocked } from '../usage';
-import { startPostGeneration } from '../post-generation';
+import { startPostGeneration, enqueueFollowOnGeneration } from '../post-generation';
 import { resolvePostForEdit, isEditableDate, canAddPost, editScopeToday } from '../edit-scope';
 import { markNoteIntegrated } from './notes';
 import type { MutatingAction, ProposalPayload, ProposalView } from './types';
@@ -107,6 +107,9 @@ export interface ApproveResult {
   // stays pending/approvable) — the client shows `message` and keeps the row actionable.
   blocked?: boolean;
   message?: string;
+  /** The post(s) this approval touched or created — what the surface highlights in the
+   *  what-changed treatment after a background apply (F4). Absent on blocked/failed. */
+  changedPostIds?: string[];
 }
 
 /** The post created by approving a given add proposal (its post_created ledger row carries
@@ -193,6 +196,9 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
 
   const payload = row.payload as unknown as ProposalPayload;
   let genJobId: string | undefined;   // add-with-instruction: the caption-generation job to poll
+  // The post(s) this approval touches/creates — reported back so the surface can run the
+  // what-changed treatment (chip + highlights) after a background apply (F4).
+  let changedPostIds: string[] = [];
   // Approved agent changes land in the plan_activity ledger as origin='agent', tagged
   // with this proposal id — one ordered stream with the user's direct edits (AUDIT §3).
   // origin 'agent', actor 'client'. The two disagree here on purpose: the agent composed the
@@ -216,22 +222,25 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
       const r = await enqueueShape({ type: 'shape', scope: 'post', clientId: row.clientId, cycleId: payload.cycleId, targetPostId: payload.postId, instruction: payload.instruction, source: 'web', proposalId: id, actor: 'client' });
       if ('error' in r) throw new Error(r.error);
       await setStatus(clientId, id, 'applied', null, true);
-      return { proposal: view({ ...row, status: 'applied' }), jobId: r.jobId };
+      return { proposal: view({ ...row, status: 'applied' }), jobId: r.jobId, changedPostIds: [payload.postId] };
     }
 
     if (payload.kind === 'move') {
       // Both ends must be today-onward: can't move a past post, nor INTO the past.
       if (!isEditableDate(payload.toDate, today) || !(await agentPostEditable(row.clientId, payload.postId, today))) return readOnlyFail();
       await patchPost(row.clientId, payload.cycleId, payload.postId, { date: payload.toDate }, agentActor, today);
+      changedPostIds = [payload.postId];
     } else if (payload.kind === 'delete') {
       if (!(await agentPostEditable(row.clientId, payload.postId, today))) return readOnlyFail();
       await softDeletePost(row.clientId, payload.cycleId, payload.postId, agentActor, today);
+      // Deliberately NOT reported as changed: the row is gone, so there is no card to highlight.
     } else if (payload.kind === 'format') {
       // Apply the format change (format_changed ledger, origin agent). The checklist
       // reconcile is left to the editor's keep/replace flow — approving a format change
       // never silently discards checklist progress.
       if (!(await agentPostEditable(row.clientId, payload.postId, today))) return readOnlyFail();
       await patchPost(row.clientId, payload.cycleId, payload.postId, { format: payload.format }, agentActor, today);
+      changedPostIds = [payload.postId];
     } else if (payload.kind === 'add') {
       if (!canAddPost(payload.date, today)) return readOnlyFail();   // ADD POLICY: see canAddPost
       const channel = payload.channel ?? await cycleChannel(row.clientId, payload.cycleId);
@@ -246,8 +255,15 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
         if (!created) return readOnlyFail();
         const gen = await startPostGeneration(row.clientId, payload.cycleId, created.postId, instruction, today);
         if ('jobId' in gen) genJobId = gen.jobId;
+        // THE FULL GENERATION (F5): an added carousel gets its hook enqueued alongside the
+        // caption (autoSelect, phase2's own reasoning). An added reel needs nothing here —
+        // the worker enqueues its combined hook+script the moment the caption lands
+        // (consumer.ts → enqueueScriptIfReady), and that chain covers this path already.
+        await enqueueFollowOnGeneration(row.clientId, payload.cycleId, created.postId, format);
+        changedPostIds = [created.postId];
       } else {
-        await addDraft(row.clientId, payload.cycleId, channel, payload.date, agentActor, format, today);
+        const added = await addDraft(row.clientId, payload.cycleId, channel, payload.date, agentActor, format, today);
+        if (added?.mode === 'applied') changedPostIds = added.changedPostIds;
       }
     } else if (payload.kind === 'generate_hook') {
       // Resolve the target (existing reel/carousel, or the post created by the referenced
@@ -271,7 +287,7 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
       const r = await enqueueHookJob({ type: 'hook', clientId: row.clientId, cycleId: payload.cycleId, targetPostId: target.postId });
       if ('error' in r) throw new Error(r.error);
       await setStatus(clientId, id, 'applied', null, true);
-      return { proposal: view({ ...row, status: 'applied' }), jobId: r.jobId, hookPostId: target.postId };
+      return { proposal: view({ ...row, status: 'applied' }), jobId: r.jobId, hookPostId: target.postId, changedPostIds: [target.postId] };
     } else if (payload.kind === 'refine') {
       // Refine an existing hook/script via the target-aware shape job (§26). Not-ready (the
       // field doesn't exist yet / create step unapproved) un-claims → stays approvable.
@@ -291,19 +307,21 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
       const r = await enqueueShape({ type: 'shape', scope: 'post', clientId: row.clientId, cycleId: payload.cycleId, targetPostId: target.postId, instruction: payload.instruction, target: payload.target, source: 'web', proposalId: id, actor: 'client' });
       if ('error' in r) throw new Error(r.error);
       await setStatus(clientId, id, 'applied', null, true);
-      return { proposal: view({ ...row, status: 'applied' }), jobId: r.jobId };
+      return { proposal: view({ ...row, status: 'applied' }), jobId: r.jobId, changedPostIds: [target.postId] };
     } else if (payload.kind === 'apply_caption') {
       // Weekly-session pre-generated rewrite: apply the already-validated caption
       // deterministically (no second generation), and mark any integrated note.
       if (!(await agentPostEditable(row.clientId, payload.postId, today))) return readOnlyFail();
       await patchPost(row.clientId, payload.cycleId, payload.postId, { caption: payload.caption }, agentActor, today);
       if (payload.noteId) await markNoteIntegrated(row.clientId, payload.noteId, id);
+      changedPostIds = [payload.postId];
     } else if (payload.kind === 'add_generated') {
       if (!canAddPost(payload.date, today)) return readOnlyFail();   // ADD POLICY: see canAddPost
-      await addGeneratedPost(row.clientId, payload.cycleId, { channel: payload.channel, date: payload.date, format: payload.format, pillar: payload.pillar, caption: payload.caption }, agentActor, today);
+      const added = await addGeneratedPost(row.clientId, payload.cycleId, { channel: payload.channel, date: payload.date, format: payload.format, pillar: payload.pillar, caption: payload.caption }, agentActor, today);
+      if (added?.mode === 'applied') changedPostIds = added.changedPostIds;
     }
     await setStatus(clientId, id, 'applied', null, true);
-    return { proposal: view({ ...row, status: 'applied' }), ...(genJobId ? { jobId: genJobId } : {}) };
+    return { proposal: view({ ...row, status: 'applied' }), ...(genJobId ? { jobId: genJobId } : {}), ...(changedPostIds.length ? { changedPostIds } : {}) };
   } catch (err) {
     await setStatus(clientId, id, 'failed', String(err), false);
     return { proposal: view({ ...row, status: 'failed' }) };

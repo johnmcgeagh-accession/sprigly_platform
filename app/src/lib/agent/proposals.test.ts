@@ -21,6 +21,7 @@ const h = vi.hoisted(() => ({
   addGen: vi.fn(),
   addGenerating: vi.fn(),
   startGen: vi.fn(),
+  followOn: vi.fn(),
   markNote: vi.fn(),
   enqueue: vi.fn(),
   enqueueHook: vi.fn(),
@@ -68,7 +69,10 @@ vi.mock('../mutations', () => ({
   addGeneratedPost: (...a: unknown[]) => h.addGen(...a),
   addGeneratingPost: (...a: unknown[]) => h.addGenerating(...a),
 }));
-vi.mock('../post-generation', () => ({ startPostGeneration: (...a: unknown[]) => h.startGen(...a) }));
+vi.mock('../post-generation', () => ({
+  startPostGeneration: (...a: unknown[]) => h.startGen(...a),
+  enqueueFollowOnGeneration: (...a: unknown[]) => h.followOn(...a),
+}));
 vi.mock('./notes', () => ({ markNoteIntegrated: (...a: unknown[]) => h.markNote(...a) }));
 vi.mock('../queue', () => ({ enqueueShape: (...a: unknown[]) => h.enqueue(...a), enqueueHookJob: (...a: unknown[]) => h.enqueueHook(...a) }));
 vi.mock('../usage', () => ({
@@ -103,6 +107,7 @@ beforeEach(() => {
   h.patch.mockReset(); h.softDelete.mockReset(); h.add.mockReset(); h.addGen.mockReset();
   h.addGenerating.mockReset().mockResolvedValue({ postId: 'post-new' });
   h.startGen.mockReset().mockResolvedValue({ jobId: 'shape_cycle-1_post-new' });
+  h.followOn.mockReset().mockResolvedValue(undefined);
   h.markNote.mockReset(); h.enqueue.mockReset();
   h.enqueueHook.mockReset().mockResolvedValue({ jobId: 'hook_cycle-1_post-9' });
   h.blocked = false; h.usage = { used: 0, limit: 30, unlimited: false };
@@ -217,6 +222,32 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     expect(h.startGen).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-new', 'a post about the linen restock', '2026-07-11');
     expect(r.jobId).toBe('shape_cycle-1_post-new');
     expect(h.add).not.toHaveBeenCalled();   // not the blank-draft path
+  });
+
+  /**
+   * ── F5: the full generation — the fixture ─────────────────────────────────────────
+   *
+   * An added CAROUSEL is owed its hook, and no path enqueued one (only the phase-2 fan-out
+   * did). An added REEL is owed a coherent {hook, script} — which is ONE combined job whose
+   * input is the caption, so it is deliberately NOT enqueued here: the worker enqueues it
+   * the moment the caption lands (consumer.ts → enqueueScriptIfReady), a chain the fan-out
+   * integration tests already pin. What this fixture asserts is the split.
+   */
+  it('F5: an agent-added CAROUSEL enqueues its hook alongside the caption', async () => {
+    h.claimQueue = [[{ ...moveRow, intent: 'add_post', payload: { kind: 'add', cycleId: 'cycle-1', date: '2026-07-15', channel: 'instagram', instruction: 'five ways to style the linen dress', format: 'carousel' } }]];
+    const r = await approveProposal(CLIENT, 'prop-1', 'client');
+    expect(r.proposal?.status).toBe('applied');
+    expect(h.startGen).toHaveBeenCalledTimes(1);                                   // the caption
+    expect(h.followOn).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-new', 'carousel');
+  });
+
+  it('F5: an agent-added REEL passes through the follow-on seam — the combined hook+script is the worker’s, on caption completion', async () => {
+    h.claimQueue = [[{ ...moveRow, intent: 'add_post', payload: { kind: 'add', cycleId: 'cycle-1', date: '2026-07-15', channel: 'instagram', instruction: 'the heatwave', format: 'reel' } }]];
+    const r = await approveProposal(CLIENT, 'prop-1', 'client');
+    expect(r.proposal?.status).toBe('applied');
+    expect(h.followOn).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-new', 'reel');
+    // No standalone hook job for a reel — its hook arrives WITH its script or not at all.
+    expect(h.enqueueHook).not.toHaveBeenCalled();
   });
 
   it('a BARE add_post (no instruction) inserts a blank draft, no generation', async () => {

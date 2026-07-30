@@ -24,6 +24,7 @@ import { indexForecast, type WeatherDay, type WeatherWireDay } from '@/lib/weath
 import { resolveDayCycleId } from '@/lib/cycle-nav';
 import { planMoveGuard, shouldReconcile } from '@/lib/plan-move';
 import { refusalMessage } from '@/lib/refusals';
+import { navTrace } from './nav-trace';
 
 export interface AgentReply { message: string; proposals: ProposalView[]; items: InterpretedItem[] }
 
@@ -195,6 +196,9 @@ export function usePlanData(init: PlanDataInit) {
   // post across the month boundary (or edits a cross-cycle post) is reflected in the grid.
   const refreshPlan = useCallback(async () => {
     try {
+      // Logged so the `?nav=trace` record shows every refetch beside every selection change —
+      // a jump that lands next to one of these lines has named its trigger.
+      navTrace('refetch plan', viewedCycleId);
       const isHome = viewedCycleId === init.homeCycleId;
       const r = await fetch(isHome ? '/api/plan' : `/api/plan?cycleId=${encodeURIComponent(viewedCycleId)}`);
       if (!r.ok) return;
@@ -580,6 +584,10 @@ export function usePlanData(init: PlanDataInit) {
      *  so the committed month's half of gap 8 was open in the other direction — the draft route
      *  learned to tell them apart and this one already could. */
     source: 'web' | 'voice' = 'web',
+    /** `silent` skips the out-of-sheet rendering (agentFlash / the Approvals flash): the
+     *  conversation sheet renders the reply as a turn IN the thread, and a second copy over the
+     *  sheet would be the secondary status bar the redesign removes. Desktop callers omit it. */
+    opts: { silent?: boolean } = {},
   ): Promise<AgentReply | null> => {
     if (readOnly || !instruction.trim() || agentBusy) return null;
     setAgentBusy(true);
@@ -608,10 +616,9 @@ export function usePlanData(init: PlanDataInit) {
       if (created.length) {
         setProposals((cur) => [...created.filter((p) => !cur.some((c) => c.id === p.id)), ...cur]);
         // The DESKTOP surface still flashes its Approvals view — that view exists there. The
-        // mobile sheet never gets here with a message to flash, because it holds the client in
-        // the interpretation instead of sending them somewhere to find these rows.
-        setFlashView('approvals'); setTimeout(() => setFlashView(null), 2800);
-      } else if (r.message) { agentFlash(r.message); }
+        // conversation sheet passes `silent` and renders everything as thread turns instead.
+        if (!opts.silent) { setFlashView('approvals'); setTimeout(() => setFlashView(null), 2800); }
+      } else if (r.message && !opts.silent) { agentFlash(r.message); }
       track('agent_ask_submitted', { proposals: created.length, source });
       void refreshNotes();
       return reply;
@@ -636,29 +643,35 @@ export function usePlanData(init: PlanDataInit) {
     }
   }, []);
 
-  /** Approve/reject a proposal. Returns whether it was APPLIED — a `blocked` approve (an
+  /** Approve/reject a proposal. `ok` says whether it was APPLIED — a `blocked` approve (an
    *  ordering dependency not yet met) is NOT consumed, so the caller keeps the row
-   *  actionable. */
-  const decide = useCallback(async (id: string, action: 'approve' | 'reject'): Promise<boolean> => {
-    if (proposalBusy) return false;
+   *  actionable. `changedPostIds` is what the approval touched/created, for the what-changed
+   *  highlights. `quiet` suppresses the per-decision flashes — the background batch (F4)
+   *  reports once at the end through the surface's own treatment, and a flash per item would
+   *  strobe the one feedback channel while nobody is watching it. */
+  const decide = useCallback(async (
+    id: string, action: 'approve' | 'reject', opts: { quiet?: boolean } = {},
+  ): Promise<{ ok: boolean; changedPostIds: string[] }> => {
+    const no = { ok: false, changedPostIds: [] as string[] };
+    if (proposalBusy) return no;
     setProposalBusy(id);
     try {
       const res = await fetch(`/api/plan/proposals/${id}/${action}`, { method: 'POST' });
-      if (!res.ok) { flash('Could not update that. Please try again.'); return false; }
-      const d = (await res.json()) as { jobId?: string; hookPostId?: string; blocked?: boolean; message?: string };
+      if (!res.ok) { if (!opts.quiet) flash('Could not update that. Please try again.'); return no; }
+      const d = (await res.json()) as { jobId?: string; hookPostId?: string; blocked?: boolean; message?: string; changedPostIds?: string[] };
       // Blocked = a dependency wasn't met (e.g. approve hooks before the create step). The
       // proposal is untouched — leave the row so it can be approved after its prerequisite.
-      if (d.blocked) { flash(d.message ?? 'Approve the earlier step first, then this one.'); return false; }
+      if (d.blocked) { if (!opts.quiet) flash(d.message ?? 'Approve the earlier step first, then this one.'); return no; }
       setProposals((cur) => cur.filter((p) => p.id !== id));
       track(action === 'approve' ? 'proposal_approved' : 'proposal_discarded', { id });
       if (action === 'approve') {
-        flash('Change approved.');
+        if (!opts.quiet) flash('Change approved.');
         await refreshPlan();
         if (d.hookPostId && d.jobId) { void pollHookInto(d.hookPostId, d.jobId); }   // hooks surface in the post's hook UI
         else if (d.jobId) { await pollJob(d.jobId); await refreshPlan(); }
-      } else { flash('Dismissed.'); }
-      return true;
-    } catch { flash('Network error. Please try again.'); return false; }
+      } else if (!opts.quiet) { flash('Dismissed.'); }
+      return { ok: true, changedPostIds: d.changedPostIds ?? [] };
+    } catch { if (!opts.quiet) flash('Network error. Please try again.'); return no; }
     finally { setProposalBusy(null); }
   }, [proposalBusy, flash, refreshPlan, pollJob, pollHookInto, track]);
 
@@ -670,20 +683,29 @@ export function usePlanData(init: PlanDataInit) {
    * (`proposals.ts`, refProposalId). Firing them together would race the dependency and the
    * second would come back blocked.
    *
-   * A partial failure is reported honestly rather than rolled back: the changes that landed have
-   * landed, and pretending otherwise would mean a plan that disagrees with the receipt.
+   * QUIET, AND IT REPORTS RATHER THAN FLASHES (F4). The sheet has already closed by the time
+   * this runs — Apply is a background act now — so per-item toasts would narrate to an empty
+   * room. The result names which proposals landed and which did not, plus every post touched;
+   * the SURFACE owns the one report (chip + highlights on success, the feedback channel naming
+   * what didn't apply on failure). A partial failure is reported honestly rather than rolled
+   * back: the changes that landed have landed, and pretending otherwise would mean a plan that
+   * disagrees with its own receipt.
    */
-  const applyChanges = useCallback(async (ids: readonly string[]): Promise<boolean> => {
-    let applied = 0;
-    for (const id of ids) { if (await decide(id, 'approve')) applied += 1; }
-    if (applied === ids.length) return true;
-    flash(applied ? `${applied} of ${ids.length} changes went through. The rest are still here.` : 'That didn’t go through. Nothing has changed.');
-    return applied > 0;
-  }, [decide, flash]);
+  const applyChanges = useCallback(async (ids: readonly string[]): Promise<{ applied: string[]; failed: string[]; changedPostIds: string[] }> => {
+    const applied: string[] = [];
+    const failed: string[] = [];
+    const changedPostIds: string[] = [];
+    for (const id of ids) {
+      const r = await decide(id, 'approve', { quiet: true });
+      if (r.ok) { applied.push(id); changedPostIds.push(...r.changedPostIds); }
+      else failed.push(id);
+    }
+    return { applied, failed, changedPostIds: [...new Set(changedPostIds)] };
+  }, [decide]);
 
   /** Throw changes away without applying them. Silent — discarding is not news. */
   const discardChanges = useCallback(async (ids: readonly string[]): Promise<void> => {
-    for (const id of ids) await decide(id, 'reject');
+    for (const id of ids) await decide(id, 'reject', { quiet: true });
   }, [decide]);
 
   /** Switch the rendered cycle. Every one of the client's months is now editable — the
@@ -691,6 +713,7 @@ export function usePlanData(init: PlanDataInit) {
   const switchCycle = useCallback(async (cycleId: string) => {
     setSwitching(true);
     try {
+      navTrace('cycle switch', cycleId);
       const isHome = cycleId === init.homeCycleId;
       const res = await fetch(isHome ? '/api/plan' : `/api/plan?cycleId=${encodeURIComponent(cycleId)}`);
       if (!res.ok) { flash('Could not open that month.'); return; }

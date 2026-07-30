@@ -72,12 +72,15 @@ function setUA(ua: string) {
 function open(over: Partial<React.ComponentProps<typeof VoiceSheet>> = {}) {
   const onSubmit = vi.fn(async () => ({ ok: true as const }));
   const onClose = vi.fn();
-  render(<VoiceSheet open monthName="October" busy={false} onClose={onClose} onSubmit={onSubmit} {...over} />);
+  render(<VoiceSheet open monthName="October" cycleId="cyc-1" busy={false} onClose={onClose} onSubmit={onSubmit} {...over} />);
   return { onSubmit, onClose };
 }
 
 beforeEach(() => {
   gum.calls = 0; gum.live = 0;
+  // The conversation sheet loads its thread over fetch; an empty history is the baseline.
+  // Deliberately NOT counted against the capture budget — it is a network read, not audio.
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ conversationId: null, turns: [] }) })));
   FakeRecognition.live = null; FakeRecognition.built = 0;
   (window as unknown as { SpeechRecognition: unknown }).SpeechRecognition = FakeRecognition;
   Object.defineProperty(window.navigator, 'mediaDevices', {
@@ -93,6 +96,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   delete (window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition;
 });
 
@@ -130,7 +134,8 @@ describe('on iPhone — one audio session, one claimant', () => {
   it('and a spoken phrase still lands — the point of all of it', () => {
     open();
     act(() => { FakeRecognition.live!.say('The candle relaunches on the 24th'); });
-    expect(screen.getByTestId('voice-transcript-text').textContent).toBe('The candle relaunches on the 24th');
+    // Words land in the COMPOSER now — the one field keyboard and voice share.
+    expect((screen.getByTestId('voice-input') as HTMLTextAreaElement).value).toBe('The candle relaunches on the 24th');
   });
 });
 
@@ -187,10 +192,13 @@ describe('"Listening…" now requires a capture that actually opened', () => {
         this.started = true; FakeRecognition.live = this; this.onstart?.();   // no onaudiostart
       };
       open();
-      expect(screen.getByTestId('voice-heading').textContent).toBe('Go ahead');   // grace: not yet
+      // The three-state heading is gone; the composer's status line carries the same honesty.
+      expect(screen.getByTestId('voice-state').textContent).toContain('Go ahead');   // grace: not yet
       act(() => { vi.advanceTimersByTime(3000); });
-      expect(screen.getByTestId('voice-heading').textContent).toBe('We’ve lost the microphone');
-      expect(screen.getByTestId('voice-state').textContent).toContain('Nothing is reaching us');
+      const state = screen.getByTestId('voice-state');
+      expect(state.textContent).toContain('lost the microphone');
+      expect(state.textContent).toContain('nothing is reaching us');
+      expect(state.getAttribute('role')).toBe('alert');
       FakeRecognition.prototype.start = orig;
     } finally { vi.useRealTimers(); }
   });
@@ -204,7 +212,7 @@ describe('"Listening…" now requires a capture that actually opened', () => {
       act(() => { vi.advanceTimersByTime(1200); });       // inside the grace
       act(() => { rec.onaudiostart?.(); });               // and picks straight back up
       act(() => { vi.advanceTimersByTime(5000); });
-      expect(screen.getByTestId('voice-heading').textContent).toBe('Go ahead');
+      expect(screen.getByTestId('voice-state').textContent).toContain('Go ahead');
     } finally { vi.useRealTimers(); }
   });
 });

@@ -36,6 +36,7 @@
 import React from 'react';
 import { SprigMarkV2, ChevronL, ChevronR } from './icons';
 import { NavPill, type PlanView } from './NavPill';
+import { NavTracePanel } from '../NavTracePanel';
 
 export function PlanShell({
   monthLabel, onPrevMonth, onNextMonth,
@@ -161,6 +162,9 @@ export function PlanShell({
 
       <NavPill view={view} onView={onView} onMic={onMic} micLabel={micLabel} tasksDot={tasksDot} />
       {overlays}
+      {/* Renders nothing unless the operator armed `?nav=trace` for this tab. It lives on the
+          shell because the position it logs belongs to the whole surface, not to one sheet. */}
+      <NavTracePanel />
     </div>
   );
 }

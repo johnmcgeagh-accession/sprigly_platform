@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   applyTextToDraft: vi.fn(),
   addBacklogItemToMonth: vi.fn(),
   loadReceipts: vi.fn(),
+  appendMessage: vi.fn(),
 }));
 
 vi.mock('@/lib/auth', () => ({ getSession: async () => h.session }));
@@ -16,6 +17,11 @@ vi.mock('@/lib/draft-apply', () => ({
   applyTextToDraft:    (...a: unknown[]) => h.applyTextToDraft(...a),
   addBacklogItemToMonth: (...a: unknown[]) => h.addBacklogItemToMonth(...a),
   loadReceipts:          (...a: unknown[]) => h.loadReceipts(...a),
+}));
+// The route now writes the reshape into the per-cycle conversation (the sheet's thread).
+vi.mock('@/lib/agent/conversation', () => ({
+  ensureConversation: async () => 'conv-1',
+  appendMessage: (...a: unknown[]) => h.appendMessage(...a),
 }));
 
 import { GET, POST } from './route';
@@ -36,6 +42,7 @@ beforeEach(() => {
   h.applyTextToDraft.mockReset().mockResolvedValue(APPLIED);
   h.addBacklogItemToMonth.mockReset().mockResolvedValue(APPLIED);
   h.loadReceipts.mockReset().mockResolvedValue([]);
+  h.appendMessage.mockReset().mockResolvedValue('m-1');
 });
 
 describe('auth', () => {
@@ -51,10 +58,28 @@ describe('op: text', () => {
   it('applies the input and returns the receipt with the refreshed beats', async () => {
     const res = await post({ op: 'text', text: 'The navy edit drops on the 28th' });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, application: APPLIED.application, beats: APPLIED.beats });
+    // conversationId rides along now (the conversation sheet) — the reshape is a thread turn.
+    expect(await res.json()).toEqual({ ok: true, application: APPLIED.application, beats: APPLIED.beats, conversationId: 'conv-1' });
     expect(h.applyTextToDraft).toHaveBeenCalledWith(expect.objectContaining({
       clientId: CLIENT, cycleId: CYCLE, text: 'The navy edit drops on the 28th',
     }));
+  });
+
+  it('persists the exchange as thread turns — the client’s words, then the receipt’s own lines', async () => {
+    await post({ op: 'text', text: 'The navy edit drops on the 28th' });
+    expect(h.appendMessage).toHaveBeenCalledTimes(2);
+    expect(h.appendMessage).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      role: 'user', content: 'The navy edit drops on the 28th',
+    }));
+    expect(h.appendMessage).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      role: 'assistant', content: 'Added: X, Mon 28 Sep',
+    }));
+  });
+
+  it('a FAILED reshape persists nothing — the thread records what happened, not what didn’t', async () => {
+    h.applyTextToDraft.mockResolvedValue({ ok: false, error: 'no_draft', message: 'x' });
+    await post({ op: 'text', text: 'anything' });
+    expect(h.appendMessage).not.toHaveBeenCalled();
   });
 
   it('defaults to the text op when none is given', async () => {
