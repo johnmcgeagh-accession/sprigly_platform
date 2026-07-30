@@ -15,7 +15,7 @@ import { patchPost, softDeletePost, addDraft, addGeneratedPost, addGeneratingPos
 import type { ActivityActor } from '../activity';
 import { enqueueShape, enqueueHookJob } from '../queue';
 import { getUsageForCycle, isRewriteBlocked } from '../usage';
-import { startPostGeneration } from '../post-generation';
+import { startPostGeneration, enqueueFollowOnGeneration } from '../post-generation';
 import { resolvePostForEdit, isEditableDate, canAddPost, editScopeToday } from '../edit-scope';
 import { markNoteIntegrated } from './notes';
 import type { MutatingAction, ProposalPayload, ProposalView } from './types';
@@ -255,6 +255,11 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
         if (!created) return readOnlyFail();
         const gen = await startPostGeneration(row.clientId, payload.cycleId, created.postId, instruction, today);
         if ('jobId' in gen) genJobId = gen.jobId;
+        // THE FULL GENERATION (F5): an added carousel gets its hook enqueued alongside the
+        // caption (autoSelect, phase2's own reasoning). An added reel needs nothing here —
+        // the worker enqueues its combined hook+script the moment the caption lands
+        // (consumer.ts → enqueueScriptIfReady), and that chain covers this path already.
+        await enqueueFollowOnGeneration(row.clientId, payload.cycleId, created.postId, format);
         changedPostIds = [created.postId];
       } else {
         const added = await addDraft(row.clientId, payload.cycleId, channel, payload.date, agentActor, format, today);

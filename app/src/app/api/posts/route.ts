@@ -26,7 +26,7 @@ import { and, eq } from 'drizzle-orm';
 import { db, contentCycles } from '@sprigly/db';
 import { getSession } from '@/lib/auth';
 import { addGeneratingPost } from '@/lib/mutations';
-import { startPostGeneration } from '@/lib/post-generation';
+import { startPostGeneration, enqueueFollowOnGeneration } from '@/lib/post-generation';
 import { loadPlanPosts } from '@/lib/plan';
 import { editScopeToday, canAddPost } from '@/lib/edit-scope';
 
@@ -104,6 +104,10 @@ export async function POST(req: Request) {
   if (!created) return NextResponse.json({ error: 'read_only' }, { status: 403 });
 
   const gen = await startPostGeneration(session.clientId, targetCycleId, created.postId, brief, today);
+  // THE FULL GENERATION (F5): an added carousel's hook is enqueued alongside its caption —
+  // same parity as the agent add path and the phase-2 fan-out. A reel's combined hook+script
+  // is the worker's job the moment the caption lands (script-ready.ts); singles need nothing.
+  await enqueueFollowOnGeneration(session.clientId, targetCycleId, created.postId, format || 'single');
   // A blocked quota or a failed enqueue leaves the post in `generation_failed` with its
   // instruction kept — startPostGeneration stamps that itself. The post still exists and the
   // client still sees "On its way", because the sweep will pick it up; nothing here pretends
