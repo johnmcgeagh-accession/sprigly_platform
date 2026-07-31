@@ -17,7 +17,7 @@ import type { ModelClient } from '@sprigly/model-client';
 import type { Pillar, Cadence, Catalogue, ParsedProduct, ProductFamily } from '@sprigly/engine';
 import type { Logger } from 'pino';
 import { fetchApifyPostsForHandle } from '../apify-ig-fetch.js';
-import { igPostSchema, mapApifyMediaType } from '../lean-line.js';
+import { igPostSchema, mapApifyMediaType, tallyUnmappedMediaTypes } from '../lean-line.js';
 import { deriveBrandTokens } from '../catalogue/validate-catalogue.js';
 
 type Db = typeof _db;
@@ -27,7 +27,9 @@ type Db = typeof _db;
 // still has enough signal to be indicative (IVY-t's live account sits ~38 across 3 months).
 export const THIN_CAPTION_FLOOR = 15;
 
-// Apify latest-posts window (mirrors the trawl's APIFY_RESULTS_LIMIT).
+// Apify latest-posts window — the DEFAULT depth, not a ceiling. stageTrawl takes a
+// resultsLimit and onboarding passes nothing, so routine onboarding is unchanged at 50;
+// the deep trawl passes its own. Mirrors the trawl's DEFAULT_RESULTS_LIMIT.
 const APIFY_RESULTS_LIMIT = 50;
 
 // Generic starter categories for a new brand (NOT IVY-t-specific). The planning code
@@ -177,19 +179,27 @@ export interface StageBResult {
   ok: boolean; message: string;
   captions: string[]; timestamps: string[]; mediaTypes: string[]; postCount: number; monthsWritten: string[];
   thin: boolean;
+  /** Raw Apify `type` values that could not be mapped, by count. Empty when all mapped. */
+  unmappedTypes: Record<string, number>;
 }
 
 /** Fetch the account's latest owned posts once, upsert grouped by London month into
  *  ig_posts, and return the caption/timestamp window for derivation. Handles the thin
- *  account case: fewer than THIN_CAPTION_FLOOR captions → thin=true (caller gates). */
+ *  account case: fewer than THIN_CAPTION_FLOOR captions → thin=true (caller gates).
+ *
+ *  `resultsLimit` is how deep to reach; onboarding omits it and gets the routine 50.
+ *  `timeoutMs` rides with it because the actor's wall-clock scales with depth — a deep
+ *  call does not return inside the helper's 120s default. */
 export async function stageTrawl(params: {
   db: Db; apifyApiKey: string | undefined; clientId: string; channel: string; handle: string; logger?: Logger;
+  resultsLimit?: number; timeoutMs?: number;
 }): Promise<StageBResult> {
-  const { db, apifyApiKey, clientId, channel, handle, logger } = params;
-  if (!apifyApiKey) return { ok: false, thin: true, captions: [], timestamps: [], mediaTypes: [], postCount: 0, monthsWritten: [], message: 'APIFY_API_KEY not set — cannot trawl.' };
+  const { db, apifyApiKey, clientId, channel, handle, logger, resultsLimit = APIFY_RESULTS_LIMIT, timeoutMs } = params;
+  if (!apifyApiKey) return { ok: false, thin: true, captions: [], timestamps: [], mediaTypes: [], postCount: 0, monthsWritten: [], unmappedTypes: {}, message: 'APIFY_API_KEY not set — cannot trawl.' };
 
-  const logCtx = { clientId, channel, handle };
-  const fetched = await fetchApifyPostsForHandle(handle, APIFY_RESULTS_LIMIT, apifyApiKey, logger ?? ({ info() {}, warn() {}, error() {}, debug() {} } as unknown as Logger), logCtx);
+  const log = logger ?? ({ info() {}, warn() {}, error() {}, debug() {} } as unknown as Logger);
+  const logCtx = { clientId, channel, handle, resultsLimit };
+  const fetched = await fetchApifyPostsForHandle(handle, resultsLimit, apifyApiKey, log, logCtx, timeoutMs === undefined ? {} : { timeoutMs });
   const owned = fetched.posts;   // owned + hidden-filtered (likes/comments are valid numbers)
 
   // Map to igPostSchema shape, drop timestamp-less, group by London month.
@@ -211,6 +221,16 @@ export async function stageTrawl(params: {
     if (typeof p.caption === 'string' && p.caption.trim()) captions.push(p.caption.trim());
   }
 
+  // An unmapped Apify `type` is LOUD — see tallyUnmappedMediaTypes. Reported on the
+  // result too, because this path's caller is a CLI printing to an operator.
+  const unmappedTypes = tallyUnmappedMediaTypes(owned.map((p) => p.type));
+  const unmappedCount = Object.values(unmappedTypes).reduce((s, n) => s + n, 0);
+  if (unmappedCount > 0) {
+    log.warn({ ...logCtx, unmappedTypes, unmappedCount, ofPosts: owned.length },
+      'trawl: UNMAPPED Apify media type — stored without a mediaType and invisible to format ' +
+      'derivation; add the raw value to mapApifyMediaType');
+  }
+
   const monthsWritten: string[] = [];
   for (const [month, posts] of byMonth) {
     igPostsArraySchema.parse(posts);   // fail loud if any slipped through
@@ -224,7 +244,7 @@ export async function stageTrawl(params: {
 
   const thin = captions.length < THIN_CAPTION_FLOOR;
   return {
-    ok: true, thin, captions, timestamps, mediaTypes, postCount: timestamps.length, monthsWritten,
+    ok: true, thin, captions, timestamps, mediaTypes, postCount: timestamps.length, monthsWritten, unmappedTypes,
     message: `Trawled ${timestamps.length} owned posts (${captions.length} captions, ${mediaTypes.length} with media type) across ${monthsWritten.length} month(s): ${monthsWritten.join(', ')}.`,
   };
 }

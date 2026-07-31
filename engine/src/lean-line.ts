@@ -167,14 +167,50 @@ const igPostsArraySchema = z.array(igPostSchema);
 
 /** Map an Apify instagram-scraper item `type` to our ig_posts mediaType.
  *  Video → reel, Sidecar → carousel, Image → image; anything else → undefined
- *  (the caller omits the key rather than guessing). */
+ *  (the caller omits the key rather than guessing).
+ *
+ *  Matched case-insensitively on a trimmed value. The actor returns 'Video' | 'Sidecar' |
+ *  'Image' today — verified against 278 live items — but the competitor gather's own
+ *  normaliser (competitor-gather.ts normalizeType) has always lowercased, and two mappers
+ *  reading the same field with different strictness is a silent-divergence waiting to
+ *  happen. Casing is not a fact worth failing on.
+ *
+ *  KNOWN LIMIT: every 'Video' becomes 'reel'. Apify distinguishes them on `productType`
+ *  ('clips' = reel, 'feed' = an in-feed video), which we do not read — ig_posts' mediaType
+ *  enum has no 'video' member to put one in. All 184 of ivy-t's videos are 'clips', so the
+ *  conflation costs nothing on her data; an account that posts feed video would have those
+ *  posts counted as reels. */
 export function mapApifyMediaType(type: string | undefined): 'image' | 'reel' | 'carousel' | undefined {
-  switch (type) {
-    case 'Video':   return 'reel';
-    case 'Sidecar': return 'carousel';
-    case 'Image':   return 'image';
+  switch ((type ?? '').trim().toLowerCase()) {
+    case 'video':   return 'reel';
+    case 'sidecar': return 'carousel';
+    case 'image':   return 'image';
     default:        return undefined;
   }
+}
+
+/** The label a missing/blank `type` is tallied under — distinguishes "Apify sent a value we
+ *  do not know" from "Apify sent no value at all", which have different fixes. */
+export const ABSENT_MEDIA_TYPE = '(absent)';
+
+/**
+ * Tally the raw Apify `type` values that {@link mapApifyMediaType} could not place.
+ *
+ * The mapper's `undefined` return makes the writer omit the mediaType key, and an omitted
+ * key is indistinguishable downstream from a row written before the key existed — which is
+ * exactly how ivy-t's 31 untyped posts read as a mapper fault when they were staleness. A
+ * caller that maps a batch calls this and logs the result, so the raw value and its count
+ * are on the record at the moment of the loss rather than inferred from its shape months
+ * later. Empty tally → nothing to say; callers log only when it is non-empty.
+ */
+export function tallyUnmappedMediaTypes(rawTypes: Array<string | undefined>): Record<string, number> {
+  const tally: Record<string, number> = {};
+  for (const raw of rawTypes) {
+    if (mapApifyMediaType(raw)) continue;
+    const key = (raw ?? '').trim() || ABSENT_MEDIA_TYPE;
+    tally[key] = (tally[key] ?? 0) + 1;
+  }
+  return tally;
 }
 
 function captionSnippet(caption: string | undefined): string {

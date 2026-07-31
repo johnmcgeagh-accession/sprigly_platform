@@ -40,7 +40,18 @@ export interface FetchApifyPostsResult {
   distinctOtherOwners: string[];        // non-owned usernames; helps callers build error messages
 }
 
+/**
+ * Default abort for the routine 50-post call. A DEEP trawl needs longer: the actor's
+ * wall-clock scales with resultsLimit, and 300 posts does not return inside 120s (measured
+ * — the first deep probe aborted at exactly this ceiling). Callers asking for depth pass
+ * their own `timeoutMs`; nobody gets a silent truncation because the abort throws.
+ */
 const APIFY_TIMEOUT_MS = 120_000;
+
+export interface FetchApifyPostsOptions {
+  /** Abort ceiling for the whole Apify call. Defaults to 120s — raise it for deep trawls. */
+  timeoutMs?: number;
+}
 
 /** Apify HTTP failure carrying the status code so callers can branch on it —
  *  401 (bad key), 402/429 (credits/quota exhausted) vs any other error. */
@@ -71,9 +82,11 @@ export async function fetchApifyPostsForHandle(
   apifyApiKey:  string,
   logger:       Logger,
   logCtx:       Record<string, unknown>,
+  opts:         FetchApifyPostsOptions = {},
 ): Promise<FetchApifyPostsResult> {
+  const timeoutMs  = opts.timeoutMs ?? APIFY_TIMEOUT_MS;
   const controller = new AbortController();
-  const abortTimer = setTimeout(() => controller.abort(), APIFY_TIMEOUT_MS);
+  const abortTimer = setTimeout(() => controller.abort(), timeoutMs);
 
   let rawPosts: RawApifyPost[];
   try {
@@ -109,7 +122,7 @@ export async function fetchApifyPostsForHandle(
     // error as-is; only wrap the non-typed (timeout / network) cases.
     if (err instanceof ApifyHttpError) throw err;
     const label = (err as { name?: string }).name === 'AbortError'
-      ? `timed out after ${APIFY_TIMEOUT_MS / 1000}s`
+      ? `timed out after ${timeoutMs / 1000}s (resultsLimit=${resultsLimit} — a deep trawl needs a larger timeoutMs)`
       : String(err);
     throw new Error(`apify-ig-fetch: Apify call failed for handle "${handle}": ${label}`);
   } finally {
