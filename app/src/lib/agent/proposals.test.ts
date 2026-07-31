@@ -75,6 +75,11 @@ vi.mock('../mutations', () => ({
 vi.mock('../post-generation', () => ({
   startPostGeneration: (...a: unknown[]) => h.startGen(...a),
   enqueueFollowOnGeneration: (...a: unknown[]) => h.followOn(...a),
+  // The REAL neutral brief (X4) — it is shared with /api/posts and its wording is what the
+  // fixtures below assert, so stubbing it would test the stub.
+  defaultCaptionBrief: (date: string, format: string) =>
+    `Write a caption for a ${format === 'single' ? 'single image post' : format} going out on ${date}. `
+    + 'No subject was given, so choose one that fits this client\u2019s voice and the rest of the month.',
 }));
 vi.mock('./notes', () => ({ markNoteIntegrated: (...a: unknown[]) => h.markNote(...a) }));
 vi.mock('../queue', () => ({
@@ -300,7 +305,8 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     h.claimQueue = [[{ ...moveRow, intent: 'add_post', payload: { kind: 'add', cycleId: 'cycle-1', date: '2026-07-15', channel: 'instagram', instruction: 'a post about the linen restock' } }]];
     const r = await approveProposal(CLIENT, 'prop-1', 'client');
     expect(r.proposal?.status).toBe('applied');
-    expect(h.addGenerating).toHaveBeenCalledWith(CLIENT, 'cycle-1', { channel: 'instagram', date: '2026-07-15', instruction: 'a post about the linen restock', format: 'single' }, { origin: 'agent', actor: 'client', refProposalId: 'prop-1' }, '2026-07-11');
+    // `title` (X3) rides on the spec — null here because this payload states no subject line.
+    expect(h.addGenerating).toHaveBeenCalledWith(CLIENT, 'cycle-1', { channel: 'instagram', date: '2026-07-15', instruction: 'a post about the linen restock', format: 'single', title: null }, { origin: 'agent', actor: 'client', refProposalId: 'prop-1' }, '2026-07-11');
     expect(h.startGen).toHaveBeenCalledTimes(1);
     expect(h.startGen).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-new', 'a post about the linen restock', '2026-07-11');
     expect(r.jobId).toBe('shape_cycle-1_post-new');
@@ -333,14 +339,42 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     expect(h.enqueueHook).not.toHaveBeenCalled();
   });
 
-  it('a BARE add_post (no instruction) inserts a blank draft, no generation', async () => {
+  /**
+   * ── DELIBERATE CHANGE (X4): there is no blank-draft path any more ──────────────────
+   *
+   * This asserted the gap. A bare add went to `addDraft` — status 'new', the scaffolding
+   * placeholder in the caption column, and NOTHING enqueued. That post was unrecoverable
+   * by design: `isOnTheWay` is false for 'new' so it never even read as in flight, the
+   * sweep only looks at 'generation_failed', and the status counts cannot tell it apart
+   * from a post whose generation SUCCEEDED (shape.ts resolves 'generating' → 'new').
+   *
+   * `/api/posts` had already closed the same hole for the client's own add slot. The agent
+   * path now takes the same rule and the same shared brief: caption generation enqueues
+   * regardless; an instruction only steers it.
+   */
+  it('a BARE add_post (no instruction) STILL enqueues generation, on a neutral brief', async () => {
     h.claimQueue = [[{ ...moveRow, intent: 'add_post', payload: { kind: 'add', cycleId: 'cycle-1', date: '2026-07-15', channel: 'instagram' } }]];
     const r = await approveProposal(CLIENT, 'prop-1', 'client');
     expect(r.proposal?.status).toBe('applied');
-    expect(h.add).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'instagram', '2026-07-15', { origin: 'agent', actor: 'client', refProposalId: 'prop-1' }, 'single', '2026-07-11');
-    expect(h.addGenerating).not.toHaveBeenCalled();
-    expect(h.startGen).not.toHaveBeenCalled();
-    expect(r.jobId).toBeUndefined();
+    expect(h.add).not.toHaveBeenCalled();                       // the blank-draft path is gone
+    expect(h.addGenerating).toHaveBeenCalledTimes(1);
+    expect(h.startGen).toHaveBeenCalledTimes(1);
+    expect(r.jobId).toBe('shape_cycle-1_post-new');
+
+    // The brief says only what the client's act said — this day, this format. No invented topic.
+    const brief = h.startGen.mock.calls[0]![3] as string;
+    expect(brief).toContain('2026-07-15');
+    expect(brief).toContain('single image post');
+    expect(brief).toContain('No subject was given');
+    // The row is inserted as 'generating' with that same brief, so the slot is taken and the
+    // instruction the sweep would re-run with is on it.
+    expect(h.addGenerating.mock.calls[0]![2]).toMatchObject({ date: '2026-07-15', instruction: brief });
+  });
+
+  it('the enqueue follows the insert, so nothing is ever marked generating with no job', async () => {
+    h.claimQueue = [[{ ...moveRow, intent: 'add_post', payload: { kind: 'add', cycleId: 'cycle-1', date: '2026-07-15', channel: 'instagram' } }]];
+    await approveProposal(CLIENT, 'prop-1', 'client');
+    expect(h.addGenerating.mock.invocationCallOrder[0]!).toBeLessThan(h.startGen.mock.invocationCallOrder[0]!);
   });
 
   it('a generate_hook for an existing CAROUSEL enqueues the standalone hook job and returns the target post', async () => {

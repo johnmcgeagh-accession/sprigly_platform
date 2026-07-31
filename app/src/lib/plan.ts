@@ -14,6 +14,7 @@ import { and, asc, eq, gte, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
 import type { ContentCyclePostRow } from '@sprigly/db';
 import { db, contentCycles, contentCyclePosts, clientPlanningConfig, excludeDraftPosts, POST_STATUS_DRAFT, PRE_PLANNING_STATUSES } from '@sprigly/db';
 import type { BeatMeta } from '@sprigly/db';
+import { isQuotaBanked } from '@sprigly/engine/ai-change-cap';
 import { listStepsForPosts } from '@/lib/steps';
 import { normalisePostingTime } from '@/lib/posting-time';
 import { nextMonth } from '@/lib/cycle-nav';
@@ -117,6 +118,8 @@ function toPlanPost(r: ContentCyclePostRow, stepsByPost: Map<string, PostStepVie
     overlay:     r.overlay ?? null,
     pendingInstruction: metaStr(r.sourceMeta, 'pendingInstruction'),
     generationError:    metaStr(r.sourceMeta, 'generationError'),
+    // The cap's own state, read from the flag the refusal wrote — never from the message (X2c).
+    banked:             isQuotaBanked(r.sourceMeta),
     // Gap 1 (read): the planning path writes this; until now nothing read it back.
     postingTime:        normalisePostingTime(metaStr(r.sourceMeta, 'postingTime')),
     title:              metaStr(r.sourceMeta, 'title'),

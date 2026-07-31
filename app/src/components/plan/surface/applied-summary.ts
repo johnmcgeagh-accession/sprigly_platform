@@ -1,29 +1,18 @@
 /**
- * applied-summary.ts — the chip label and the failure sentence for a background apply (F4).
+ * applied-summary.ts — the failure sentence for a background apply (F4).
  *
  * Pure, and derived from the SAME interpreted items the client consented to — never from a
- * sentence the model wrote. The chip compresses what LANDED into counts ('1 moved · 1 added');
- * the failure line names what did NOT, because "2 of 3 went through" without saying which two
- * leaves the client diffing their own month to find out.
+ * sentence the model wrote. It names what did NOT apply, because "2 of 3 went through" without
+ * saying which two leaves the client diffing their own month to find out.
+ *
+ * `appliedChipLabel` used to live here and compressed what LANDED into counts ('1 moved ·
+ * 1 added'). It went with the chip it was written for (X5b) — it had no other reader, and a
+ * pure function nothing calls is a surface waiting to come back by accident. What applied is
+ * said once, in the thread's own confirmation turn, and shown once, on the cards.
  */
 import type { InterpretedItem } from '@/lib/agent/types';
 
 type Change = Extract<InterpretedItem, { kind: 'change' }>;
-
-/** Verb counts for the chip: '1 moved · 2 added'. Empty string when nothing applied. */
-export function appliedChipLabel(applied: readonly Change[]): string {
-  if (!applied.length) return '';
-  const PAST: Record<Change['action'], string> = {
-    move: 'moved', add: 'added', remove: 'removed', rewrite: 'rewritten',
-    format: 'reformatted', hook: 'hooks started', refine: 'refined',
-  };
-  const counts = new Map<string, number>();
-  for (const c of applied) {
-    const word = PAST[c.action] ?? 'changed';
-    counts.set(word, (counts.get(word) ?? 0) + 1);
-  }
-  return [...counts.entries()].map(([word, n]) => `${n} ${word}`).join(' · ');
-}
 
 /** One line naming a change, for the failure report: `Move "Title"`. */
 function nameOf(c: Change): string {

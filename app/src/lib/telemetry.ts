@@ -5,6 +5,15 @@
  */
 import { db, uiEvents } from '@sprigly/db';
 
+/**
+ * The client asked for more AI changes this month (X2d).
+ *
+ * Named as a constant because two places quote it — the route that writes it and the operator's
+ * own query — and an event name typed twice is an event name that eventually differs. It is the
+ * only entry here that anyone will ever run a business query against, which is why it says so.
+ */
+export const AI_CHANGE_UPSELL_INTEREST = 'ai_change_upsell_interest';
+
 export const UI_EVENTS = [
   'view_switched',
   'proposal_approved',
@@ -12,6 +21,7 @@ export const UI_EVENTS = [
   'agent_ask_submitted',
   'checklist_step_completed',
   'shape_requested',
+  AI_CHANGE_UPSELL_INTEREST,
 ] as const;
 export type UiEvent = (typeof UI_EVENTS)[number];
 

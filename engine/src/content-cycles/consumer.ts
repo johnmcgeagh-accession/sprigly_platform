@@ -49,6 +49,7 @@ import { runContentCycleTick } from './scheduler.js';
 import { assembleAndPersistDraft, summariseDraft, draftFlowEnabled, countDraftBeats, autoApproveAndGenerate } from './draft-plan.js';
 import { settlePlanReady, sweepUnsentPlanReady } from './plan-ready.js';
 import { sweepFailedGenerations } from './generation-sweep.js';
+import { releaseBankedChanges } from './banked-changes.js';
 import { enqueueScriptIfReady } from './script-ready.js';
 import {
   IG_TRAWL_JOB_OPTIONS,
@@ -71,6 +72,17 @@ type ContentCycleJob =
   | { type: 'ig-trawl';        clientId: string; channel: string; dataMonth: string }
   | { type: 'request-email';   clientId: string; channel: string; dataMonth: string }
   | { type: 'scheduler-tick' }
+  /**
+   * The FAST retry tick (X2e), every 10 minutes.
+   *
+   * The daily tick is the wrong cadence for two of the three things it was doing. A TRANSIENT
+   * failure — a Bedrock timeout, a throttle — is fixed by trying again in minutes, and making
+   * the client wait until 05:00 tomorrow for it is the difference between a hiccup and a lost
+   * day. A BANKED post is waiting on an allowance that can come back at any moment, including
+   * when an operator raises a limit by hand. Both want a tick that runs often and does nothing
+   * most of the time, which is exactly what this is: two narrow indexed reads.
+   */
+  | { type: 'generation-retry-tick' }
   | { type: 'weekly-session-tick' }
   | WeeklySessionJob
   | ShapeJob
@@ -245,7 +257,26 @@ export function createContentCycleConsumer(
             // that exhausted its BullMQ attempts gets two more passes here before it stops
             // costing anything and becomes an operator item (admin → Failed Posts).
             sweepFailedGenerations: () => sweepFailedGenerations(planReadyDeps, queue),
+            // X2b: the promise a banked post makes to the client, kept. Runs on every tick
+            // rather than on the 1st — an operator raising a limit mid-month frees the same
+            // work, and a date check would miss it.
+            releaseBankedChanges: () => releaseBankedChanges(planReadyDeps, queue),
           });
+          break;
+        }
+
+        /**
+         * THE FAST RETRY TICK (X2e). Same two arms as the daily pass and deliberately the same
+         * functions — a second implementation of "what should be retried" is a second answer to
+         * it. What differs is only how often they run.
+         */
+        case 'generation-retry-tick': {
+          logger.info(logCtx, 'content-cycles: starting generation-retry-tick job');
+          const retryDeps = { db, logger };
+          try { await sweepFailedGenerations(retryDeps, queue); }
+          catch (err) { logger.warn({ err: String(err) }, 'generation-retry-tick: sweep failed (non-fatal)'); }
+          try { await releaseBankedChanges(retryDeps, queue); }
+          catch (err) { logger.warn({ err: String(err) }, 'generation-retry-tick: banked release failed (non-fatal)'); }
           break;
         }
 

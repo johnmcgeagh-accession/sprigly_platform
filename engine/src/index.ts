@@ -240,6 +240,24 @@ void contentCyclesQueue.add(
 );
 logger.info('Content-cycle scheduler tick registered (daily 05:00 Europe/London)');
 
+/**
+ * The FAST retry tick (X2e), every 10 minutes.
+ *
+ * Two arms, both narrow indexed reads that return nothing on almost every run: re-enqueue a
+ * TRANSIENT generation failure, and release work the monthly change cap banked once the
+ * allowance is there for it. Ten minutes is chosen against the two things it competes with — a
+ * Bedrock call is seconds, so a client waiting on a timeout waits minutes rather than a day; and
+ * a poll that finds nothing costs one query, so it can afford to be frequent.
+ *
+ * Deliberately NOT tz-anchored: it is an interval, not an appointment.
+ */
+void contentCyclesQueue.add(
+  'generation-retry-tick',
+  { type: 'generation-retry-tick' },
+  { repeat: { every: 10 * 60 * 1000 } },
+);
+logger.info('Generation retry tick registered (every 10 minutes)');
+
 // Register the weekly planning session cron (Monday 06:00 Europe/London) — ONLY
 // when WEEKLY_SESSION_CRON_ENABLED is set. Off by default until trusted.
 void registerWeeklySessionCron(contentCyclesQueue, env.WEEKLY_SESSION_CRON_ENABLED, logger);

@@ -13,7 +13,7 @@ const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
-function monthLabel(yyyymm: string): string {
+export function monthLabel(yyyymm: string): string {
   const m = /^(\d{4})-(\d{2})/.exec(yyyymm);
   if (!m) return yyyymm;
   return `${MONTH_NAMES[Number(m[2]) - 1] ?? yyyymm} ${m[1]}`;
@@ -44,12 +44,25 @@ function daysInMonth(month: string): number {
  * the plan begins and ends and that an empty date inside it is empty rather than absent. It
  * costs a line of prompt and closes the whole class: the same reasoning would have refused the
  * 30th of a month whose last post was the 27th, on any month, for any client.
+ *
+ * ── IT NAMES EVERY MONTH IN SCOPE, NOT ONE (X1a) ─────────────────────────────────────
+ *
+ * The agent's context now spans several cycles (`plan-context.ts`). A window line naming one of
+ * them would be worse than none: it would state a boundary the digest underneath plainly
+ * crosses, and the model would have to choose which to believe. It takes a LIST, and the single
+ * month remains the one-element case — every existing caller is unchanged.
  */
-export function planWindowLine(planMonth: string | null | undefined): string | null {
-  if (!planMonth || !/^\d{4}-\d{2}$/.test(planMonth)) return null;
-  const last = daysInMonth(planMonth);
-  return `THIS PLAN COVERS ${planMonth}-01 to ${planMonth}-${String(last).padStart(2, '0')} — the whole of ${monthLabel(planMonth)}. `
-    + `The plan does NOT end at its last post: a date inside this window with no post on it is an EMPTY date in the plan, `
+export function planWindowLine(planMonths: string | readonly string[] | null | undefined): string | null {
+  const months = (typeof planMonths === 'string' ? [planMonths] : planMonths ?? [])
+    .filter((m): m is string => typeof m === 'string' && /^\d{4}-\d{2}$/.test(m));
+  if (!months.length) return null;
+  const spans = months.map((m) => `${m}-01 to ${m}-${String(daysInMonth(m)).padStart(2, '0')} (${monthLabel(m)})`);
+  const covers = months.length === 1
+    ? `THIS PLAN COVERS ${spans[0]} — the whole month.`
+    : `YOU CAN SEE ${months.length} MONTHS OF THIS PLAN, IN FULL: ${spans.join('; ')}. `
+      + `A date in ANY of these months is a date you can act on — the month on screen is where the client is looking, not the limit of what you may change.`;
+  return `${covers} `
+    + `A plan does NOT end at its last post: a date inside these windows with no post on it is an EMPTY date in the plan, `
     + `not a date outside it. Never tell the client the plan "runs up to" the last scheduled post, and never refuse a date `
     + `for being later than one.`;
 }
@@ -89,23 +102,40 @@ export function planMonthOf(cycleMonth: string): string {
  * The VIEWED cycle is marked, and it is marked as *the month on screen* rather than as a
  * permission: it tells the parser where the client's attention is, which is what a bare reference
  * like "the 5th" needs, without implying that anything else is off limits.
+ *
+ * `loadedCycleIds` (X1a) marks the months whose POSTS are in this turn's digest. A month that
+ * exists but is not loaded is still a month the client owns and still a valid destination for an
+ * add or a move — it simply has no rows to resolve a reference against, and saying which is which
+ * is what stops "add it to March" reading as "March does not exist".
  */
-export function describeCycles(rows: readonly CycleRow[], viewedCycleId: string): string {
+export function describeCycles(
+  rows: readonly CycleRow[], viewedCycleId: string, loadedCycleIds?: readonly string[],
+): string {
   if (!rows.length) return '- (no cycles on record)';
+  const loaded = loadedCycleIds ? new Set(loadedCycleIds) : null;
   return [...rows]
     .map((r) => ({ ...r, plan: planMonthOf(r.month) }))
     .sort((a, b) => a.plan.localeCompare(b.plan))
-    .map((r) => `- ${monthLabel(r.plan)} (${r.plan})${r.id === viewedCycleId ? ' [the month on screen]' : ''} — ${r.status}`)
+    .map((r) => `- ${monthLabel(r.plan)} (${r.plan})${r.id === viewedCycleId ? ' [the month on screen]' : ''}`
+      + `${loaded ? (loaded.has(r.id) ? ' [posts listed below]' : ' [posts NOT listed — you can still add or move INTO this month]') : ''} — ${r.status}`)
     .join('\n');
+}
+
+/**
+ * The client's cycle rows — the ONE read behind every "which months does this client have?"
+ * question. Named and exported because the context builder (`plan-context.ts`) needs the same
+ * rows the month list needs, and two queries for one fact is how they come to disagree.
+ */
+export async function listClientCycles(clientId: string): Promise<CycleRow[]> {
+  return db
+    .select({ id: contentCycles.id, month: contentCycles.cycleMonth, status: contentCycles.status })
+    .from(contentCycles)
+    .where(eq(contentCycles.clientId, clientId));
 }
 
 /** Formatted list of the client's months for the parser prompt, named by what they plan. */
 export async function getClientCycleMonths(clientId: string, viewedCycleId: string): Promise<string> {
-  const rows = await db
-    .select({ id: contentCycles.id, month: contentCycles.cycleMonth, status: contentCycles.status })
-    .from(contentCycles)
-    .where(eq(contentCycles.clientId, clientId));
-  return describeCycles(rows, viewedCycleId);
+  return describeCycles(await listClientCycles(clientId), viewedCycleId);
 }
 
 /**
@@ -126,10 +156,7 @@ export async function getCycleMonth(clientId: string, cycleId: string): Promise<
 
 /** Resolve a PLAN month ('YYYY-MM') to one of the client's cycle ids, or null if none exists. */
 export async function resolveCycleForMonth(clientId: string, planMonth: string): Promise<string | null> {
-  const rows = await db
-    .select({ id: contentCycles.id, month: contentCycles.cycleMonth })
-    .from(contentCycles)
-    .where(eq(contentCycles.clientId, clientId));
+  const rows = await listClientCycles(clientId);
   return rows.find((r) => planMonthOf(r.month) === planMonth)?.id ?? null;
 }
 
@@ -210,7 +237,7 @@ export interface CycleState {
 /** Bucket a cycle's live posts into this-week / next-week and tally statuses. `planMonth`
  *  states the plan's calendar window in the summary — the query answerer reads ONLY this
  *  summary, so without it the plan's end is the last post (G2). */
-export function bucketCycleState(posts: PlanPost[], today: Date, planMonth?: string | null): CycleState {
+export function bucketCycleState(posts: PlanPost[], today: Date, planMonth?: string | readonly string[] | null): CycleState {
   const mon = weekStart(today);
   const nextMon = new Date(mon); nextMon.setDate(mon.getDate() + 7);
   const weekAfter = new Date(mon); weekAfter.setDate(mon.getDate() + 14);

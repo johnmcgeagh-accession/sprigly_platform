@@ -43,9 +43,10 @@ import { Sheet } from './Sheet';
 import { MicGlyph, SendGlyph, CloseGlyph } from './icons';
 import { Waveform } from './Waveform';
 import { AgentSays } from './AgentVoice';
+import { capAnnouncement } from '@sprigly/engine/ai-change-cap';
 import { InterpretationTurn, type InterpretationStatus } from './Interpretation';
 import { agentLines } from './agent-prose';
-import type { InterpretedItem } from '@/lib/agent/types';
+import type { CapNotice, InterpretedItem } from '@/lib/agent/types';
 import type { ConversationTurn } from '@/lib/agent/conversation';
 import { useSpeechInput } from '../useSpeechInput';
 import { MicTracePanel } from '../MicTracePanel';
@@ -63,6 +64,10 @@ export type VoiceOutcome =
       ok: true; items?: readonly InterpretedItem[]; message?: string; conversationId?: string | null;
       /** Pending proposals this turn AMENDED (C3) — their turns are marked superseded. */
       supersededProposalIds?: readonly string[];
+      /** The monthly change allowance would not cover this request (X2a). It becomes a turn of
+       *  its own AFTER the interpretation, because the two are different things: one is what
+       *  the client can apply, the other is what we are telling them about it. */
+      capNotice?: CapNotice;
     };
 
 /** What an apply settled to — the confirmation turn's own sentence. */
@@ -93,14 +98,20 @@ const AUDIO_GRACE_MS = 2500;
 type ThreadTurn =
   | { key: string; kind: 'user'; text: string }
   | { key: string; kind: 'agent'; text?: string | undefined; working?: boolean }
-  | { key: string; kind: 'interpretation'; items: InterpretedItem[]; status: InterpretationStatus };
+  | { key: string; kind: 'interpretation'; items: InterpretedItem[]; status: InterpretationStatus }
+  /**
+   * THE CAP, AS A TURN (X2a/d). It carries the sentence the agent said and the one affordance
+   * for wanting more — which is the whole of the commercial surface: a tap that records the
+   * interest, and a line saying somebody will be in touch. No price, no plan change, no flow.
+   */
+  | { key: string; kind: 'cap'; notice: CapNotice; text: string; asked: boolean };
 
 let localKey = 0;
 const nextKey = () => `local-${++localKey}`;
 
 export function VoiceSheet({
   open, monthName, busy, question, context = 'draft', cycleId, entry = 'mic',
-  onClose, onSubmit, onApply, onDiscard, isPending,
+  onClose, onSubmit, onApply, onDiscard, onWantMore, isPending,
 }: {
   open: boolean;
   monthName: string;
@@ -135,6 +146,10 @@ export function VoiceSheet({
     conversationId: string | null,
   ) => Promise<ApplyReport>) | undefined;
   onDiscard?: ((proposalIds: string[]) => void) | undefined;
+  /** Record that the client wants more changes this month (X2d). Resolves true when the
+   *  interest was stored. Absent → the affordance is not offered at all, which is the honest
+   *  behaviour on a surface with nowhere to record it. */
+  onWantMore?: ((notice: CapNotice) => Promise<boolean>) | undefined;
   /** Is this proposal still pending? A reopened interpretation turn is actionable only while
    *  its proposals are — the pending list is the caller's (usePlanData) to know. */
   isPending?: ((proposalId: string) => boolean) | undefined;
@@ -322,6 +337,27 @@ export function VoiceSheet({
         text: out.message || 'I didn’t catch anything to change there. Try again, or type it.',
       });
     }
+    /**
+     * THE CAP NOTICE IS ITS OWN TURN, and it has to be.
+     *
+     * A request that exceeds the allowance still produces changes, so the turn above becomes an
+     * INTERPRETATION — which renders items and drops `message` entirely. The announcement would
+     * have vanished in exactly the case it exists for. It lands after, as the agent's next
+     * sentence, which is also how it reads: here is what you asked for, and here is what I have
+     * to tell you about it.
+     */
+    if (out.capNotice) {
+      append({ key: nextKey(), kind: 'cap', notice: out.capNotice, text: capAnnouncement(out.capNotice), asked: false });
+    }
+  };
+
+  /** Record the interest, then say so on the turn itself. A failure leaves the offer standing
+   *  rather than claiming something was filed that was not. */
+  const wantMore = async (key: string, notice: CapNotice) => {
+    if (!onWantMore) return;
+    if (await onWantMore(notice)) {
+      setTurns((cur) => cur.map((t) => (t.key === key && t.kind === 'cap' ? { ...t, asked: true } : t)));
+    }
   };
 
   /** Apply a turn's changes: F4 background. The turn shows the one working indicator; the
@@ -400,6 +436,26 @@ export function VoiceSheet({
                   onDiscard={() => discardTurn(t.key, t.items)}
                   {...(onDiscard ? { onDropItem: (id: string) => dropItem(t.key, t.items, id) } : {})}
                 />
+              );
+            }
+            if (t.kind === 'cap') {
+              return (
+                <AgentSays key={t.key} testid="turn-cap" live={i === lastAgentIdx} className="mr-8 self-stretch">
+                  <span className="block">{t.text}</span>
+                  {t.asked ? (
+                    <span data-testid="want-more-sent" className="mt-2.5 block text-[13.5px] font-semibold text-muted">
+                      Noted — we’ll be in touch about it.
+                    </span>
+                  ) : onWantMore ? (
+                    <button
+                      type="button" data-testid="want-more"
+                      onClick={() => void wantMore(t.key, t.notice)}
+                      className="mt-2.5 min-h-[44px] rounded-full border border-line/55 bg-surface px-4 text-[13.5px] font-bold text-coral-800"
+                    >
+                      Need more this month?
+                    </button>
+                  ) : null}
+                </AgentSays>
               );
             }
             // A plain agent turn: dots while working, structured lines once it has words.

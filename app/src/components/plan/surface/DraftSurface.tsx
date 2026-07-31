@@ -243,7 +243,13 @@ export function DraftSurface({ data }: { data: PlanData }) {
           </span>
         </span>
       }
-      topSlot={<Feedback undo={m.undo} onDismiss={() => m.setUndo(null)} message={data.toast} agent={data.agentToast} agentWorking={data.agentBusy || m.shaping} />}
+      // X5a, same rule as the committed month: while the sheet is open the THREAD owns the
+      // agent's voice and its working state, and this bar must not render a second copy over it.
+      topSlot={<Feedback
+        undo={m.undo} onDismiss={() => m.setUndo(null)} message={data.toast}
+        agent={voiceFor !== null ? null : data.agentToast}
+        agentWorking={voiceFor === null && (data.agentBusy || m.shaping)}
+      />}
       chip={<SummaryChip label={label} expanded={receiptOpen} onToggle={() => setReceiptOpen((v) => !v)} />}
       overlays={<>
         <DraftDetailSheet

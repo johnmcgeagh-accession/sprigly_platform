@@ -21,7 +21,7 @@
 import React, { useState } from 'react';
 import type { PlanPost } from '@/lib/types';
 import { FormatTile, ChevronR } from './icons';
-import { isOnTheWay, ON_THE_WAY_ARIA } from '@/lib/generation-state';
+import { isPostOnTheWay, isBanked, ON_THE_WAY_ARIA } from '@/lib/generation-state';
 import { cardText } from './card-text';
 import { dayTitle } from './dates';
 
@@ -43,6 +43,8 @@ export interface RowItem {
   /** Shown instead of the time when the surface leads with format (the month summary). */
   format?: string | undefined;
   onWay?: boolean | undefined;
+  /** Waiting for the monthly change allowance to refresh (X2c). */
+  banked?: boolean | undefined;
 }
 
 export function rowsFromPosts(posts: PlanPost[], timeOf: (p: PlanPost) => string): RowItem[] {
@@ -55,7 +57,10 @@ export function rowsFromPosts(posts: PlanPost[], timeOf: (p: PlanPost) => string
     // for reels and carousels alike. One derivation: the same `post.format` the detail sheet
     // and the day cards already read.
     format: p.format,
-    onWay: isOnTheWay(p.status),
+    // X2c: a banked post is NOT on its way — it shows no in-flight marker in the month
+    // summary either, because nothing is in flight.
+    onWay: isPostOnTheWay(p),
+    banked: isBanked(p),
   }));
 }
 

@@ -10,22 +10,24 @@
  * share a changeSetId. Scoped to the (clientId, cycleId) passed in.
  */
 import { randomUUID } from 'node:crypto';
-import { loadPlanPosts } from '@/lib/plan';
 import type { PlanPost } from '@/lib/types';
 import { getModelClient, getEmbeddingClient } from '@/lib/agent/model';
 import { createAuditLogger } from '@sprigly/audit';
 import { db } from '@sprigly/db';
 import { parseTasks } from '@/lib/agent/task-parser';
-import { getClientCycleMonths, getCycleMonth, resolveCycleForMonth, cycleDigest } from '@/lib/agent/cycle-state';
+import { resolveCycleForMonth } from '@/lib/agent/cycle-state';
+import { buildPlanContext } from '@/lib/agent/plan-context';
 import { loadProductIndex } from '@/lib/agent/catalogue';
-import { resolveTargets, resolveMoveSource, postTitle, parseISO } from '@/lib/agent/selectors';
+import { resolveTargets, resolveMoveSource, postTitle, titleFromSubject, parseISO } from '@/lib/agent/selectors';
 import { moveSummary, deleteSummary, rewriteSummary, addSummary, formatSummary, generateHookSummary, refineSummary } from '@/lib/agent/summaries';
 import { ensureConversation, appendMessage, listTurns, threadForParser, latestPendingIntent, intentForParser } from '@/lib/agent/conversation';
 import { createProposal, loadPendingPayloads, rejectProposal } from '@/lib/agent/proposals';
 import { saveNote } from '@/lib/agent/notes';
 import { answerQuery } from '@/lib/agent/query';
 import { editScopeToday, isEditableDate } from '@/lib/edit-scope';
-import type { AgentTurnResponse, InterpretedItem, ParsedTask, PendingIntent, ProposalView } from '@/lib/agent/types';
+import { getUsageForCycle, remainingAiChanges } from '@/lib/usage';
+import { capAnnouncement } from '@sprigly/engine/ai-change-cap';
+import type { AgentTurnResponse, CapNotice, InterpretedItem, ParsedTask, PendingIntent, ProposalView } from '@/lib/agent/types';
 
 export interface AgentTurnArgs {
   clientId:        string;
@@ -192,9 +194,42 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
   if (args.sessionId) userMeta.sessionId = args.sessionId;
   const userMessageId = await appendMessage({ conversationId: convId, role: 'user', content: instruction, source, metadata: userMeta });
 
-  const posts = await loadPlanPosts(clientId, cycleId);
   const { iso: todayNow, date: today } = agentToday();
-  const cycleMonth = await getCycleMonth(clientId, cycleId);
+  /**
+   * ── THE CONTEXT SEAM (X1a) ───────────────────────────────────────────────────────────
+   *
+   * ONE call for everything the agent knows about the plan: which months it can see, their
+   * posts, and the digest. It spans the viewed cycle and its neighbours plus the cycle holding
+   * today (`plan-context.ts` states the rule and the reasons). This turn loop never reads a
+   * cycle directly again — when the context becomes tool use, `buildPlanContext` is what is
+   * replaced, and nothing below moves.
+   */
+  const planCtx = await buildPlanContext(clientId, cycleId, todayNow);
+  /** THE RESOLUTION SET: every post in scope, across months. A reference can only ever reach a
+   *  post that is in here, which is exactly why August was untouchable from October. */
+  const posts = planCtx.posts;
+  /** The month on screen, alone — for placement decisions that belong to it rather than to the
+   *  span (an undated add is placed here, not across three months). */
+  const viewedPosts = planCtx.cycles.find((c) => c.cycleId === cycleId)?.posts ?? [];
+  const cycleMonth = planCtx.viewedMonth;
+
+  /**
+   * The cycle that will OWN a date, resolved from the date's own month. Memoised per turn
+   * because a compound request ("add three posts in September") asks the same question three
+   * times, and this is a database read.
+   *
+   * It looks past the SPAN deliberately: the span governs what can be READ (which posts a
+   * reference resolves against), not where a change may LAND. A client with a March cycle can
+   * be given a March post from the August view even though March's rows were never loaded.
+   */
+  const cycleForMonthCache = new Map<string, string | null>();
+  const cycleForMonth = async (month: string): Promise<string | null> => {
+    if (cycleForMonthCache.has(month)) return cycleForMonthCache.get(month)!;
+    const inSpan = planCtx.cycles.find((c) => c.planMonth === month)?.cycleId ?? null;
+    const id = inSpan ?? await resolveCycleForMonth(clientId, month).catch(() => null);
+    cycleForMonthCache.set(month, id);
+    return id;
+  };
 
   /**
    * ── THE PENDING CHANGE IS THE REFERENT (C3) ──────────────────────────────────────────
@@ -218,12 +253,11 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
     const ctx = {
       today: todayNow,
       viewedMonth: cycleMonth ? monthName(cycleMonth) : 'this month',
-      cycleMonths: await getClientCycleMonths(clientId, cycleId),
-      // `todayNow` rides into the digest so every row carries its own side of today, computed
-      // with `isEditableDate` rather than left for the model to work out from a month name.
-      // `cycleMonth` states the plan's CALENDAR WINDOW, so the plan's end is the month's last
-      // day rather than its last post (G2 — the "runs up to the 28th" refusal).
-      planDigest: cycleDigest(posts, todayNow, cycleMonth),
+      cycleMonths: planCtx.allMonths,
+      // The SPAN's digest: every month in scope, each row carrying its ISO date and its own
+      // side of today (computed with `isEditableDate`, the write gate's predicate), under a
+      // window line naming every month rather than one (G2's rule, generalised by X1a).
+      planDigest: planCtx.digest,
       productIndex: await loadProductIndex(clientId, 'instagram'),
       recentThread,
       ...(pendingBlock ? { pending: pendingBlock } : {}),
@@ -314,16 +348,32 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
           cannot(`${dayMonth(task.toDate)} has already passed — I can only move posts to today or later. Which date did you have in mind?`);
           break;
         }
-        // The one remaining limit is real and is not about permission: a post lives in the cycle
-        // that plans its month, and nothing yet carries it into a different one. `cycleMonth` is
-        // the month this cycle PLANS, so this now compares two plan-month dates. It used to
-        // compare a plan date against the stored data month — never equal, which is why every
-        // in-month move came back refused.
-        if (cycleMonth && task.toDate.slice(0, 7) !== cycleMonth) {
-          cannot(`That would move the post into ${monthName(task.toDate)} — moving posts to a different month isn’t available yet.`);
+        /**
+         * ── THE MONTH IS NOT A PERMISSION (X1b) ────────────────────────────────────────
+         *
+         * This used to refuse any destination outside the viewed cycle's plan month, with the
+         * words the operator screenshotted: *"moving posts to a different month isn't available
+         * yet."* The permission rule is the DATE rule — today-or-later, plus ownership — and
+         * both ends have already been checked above. What remains is not permission but
+         * PLACEMENT: the destination month must be one the client can actually reach, or the
+         * post moves somewhere they cannot navigate to and reads as vanished.
+         *
+         * The post keeps its own `cycle_id` (see the payload below). Cycles span BY DATE on the
+         * calendar already — `loadCrossMonthPosts` (plan.ts) serves every post whose
+         * scheduled_date falls in the viewed month whatever cycle owns it, and each post routes
+         * its own edits through its own cycle. So a September date on an August post renders in
+         * September and edits as September, with no row re-parented and no ordering, ledger or
+         * quota accounting disturbed. That is the smallest correct version.
+         */
+        const destCycle = await cycleForMonth(task.toDate.slice(0, 7));
+        if (!destCycle) {
+          cannot(`I can’t move it into ${monthName(task.toDate)} — there’s no ${monthName(task.toDate)} plan yet, and I can’t make one. Pick a date in a month you already have.`);
           break;
         }
-        await propose('move_post', { kind: 'move', cycleId, postId: post.id, toDate: task.toDate }, moveSummary(post, task.toDate, task.reason),
+        // The proposal carries the POST'S OWN cycle, never the viewed one: the apply step scopes
+        // its write by (client, cycle, post), so an August post moved from the October view
+        // would find nothing to update if this said October.
+        await propose('move_post', { kind: 'move', cycleId: post.cycleId, postId: post.id, toDate: task.toDate }, moveSummary(post, task.toDate, task.reason),
           { action: 'move', title: postTitle(post), fromDate: post.date, toDate: task.toDate });
         break;
       }
@@ -332,7 +382,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
         if (!ref) { cannot(whichPost(task.reason)); break; }
         if ('ambiguous' in ref) { cannot(whichOfThese(ref.ambiguous, task.reason)); break; }
         const post = ref.post;
-        await propose('delete_post', { kind: 'delete', cycleId, postId: post.id }, deleteSummary(post, task.reason),
+        await propose('delete_post', { kind: 'delete', cycleId: post.cycleId, postId: post.id }, deleteSummary(post, task.reason),
           { action: 'remove', title: postTitle(post), fromDate: post.date });
         break;
       }
@@ -342,7 +392,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
         if ('ambiguous' in ref) { cannot(whichOfThese(ref.ambiguous, task.reason)); break; }
         const post = ref.post;
         if (!task.instruction) { cannot('What change should I make to that caption?'); break; }
-        await propose('rewrite_post', { kind: 'rewrite', cycleId, postId: post.id, instruction: task.instruction }, rewriteSummary(post, task.reason),
+        await propose('rewrite_post', { kind: 'rewrite', cycleId: post.cycleId, postId: post.id, instruction: task.instruction }, rewriteSummary(post, task.reason),
           { action: 'rewrite', title: postTitle(post), fromDate: post.date });
         break;
       }
@@ -353,22 +403,45 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
         const post = ref.post;
         if (!task.format) { cannot('Which format should it be: reel, carousel or single image?'); break; }
         if (task.format === post.format) { cannot(`“${postTitle(post)}” is already a ${task.format}.`); break; }
-        await propose('change_format', { kind: 'format', cycleId, postId: post.id, format: task.format }, formatSummary(post, task.format, task.reason),
+        await propose('change_format', { kind: 'format', cycleId: post.cycleId, postId: post.id, format: task.format }, formatSummary(post, task.format, task.reason),
           { action: 'format', title: postTitle(post), fromDate: post.date, format: task.format });
         break;
       }
       case 'add_post': {
-        const date = task.toDate ?? defaultAddDate(posts, today, cycleMonth);
+        // An UNDATED add is placed inside the month on screen, from THAT month's posts — not
+        // from the span's. The span made `posts` multi-month, and "two days after the last post"
+        // read across three months would put an August add into November.
+        const date = task.toDate ?? defaultAddDate(viewedPosts, today, cycleMonth);
+        /**
+         * ── AN ADD LANDS IN THE MONTH ITS DATE NAMES (X1c) ────────────────────────────
+         *
+         * "add a post about X on 4 September" from the August view files under SEPTEMBER's
+         * cycle, because a cycle plans a month and 4 September is September's. The viewed cycle
+         * is where the client is standing, which is not the same fact.
+         *
+         * If that month has no cycle we REFUSE and say why. Inventing one is the one thing that
+         * must not happen here: a cycle is a planning run with a brief, a fan-out and a cost, and
+         * a row conjured by an add would be a month-shaped object with none of them.
+         */
+        const destCycle = await cycleForMonth(date.slice(0, 7));
+        if (!destCycle) {
+          cannot(`There’s no ${monthName(date)} plan yet, and I can’t start one — that’s a planning run, not an edit. Pick a date in a month you already have, or ask us to set ${monthName(date)} up.`);
+          break;
+        }
         const inferred = task.format === 'reel' || task.format === 'carousel' || task.format === 'single';
         const format = inferred ? task.format! : 'single';
+        // `instruction` is the SUBJECT the parser extracted, which is structured intent. It is
+        // deliberately not `reason` — that is the model's paraphrase of their phrasing, i.e.
+        // the transcript echo this whole rendering exists to replace.
+        const subject = task.instruction?.trim() || null;
         const pv = await propose('add_post',
-          { kind: 'add', cycleId, date, channel: task.channel ?? null, instruction: task.instruction ?? null, format },
+          // X3: the TITLE travels with the change. It is the same string the interpretation line
+          // below shows, so the row the client gets is headed with what they read and consented
+          // to — rather than landing as "Untitled" until a caption exists to derive one from.
+          { kind: 'add', cycleId: destCycle, date, channel: task.channel ?? null, instruction: subject, format, title: titleFromSubject(subject) },
           addSummary(date, format, inferred, task.reason, task.instruction),
-          // `instruction` is the SUBJECT the parser extracted, which is structured intent. It is
-          // deliberately not `reason` — that is the model's paraphrase of their phrasing, i.e.
-          // the transcript echo this whole rendering exists to replace.
-          { action: 'add', title: task.instruction?.trim() || null, toDate: date, format });
-        lastAdd = { proposalId: pv.id, format, topic: task.instruction?.trim() || task.reason?.trim() || 'the new post' };
+          { action: 'add', title: subject, toDate: date, format });
+        lastAdd = { proposalId: pv.id, format, topic: subject || task.reason?.trim() || 'the new post' };
         break;
       }
       case 'generate_hook': {
@@ -381,7 +454,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
             cannot(`Hooks apply to reels and carousels. “${postTitle(post)}” is ${FMT_WORD[post.format] === 'single image' ? 'a single image' : `an ${FMT_WORD[post.format]}`}. Want me to make it a reel first, then add hooks?`);
             break;
           }
-          await propose('generate_hook', { kind: 'generate_hook', cycleId, postId: post.id }, generateHookSummary(`“${postTitle(post)}”`, task.reason),
+          await propose('generate_hook', { kind: 'generate_hook', cycleId: post.cycleId, postId: post.id }, generateHookSummary(`“${postTitle(post)}”`, task.reason),
             { action: 'hook', title: postTitle(post), fromDate: post.date });
           break;
         }
@@ -414,7 +487,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
               : `There’s no script on “${postTitle(post)}” yet. Open it and use Generate script first, then I can refine it.`);
             break;
           }
-          await propose('refine', { kind: 'refine', cycleId, postId: post.id, target, instruction: task.instruction }, refineSummary(target, `“${postTitle(post)}”`, task.reason),
+          await propose('refine', { kind: 'refine', cycleId: post.cycleId, postId: post.id, target, instruction: task.instruction }, refineSummary(target, `“${postTitle(post)}”`, task.reason),
             { action: 'refine', title: postTitle(post), fromDate: post.date, target });
           break;
         }
@@ -425,7 +498,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
       }
       case 'add_note': {
         if (!task.content) { cannot('What would you like me to note down?'); break; }
-        const noteCycle = task.targetMonth ? await resolveCycleForMonth(clientId, task.targetMonth) : cycleId;
+        const noteCycle = task.targetMonth ? await cycleForMonth(task.targetMonth) : cycleId;
         await saveNote({ clientId, cycleId: noteCycle, content: task.content, source, relevantFrom: task.relevantFrom ?? null, relevantTo: task.relevantTo ?? null });
         const window = task.relevantFrom || task.relevantTo ? ` (relevant ${task.relevantFrom ?? '…'} to ${task.relevantTo ?? '…'})` : '';
         replyParts.push(`Noted: ${task.content}${window}`);
@@ -438,7 +511,9 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
         let answer: string;
         try {
           answer = await answerQuery(
-            { clientId, cycleId, question: task.question ?? instruction, today },
+            // The SPAN goes to the answerer (X1a/d): "what's happening next week" is a question
+            // about dates, and it must not be answered from the month that happens to be up.
+            { clientId, cycleId, question: task.question ?? instruction, today, context: planCtx },
             { model: getModelClient(), embeddingClient: getEmbeddingClient(), audit },
           );
         } catch { answer = 'I couldn’t look that up just now. Please try again.'; }
@@ -475,11 +550,47 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
     ? { ...asking.intent, ...(asking.question ? { question: asking.question } : {}) }
     : null;
 
+  /**
+   * ── THE CAP IS RAISED BEFORE THE WORK, NOT AFTER IT (X2a) ────────────────────────────
+   *
+   * Found live: a request that exceeded the monthly allowance produced posts that were REFUSED
+   * at apply time, stored an honest message nobody surfaced, and rendered as "On its way". The
+   * client learned about the cap by watching nothing happen.
+   *
+   * So the turn says it here, while there is still a decision to make. Three facts and an
+   * offer: how many changes this needs, how many are left, when more arrive, and that we can
+   * hold the whole thing and run it then (`capAnnouncement`).
+   *
+   * WHICH CHANGES COST. The cap governs the EXPENSIVE path — a Bedrock call through the
+   * planning-critic / planning-repair loop. An add is a caption written; a rewrite and a refine
+   * are the same loop over an existing field; a hook is a generation. A MOVE, a DELETE and a
+   * FORMAT CHANGE are structural writes with no model in them, and have always been free.
+   *
+   * It is an ANNOUNCEMENT, not a gate. The proposals are already made and the client can still
+   * apply them; what happens then is the honest banked state (X2b/c) rather than a surprise.
+   * That is also why a failed usage read is swallowed: a cost line that cannot be computed must
+   * never change what the client is allowed to ask for.
+   */
+  const EXPENSIVE: ReadonlySet<string> = new Set(['add', 'rewrite', 'refine', 'hook']);
+  const needed = items.filter((i) => i.kind === 'change' && EXPENSIVE.has(i.action)).length;
+  let capNotice: CapNotice | null = null;
+  if (needed > 0) {
+    try {
+      const usage = await getUsageForCycle(clientId, cycleId);
+      const remaining = remainingAiChanges(usage);
+      if (!usage.unlimited && needed > remaining) {
+        capNotice = { needed, remaining, limit: usage.limit, resetsOn: usage.resetsOn };
+        replyParts.push(capAnnouncement({ needed, remaining, resetsOn: usage.resetsOn }));
+      }
+    } catch { /* the cap is a sentence, not a gate — an unreadable allowance changes nothing */ }
+  }
+
   const message = replyParts.join('\n') || (proposals.length ? '' : 'Okay.');
   const resp: AgentTurnResponse = {
     conversationId: convId, message, proposals, items,
     changeSetId: proposals.length ? changeSetId : null,
     ...(superseded.length ? { supersededProposalIds: superseded } : {}),
+    ...(capNotice ? { capNotice } : {}),
   };
 
   await appendMessage({
@@ -493,6 +604,8 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
       proposalIds: proposals.map((p) => p.id), items,
       // The assembly, if this turn is still holding one (G1). Absent on every turn that isn't.
       ...(pendingIntent ? { pendingIntent } : {}),
+      // The cap announcement, so a reopened thread renders the same turn it showed live (X2a).
+      ...(capNotice ? { capNotice } : {}),
     },
   });
 
