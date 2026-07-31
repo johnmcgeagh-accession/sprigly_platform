@@ -460,7 +460,9 @@ export function CommittedSurface({ data }: { data: PlanData }) {
       {!chipOpen && !whatChangedOpen && view === 'month' && (
         <MonthGrid
           month={month} selected={selected} today={data.today}
-          marksFor={marksFor} changedFor={dayChanged} onPick={pickFromGrid} footer={monthFooter}
+          // lockToMonth: the grid's padding cells are another month's days, and picking one is
+          // the jump (round 4). Leaving the month is the ‹ › arrows' job — they refetch.
+          marksFor={marksFor} changedFor={dayChanged} onPick={pickFromGrid} footer={monthFooter} lockToMonth
           summary={<MonthDaySummary date={selected} items={rowsFromPosts(postsOn(selected), timeOf)} onOpen={setOpenId} />}
         />
       )}

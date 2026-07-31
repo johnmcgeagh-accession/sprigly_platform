@@ -262,3 +262,124 @@ describe('THE MOVER: the week strip leaves the month on a swipe', () => {
     expect(panelDate()).toBe('2026-08-31');                 // clamped to the month's last day
   });
 });
+
+/**
+ * ── THE INSTRUMENT, ARMABLE ON THE DEVICE (round 4) ──────────────────────────────────
+ *
+ * `?nav=trace` is an instruction to retype a magic-link URL on a phone, which by definition
+ * happens after the session the operator wanted to watch. Three taps on the wordmark arm it in
+ * place, and the panel appears on the third tap rather than on the next navigation.
+ */
+describe('the nav trace can be armed from the surface', () => {
+  const tapWordmark = (n: number) => {
+    const w = screen.getByTestId('wordmark');
+    for (let i = 0; i < n; i++) fireEvent.click(w);
+  };
+
+  it('is absent until it is armed', async () => {
+    window.sessionStorage.removeItem('sprigly:nav-trace');
+    await mount();
+    expect(screen.queryByTestId('nav-trace')).toBeNull();
+  });
+
+  it('two taps are not three — the identity is still just the identity', async () => {
+    window.sessionStorage.removeItem('sprigly:nav-trace');
+    await mount();
+    tapWordmark(2);
+    expect(screen.queryByTestId('nav-trace')).toBeNull();
+  });
+
+  it('THREE taps arm it, and the panel lands on the third — not on the next navigation', async () => {
+    window.sessionStorage.removeItem('sprigly:nav-trace');
+    await mount();
+    await act(async () => { tapWordmark(3); });
+    expect(screen.getByTestId('nav-trace')).toBeTruthy();
+    expect(window.sessionStorage.getItem('sprigly:nav-trace')).toBe('1');
+  });
+
+  it('and three more disarm it again', async () => {
+    window.sessionStorage.removeItem('sprigly:nav-trace');
+    await mount();
+    await act(async () => { tapWordmark(3); });
+    await act(async () => { tapWordmark(3); });
+    expect(screen.queryByTestId('nav-trace')).toBeNull();
+    expect(window.sessionStorage.getItem('sprigly:nav-trace')).toBeNull();
+  });
+
+  it('an armed trace records the mover with its call site — what the operator screenshots', async () => {
+    await mount();                                       // beforeEach armed it
+    fireEvent.click(screen.getByTestId('next-week'));
+    const line = trace().find((l) => l.includes('2026-08-21'));
+    expect(line).toMatch(/select user:strip 2026-08-21 ← .*WeekStrip|select user:strip 2026-08-21 ← .*CommittedSurface/);
+  });
+});
+
+/**
+ * ── ROUND 4: THE MOVER THAT SURVIVED THE CLAMP ───────────────────────────────────────
+ *
+ * Round 3 put `clampToMonth` on `WeekStrip.move()` and made it the only way the CHEVRONS, the
+ * SWIPE and the ARROW KEYS change the selection. It never touched the fourth mover, which is
+ * the plainest one on the surface: **a finger on a day cell**.
+ *
+ * `weekOf(selected)` renders seven days whatever month they belong to, and every cell is a
+ * button that calls `onSelect(iso)` with no clamp at all. So the round-3 fix opened the door
+ * rather than closing it — the report itself records that the clamp made 30–31 July newly
+ * reachable, and the same is true of 31 August. Stand on 31 Aug (which the arrow keys now
+ * reach) and the strip draws **Mon 31 Aug … Sun 6 Sep**: six September cells, all tappable,
+ * none of them clamped. One tap and the day header reads *Friday 4 September* while the month
+ * title still says August and the week's posts belong to a cycle nobody fetched.
+ *
+ * That is the round-3 report verbatim — and the trace line it was convicted on,
+ * `select user:strip 2026-09-04 ← CommittedSurface.tsx:75`, is produced IDENTICALLY by this
+ * path. The chevron was one way to make that line; the cell tap is the other, and only the
+ * first was fixed.
+ *
+ * The month grid has the same hole (`MonthGrid.tsx`, `onClick={() => onPick(iso)}` on padding
+ * cells), so both are covered here.
+ */
+describe('ROUND 4 — the padding-day tap, which the clamp never covered', () => {
+  /** Walk to the month's last day the way the clamp now permits, and tap out of it. */
+  const dayCell = (iso: string) =>
+    screen.getAllByTestId('week-day').find((d) => d.getAttribute('data-date') === iso);
+
+  it('the strip renders September cells on the week of 31 August — the door the clamp opened', async () => {
+    await mount();
+    fireEvent.click(screen.getByTestId('next-week'));
+    fireEvent.click(screen.getByTestId('next-week'));       // 28 Aug
+    const strip = screen.getByTestId('week-strip');
+    for (let i = 0; i < 5; i++) fireEvent.keyDown(strip, { key: 'ArrowRight' });
+    expect(panelDate()).toBe('2026-08-31');
+    expect(dayCell('2026-09-04'), 'the week of 31 Aug must contain 4 September').toBeTruthy();
+  });
+
+  it('TAPPING that September cell must not take the day into September', async () => {
+    await mount();
+    fireEvent.click(screen.getByTestId('next-week'));
+    fireEvent.click(screen.getByTestId('next-week'));       // 28 Aug
+    const strip = screen.getByTestId('week-strip');
+    for (let i = 0; i < 5; i++) fireEvent.keyDown(strip, { key: 'ArrowRight' });   // 31 Aug
+
+    const sep4 = dayCell('2026-09-04')!;
+    fireEvent.click(sep4);
+
+    expect(panelDate()?.slice(0, 7), `THE JUMP — trace:\n${trace().join('\n')}`).toBe('2026-08');
+    expect(monthTitle()).toBe('August 2026');
+  });
+
+  it('an in-month cell tap still selects — the fix is a clamp, not a dead strip', async () => {
+    await mount();
+    fireEvent.click(dayCell('2026-08-12')!);
+    expect(panelDate()).toBe('2026-08-12');
+  });
+
+  it('the month grid’s padding cells do not move the day out of the month either', async () => {
+    await mount();
+    fireEvent.click(screen.getByTestId('nav-month'));
+    const cell = screen.getAllByTestId('grid-cell').find((d) => d.getAttribute('data-date')?.startsWith('2026-09'));
+    expect(cell, 'September padding cells are drawn in the August grid').toBeTruthy();
+    fireEvent.click(cell!);
+    // Back to the day view, which is where the selection is legible.
+    fireEvent.click(screen.getByTestId('nav-day'));
+    expect(panelDate()?.slice(0, 7), `trace:\n${trace().join('\n')}`).toBe('2026-08');
+  });
+});

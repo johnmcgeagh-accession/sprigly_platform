@@ -17,13 +17,19 @@ export function NavTracePanel() {
   const [collapsed, setCollapsed] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Armed state is read after mount: the flag comes off `location`, which the server does not
-  // have, and rendering it during SSR would mismatch.
+  /**
+   * Armed state is read after mount: the flag comes off `location`, which the server does not
+   * have, and rendering it during SSR would mismatch.
+   *
+   * ROUND 4: the subscription is UNCONDITIONAL. It used to return early when the trace was off,
+   * which meant arming it mid-session (the wordmark's triple tap) did nothing until something
+   * else re-rendered the shell. On a surface whose bug is a navigation, "it appears after you
+   * navigate" is an instrument that hides exactly when it is needed.
+   */
   useEffect(() => {
-    if (!navTraceEnabled()) return;
-    setOn(true);
-    setRows(navTraceEntries());
-    return onNavTrace(() => setRows(navTraceEntries()));
+    const sync = () => { setOn(navTraceEnabled()); setRows(navTraceEntries()); };
+    sync();
+    return onNavTrace(sync);
   }, []);
 
   if (!on) return null;
@@ -60,16 +66,26 @@ export function NavTracePanel() {
       {!collapsed && (
         <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 4 }}>
           <tbody>
-            {rows.map((r, i) => (
-              <tr key={i}>
-                <td style={{ textAlign: 'right', paddingRight: 8, opacity: 0.55, whiteSpace: 'nowrap' }}>{r.t}</td>
-                <td style={{ paddingRight: 8, color: TONE(r.ev), whiteSpace: 'nowrap' }}>{r.ev}</td>
-                <td style={{ opacity: 0.8 }}>{r.detail ?? ''}</td>
-                {/* WHO CALLED. A reason is what the call site claims; this is what it is, and
-                    the two disagreeing is how the next unfound mover gets caught. */}
-                <td style={{ opacity: 0.5, whiteSpace: 'nowrap', paddingLeft: 8 }}>{r.from ?? ''}</td>
-              </tr>
-            ))}
+            {rows.map((r, i) => {
+              // THE RED LINE. A suspect row is the one thing this instrument is for, and the
+              // deliverable is a SCREENSHOT of it — so the whole row carries the tone, the call
+              // site included. It used to sit at opacity 0.5, which is the one cell the operator
+              // has to be able to read back off a photograph of a phone.
+              const tone = TONE(r.ev);
+              const suspect = tone === SUSPECT;
+              return (
+                <tr key={i} style={suspect ? { background: 'rgba(255,138,122,.12)' } : undefined}>
+                  <td style={{ textAlign: 'right', paddingRight: 8, opacity: 0.55, whiteSpace: 'nowrap' }}>{r.t}</td>
+                  <td style={{ paddingRight: 8, color: tone, whiteSpace: 'nowrap', fontWeight: suspect ? 700 : 400 }}>{r.ev}</td>
+                  <td style={{ opacity: 0.8 }}>{r.detail ?? ''}</td>
+                  {/* WHO CALLED. A reason is what the call site claims; this is what it is, and
+                      the two disagreeing is how the next unfound mover gets caught. */}
+                  <td style={{ color: suspect ? tone : undefined, opacity: suspect ? 1 : 0.5, whiteSpace: 'nowrap', paddingLeft: 8 }}>
+                    {r.from ?? ''}
+                  </td>
+                </tr>
+              );
+            })}
             {!rows.length && <tr><td colSpan={4} style={{ opacity: 0.6 }}>nothing yet — move around the plan</td></tr>}
           </tbody>
         </table>
@@ -83,10 +99,13 @@ const BTN: React.CSSProperties = {
   border: '1px solid rgba(245,228,216,.35)', borderRadius: 4, padding: '2px 7px', minHeight: 24,
 };
 
+/** The tone of a row that no gesture explains — the line this instrument exists for. */
+const SUSPECT = '#FF8A7A';
+
 /** A position change that no gesture caused is the line this instrument exists for. */
 function TONE(ev: string): string {
   if (ev.includes('user:')) return '#A8E8B8';           // a gesture — expected
   if (ev.includes('restore:')) return '#8CC8E8';        // the persistence putting you back
   if (ev.includes('mount') || ev.includes('land')) return '#F5E4D8';
-  return '#FF8A7A';                                     // anything else moved the surface — the bug
+  return SUSPECT;                                       // anything else moved the surface — the bug
 }
