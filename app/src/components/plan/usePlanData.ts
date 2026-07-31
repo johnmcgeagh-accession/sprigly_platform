@@ -19,6 +19,7 @@ export interface DraftSurfaceData {
 }
 import type { PlanPost, PlanBeat, PlanIntake, DurableItemView, CycleSummary, PostStepView, ShapeResult, ExtractedSummary, IntakeResult } from '@/lib/types';
 import type { InterpretedItem, ProposalView } from '@/lib/agent/types';
+import { PROPOSAL_REFUSED } from '@/lib/agent/types';
 import type { NoteView } from '@/lib/agent/notes';
 import { indexForecast, type WeatherDay, type WeatherWireDay } from '@/lib/weather';
 import { resolveDayCycleId } from '@/lib/cycle-nav';
@@ -679,25 +680,57 @@ export function usePlanData(init: PlanDataInit) {
     }
   }, []);
 
-  /** Approve/reject a proposal. `ok` says whether it was APPLIED — a `blocked` approve (an
-   *  ordering dependency not yet met) is NOT consumed, so the caller keeps the row
-   *  actionable. `changedPostIds` is what the approval touched/created, for the what-changed
-   *  highlights. `quiet` suppresses the per-decision flashes — the background batch (F4)
-   *  reports once at the end through the surface's own treatment, and a flash per item would
-   *  strobe the one feedback channel while nobody is watching it. */
+  /**
+   * Approve/reject a proposal. `ok` says whether it was APPLIED — a `blocked` approve (an
+   * ordering dependency not yet met) is NOT consumed, so the caller keeps the row actionable.
+   * `changedPostIds` is what the approval touched/created, for the what-changed highlights.
+   * `quiet` suppresses the per-decision flashes — the background batch (F4) reports once at the
+   * end through the surface's own treatment, and a flash per item would strobe the one feedback
+   * channel while nobody is watching it.
+   *
+   * ── THE VANISHED LAUNCH POST (G3) ────────────────────────────────────────────────────
+   *
+   * This function used to answer the wrong question. It read the HTTP status — `res.ok` — and
+   * called a 200 a success. But a guard refusal IS a 200: `approveProposal` writes the reason
+   * to the row, sets the status to 'failed', and returns it as an ordinary body. So a past-dated
+   * add, an exhausted AI-change quota and a thrown mutation all came back through this line as
+   * `{ ok: true }`, went into `applyChanges`'s APPLIED list, and F4's failure-naming — which
+   * only fires on a non-empty `failed` — never ran.
+   *
+   * The client was then told "Done — 3 changes are in" over a plan holding two. The teasers
+   * applied; the launch post did not; and nothing on the screen said so.
+   *
+   * The transport is not the outcome. `failed` and the proposal's own status are, and the
+   * reason rides back with them so the caller can NAME what didn't happen.
+   */
   const decide = useCallback(async (
     id: string, action: 'approve' | 'reject', opts: { quiet?: boolean } = {},
-  ): Promise<{ ok: boolean; changedPostIds: string[] }> => {
+  ): Promise<{ ok: boolean; changedPostIds: string[]; reason?: string; retryable?: boolean }> => {
     const no = { ok: false, changedPostIds: [] as string[] };
     if (proposalBusy) return no;
     setProposalBusy(id);
     try {
       const res = await fetch(`/api/plan/proposals/${id}/${action}`, { method: 'POST' });
-      if (!res.ok) { if (!opts.quiet) flash('Could not update that. Please try again.'); return no; }
-      const d = (await res.json()) as { jobId?: string; hookPostId?: string; blocked?: boolean; message?: string; changedPostIds?: string[] };
+      if (!res.ok) { if (!opts.quiet) flash('Could not update that. Please try again.'); return { ...no, retryable: true }; }
+      const d = (await res.json()) as {
+        jobId?: string; hookPostId?: string; blocked?: boolean; failed?: boolean; message?: string;
+        changedPostIds?: string[]; proposal?: { status?: string };
+      };
       // Blocked = a dependency wasn't met (e.g. approve hooks before the create step). The
       // proposal is untouched — leave the row so it can be approved after its prerequisite.
-      if (d.blocked) { if (!opts.quiet) flash(d.message ?? 'Approve the earlier step first, then this one.'); return no; }
+      if (d.blocked) {
+        if (!opts.quiet) flash(d.message ?? 'Approve the earlier step first, then this one.');
+        return { ...no, retryable: true, ...(d.message ? { reason: d.message } : {}) };
+      }
+      // REFUSED. `failed` is the explicit signal; the status is the belt-and-braces read for a
+      // server that predates it. Either way the row is CONSUMED, so it comes out of the pending
+      // list — an Apply left offering a change the guard has already refused is a button that
+      // can only fail again. NOT retryable: the rescue is to amend it, not to press it twice.
+      if (d.failed || d.proposal?.status === PROPOSAL_REFUSED) {
+        setProposals((cur) => cur.filter((p) => p.id !== id));
+        if (!opts.quiet) flash(d.message ?? 'That change didn’t go through.');
+        return { ...no, retryable: false, ...(d.message ? { reason: d.message } : {}) };
+      }
       setProposals((cur) => cur.filter((p) => p.id !== id));
       track(action === 'approve' ? 'proposal_approved' : 'proposal_discarded', { id });
       if (action === 'approve') {
@@ -726,17 +759,31 @@ export function usePlanData(init: PlanDataInit) {
    * what didn't apply on failure). A partial failure is reported honestly rather than rolled
    * back: the changes that landed have landed, and pretending otherwise would mean a plan that
    * disagrees with its own receipt.
+   *
+   * EVERY FAILURE CARRIES ITS REASON (G3). "2 of 3 went through" is not a report; it is the
+   * client being asked to diff their own month. `failures` pairs the proposal with the guard's
+   * own sentence and with whether pressing Apply again could ever work — the difference between
+   * "it's still here to try" and "give me another date".
    */
-  const applyChanges = useCallback(async (ids: readonly string[]): Promise<{ applied: string[]; failed: string[]; changedPostIds: string[] }> => {
+  const applyChanges = useCallback(async (ids: readonly string[]): Promise<{
+    applied: string[];
+    failed: string[];
+    failures: Array<{ proposalId: string; reason: string | null; retryable: boolean }>;
+    changedPostIds: string[];
+  }> => {
     const applied: string[] = [];
     const failed: string[] = [];
+    const failures: Array<{ proposalId: string; reason: string | null; retryable: boolean }> = [];
     const changedPostIds: string[] = [];
     for (const id of ids) {
       const r = await decide(id, 'approve', { quiet: true });
       if (r.ok) { applied.push(id); changedPostIds.push(...r.changedPostIds); }
-      else failed.push(id);
+      else {
+        failed.push(id);
+        failures.push({ proposalId: id, reason: r.reason ?? null, retryable: r.retryable ?? true });
+      }
     }
-    return { applied, failed, changedPostIds: [...new Set(changedPostIds)] };
+    return { applied, failed, failures, changedPostIds: [...new Set(changedPostIds)] };
   }, [decide]);
 
   /** Throw changes away without applying them. Silent — discarding is not news. */

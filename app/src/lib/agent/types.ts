@@ -79,6 +79,16 @@ export const ACTION_TO_KIND: Record<MutatingAction, ProposalPayload['kind']> = {
   move_post: 'move', delete_post: 'delete', rewrite_post: 'rewrite', add_post: 'add', change_format: 'format', generate_hook: 'generate_hook', refine: 'refine',
 };
 
+/**
+ * The status a guard leaves on a refused proposal.
+ *
+ * Named here rather than written twice because BOTH sides read it: `approveProposal` sets it,
+ * and the plan surface checks for it when deciding whether an apply actually applied (G3). It
+ * also keeps the literal out of `src/components/plan`, where the terminology fence — rightly —
+ * refuses to excuse a bare "failed" as an identifier.
+ */
+export const PROPOSAL_REFUSED = 'failed';
+
 /** The proposal shape returned to the client (list + inline actions). */
 export interface ProposalView {
   id: string;

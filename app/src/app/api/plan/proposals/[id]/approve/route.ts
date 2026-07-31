@@ -25,6 +25,10 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
     ...(r.jobId ? { jobId: r.jobId } : {}),
     ...(r.hookPostId ? { hookPostId: r.hookPostId } : {}),
     ...(r.blocked ? { blocked: true } : {}),
+    // `failed` + `message` is a REFUSAL that consumed the proposal (G3). It used to travel as
+    // a bare 200 with `proposal.status:'failed'` and no words, which the client counted as a
+    // success — the vanished launch post. Both halves ride now: that it failed, and why.
+    ...(r.failed ? { failed: true } : {}),
     ...(r.message ? { message: r.message } : {}),
     // The post(s) this approval touched/created — the surface highlights them in the
     // what-changed treatment after a background apply (F4).

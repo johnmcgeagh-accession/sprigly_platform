@@ -170,12 +170,23 @@ export function CommittedSurface({ data }: { data: PlanData }) {
       .filter((i): i is Extract<InterpretedItem, { kind: 'change' }> => i.kind === 'change' && ids.includes(i.proposalId));
     const r = await data.applyChanges(ids);
     const appliedLines = lines.filter((l) => r.applied.includes(l.proposalId));
-    const failedLines = lines.filter((l) => r.failed.includes(l.proposalId));
     if (r.applied.length) {
       setAppliedChip({ label: appliedChipLabel(appliedLines), lines: appliedLines });
       setChangedIds((cur) => [...new Set([...cur, ...r.changedPostIds])]);
     }
-    const failureText = r.failed.length ? applyFailureMessage(failedLines, r.applied.length) : null;
+    /**
+     * WHAT DIDN'T APPLY, PAIRED WITH WHY (G3). The failure list is joined to the interpretation
+     * the client consented to, so the report names the line they read rather than an id — and
+     * carries the guard's own sentence for each, which is the half that used to die in the
+     * database. A failure with no matching line still counts: it is the vanished item.
+     */
+    const failures = r.failures
+      .map((f) => {
+        const change = lines.find((l) => l.proposalId === f.proposalId);
+        return change ? { change, reason: f.reason, retryable: f.retryable } : null;
+      })
+      .filter((f): f is NonNullable<typeof f> => f !== null);
+    const failureText = failures.length ? applyFailureMessage(failures, r.applied.length) : null;
     if (failureText && !voiceOpenRef.current) setUndo({ message: failureText });
     return {
       text: failureText
