@@ -4,6 +4,15 @@
  *
  *   pnpm --filter @sprigly/worker classify-check
  *   pnpm --filter @sprigly/worker classify-check path/to/other-fixtures.json
+ *   pnpm --filter @sprigly/worker classify-check --model=haiku
+ *
+ * --model=<logical|physical> runs the fixture against a DIFFERENT tier than production's. The
+ * classifier defaults to sonnet (`ClassifyParams.modelName`), and the question of whether haiku
+ * could do this job has so far been answered by argument rather than evidence. This flag makes
+ * it answerable: run the fixture on both, compare pass counts, and let the fixtures decide.
+ *
+ * IT CHANGES NOTHING BUT THIS RUN. The flag is read here and passed per call; no default moves,
+ * and production keeps classifying on sonnet until someone changes the default deliberately.
  *
  * Why this exists: the series fix (and now beat_spec and cadence) shipped with the classifier's
  * recognition ARGUED in a report, not DEMONSTRATED — every transform test feeds a
@@ -42,6 +51,28 @@ const args = process.argv.slice(2);
 const fixtureArg = args.find((a) => !a.startsWith('--'));
 const here = dirname(fileURLToPath(import.meta.url));
 const fixturePath = fixtureArg ? resolve(process.cwd(), fixtureArg) : resolve(here, 'classify-check-fixtures.json');
+
+/**
+ * The tier under test. `--model=haiku` / `--model haiku`; omitted means the production default,
+ * which is whatever `classifyIntake` and `decomposeInput` choose for themselves (sonnet) — so an
+ * un-flagged run is byte-identical to what it always was, including the prompt.
+ *
+ * Passed through as `modelName`, which the resolver maps to a physical id, so a full Bedrock
+ * inference-profile id works here too when a specific snapshot needs pinning.
+ */
+const modelFlagIdx = args.findIndex((a) => a === '--model');
+const modelEqArg = args.find((a) => a.startsWith('--model='))?.slice('--model='.length);
+const modelArg = modelEqArg ?? (modelFlagIdx >= 0 ? args[modelFlagIdx + 1] : undefined);
+// A flag that was TYPED but carries no usable value is an error, not a silent fall-back to the
+// default. Someone writing `--model` meant to test another tier; running sonnet anyway and
+// reporting a pass would be the exact "tier faith" this flag exists to replace.
+const modelFlagTyped = modelEqArg !== undefined || modelFlagIdx >= 0;
+if (modelFlagTyped && (!modelArg || modelArg.startsWith('--'))) {
+  console.error('classify-check: --model needs a value, e.g. --model=haiku');
+  process.exit(1);
+}
+/** Spread into each call so an absent flag leaves the call site EXACTLY as it was. */
+const modelOverride = modelArg ? { modelName: modelArg } : {};
 
 const logger = pino({ name: 'classify-check', level: 'warn' }, pino.destination(2));
 
@@ -94,7 +125,7 @@ for (const c of fixture.cases) {
   const wasPreParsed = parseBeatSpec(c.text, planMonth) !== null;
   if (wasPreParsed) preParsed++; else spent++;
 
-  const routing = await classifyIntake({ text: c.text, planMonth, model, logger,
+  const routing = await classifyIntake({ text: c.text, planMonth, model, logger, ...modelOverride,
     ...(c.decomposeContext ? { context: 'brief_segment' as const } : {}) });
 
   const actualScope = routing.scope;
@@ -121,7 +152,7 @@ for (const c of fixture.cases) {
 }
 
 console.log(lines.join('\n\n'));
-console.log(`\n${pass}/${pass + fail} passed  ·  ${spent} classify calls (Bedrock), ${preParsed} pre-parsed (no spend)  ·  fixture: ${fixturePath}`);
+console.log(`\n${pass}/${pass + fail} passed  ·  ${spent} classify calls (Bedrock), ${preParsed} pre-parsed (no spend)  ·  model: ${modelArg ?? 'sonnet (default)'}  ·  fixture: ${fixturePath}`);
 
 // ── decompose-check: run the REAL decomposer over each full brief, print segments + kinds ────
 // The operator live-verifies decomposition the same way they verify classification. Each brief
@@ -131,7 +162,7 @@ for (const b of fixture.briefs ?? []) {
   const planMonth = b.planMonth ?? defaultMonth;
   console.log(`\n\n=== DECOMPOSE: ${b.label ?? b.text.slice(0, 48)} ===`);
   console.log(`document-shaped: ${isDocumentShaped(b.text)}`);
-  const decomposition = await decomposeInput({ text: b.text, model, logger });
+  const decomposition = await decomposeInput({ text: b.text, model, logger, ...modelOverride });
   decomposeSpent++;
   if (!decomposition) {
     console.log('  decomposition FAILED the coverage contract (would fall back to the whole-input path)');
@@ -140,14 +171,14 @@ for (const b of fixture.briefs ?? []) {
   console.log(`  ${decomposition.segments.length} segments, ${decomposition.discarded.length} discarded:`);
   for (const [n, seg] of decomposition.segments.entries()) {
     // Classify WITH the brief framing — exactly as the production decompose path does.
-    const routing = await classifyIntake({ text: seg, planMonth, model, logger, context: 'brief_segment' });
+    const routing = await classifyIntake({ text: seg, planMonth, model, logger, ...modelOverride, context: 'brief_segment' });
     decomposeSpent++;
     const kind = routing.scope === 'evergreen' ? `evergreen(${routing.reason})` : `month_scoped/${routing.intent.kind}`;
     console.log(`   ${String(n + 1).padStart(2)}. [${kind}]  ${seg.slice(0, 80)}`);
   }
 }
 if ((fixture.briefs ?? []).length > 0) {
-  console.log(`\n${decomposeSpent} decompose+classify calls (Bedrock) across ${(fixture.briefs ?? []).length} brief(s).`);
+  console.log(`\n${decomposeSpent} decompose+classify calls (Bedrock) across ${(fixture.briefs ?? []).length} brief(s) on ${modelArg ?? 'sonnet (default)'}.`);
 }
 
 process.exit(fail > 0 ? 1 : 0);
