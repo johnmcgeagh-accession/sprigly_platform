@@ -47,7 +47,9 @@ export async function answerQuery(args: AnswerQueryArgs, deps: AnswerQueryDeps):
   try {
     const chunks = await retrieveChunks(
       { clientId: args.clientId, queryText: args.question, k: QUERY_K, minScore: QUERY_MIN_SCORE },
-      { embeddingClient: deps.embeddingClient },
+      // The embed is the THIRD billable call on a query turn; passing the auditor here is what
+      // puts it on the ledger beside the parse and the answer.
+      { embeddingClient: deps.embeddingClient, audit: deps.audit },
     );
     if (chunks.length) {
       knowledge = chunks.map((c, i) => `[${i + 1}]${c.summary ? ` ${c.summary}\n` : '\n'}${c.content}`).join('\n\n---\n\n');
@@ -75,11 +77,8 @@ ${args.question}`;
     temperature: 0,
   });
 
-  // A "query" turn spends TWICE — this answer call, and the Titan embed inside retrieveChunks
-  // above. Only this half reaches the ledger: nothing in @sprigly/knowledge takes an auditor,
-  // so the embed is still unmeasured (see docs/reports/conversational-cost.md §"What is still
-  // dark"). The Titan rate is in the price map ready for it, so the row is honest the day the
-  // write lands rather than needing a rate hunted down then.
+  // A "query" turn spends THREE times: the parse (upstream, in the turn loop), the Titan embed
+  // inside retrieveChunks above, and this answer call. All three now reach the ledger.
   if (deps.audit) {
     try {
       await deps.audit.logModelCall({

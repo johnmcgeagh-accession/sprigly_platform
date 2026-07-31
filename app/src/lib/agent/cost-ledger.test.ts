@@ -12,11 +12,13 @@
  * `computeCostPence` run, writing through a recording `db.insert` — and asserts:
  *
  *   · exactly N parse rows for N turns (one call, one row — never zero, never two)
- *   · one answer row per query turn, and none for turns that asked nothing
+ *   · one answer row AND one embed row per query turn, and neither for turns that asked nothing
  *   · ledger rows and agent_messages agree: 2N messages (user + assistant) to N parse rows
- *   · costs are sub-penny reals, not the pre-0091 ceil-to-1p *
- * It also pins what is NOT yet measured (the Titan query embed), so that gap has to be closed
- * deliberately rather than discovered again.
+ *   · costs are sub-penny reals, not the pre-0091 ceil-to-1p
+ *
+ * A query turn is the interesting case: it spends THREE times (parse, embed, answer) and must
+ * produce three rows. That used to be asserted here as a shortfall — two rows for three calls —
+ * and the assertion has been flipped now the embed write has landed.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { PlanPost } from '../types';
@@ -44,8 +46,11 @@ const h = vi.hoisted(() => ({
   /** Canned model replies, consumed in call order; each carries its own token counts. */
   replies: [] as Array<{ content: string; inputTokens: number; outputTokens: number }>,
   modelCalls: [] as Array<{ system?: string | undefined }>,
-  /** Titan embed calls — counted to pin that they happen and are NOT logged. */
+  /** Titan embed calls — counted so "it happened" and "it was billed" stay separate claims. */
   embeds: 0,
+  /** Whether the fake embedder reports usage. False exercises retrieveChunks' fallback, where
+   *  no honest token count exists and the correct outcome is no row at all. */
+  usageCapable: true,
 }));
 
 // The database, faked down to the one operation the ledger performs. `insert().values()` is
@@ -59,6 +64,11 @@ vi.mock('@sprigly/db', () => ({
   },
   auditLog: { __table: 'audit_log' },
   contentCycles: {}, contentCyclePosts: {}, conversations: {}, agentMessages: {},
+  // `retrieveChunks` runs for REAL below rather than being stubbed out, so its two db
+  // collaborators are faked here instead: the vector query returns no rows (a sparse knowledge
+  // bank, which is the common case and exercises the same embed path).
+  sql: { begin: async () => [] as unknown[] },
+  serializeVector: (v: number[]) => `[${v.join(',')}]`,
 }));
 
 vi.mock('@/lib/plan', () => ({ loadPlanPosts: async () => [...h.posts] }));
@@ -80,21 +90,25 @@ vi.mock('@/lib/agent/model', () => ({
     },
     async completeStreaming() { throw new Error('not used'); },
   }),
+  // Reports usage, as the real BedrockTitanClient does. A fake that returned only a vector would
+  // silently take retrieveChunks down its no-row fallback, and this test would then pass while
+  // measuring nothing — which is why `usageCapable` makes that path an explicit case instead.
   getEmbeddingClient: () => ({
     async embed() { h.embeds++; return new Array(1024).fill(0); },
+    ...(h.usageCapable ? {
+      async embedWithUsage() {
+        h.embeds++;
+        return { embedding: new Array(1024).fill(0), inputTokens: 60, modelId: 'amazon.titan-embed-text-v2:0' };
+      },
+    } : {}),
     async embedBatch() { h.embeds++; return []; },
     dimensions: 1024,
   }),
 }));
 
-// Retrieval is real code with a real DB behind it; only its DB half is stubbed. The embedding
-// client above is still called, which is the point — the embed SPENDS and is counted here.
-vi.mock('@sprigly/knowledge', () => ({
-  retrieveChunks: async (_a: unknown, deps: { embeddingClient: { embed: (t: string) => Promise<number[]> } }) => {
-    await deps.embeddingClient.embed('q');
-    return [];
-  },
-}));
+// NOTE: @sprigly/knowledge is deliberately NOT mocked. `retrieveChunks` is where the embed
+// billing lives, so stubbing it would leave this test asserting its own stub. Only its database
+// collaborators are faked (see the @sprigly/db mock above).
 
 vi.mock('@/lib/agent/cycle-state', async (orig) => {
   const real = await orig<typeof import('./cycle-state')>();
@@ -150,6 +164,7 @@ beforeEach(() => {
   h.modelCalls.length = 0;
   h.replies.length = 0;
   h.embeds = 0;
+  h.usageCapable = true;
   h.posts = [P('p-a', '2026-08-03', 'Linen, one more time')];
 });
 
@@ -187,17 +202,29 @@ describe('N turns produce exactly N parse rows', () => {
   });
 });
 
-describe('a query turn spends twice and says so', () => {
-  it('adds an answer row alongside the parse row', async () => {
+describe('a query turn spends three times and says so', () => {
+  it('adds an answer row AND an embed row alongside the parse row', async () => {
     h.replies.push({ ...QUERY }, { ...ANSWER });
     await ask('what is scheduled this week?');
 
     expect(rowsFor('plan-agent:parse-tasks')).toHaveLength(1);
     expect(rowsFor('plan-agent:answer-query')).toHaveLength(1);
+    expect(rowsFor('plan-agent:query-embed')).toHaveLength(1);
     expect(rowsFor('plan-agent:answer-query')[0]!.inputTokens).toBe(ANSWER.inputTokens);
   });
 
-  it('a mixed session reconciles per turn — 3 turns, 1 of them a query, 4 rows', async () => {
+  it('the embed row names Titan and carries its real token count', async () => {
+    h.replies.push({ ...QUERY }, { ...ANSWER });
+    await ask('what is scheduled this week?');
+
+    const embed = rowsFor('plan-agent:query-embed')[0]!;
+    expect(embed.modelId).toBe('amazon.titan-embed-text-v2:0');
+    expect(embed.inputTokens).toBe(60);        // what the client reported, not an estimate
+    expect(embed.outputTokens).toBe(0);        // an embedding returns a vector, not tokens
+    expect(embed.clientId).toBe('c1');
+  });
+
+  it('a mixed session reconciles per turn — 3 turns, 1 of them a query, 5 rows', async () => {
     h.replies.push({ ...CLARIFY }, { ...QUERY }, { ...ANSWER }, { ...CLARIFY });
 
     await ask('move something');
@@ -206,14 +233,16 @@ describe('a query turn spends twice and says so', () => {
 
     expect(rowsFor('plan-agent:parse-tasks')).toHaveLength(3);
     expect(rowsFor('plan-agent:answer-query')).toHaveLength(1);
-    expect(rows()).toHaveLength(4);
+    expect(rowsFor('plan-agent:query-embed')).toHaveLength(1);
+    expect(rows()).toHaveLength(5);
     expect(h.messages).toHaveLength(6);
   });
 
-  it('a turn that asks nothing writes no answer row', async () => {
+  it('a turn that asks nothing writes neither an answer nor an embed row', async () => {
     h.replies.push({ ...CLARIFY });
     await ask('move something');
     expect(rowsFor('plan-agent:answer-query')).toHaveLength(0);
+    expect(rowsFor('plan-agent:query-embed')).toHaveLength(0);
   });
 });
 
@@ -274,23 +303,54 @@ describe('what the row carries for diagnosis', () => {
 });
 
 /**
- * THE REMAINING GAP, pinned deliberately.
+ * THE GAP, NOW CLOSED.
  *
- * A query turn makes THREE billable calls, not two: the parse, the answer, and a Titan embedding
- * of the question inside `retrieveChunks`. Nothing in @sprigly/knowledge takes an auditor, so the
- * embed is real spend with no row. It is fractions of a fraction of a penny — the Titan rate is
- * already in the price map — but "too small to matter" is the argument that produced the gap this
- * whole change is closing, so the shortfall is asserted rather than left to be rediscovered.
- *
- * When the embed write lands, this test should FAIL and be updated to expect the row.
+ * This block used to assert a shortfall: a query turn made THREE billable calls and produced two
+ * rows, because nothing in @sprigly/knowledge accepted an auditor. It was written to fail the day
+ * the embed write landed. It has, so it now asserts the opposite — three calls, three rows — and
+ * the arithmetic that made the old gap easy to dismiss is stated rather than repeated, because
+ * "fractions of a fraction of a penny" is exactly the reasoning that let it sit unmeasured.
  */
-describe('the embed is spent but not yet measured', () => {
-  it('a query turn embeds once and logs nothing for it', async () => {
+describe('the embed is spent AND measured', () => {
+  it('a query turn embeds once and posts a row for it', async () => {
     h.replies.push({ ...QUERY }, { ...ANSWER });
     await ask('what is scheduled this week?');
 
-    expect(h.embeds).toBe(1);                                          // it happened
-    expect(rows().some((r) => String(r.modelId).includes('titan'))).toBe(false);   // and cost nothing on paper
-    expect(rows()).toHaveLength(2);                                    // 3 calls, 2 rows
+    expect(h.embeds).toBe(1);                                                   // it happened
+    expect(rows().some((r) => String(r.modelId).includes('titan'))).toBe(true); // and it is on the ledger
+    expect(rows()).toHaveLength(3);                                             // 3 calls, 3 rows
+  });
+
+  it('the embed is priced — tiny, but never a fake zero', async () => {
+    h.replies.push({ ...QUERY }, { ...ANSWER });
+    await ask('what is scheduled this week?');
+
+    const embed = Number(rowsFor('plan-agent:query-embed')[0]!.costPence);
+    // 60 tokens x 1.58p per 1M = 0.0000948p, stored to micropence as 0.000095.
+    expect(embed).toBe(0.000095);
+    expect(embed).toBeGreaterThan(0);
+  });
+
+  it('costs three orders of magnitude less than the answer beside it — and the ledger shows it', async () => {
+    h.replies.push({ ...QUERY }, { ...ANSWER });
+    await ask('what is scheduled this week?');
+
+    const embed  = Number(rowsFor('plan-agent:query-embed')[0]!.costPence);
+    const answer = Number(rowsFor('plan-agent:answer-query')[0]!.costPence);
+    expect(answer / embed).toBeGreaterThan(500);
+    // Before migration 0091 both of these posted as 1p, indistinguishable. That is what a
+    // ledger looks like when it counts calls instead of measuring spend.
+  });
+
+  it('an embedder that cannot report usage writes NO row rather than a guessed one', async () => {
+    // The fallback path in retrieveChunks: no `embedWithUsage`, so no honest token count exists.
+    // Silence is the correct outcome; an estimated cost row would be worse than none.
+    h.usageCapable = false;
+    h.replies.push({ ...QUERY }, { ...ANSWER });
+    await ask('what is scheduled this week?');
+
+    expect(h.embeds).toBe(1);                                    // the call still happened
+    expect(rowsFor('plan-agent:query-embed')).toHaveLength(0);   // and is honestly unrecorded
+    expect(rows()).toHaveLength(2);
   });
 });
