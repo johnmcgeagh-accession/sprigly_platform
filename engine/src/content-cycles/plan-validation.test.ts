@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Logger } from 'pino';
-import type { ModelClient, ModelCompleteParams } from '@sprigly/model-client';
+import type { ModelClient, ModelCompleteParams, ModelMessage } from '@sprigly/model-client';
 import type { AuditLogger } from '@sprigly/audit';
 import {
   codeGateCheck, selectHistoricExamples, parseCriticVerdict, normaliseDashes, resolveRegister,
@@ -265,6 +265,15 @@ const AUDIT = { logModelCall: async () => {} } as unknown as AuditLogger;
 /** A ModelClient whose response is decided by the caller, so a test can make the
  *  model return deliberately mutated structure. `complete` is the only method the
  *  repair/critic paths use. */
+/** A message's text, whichever shape it arrived in. `ModelMessage.content` widened to
+ *  `string | MessagePart[]` when cache breakpoints landed; the engine only ever sends strings,
+ *  but the assertions below read the prompt and should not care which. */
+function messageText(content: ModelMessage['content'] | undefined): string {
+  if (content === undefined) return '';
+  if (typeof content === 'string') return content;
+  return content.map((p) => (p.type === 'text' ? p.text : '')).join('');
+}
+
 function stubModel(reply: (params: ModelCompleteParams) => string): ModelClient {
   return {
     complete: async (params: ModelCompleteParams) => ({
@@ -437,7 +446,7 @@ describe('applyCodeGate / applyCritic — slot count and order invariance (f)', 
     // Critic fails P2 forever (→ 3 repairs, then accept-with-warning); passes the rest.
     const model = stubModel((params) => {
       if (params.system === CRITIC_SYS) {
-        const failing = params.messages[0]?.content.includes('"P2"');
+        const failing = messageText(params.messages[0]?.content).includes('"P2"');
         return JSON.stringify(failing
           ? { pass: false, issues: ['off voice'], suggested_fix: 'warm it up' }
           : { pass: true, issues: [], suggested_fix: '' });

@@ -1,7 +1,31 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { ModelClient, ModelCompleteParams, ModelCompleteResult } from './types.js';
+import type { ModelClient, ModelCompleteParams, ModelCompleteResult, ModelMessage } from './types.js';
 
 const MAX_TOOL_TURNS = 20;
+
+/**
+ * One message → Anthropic content. CACHE BREAKPOINTS ARE DROPPED HERE, DELIBERATELY.
+ *
+ * Anthropic does support prompt caching, and marks it as `cache_control` on the last block of
+ * the prefix rather than as a standalone block. But this package is pinned to @anthropic-ai/sdk
+ * ^0.27.0, where caching was still a beta surface (`client.beta.promptCaching.messages`) with no
+ * `cache_control` on the GA message params and no `cache_read_input_tokens` on `usage`. There is
+ * no way to express the breakpoint through the call this client makes.
+ *
+ * So it is dropped rather than faked. Parts are concatenated back into the continuous string the
+ * model would have seen anyway — the prompt is byte-identical to the uncached one, which is the
+ * correct behaviour for a provider that cannot honour the marker: the call costs what it always
+ * did, and `cacheReadTokens` stays absent rather than reporting a zero that would read as a
+ * cache miss to investigate.
+ *
+ * This matters little in practice and is worth stating anyway: MODEL_PROVIDER=bedrock is the
+ * deployed path (Railway/UAT/prod, eu-west-2), and this client is the local-dev alternative.
+ * Caching on this path needs an SDK upgrade, not a code change here.
+ */
+function toAnthropicContent(m: ModelMessage): string {
+  if (typeof m.content === 'string') return m.content;
+  return m.content.map((p) => (p.type === 'text' ? p.text : '')).join('');
+}
 
 export class AnthropicClient implements ModelClient {
   private client: Anthropic;
@@ -13,7 +37,7 @@ export class AnthropicClient implements ModelClient {
   async complete(params: ModelCompleteParams): Promise<ModelCompleteResult> {
     const messages: Anthropic.MessageParam[] = params.messages.map(m => ({
       role: m.role,
-      content: m.content,
+      content: toAnthropicContent(m),
     }));
 
     let totalInputTokens = 0;
@@ -37,6 +61,8 @@ export class AnthropicClient implements ModelClient {
       const turnOutput = response.usage.output_tokens;
       totalInputTokens  += turnInput;
       totalOutputTokens += turnOutput;
+      // No cache counters read: see toAnthropicContent — the pinned SDK's `usage` does not carry
+      // them, and reporting 0 would be indistinguishable from a real cache miss.
       finalStopReason = response.stop_reason ?? 'end_turn';
 
       const textBlock = response.content.find(b => b.type === 'text');

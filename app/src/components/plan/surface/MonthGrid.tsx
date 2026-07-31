@@ -29,7 +29,7 @@ import { DOW_INITIAL, monthGrid, fromIso, MONTHS_FULL } from './dates';
 import type { DayMark } from './WeekStrip';
 
 export function MonthGrid({
-  month, selected, today, marksFor, changedFor, onPick, footer, summary,
+  month, selected, today, marksFor, changedFor, onPick, footer, summary, lockToMonth,
 }: {
   month: string;
   selected: string;
@@ -39,6 +39,17 @@ export function MonthGrid({
   /** RECENTLY CHANGED: an extra accent dot beside the day's marks (what-changed visibility). */
   changedFor?: ((iso: string) => boolean) | undefined;
   onPick: (iso: string) => void;
+  /**
+   * ROUND 4 (the jump): the padding cells are INERT — another month's day cannot be selected
+   * from this month's grid.
+   *
+   * Opt-IN rather than always-on, because the two callers want opposite things. A plan VIEW
+   * owns the surface's position, and a padding pick there is the jump: one tap on 1 September
+   * in the August grid and the day panel reads September under an August title, over posts
+   * from a cycle nobody fetched. The MOVE PICKER owns no position at all — it steps months
+   * with its own arrows and a cross-month move is the point of it — so it leaves this off.
+   */
+  lockToMonth?: boolean | undefined;
   /** One sentence under the grid — the count, and the exception if there is one. */
   footer: string;
   /** What the selected day holds (round 6, P6). Rendered under the footer; the move picker
@@ -59,12 +70,17 @@ export function MonthGrid({
           const marks = marksFor(iso);
           const isSelected = iso === selected;
           const d = fromIso(iso);
+          const inert = !!lockToMonth && !inMonth;
           return (
             <button
               key={iso} type="button" data-testid="grid-cell" data-date={iso}
               aria-current={isSelected ? 'true' : undefined}
-              aria-label={`${day} ${MONTHS_FULL[d.getMonth()]}${marks.length ? `, ${marks.length} post${marks.length === 1 ? '' : 's'}` : ', nothing planned'}${iso === today ? ', today' : ''}`}
-              onClick={() => onPick(iso)}
+              // Disabled, never hidden — the same grammar the week strip's month edge uses.
+              aria-label={inert
+                ? `${day} ${MONTHS_FULL[d.getMonth()]} — in ${MONTHS_FULL[d.getMonth()]}, use the month arrows to open it`
+                : `${day} ${MONTHS_FULL[d.getMonth()]}${marks.length ? `, ${marks.length} post${marks.length === 1 ? '' : 's'}` : ', nothing planned'}${iso === today ? ', today' : ''}`}
+              disabled={inert}
+              onClick={() => { if (!inert) onPick(iso); }}
               // aspect-square keeps the cell above 44px at 390px (350px ÷ 7 = 50px) and above
               // the 40px floor down to 320px (304 ÷ 7 = 43px).
               className="flex aspect-square flex-col items-center justify-center gap-[5px] rounded-[14px]"

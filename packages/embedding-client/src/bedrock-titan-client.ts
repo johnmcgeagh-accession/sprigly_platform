@@ -2,7 +2,7 @@ import {
   BedrockRuntimeClient,
   InvokeModelCommand,
 } from '@aws-sdk/client-bedrock-runtime';
-import type { EmbeddingClient } from './types.js';
+import type { EmbeddingClient, EmbedUsage } from './types.js';
 
 const THROTTLE_RETRIES    = 3;
 const THROTTLE_BASE_DELAY = 1_000; // ms, doubles each attempt
@@ -63,16 +63,21 @@ export class BedrockTitanClient implements EmbeddingClient {
   }
 
   async embed(text: string): Promise<number[]> {
+    return (await this.embedWithRetry(text)).embedding;
+  }
+
+  /** The same call, keeping the usage Titan already reports instead of discarding it. */
+  async embedWithUsage(text: string): Promise<EmbedUsage> {
     return this.embedWithRetry(text);
   }
 
   async embedBatch(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return [];
-    const tasks = texts.map((t) => () => this.embedWithRetry(t));
+    const tasks = texts.map((t) => async () => (await this.embedWithRetry(t)).embedding);
     return withConcurrency(tasks, this.concurrency);
   }
 
-  private async embedWithRetry(text: string): Promise<number[]> {
+  private async embedWithRetry(text: string): Promise<EmbedUsage> {
     let lastErr: unknown;
     for (let attempt = 0; attempt <= THROTTLE_RETRIES; attempt++) {
       if (attempt > 0) {
@@ -95,7 +100,7 @@ export class BedrockTitanClient implements EmbeddingClient {
     throw lastErr;
   }
 
-  private async invoke(text: string): Promise<number[]> {
+  private async invoke(text: string): Promise<EmbedUsage> {
     const body = JSON.stringify({
       inputText: text,
       dimensions: this.dimensions,
@@ -115,6 +120,14 @@ export class BedrockTitanClient implements EmbeddingClient {
       inputTextTokenCount: number;
     };
 
-    return parsed.embedding;
+    // inputTextTokenCount is what Titan bills on, and it used to be parsed and dropped on the
+    // floor. Keeping it is the difference between a query embed being a cost row and being a
+    // rumour. Defensive default: a response without it yields 0, which prices as free — honest,
+    // because a token count we did not receive is not one we may invent.
+    return {
+      embedding:   parsed.embedding,
+      inputTokens: typeof parsed.inputTextTokenCount === 'number' ? parsed.inputTextTokenCount : 0,
+      modelId:     this.modelId,
+    };
   }
 }

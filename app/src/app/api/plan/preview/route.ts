@@ -14,6 +14,7 @@
 import { NextResponse } from 'next/server';
 import { and, eq, gte, isNull, lte, or } from 'drizzle-orm';
 import { db, planInputs } from '@sprigly/db';
+import { createAuditLogger } from '@sprigly/audit';
 import { previewBrief, EMPTY_PREVIEW, PREVIEW_MIN_CHARS, type PreviewDurable } from '@sprigly/engine';
 import { getSession } from '@/lib/auth';
 import { allowRequest } from '@/lib/rate-limit';
@@ -62,6 +63,11 @@ export async function POST(req: Request) {
   if (text.trim().length < PREVIEW_MIN_CHARS) return NextResponse.json({ preview: EMPTY_PREVIEW });
 
   const durables = await loadDurables(clientId);
-  const preview = await previewBrief({ text, durables, model: getModelClient(), clientId });
+  // The route's own header promises "≤ ~20 Haiku calls per planning session" — an envelope that
+  // was argued rather than measured, because none of those calls reached the ledger. They do now:
+  // `previewBrief` has always logged behind `if (audit && clientId)`, and only the auditor was
+  // missing. The two guards above (token bucket, min-length short-circuit) are unchanged; this
+  // adds the row that lets the envelope be checked against what actually happened.
+  const preview = await previewBrief({ text, durables, model: getModelClient(), clientId, audit: createAuditLogger(db) });
   return NextResponse.json({ preview });
 }

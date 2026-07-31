@@ -13,17 +13,19 @@ import { randomUUID } from 'node:crypto';
 import { loadPlanPosts } from '@/lib/plan';
 import type { PlanPost } from '@/lib/types';
 import { getModelClient, getEmbeddingClient } from '@/lib/agent/model';
+import { createAuditLogger } from '@sprigly/audit';
+import { db } from '@sprigly/db';
 import { parseTasks } from '@/lib/agent/task-parser';
 import { getClientCycleMonths, getCycleMonth, resolveCycleForMonth, cycleDigest } from '@/lib/agent/cycle-state';
 import { loadProductIndex } from '@/lib/agent/catalogue';
 import { resolveTargets, resolveMoveSource, postTitle, parseISO } from '@/lib/agent/selectors';
 import { moveSummary, deleteSummary, rewriteSummary, addSummary, formatSummary, generateHookSummary, refineSummary } from '@/lib/agent/summaries';
-import { ensureConversation, appendMessage, listTurns, threadForParser } from '@/lib/agent/conversation';
+import { ensureConversation, appendMessage, listTurns, threadForParser, latestPendingIntent, intentForParser } from '@/lib/agent/conversation';
 import { createProposal, loadPendingPayloads, rejectProposal } from '@/lib/agent/proposals';
 import { saveNote } from '@/lib/agent/notes';
 import { answerQuery } from '@/lib/agent/query';
 import { editScopeToday, isEditableDate } from '@/lib/edit-scope';
-import type { AgentTurnResponse, InterpretedItem, ParsedTask, ProposalView } from '@/lib/agent/types';
+import type { AgentTurnResponse, InterpretedItem, ParsedTask, PendingIntent, ProposalView } from '@/lib/agent/types';
 
 export interface AgentTurnArgs {
   clientId:        string;
@@ -81,13 +83,28 @@ function resolvePostRef(task: ParsedTask, posts: PlanPost[], today: string): Pos
   return null;
 }
 
-/** A sensible default date for an add_post with no date: two days after the last
- *  scheduled post, else a week out. */
-function defaultAddDate(posts: PlanPost[], today: Date): string {
+/**
+ * A sensible default date for an add_post with no date: two days after the last scheduled
+ * post, else a week out — held inside the plan month's own calendar.
+ *
+ * THE SECOND max(scheduled_date) DERIVATION (G2). This one is a real placement rather than a
+ * sentence, and it had the same fault in the other direction: with the last post on the 30th,
+ * "two days after" is the 1st of the NEXT month — a post proposed into a month this cycle does
+ * not plan, which the move guard would then refuse to move back. Clamped to the plan month,
+ * and never behind today, so the default is always a date the client can actually keep.
+ */
+function defaultAddDate(posts: PlanPost[], today: Date, planMonth?: string | null): string {
   const dates = posts.map((p) => p.date).sort();
   const base = dates.length ? new Date(`${dates[dates.length - 1]}T00:00:00`) : today;
   const d = new Date(base); d.setDate(d.getDate() + (dates.length ? 2 : 7));
-  return todayIso(d);
+  const iso = todayIso(d);
+  if (!planMonth || !/^\d{4}-\d{2}$/.test(planMonth)) return iso;
+  const [y, m] = planMonth.split('-').map(Number);
+  const first = `${planMonth}-01`;
+  const last = `${planMonth}-${String(new Date(y!, m!, 0).getDate()).padStart(2, '0')}`;
+  const clamped = iso < first ? first : iso > last ? last : iso;
+  // A clamp backwards can land behind today; today itself is addable, so that is the floor.
+  return clamped < todayIso(today) ? todayIso(today) : clamped;
 }
 
 const whichPost = (reason?: string | null) =>
@@ -138,13 +155,38 @@ const monthName = (iso: string): string => {
 export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnResponse> {
   const { clientId, cycleId, instruction, source } = args;
 
+  /**
+   * THE COST LEDGER FOR THIS TURN.
+   *
+   * One per turn, shared by both calls that can spend here — the parse (always) and the query
+   * answerer (only on a "query" task). Both write behind their own try/catch, so a ledger that
+   * cannot write never changes what the client is told.
+   */
+  const audit = createAuditLogger(db);
+
   const convId = await ensureConversation(clientId, cycleId, args.conversationId);
   // THE THREAD, read BEFORE this turn's message lands so the window is the conversation as it
   // stood when the client spoke. "Move it back" resolves against the previous exchange, and the
   // previous exchange is what this captures — assistant turns serialised from their RESOLVED
   // items (titles + ISO dates), never from prose.
   let recentThread = '';
-  try { recentThread = threadForParser(await listTurns(clientId, convId)); }
+  /**
+   * ── THE PENDING INTENT (G1) ──────────────────────────────────────────────────────────
+   *
+   * The change the LAST assistant turn was still assembling when it asked its question. It
+   * rides into the prompt as its own block so this utterance is read as the ANSWER before it
+   * is read as anything else — which is the whole of the raspberry failure: "Reels" had no
+   * question to belong to, so it could only be a verbless noun to ask about.
+   *
+   * Read from the SAME listTurns call as the thread, because it is the same fact about the
+   * same conversation and a second read could disagree with the first.
+   */
+  let openIntent: PendingIntent | null = null;
+  try {
+    const turns = await listTurns(clientId, convId);
+    recentThread = threadForParser(turns);
+    openIntent = latestPendingIntent(turns);
+  }
   catch { /* an unreadable thread degrades to a threadless turn, never a failed one */ }
   const userMeta: Record<string, unknown> = { source };
   if (args.sessionId) userMeta.sessionId = args.sessionId;
@@ -179,12 +221,15 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
       cycleMonths: await getClientCycleMonths(clientId, cycleId),
       // `todayNow` rides into the digest so every row carries its own side of today, computed
       // with `isEditableDate` rather than left for the model to work out from a month name.
-      planDigest: cycleDigest(posts, todayNow),
+      // `cycleMonth` states the plan's CALENDAR WINDOW, so the plan's end is the month's last
+      // day rather than its last post (G2 — the "runs up to the 28th" refusal).
+      planDigest: cycleDigest(posts, todayNow, cycleMonth),
       productIndex: await loadProductIndex(clientId, 'instagram'),
       recentThread,
       ...(pendingBlock ? { pending: pendingBlock } : {}),
+      ...(openIntent ? { intent: intentForParser(openIntent) } : {}),
     };
-    tasks = await parseTasks(instruction, ctx, getModelClient());
+    tasks = await parseTasks(instruction, ctx, getModelClient(), { audit, clientId });
   } catch {
     tasks = [{ action: 'clarify', question: 'I couldn’t process that just now. Please try again in a moment.' }];
   }
@@ -313,7 +358,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
         break;
       }
       case 'add_post': {
-        const date = task.toDate ?? defaultAddDate(posts, today);
+        const date = task.toDate ?? defaultAddDate(posts, today, cycleMonth);
         const inferred = task.format === 'reel' || task.format === 'carousel' || task.format === 'single';
         const format = inferred ? task.format! : 'single';
         const pv = await propose('add_post',
@@ -394,7 +439,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
         try {
           answer = await answerQuery(
             { clientId, cycleId, question: task.question ?? instruction, today },
-            { model: getModelClient(), embeddingClient: getEmbeddingClient() },
+            { model: getModelClient(), embeddingClient: getEmbeddingClient(), audit },
           );
         } catch { answer = 'I couldn’t look that up just now. Please try again.'; }
         replyParts.push(answer);
@@ -410,6 +455,26 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
     }
   }
 
+  /**
+   * ── WHAT THIS TURN IS STILL ASSEMBLING ───────────────────────────────────────────────
+   *
+   * The intent the parser attached to a clarify, if it attached one — the change we are still
+   * writing down, carried on this turn so the NEXT one can read the client's reply as its
+   * answer. It is stored on the message rather than on the conversation, which means a turn
+   * that RESOLVES the assembly simply carries none and nothing has to be cleared: the intent
+   * dies with the turn that stopped asking.
+   *
+   * The question the client actually saw is stamped onto it here rather than trusted from the
+   * model, because `cannot()` above is what put those words on the screen and the two must be
+   * the same sentence. And the slot just asked about joins `asked`, which is what stops the
+   * second question about a thing the client has already declined to specify — the loop that
+   * turns a conversation into a form.
+   */
+  const asking = tasks.find((t) => t.action === 'clarify' && t.intent) ?? null;
+  const pendingIntent: PendingIntent | null = asking?.intent
+    ? { ...asking.intent, ...(asking.question ? { question: asking.question } : {}) }
+    : null;
+
   const message = replyParts.join('\n') || (proposals.length ? '' : 'Okay.');
   const resp: AgentTurnResponse = {
     conversationId: convId, message, proposals, items,
@@ -423,7 +488,12 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
     // `items` persists ON the turn so the thread can re-render its interpretation across a
     // reopen (the sheet reads it back through listTurns) and so the NEXT turn's parser window
     // can serialise what this one resolved — "move it back" grips the resolved dates here.
-    metadata: { tasks: tasks.map((t) => t.action), changeSetId: resp.changeSetId, proposalIds: proposals.map((p) => p.id), items },
+    metadata: {
+      tasks: tasks.map((t) => t.action), changeSetId: resp.changeSetId,
+      proposalIds: proposals.map((p) => p.id), items,
+      // The assembly, if this turn is still holding one (G1). Absent on every turn that isn't.
+      ...(pendingIntent ? { pendingIntent } : {}),
+    },
   });
 
   return resp;

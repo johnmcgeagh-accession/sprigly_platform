@@ -77,6 +77,32 @@ export function WeekStrip({
     const next = clampToMonth(addDays(selected, days), month);
     if (next !== selected) onSelect(next);
   };
+
+  /**
+   * ── ROUND 4: THE MOVER THE CLAMP NEVER COVERED ───────────────────────────────────────
+   *
+   * Round 3 put the clamp on `move()` and called it "the ONLY way any of them changes the
+   * selection". It was not. The fourth mover is the plainest one on the surface — a finger on
+   * a day CELL — and it called `onSelect(iso)` raw, with `iso` being whatever `weekOf` drew.
+   *
+   * `weekOf(selected)` renders seven consecutive days regardless of month, so the week of
+   * Mon 31 August draws SIX September cells. Round 3's own clamp is what made 31 August
+   * reachable in the first place (the report records the same for 30–31 July), so the fix
+   * opened this door rather than closing it. One tap on that Friday and the day header reads
+   * *4 September* under a title that still says August, over a week whose posts belong to a
+   * cycle nobody fetched — the bug report, verbatim, and the trace line it was convicted on
+   * (`select user:strip 2026-09-04`) is produced identically by this path.
+   *
+   * Out-of-month cells are DISABLED, which is this file's own grammar for a month edge — the
+   * same treatment the pager buttons take, and for the same reason ("Disabled, never hidden —
+   * a control that disappears reads as a rendering fault"). Leaving the month stays the ‹ ›
+   * MONTH arrows' job, because that is the mechanism that refetches. The clamp below is belt
+   * and braces: if a cell is ever re-enabled, it still cannot walk out of the month.
+   */
+  const select = (iso: string) => {
+    const next = clampToMonth(iso, month);
+    if (next !== selected) onSelect(next);
+  };
   /** Is there anywhere to page to — i.e. does the clamp still leave somewhere to go? */
   const canPage = (n: number) =>
     clampToMonth(addDays(selected, n * 7), month) !== selected;
@@ -119,8 +145,13 @@ export function WeekStrip({
           <button
             key={iso} type="button" data-testid="week-day" data-date={iso}
             aria-pressed={isSelected}
-            aria-label={`${DOW_SHORT[i]} ${d.getDate()} ${MONTHS_FULL[d.getMonth()]}, ${count === 0 ? 'nothing planned' : `${count} post${count === 1 ? '' : 's'}`}${isToday ? ', today' : ''}`}
-            onClick={() => onSelect(iso)}
+            // A padding day names its month and says why it is inert: the ‹ › month arrows are
+            // what opens it, because they are what refetches it.
+            aria-label={outside
+              ? `${DOW_SHORT[i]} ${d.getDate()} ${MONTHS_FULL[d.getMonth()]} — in ${MONTHS_FULL[d.getMonth()]}, use the month arrows to open it`
+              : `${DOW_SHORT[i]} ${d.getDate()} ${MONTHS_FULL[d.getMonth()]}, ${count === 0 ? 'nothing planned' : `${count} post${count === 1 ? '' : 's'}`}${isToday ? ', today' : ''}`}
+            disabled={outside}
+            onClick={() => select(iso)}
             // min-h 60px clears the 40px floor comfortably; the numeral inside is 34px.
             className="relative flex min-h-[60px] flex-col items-center gap-1.5 rounded-2xl pb-2 pt-1"
           >

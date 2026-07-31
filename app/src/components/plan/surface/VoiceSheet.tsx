@@ -128,7 +128,12 @@ export function VoiceSheet({
    *  outcome, which becomes the confirmation turn. The sheet does not block on it. The turn's
    *  own items ride along so the caller can compose its chip and failure copy from them — a
    *  reopened thread's turn has no in-memory reply to read them from. */
-  onApply?: ((proposalIds: string[], items: readonly InterpretedItem[]) => Promise<ApplyReport>) | undefined;
+  onApply?: ((
+    proposalIds: string[], items: readonly InterpretedItem[],
+    /** THIS session's conversation, so the settled report can be written back into it as a turn
+     *  — which is what makes the rescue it offers resolvable on the next utterance (G1/G3). */
+    conversationId: string | null,
+  ) => Promise<ApplyReport>) | undefined;
   onDiscard?: ((proposalIds: string[]) => void) | undefined;
   /** Is this proposal still pending? A reopened interpretation turn is actionable only while
    *  its proposals are — the pending list is the caller's (usePlanData) to know. */
@@ -329,7 +334,7 @@ export function VoiceSheet({
       .map((i) => i.proposalId);
     if (!ids.length || !onApply) return;
     patchInterpretation(key, 'applying');
-    void onApply(ids, items).then((report) => {
+    void onApply(ids, items, conversationId.current).then((report) => {
       patchInterpretation(key, 'resolved');
       append({ key: nextKey(), kind: 'agent', text: report.text });
     });

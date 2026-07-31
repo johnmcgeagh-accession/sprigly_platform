@@ -19,6 +19,7 @@ export interface DraftSurfaceData {
 }
 import type { PlanPost, PlanBeat, PlanIntake, DurableItemView, CycleSummary, PostStepView, ShapeResult, ExtractedSummary, IntakeResult } from '@/lib/types';
 import type { InterpretedItem, ProposalView } from '@/lib/agent/types';
+import { PROPOSAL_REFUSED } from '@/lib/agent/types';
 import type { NoteView } from '@/lib/agent/notes';
 import { indexForecast, type WeatherDay, type WeatherWireDay } from '@/lib/weather';
 import { resolveDayCycleId } from '@/lib/cycle-nav';
@@ -384,12 +385,16 @@ export function usePlanData(init: PlanDataInit) {
   }, [call, optimistic, posts, crossMonthPosts]);
 
   /** Poll a shape job until it settles; returns the terminal status. */
-  const pollJob = useCallback(async (jobId: string): Promise<'done' | 'error' | 'gone' | 'timeout'> => {
+  const pollJob = useCallback(async (jobId: string, opts: { quiet?: boolean } = {}): Promise<'done' | 'error' | 'gone' | 'timeout'> => {
     for (let i = 0; i < 30; i++) {
       await new Promise((r) => setTimeout(r, 1600));
       let j: { status: string; posts?: PlanPost[]; summary?: string };
       try { const res = await fetch(`/api/jobs/${jobId}`); if (!res.ok) continue; j = (await res.json()) as typeof j; } catch { continue; }
-      if (j.status === 'done') { flash(j.summary ?? 'Updated the caption.'); await refreshPlan(); return 'done'; }
+      // QUIET is for the background batch (F4/G4): three captions landing during one apply
+      // would strobe the one feedback channel with three "Updated the caption." lines, at a
+      // moment the client has already been told what happened. The refetch still runs — the
+      // words arriving on the cards IS the notification.
+      if (j.status === 'done') { if (!opts.quiet) flash(j.summary ?? 'Updated the caption.'); await refreshPlan(); return 'done'; }
       if (j.status === 'error') { return 'error'; }
       if (j.status === 'gone') { await refreshPlan(); return 'gone'; }
     }
@@ -679,34 +684,86 @@ export function usePlanData(init: PlanDataInit) {
     }
   }, []);
 
-  /** Approve/reject a proposal. `ok` says whether it was APPLIED — a `blocked` approve (an
-   *  ordering dependency not yet met) is NOT consumed, so the caller keeps the row
-   *  actionable. `changedPostIds` is what the approval touched/created, for the what-changed
-   *  highlights. `quiet` suppresses the per-decision flashes — the background batch (F4)
-   *  reports once at the end through the surface's own treatment, and a flash per item would
-   *  strobe the one feedback channel while nobody is watching it. */
+  /**
+   * Approve/reject a proposal. `ok` says whether it was APPLIED — a `blocked` approve (an
+   * ordering dependency not yet met) is NOT consumed, so the caller keeps the row actionable.
+   * `changedPostIds` is what the approval touched/created, for the what-changed highlights.
+   * `quiet` suppresses the per-decision flashes — the background batch (F4) reports once at the
+   * end through the surface's own treatment, and a flash per item would strobe the one feedback
+   * channel while nobody is watching it.
+   *
+   * ── THE VANISHED LAUNCH POST (G3) ────────────────────────────────────────────────────
+   *
+   * This function used to answer the wrong question. It read the HTTP status — `res.ok` — and
+   * called a 200 a success. But a guard refusal IS a 200: `approveProposal` writes the reason
+   * to the row, sets the status to 'failed', and returns it as an ordinary body. So a past-dated
+   * add, an exhausted AI-change quota and a thrown mutation all came back through this line as
+   * `{ ok: true }`, went into `applyChanges`'s APPLIED list, and F4's failure-naming — which
+   * only fires on a non-empty `failed` — never ran.
+   *
+   * The client was then told "Done — 3 changes are in" over a plan holding two. The teasers
+   * applied; the launch post did not; and nothing on the screen said so.
+   *
+   * The transport is not the outcome. `failed` and the proposal's own status are, and the
+   * reason rides back with them so the caller can NAME what didn't happen.
+   */
   const decide = useCallback(async (
-    id: string, action: 'approve' | 'reject', opts: { quiet?: boolean } = {},
-  ): Promise<{ ok: boolean; changedPostIds: string[] }> => {
+    id: string, action: 'approve' | 'reject', opts: { quiet?: boolean; deferContent?: boolean } = {},
+  ): Promise<{ ok: boolean; changedPostIds: string[]; reason?: string; retryable?: boolean; jobId?: string; hookPostId?: string }> => {
     const no = { ok: false, changedPostIds: [] as string[] };
     if (proposalBusy) return no;
     setProposalBusy(id);
     try {
       const res = await fetch(`/api/plan/proposals/${id}/${action}`, { method: 'POST' });
-      if (!res.ok) { if (!opts.quiet) flash('Could not update that. Please try again.'); return no; }
-      const d = (await res.json()) as { jobId?: string; hookPostId?: string; blocked?: boolean; message?: string; changedPostIds?: string[] };
+      if (!res.ok) { if (!opts.quiet) flash('Could not update that. Please try again.'); return { ...no, retryable: true }; }
+      const d = (await res.json()) as {
+        jobId?: string; hookPostId?: string; blocked?: boolean; failed?: boolean; message?: string;
+        changedPostIds?: string[]; proposal?: { status?: string };
+      };
       // Blocked = a dependency wasn't met (e.g. approve hooks before the create step). The
       // proposal is untouched — leave the row so it can be approved after its prerequisite.
-      if (d.blocked) { if (!opts.quiet) flash(d.message ?? 'Approve the earlier step first, then this one.'); return no; }
+      if (d.blocked) {
+        if (!opts.quiet) flash(d.message ?? 'Approve the earlier step first, then this one.');
+        return { ...no, retryable: true, ...(d.message ? { reason: d.message } : {}) };
+      }
+      // REFUSED. `failed` is the explicit signal; the status is the belt-and-braces read for a
+      // server that predates it. Either way the row is CONSUMED, so it comes out of the pending
+      // list — an Apply left offering a change the guard has already refused is a button that
+      // can only fail again. NOT retryable: the rescue is to amend it, not to press it twice.
+      if (d.failed || d.proposal?.status === PROPOSAL_REFUSED) {
+        setProposals((cur) => cur.filter((p) => p.id !== id));
+        if (!opts.quiet) flash(d.message ?? 'That change didn’t go through.');
+        return { ...no, retryable: false, ...(d.message ? { reason: d.message } : {}) };
+      }
       setProposals((cur) => cur.filter((p) => p.id !== id));
       track(action === 'approve' ? 'proposal_approved' : 'proposal_discarded', { id });
       if (action === 'approve') {
         if (!opts.quiet) flash('Change approved.');
-        await refreshPlan();
-        if (d.hookPostId && d.jobId) { void pollHookInto(d.hookPostId, d.jobId); }   // hooks surface in the post's hook UI
-        else if (d.jobId) { await pollJob(d.jobId); await refreshPlan(); }
+        /**
+         * ── STRUCTURE IS NOT CONTENT (G4) ──────────────────────────────────────────────
+         *
+         * `deferContent` returns the moment the ROW exists, handing the caller the job to
+         * poll instead of polling it here. It is what a batch apply passes, and the reason is
+         * measured: this function used to `await pollJob(...)` — 1600ms before its first read,
+         * then a model call — INSIDE a loop the batch runs sequentially. Item 2's row was not
+         * written until item 1's CAPTION had been generated. A three-post launch arc put two
+         * model calls on the critical path to drawing three empty cards, and the plan looked
+         * broken for as long as that took.
+         *
+         * The row is already complete when the approve returns (`addGeneratingPost` inserts it
+         * with status 'generating'), and the surface renders that honestly as *On its way*. So
+         * there is nothing the caption is needed FOR here.
+         */
+        if (!opts.deferContent) {
+          await refreshPlan();
+          if (d.hookPostId && d.jobId) { void pollHookInto(d.hookPostId, d.jobId); }   // hooks surface in the post's hook UI
+          else if (d.jobId) { await pollJob(d.jobId); await refreshPlan(); }
+        }
       } else if (!opts.quiet) { flash('Dismissed.'); }
-      return { ok: true, changedPostIds: d.changedPostIds ?? [] };
+      return {
+        ok: true, changedPostIds: d.changedPostIds ?? [],
+        ...(d.jobId ? { jobId: d.jobId } : {}), ...(d.hookPostId ? { hookPostId: d.hookPostId } : {}),
+      };
     } catch { if (!opts.quiet) flash('Network error. Please try again.'); return no; }
     finally { setProposalBusy(null); }
   }, [proposalBusy, flash, refreshPlan, pollJob, pollHookInto, track]);
@@ -726,18 +783,80 @@ export function usePlanData(init: PlanDataInit) {
    * what didn't apply on failure). A partial failure is reported honestly rather than rolled
    * back: the changes that landed have landed, and pretending otherwise would mean a plan that
    * disagrees with its own receipt.
+   *
+   * EVERY FAILURE CARRIES ITS REASON (G3). "2 of 3 went through" is not a report; it is the
+   * client being asked to diff their own month. `failures` pairs the proposal with the guard's
+   * own sentence and with whether pressing Apply again could ever work — the difference between
+   * "it's still here to try" and "give me another date".
    */
-  const applyChanges = useCallback(async (ids: readonly string[]): Promise<{ applied: string[]; failed: string[]; changedPostIds: string[] }> => {
+  const applyChanges = useCallback(async (ids: readonly string[]): Promise<{
+    applied: string[];
+    failed: string[];
+    failures: Array<{ proposalId: string; reason: string | null; retryable: boolean }>;
+    changedPostIds: string[];
+  }> => {
     const applied: string[] = [];
     const failed: string[] = [];
+    const failures: Array<{ proposalId: string; reason: string | null; retryable: boolean }> = [];
     const changedPostIds: string[] = [];
+    /** The content jobs this batch started. Polled AFTER the structure has landed. */
+    const jobs: Array<{ jobId: string; hookPostId?: string }> = [];
+    /** Items a dependency blocked — the proposal is untouched and can be tried again once
+     *  whatever they were waiting for has arrived. */
+    const blocked: string[] = [];
+
+    const approve = async (id: string) => {
+      const r = await decide(id, 'approve', { quiet: true, deferContent: true });
+      if (r.ok) {
+        applied.push(id);
+        changedPostIds.push(...r.changedPostIds);
+        if (r.jobId) jobs.push({ jobId: r.jobId, ...(r.hookPostId ? { hookPostId: r.hookPostId } : {}) });
+        return true;
+      }
+      return r;
+    };
+
+    // ── PASS 1: the STRUCTURE. Approvals only, in order, nothing waiting on a model call.
     for (const id of ids) {
-      const r = await decide(id, 'approve', { quiet: true });
-      if (r.ok) { applied.push(id); changedPostIds.push(...r.changedPostIds); }
-      else failed.push(id);
+      const r = await approve(id);
+      if (r !== true) {
+        if (r.retryable !== false && r.reason) blocked.push(id);
+        else { failed.push(id); failures.push({ proposalId: id, reason: r.reason ?? null, retryable: r.retryable ?? true }); }
+      }
     }
-    return { applied, failed, changedPostIds: [...new Set(changedPostIds)] };
-  }, [decide]);
+    // ONE refetch for the batch, not one per item plus one per job. This is the point at which
+    // the client's calendar has every row the apply created, each rendering as *On its way*.
+    await refreshPlan();
+
+    /**
+     * ── PASS 2: what genuinely needed the content ────────────────────────────────────
+     *
+     * A hook or a refine on a reel created in this SAME batch is blocked until its caption
+     * exists — both fields are written from it, so the guard refuses and leaves the proposal
+     * approvable. That dependency is real and is the one thing the old serial `await pollJob`
+     * was buying. It is paid for HERE instead, after the structure is on screen, and only when
+     * something is actually waiting on it.
+     */
+    let settled = 0;   // how many of `jobs` have already been waited on
+    if (blocked.length && jobs.length) {
+      settled = jobs.length;
+      await Promise.all(jobs.slice(0, settled).map((j) => pollJob(j.jobId, { quiet: true })));
+      for (const id of blocked) {
+        const r = await approve(id);
+        if (r !== true) { failed.push(id); failures.push({ proposalId: id, reason: r.reason ?? null, retryable: r.retryable ?? true }); }
+      }
+      await refreshPlan();
+    } else {
+      for (const id of blocked) { failed.push(id); failures.push({ proposalId: id, reason: null, retryable: true }); }
+    }
+    // The rest arrive on their own clock, and each poll refetches when it lands. Deliberately
+    // NOT awaited — this is the half that takes minutes, and nothing is waiting for it.
+    for (const j of jobs.slice(settled)) {
+      if (j.hookPostId) void pollHookInto(j.hookPostId, j.jobId);
+      else void pollJob(j.jobId, { quiet: true });
+    }
+    return { applied, failed, failures, changedPostIds: [...new Set(changedPostIds)] };
+  }, [decide, refreshPlan, pollJob, pollHookInto]);
 
   /** Throw changes away without applying them. Silent — discarding is not news. */
   const discardChanges = useCallback(async (ids: readonly string[]): Promise<void> => {

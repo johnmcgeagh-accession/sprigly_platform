@@ -19,6 +19,9 @@ import { CommittedSurface } from './CommittedSurface';
 import type { PlanPost } from '@/lib/types';
 import type { PlanData } from '../usePlanData';
 
+/** What `applyChanges` settles with — the real shape, so a fixture cannot drift from it. */
+type ApplyReport = Awaited<ReturnType<PlanData['applyChanges']>>;
+
 const TODAY = '2026-10-01';
 
 const post = (over: Partial<PlanPost> = {}): PlanPost => ({
@@ -762,7 +765,7 @@ describe('the mic on a committed month opens the CONVERSATION sheet', () => {
    * post-apply confirmation on the plan surface, unchanged).
    */
   it('APPLY stays in the thread: dots on the turn, then the confirmation turn — and the chip lands outside', async () => {
-    let settle!: (v: { applied: string[]; failed: string[]; changedPostIds: string[] }) => void;
+    let settle!: (v: ApplyReport) => void;
     const data = withAgent({
       applyChanges: vi.fn(() => new Promise((res) => { settle = res; })),
     } as Partial<PlanData>);
@@ -777,7 +780,7 @@ describe('the mic on a committed month opens the CONVERSATION sheet', () => {
     expect(screen.getByTestId('interpretation').getAttribute('data-status')).toBe('applying');
     expect(screen.queryByTestId('summary-chip')).toBeNull();
 
-    await act(async () => { settle({ applied: ['pr1'], failed: [], changedPostIds: ['p1'] }); });
+    await act(async () => { settle({ applied: ['pr1'], failed: [], failures: [], changedPostIds: ['p1'] }); });
     // The confirmation is the next agent turn…
     const agents = screen.getAllByTestId('turn-agent');
     expect(agents[agents.length - 1]!.textContent).toContain('Done — your plan is updated.');
@@ -789,7 +792,7 @@ describe('the mic on a committed month opens the CONVERSATION sheet', () => {
 
   it('the chip expands into the applied lines, and clearing it KEEPS the highlights', async () => {
     const data = withAgent({
-      applyChanges: vi.fn(async () => ({ applied: ['pr1'], failed: [], changedPostIds: ['p1'] })),
+      applyChanges: vi.fn(async () => ({ applied: ['pr1'], failed: [], failures: [], changedPostIds: ['p1'] })),
     } as Partial<PlanData>);
     render(<CommittedSurface data={data} />);
     fireEvent.click(screen.getByTestId('nav-mic'));
@@ -807,7 +810,11 @@ describe('the mic on a committed month opens the CONVERSATION sheet', () => {
 
   it('with the sheet OPEN a failure is the confirmation turn, not a second banner over the thread', async () => {
     const data = withAgent({
-      applyChanges: vi.fn(async () => ({ applied: [], failed: ['pr1'], changedPostIds: [] })),
+      applyChanges: vi.fn(async () => ({
+        applied: [], failed: ['pr1'], changedPostIds: [],
+        // Retryable: the ordering-dependency case, which is the one that really IS still there.
+        failures: [{ proposalId: 'pr1', reason: null, retryable: true }],
+      })),
     } as Partial<PlanData>);
     render(<CommittedSurface data={data} />);
     fireEvent.click(screen.getByTestId('nav-mic'));
@@ -822,7 +829,7 @@ describe('the mic on a committed month opens the CONVERSATION sheet', () => {
   });
 
   it('with the sheet CLOSED at settle time, the failure goes to the ONE feedback channel', async () => {
-    let settle!: (v: { applied: string[]; failed: string[]; changedPostIds: string[] }) => void;
+    let settle!: (v: ApplyReport) => void;
     const data = withAgent({
       applyChanges: vi.fn(() => new Promise((res) => { settle = res; })),
     } as Partial<PlanData>);
@@ -832,7 +839,7 @@ describe('the mic on a committed month opens the CONVERSATION sheet', () => {
     fireEvent.click(screen.getByTestId('interp-apply'));
     fireEvent.click(screen.getByTestId('voice-close'));   // the client left mid-apply
 
-    await act(async () => { settle({ applied: [], failed: ['pr1'], changedPostIds: [] }); });
+    await act(async () => { settle({ applied: [], failed: ['pr1'], changedPostIds: [], failures: [{ proposalId: 'pr1', reason: null, retryable: true }] }); });
     const said = screen.getByTestId('feedback').textContent ?? '';
     expect(said).toContain('Move “Fragrance Note Deep Dive: Summer”');
     expect(said).toContain('still here');

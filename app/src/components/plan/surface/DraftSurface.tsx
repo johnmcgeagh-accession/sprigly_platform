@@ -341,7 +341,7 @@ export function DraftSurface({ data }: { data: PlanData }) {
       {!showingReceipt && view === 'month' && (
         <MonthGrid
           month={month} selected={selected} today={data.today}
-          marksFor={marksFor} onPick={(iso) => setSelected(iso, 'user:grid')} footer={monthFooter}
+          marksFor={marksFor} onPick={(iso) => setSelected(iso, 'user:grid')} footer={monthFooter} lockToMonth
           summary={
             <MonthDaySummary
               date={selected} noun="planned post" empty="Nothing drafted"

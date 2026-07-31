@@ -83,6 +83,7 @@ NEW=(
   0088_plan_ready_auto
   0089_plan_ready_sent
   0090_actor_attribution
+  0091_cost_pence_subpenny
 )
 
 # Deliberately NOT applied, each for a stated reason. A migration is either in NEW or in

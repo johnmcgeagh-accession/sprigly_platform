@@ -21,6 +21,39 @@ function monthLabel(yyyymm: string): string {
 
 export interface CycleRow { id: string; month: string; status: string }
 
+/** Days in the month of 'YYYY-MM'. Day 0 of the NEXT month is the last day of this one. */
+function daysInMonth(month: string): number {
+  const m = /^(\d{4})-(\d{2})/.exec(month);
+  if (!m) return 31;
+  return new Date(Number(m[1]), Number(m[2]), 0).getDate();
+}
+
+/**
+ * ── THE PLAN'S BOUNDARY IS THE CALENDAR, NOT THE LAST POST (G2) ──────────────────────
+ *
+ * The Earl of East October case: the agent told the client the plan "runs up to the 28th" and
+ * refused later dates. There is no such rule anywhere in this codebase — a post may be added
+ * on any date from today onwards (`add-policy.ts`), and the cycle plans a whole calendar month.
+ *
+ * The sentence came from the only evidence the model had. Both context builders below listed
+ * the posts and nothing else, so the plan's extent was inferrable ONLY as max(scheduled_date):
+ * the last post was the 28th, so the plan ended on the 28th. A gap at the end of a month read
+ * as the end of the month.
+ *
+ * So the window is STATED. One line, computed from the plan month's own calendar, saying where
+ * the plan begins and ends and that an empty date inside it is empty rather than absent. It
+ * costs a line of prompt and closes the whole class: the same reasoning would have refused the
+ * 30th of a month whose last post was the 27th, on any month, for any client.
+ */
+export function planWindowLine(planMonth: string | null | undefined): string | null {
+  if (!planMonth || !/^\d{4}-\d{2}$/.test(planMonth)) return null;
+  const last = daysInMonth(planMonth);
+  return `THIS PLAN COVERS ${planMonth}-01 to ${planMonth}-${String(last).padStart(2, '0')} — the whole of ${monthLabel(planMonth)}. `
+    + `The plan does NOT end at its last post: a date inside this window with no post on it is an EMPTY date in the plan, `
+    + `not a date outside it. Never tell the client the plan "runs up to" the last scheduled post, and never refuse a date `
+    + `for being later than one.`;
+}
+
 /**
  * The month a cycle PLANS, from the month its data covers.
  *
@@ -150,10 +183,15 @@ export function currentWeekPosts(posts: PlanPost[], today: Date): PlanPost[] {
  *
  * `today` is optional so the pure digest stays testable without it; omitted, no row is marked
  * (the ISO dates alone are still unambiguous).
+ *
+ * `planMonth` states the WINDOW this list sits inside — see `planWindowLine`. Without it the
+ * only readable boundary is the last row, which is how "the plan runs up to the 28th" happened.
  */
-export function cycleDigest(posts: PlanPost[], today?: string): string {
-  if (!posts.length) return '(no posts in this plan yet)';
-  return [...posts]
+export function cycleDigest(posts: PlanPost[], today?: string, planMonth?: string | null): string {
+  const window = planWindowLine(planMonth);
+  const head = window ? `${window}\n` : '';
+  if (!posts.length) return `${head}(no posts in this plan yet)`;
+  return head + [...posts]
     .sort((a, b) => a.date.localeCompare(b.date))
     .map((p) => {
       const past = today && !isEditableDate(p.date, today) ? ' | [past — read-only]' : '';
@@ -169,8 +207,10 @@ export interface CycleState {
   counts: Record<string, number>;
 }
 
-/** Bucket a cycle's live posts into this-week / next-week and tally statuses. */
-export function bucketCycleState(posts: PlanPost[], today: Date): CycleState {
+/** Bucket a cycle's live posts into this-week / next-week and tally statuses. `planMonth`
+ *  states the plan's calendar window in the summary — the query answerer reads ONLY this
+ *  summary, so without it the plan's end is the last post (G2). */
+export function bucketCycleState(posts: PlanPost[], today: Date, planMonth?: string | null): CycleState {
   const mon = weekStart(today);
   const nextMon = new Date(mon); nextMon.setDate(mon.getDate() + 7);
   const weekAfter = new Date(mon); weekAfter.setDate(mon.getDate() + 14);
@@ -196,8 +236,10 @@ export function bucketCycleState(posts: PlanPost[], today: Date): CycleState {
   // Full plan-month listing (not week-scoped) so the query answerer sees the whole cycle and can
   // answer any date/week question from the dates + today — never blinkered to "this week".
   const byDate = [...posts].sort((a, b) => a.date.localeCompare(b.date));
+  const window = planWindowLine(planMonth);
   const summary = [
     `TODAY IS ${todayIso}. A date is in the FUTURE if it is later than that, and in the PAST only if it is earlier. Compare the ISO dates.`,
+    ...(window ? [window] : []),
     `Plan has ${posts.length} live posts (${Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(', ') || 'none'}).`,
     byDate.length ? 'Posts (by date):' : '(no posts scheduled yet)',
     ...byDate.map(line),
@@ -206,8 +248,10 @@ export function bucketCycleState(posts: PlanPost[], today: Date): CycleState {
   return { summary, thisWeek, nextWeek, counts };
 }
 
-/** Load the session cycle's posts and bucket them relative to `today`. */
+/** Load the session cycle's posts and bucket them relative to `today`. Reads the cycle's PLAN
+ *  month too, so the summary can state the window rather than leave it to be inferred (G2). */
 export async function readCycleState(clientId: string, cycleId: string, today: Date): Promise<CycleState> {
   const posts = await loadPlanPosts(clientId, cycleId);
-  return bucketCycleState(posts, today);
+  const planMonth = await getCycleMonth(clientId, cycleId).catch(() => null);
+  return bucketCycleState(posts, today, planMonth);
 }

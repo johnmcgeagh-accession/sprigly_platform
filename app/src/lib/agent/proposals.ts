@@ -23,6 +23,33 @@ import { resolvePostForEdit, isEditableDate, canAddPost, editScopeToday } from '
 import { markNoteIntegrated } from './notes';
 import type { MutatingAction, ProposalPayload, ProposalView } from './types';
 
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+/** 'YYYY-MM-DD' → '31 October', for a refusal that names the date it is about. */
+function dayMonth(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  return m ? `${Number(m[3])} ${MONTH_NAMES[Number(m[2]) - 1] ?? ''}`.trim() : iso;
+}
+
+/**
+ * The date refusal, in words the client can act on.
+ *
+ * An ADD names the date it was refused for, because that date is the only thing wrong with it
+ * and naming it is what makes "amend it" a next step rather than a guess. Everything else is
+ * about an existing post, whose date the client can see.
+ */
+function dateRefusal(p: ProposalPayload): string {
+  if (p.kind === 'add' || p.kind === 'add_generated') {
+    return `${dayMonth(p.date)} has already passed, so I couldn’t add it there.`;
+  }
+  if (p.kind === 'move') {
+    return `${dayMonth(p.toDate)} has already passed, so I couldn’t move it there.`;
+  }
+  return 'That post is in the past — it’s read-only now.';
+}
+
 /** DATE POLICY for agent actions: a post is editable iff dated today-onward (London).
  *  Agent rewrite/hook/refine enqueue jobs DIRECTLY (bypassing the date-gated routes),
  *  so every approve path re-checks here. */
@@ -94,6 +121,25 @@ export async function loadPendingPayloads(
     .map((r) => ({ id: r.id, intent: r.intent, summary: r.summary, payload: r.payload as unknown as ProposalPayload }));
 }
 
+/**
+ * One proposal's payload, WHATEVER its status — the refused one included.
+ *
+ * `loadPendingPayloads` deliberately serves only pending rows, because the C3 referent is what
+ * the client is looking at. The rescue (G3) needs the opposite: a change that a guard has
+ * already consumed, so its date can be amended and it can be built again. Client-scoped, and it
+ * returns the payload only — nothing here decides what to do with it.
+ */
+export async function loadProposalPayload(
+  clientId: string, id: string,
+): Promise<{ intent: string; summary: string; status: string; payload: ProposalPayload } | null> {
+  const [row] = await db
+    .select({ intent: agentProposals.intent, summary: agentProposals.summary, status: agentProposals.status, payload: agentProposals.payload })
+    .from(agentProposals)
+    .where(and(eq(agentProposals.id, id), eq(agentProposals.clientId, clientId)))
+    .limit(1);
+  return row ? { ...row, payload: row.payload as unknown as ProposalPayload } : null;
+}
+
 async function currentView(clientId: string, id: string): Promise<ProposalView | null> {
   const [row] = await db
     .select(cols)
@@ -128,7 +174,25 @@ export interface ApproveResult {
   // A dependency-not-met / not-applicable outcome that did NOT consume the proposal (it
   // stays pending/approvable) — the client shows `message` and keeps the row actionable.
   blocked?: boolean;
+  /**
+   * WHY IT DIDN'T APPLY — and it is REQUIRED on every refusal, not decoration.
+   *
+   * ── The vanished launch post (G3) ────────────────────────────────────────────────────
+   *
+   * Every guard here used to write its reason to the ROW (`setStatus(…, 'failed', reason)`)
+   * and return `{ proposal }` with nothing else. The reason went into the database and
+   * stopped there: the route forwarded only `message`, which was absent, so the client got a
+   * 200 carrying `status:'failed'` and no words at all. `usePlanData.decide` then read the
+   * HTTP status, saw 200, and counted the refusal as APPLIED — which is how a launch arc
+   * came back "Done — 3 changes are in" with two posts on the calendar.
+   *
+   * So a refusal now says so in the response as well as in the row, and `failed` marks it
+   * explicitly rather than leaving the caller to infer it from a status string.
+   */
   message?: string;
+  /** The guard consumed the proposal and refused it. Distinct from `blocked`, which did not
+   *  consume it: a blocked change is still there to approve, a failed one is not. */
+  failed?: boolean;
   /** The post(s) this approval touched or created — what the surface highlights in the
    *  what-changed treatment after a background apply (F4). Absent on blocked/failed. */
   changedPostIds?: string[];
@@ -236,18 +300,17 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
   const agentActor: ActivityActor = { origin: 'agent', actor: 'client', refProposalId: id };
   // DATE POLICY: refuse any agent action on a post/date before today (London).
   const today = editScopeToday();
-  const readOnlyFail = async () => {
-    await setStatus(clientId, id, 'failed', 'That post is in the past — it’s read-only now.', false);
-    return { proposal: view({ ...row, status: 'failed' }) };
+  /** ONE refusal shape. The reason goes to the row AND to the caller — see `message` above. */
+  const refuse = async (reason: string): Promise<ApproveResult> => {
+    await setStatus(clientId, id, 'failed', reason, false);
+    return { proposal: view({ ...row, status: 'failed' }), failed: true, message: reason };
   };
+  const readOnlyFail = () => refuse(dateRefusal(payload));
   try {
     if (payload.kind === 'rewrite') {
       if (!(await agentPostEditable(row.clientId, payload.postId, today))) return readOnlyFail();
       const usage = await getUsageForCycle(row.clientId, payload.cycleId);
-      if (isRewriteBlocked(usage)) {
-        await setStatus(clientId, id, 'failed', `You’ve used all ${usage.limit} AI changes this month.`, false);
-        return { proposal: view({ ...row, status: 'failed' }) };
-      }
+      if (isRewriteBlocked(usage)) return refuse(`you’ve used all ${usage.limit} AI changes this month.`);
       const r = await enqueueShape({ type: 'shape', scope: 'post', clientId: row.clientId, cycleId: payload.cycleId, targetPostId: payload.postId, instruction: payload.instruction, source: 'web', proposalId: id, actor: 'client' });
       if ('error' in r) throw new Error(r.error);
       await setStatus(clientId, id, 'applied', null, true);
@@ -255,8 +318,13 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
     }
 
     if (payload.kind === 'move') {
-      // Both ends must be today-onward: can't move a past post, nor INTO the past.
-      if (!isEditableDate(payload.toDate, today) || !(await agentPostEditable(row.clientId, payload.postId, today))) return readOnlyFail();
+      // Both ends must be today-onward: can't move a past post, nor INTO the past. Which end
+      // failed is the difference between "pick another date" and "that one is done" — so the
+      // refusal says which rather than making the client work it out.
+      if (!isEditableDate(payload.toDate, today)) return refuse(dateRefusal(payload));
+      if (!(await agentPostEditable(row.clientId, payload.postId, today))) {
+        return refuse('That post is in the past — it’s read-only now.');
+      }
       await patchPost(row.clientId, payload.cycleId, payload.postId, { date: payload.toDate }, agentActor, today);
       changedPostIds = [payload.postId];
     } else if (payload.kind === 'delete') {
@@ -309,10 +377,7 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
       if (!(await agentPostEditable(row.clientId, target.postId, today))) return readOnlyFail();
       // Counts against the AI-change cap like a rewrite (it's an AI generation).
       const usage = await getUsageForCycle(row.clientId, payload.cycleId);
-      if (isRewriteBlocked(usage)) {
-        await setStatus(clientId, id, 'failed', `You’ve used all ${usage.limit} AI changes this month.`, false);
-        return { proposal: view({ ...row, status: 'failed' }) };
-      }
+      if (isRewriteBlocked(usage)) return refuse(`you’ve used all ${usage.limit} AI changes this month.`);
       // A REEL takes the COMBINED hook+script job (C4). This was the agent's own solo-hook
       // route — the second of the two that could weld a mismatched hook onto a reel, and the
       // one reachable by simply asking for hooks out loud. Not ready without a caption: both
@@ -353,10 +418,7 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
       }
       if (!(await agentPostEditable(row.clientId, target.postId, today))) return readOnlyFail();
       const usage = await getUsageForCycle(row.clientId, payload.cycleId);
-      if (isRewriteBlocked(usage)) {
-        await setStatus(clientId, id, 'failed', `You’ve used all ${usage.limit} AI changes this month.`, false);
-        return { proposal: view({ ...row, status: 'failed' }) };
-      }
+      if (isRewriteBlocked(usage)) return refuse(`you’ve used all ${usage.limit} AI changes this month.`);
       const r = await enqueueShape({ type: 'shape', scope: 'post', clientId: row.clientId, cycleId: payload.cycleId, targetPostId: target.postId, instruction: payload.instruction, target: payload.target, source: 'web', proposalId: id, actor: 'client' });
       if ('error' in r) throw new Error(r.error);
       await setStatus(clientId, id, 'applied', null, true);
@@ -376,8 +438,11 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
     await setStatus(clientId, id, 'applied', null, true);
     return { proposal: view({ ...row, status: 'applied' }), ...(genJobId ? { jobId: genJobId } : {}), ...(changedPostIds.length ? { changedPostIds } : {}) };
   } catch (err) {
+    // The raw error is the ROW's business (an operator reads it); the client gets a sentence.
+    // What matters is that this path, like every other refusal, now REPORTS rather than
+    // returning a bare failed proposal the caller counts as applied.
     await setStatus(clientId, id, 'failed', String(err), false);
-    return { proposal: view({ ...row, status: 'failed' }) };
+    return { proposal: view({ ...row, status: 'failed' }), failed: true, message: 'something went wrong applying it.' };
   }
 }
 

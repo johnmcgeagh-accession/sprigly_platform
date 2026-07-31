@@ -1,0 +1,78 @@
+-- 0091_cost_pence_subpenny — a call that cost 0.55p posts as 0.55p.
+--
+-- ── Why ───────────────────────────────────────────────────────────────────────────────
+--
+-- `audit_log.cost_pence` is an integer, and `computeCostPence` ended in `Math.ceil(...)`.
+-- Together those two facts mean the ledger CANNOT represent any cost between zero and one
+-- penny: every such call is posted as a whole penny.
+--
+-- On the batch paths that barely showed. A Sonnet brief extraction costs several pence, so the
+-- ceil was a rounding artefact on the last digit. On the CONVERSATIONAL path — the sheet's
+-- parse-per-turn, the query answerer, the Titan query embed — it is the whole measurement:
+--
+--     Haiku parse turn      ~0.55p      posted as 1p   (+82%)
+--     Titan query embed     ~0.00008p   posted as 1p   (+1,250,000%)
+--
+-- Two calls that differ by four orders of magnitude arrive on the ledger identical, and a
+-- month of sheet conversation reads as several times its real cost. A cost ledger that cannot
+-- tell those apart is not measuring spend; it is counting calls.
+--
+-- ── Why numeric(12,6), and why that is the SMALLEST honest change ─────────────────────
+--
+-- The alternatives considered:
+--
+--   (a) Reinterpret the existing integer as HUNDREDTHS of a penny. No DDL at all — but it
+--       silently redefines every row already written: a stored 1 would stop meaning "1p" and
+--       start meaning "0.01p", so the whole history would need multiplying by 100 in a data
+--       migration, and the column name would then be a lie (`cost_pence` holding centipence).
+--       Cheap in DDL, expensive in truth.
+--
+--   (b) double precision. Returns a JS number, no string handling — but these values are SUMMED
+--       across thousands of rows to produce a spend figure, and binary floating point drifts on
+--       exactly that operation. Money-shaped columns should not drift.
+--
+--   (c) numeric(12,6) — THIS. The column keeps its name, keeps its unit (pence), and keeps every
+--       existing value bit-for-bit: Postgres widens integer → numeric losslessly, so a row that
+--       said 3 still says 3.000000 and still means three pence. Nothing is reinterpreted, no
+--       backfill is needed, and no reader that treats the value as pence becomes wrong. The
+--       column simply gains a fractional part it never had.
+--
+-- Six decimal places is micropence. That is enough that a single Titan embed (~0.00008p) is a
+-- non-zero row rather than a fake 0 — the point of the exercise — and 1M such rows still sum
+-- exactly. precision 12 leaves six integer digits: £9,999.99 of spend on a single call, which
+-- is four orders of magnitude above anything this system can emit in one request.
+--
+-- ── Direction of the change ───────────────────────────────────────────────────────────
+--
+-- Widening only. Every value representable before is representable after, so this migration is
+-- safe to apply ahead of the code that writes fractions — an old integer-writing deploy keeps
+-- working against the new column unchanged. Apply this BEFORE deploying the app.
+--
+-- ── Adjacent constraints, checked before writing (the 0085 lesson) ────────────────────
+--
+--   audit_log has THREE constraints, all foreign keys on other columns:
+--     audit_log_client_id_clients_id_fk        (client_id)
+--     audit_log_event_id_incoming_events_id_fk (event_id)
+--     audit_log_workflow_run_id_workflow_runs_id_fk (workflow_run_id)
+--   None reference cost_pence. None are touched.
+--
+--   There are NO check constraints and NO triggers on audit_log. There is ONE index —
+--   audit_log_pkey, the primary key on `id` — and it does not reference cost_pence, so the type
+--   change has nothing hanging off it to rebuild.
+--
+--   (An earlier draft of this comment said "NO indexes", which was simply wrong: `\d audit_log`
+--   shows audit_log_pkey, as every table with a primary key does. The conclusion was unaffected
+--   — nothing is indexed ON cost_pence — but a migration comment that misdescribes the table is
+--   worse than one that says nothing, because the next person reads it instead of looking.)
+--
+--   ALTER TYPE integer → numeric does rewrite the table; audit_log is append-only and small, and
+--   the rewrite takes an ACCESS EXCLUSIVE lock for its duration. Apply it out of hours, or accept
+--   a brief pause on audit writes.
+--
+-- Apply manually:
+--   psql "<DATABASE_URL>" -f 0091_cost_pence_subpenny.sql
+-- Reverse (LOCAL / emergency ONLY):
+--   psql "<DATABASE_URL>" -f 0091_cost_pence_subpenny.down.sql
+
+ALTER TABLE "audit_log"
+  ALTER COLUMN "cost_pence" TYPE numeric(12, 6) USING "cost_pence"::numeric(12, 6);

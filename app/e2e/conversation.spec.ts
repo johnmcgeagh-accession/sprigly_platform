@@ -86,7 +86,7 @@ test('the Emma loop: speak → interpretation turn → apply in thread → confi
   await page.getByTestId('voice-close').click();
 });
 
-test('the next visit says what changed: the second dot, and the row that names it', async ({ page }) => {
+test('the next visit says what changed: the second dot, and nothing else', async ({ page }) => {
   // Visit one: apply Emma's correction (stamps this visit; the changes land after it).
   await page.getByTestId('nav-mic').click();
   await page.getByTestId('voice-input').fill(`move the reel ${REEL} later and make it a carousel`);
@@ -98,18 +98,18 @@ test('the next visit says what changed: the second dot, and the row that names i
   // Visit two: the reload re-lands, reads the ledger since the stamp, and says so.
   await page.reload();
   await expect(page.getByTestId('plan-shell')).toBeVisible();
-  await expect(page.getByTestId('what-changed-row')).toContainText('What changed');
+  // The header carries NOTHING about it (operator ruling, round 4): the dots are the whole
+  // changed-surface, and the pill that used to count them here is gone.
+  await expect(page.getByTestId('what-changed-row')).toHaveCount(0);
+
   // The month grid shows the whole month — the changed day carries the accent second dot.
   await page.getByTestId('nav-month').click();
   await expect(page.locator('[data-testid="grid-cell"][data-date="2026-07-24"] [data-testid="grid-changed"]')).toBeVisible();
-  await page.getByTestId('nav-day').click();
 
-  // The row lists the receipts — newest first — and taps through to the day, where the
-  // mark then decays.
-  await page.getByTestId('what-changed-row').click();
-  await expect(page.getByTestId('what-changed-line').first()).toContainText('Format changed');
-  await expect(page.getByTestId('what-changed-line').last()).toContainText('Moved');
-  await page.getByTestId('what-changed-line').first().click();
+  // Selecting that day is what decays the mark — the calendar is where the change is, so the
+  // calendar is where it is answered.
+  await page.locator('[data-testid="grid-cell"][data-date="2026-07-24"]').click();
+  await page.getByTestId('nav-day').click();
   await expect(page.getByTestId('day-panel')).toHaveAttribute('data-date', '2026-07-24');
   await expect(page.locator('[data-testid="day-changed"]')).toHaveCount(0);
 });

@@ -40,10 +40,32 @@ const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
  * "move …" picks the first post id from the week digest already in the prompt; "note …"
  * captures a note; anything else clarifies.
  */
+/**
+ * A message's text, whatever shape it arrives in.
+ *
+ * `content` used to be a string. Prompt caching (`0988a39`) split the parser's user message
+ * into `MessagePart[]` — an invariant prefix, a `cache_point`, then the variable tail — and
+ * this fake kept doing `.map(m => m.content).join('\n')`, which on an array of parts yields
+ * `[object Object]`. Every e2e parse therefore saw an empty message and answered "Which post
+ * did you mean?", and four conversation specs failed for a reason that had nothing to do with
+ * them. Nothing caught it because the migration manifest was separately blocking the suite
+ * from building its database at all.
+ *
+ * Reading BOTH shapes is the point: the fake must not have an opinion about how the real call
+ * is packaged, or it goes stale the next time that changes.
+ */
+function messageText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((p) => (p && typeof p === 'object' && typeof (p as { text?: unknown }).text === 'string' ? (p as { text: string }).text : ''))
+    .join('\n');
+}
+
 export function makeFakeModelClient(): ModelClient {
-  const complete = async (req: { system?: string; messages: { role: string; content: string }[] }) => {
+  const complete = async (req: { system?: string; messages: { role: string; content: unknown }[] }) => {
     const system = req.system ?? '';
-    const user = req.messages.map((m) => m.content).join('\n');
+    const user = req.messages.map((m) => messageText(m.content)).join('\n');
     const content = system.includes('ordered list of TASKS')
       ? JSON.stringify({ tasks: fakeTasks(user) })
       : 'This is a canned answer for testing.';

@@ -37,6 +37,7 @@ import React from 'react';
 import { SprigMarkV2, ChevronL, ChevronR } from './icons';
 import { NavPill, type PlanView } from './NavPill';
 import { NavTracePanel } from '../NavTracePanel';
+import { navTraceToggle } from '../nav-trace';
 
 export function PlanShell({
   monthLabel, onPrevMonth, onNextMonth,
@@ -102,10 +103,7 @@ export function PlanShell({
           and it is the identity's own tone.
 
           Both keep their ruled faces — `font-logo` here, the sans ladder for the month. */}
-      <div className="flex flex-none items-center gap-[7px] px-5 pt-1.5">
-        <SprigMarkV2 className="h-[20px] w-[20px] text-coral-600" />
-        <span className="font-logo text-[22px] font-extrabold leading-none tracking-[-.02em] text-coral-700">Sprigly</span>
-      </div>
+      <Wordmark />
 
       {/* 3. MONTH ROW — and Today now sits on it (round 7, fix 4).
           The ‹ › arrows are the ONLY lateral month mechanism (G6); the month pills and the wheel
@@ -165,6 +163,42 @@ export function PlanShell({
       {/* Renders nothing unless the operator armed `?nav=trace` for this tab. It lives on the
           shell because the position it logs belongs to the whole surface, not to one sheet. */}
       <NavTracePanel />
+    </div>
+  );
+}
+
+/**
+ * The identity — and, on its third tap, the navigation trace (round 4).
+ *
+ * The jump only happens on the operator's phone, and the instrument that would convict it was
+ * armed by a query parameter: an instruction to retype a magic-link URL on a device, which by
+ * definition happens AFTER the session you wanted to watch. Three taps on the wordmark arm it
+ * in place, mid-session, and the panel appears on the third tap rather than on the next
+ * navigation — which on a bug that IS a navigation would be a trap.
+ *
+ * Three, within a second and a half: past the reach of any tap the surface means, and short of
+ * the reach of a client's patience. Nothing visible changes until it fires, so the wordmark is
+ * still just the wordmark; the panel that appears names itself in its first line.
+ */
+function Wordmark() {
+  const taps = React.useRef<{ n: number; at: number }>({ n: 0, at: 0 });
+  const onTap = () => {
+    const now = performance.now();
+    const n = now - taps.current.at < 1500 ? taps.current.n + 1 : 1;
+    taps.current = { n, at: now };
+    if (n >= 3) { taps.current = { n: 0, at: 0 }; navTraceToggle(); }
+  };
+  return (
+    <div
+      className="flex flex-none items-center gap-[7px] px-5 pt-1.5"
+      onClick={onTap}
+      // Not a button: it is the identity, and announcing "toggle the navigation trace" to every
+      // client who lands here would make a diagnostic into a feature. The gesture is deliberately
+      // undiscoverable, which is why it needs no accessible name of its own.
+      data-testid="wordmark"
+    >
+      <SprigMarkV2 className="h-[20px] w-[20px] text-coral-600" />
+      <span className="font-logo text-[22px] font-extrabold leading-none tracking-[-.02em] text-coral-700">Sprigly</span>
     </div>
   );
 }

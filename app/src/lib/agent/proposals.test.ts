@@ -167,6 +167,81 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     expect(h.patch).not.toHaveBeenCalled();
   });
 
+  /**
+   * ── G3: A REFUSAL SAYS SO, AND SAYS WHY ──────────────────────────────────────────────
+   *
+   * Every guard here already wrote its reason to the ROW. It stopped there: the result carried
+   * only `{ proposal }`, the route had nothing to forward, and the client received a 200 with
+   * `status:'failed'` and no words — which `usePlanData.decide` counted as a success. That is
+   * the vanished launch post: the teasers applied, the launch post did not, and the
+   * confirmation said "Done".
+   *
+   * So `failed` and `message` are asserted on EVERY refusal path, and the add's reason names
+   * the date, because the date is the only thing wrong with it and naming it is what makes
+   * "give me another one" a next step rather than a guess.
+   */
+  describe('a refused approval reports the refusal AND its reason (G3)', () => {
+    const addRow = (date: string) => ({
+      ...moveRow, intent: 'add_post',
+      payload: { kind: 'add', cycleId: 'cycle-1', date, channel: 'instagram', instruction: 'The launch post', format: 'reel' },
+    });
+
+    it('a past-dated ADD: failed, with the DATE in the reason', async () => {
+      h.claimQueue = [[addRow('2026-06-30')]];
+      const r = await approveProposal(CLIENT, 'prop-1', 'client');
+      expect(r.proposal?.status).toBe('failed');
+      expect(r.failed).toBe(true);
+      expect(r.message).toContain('30 June');
+      expect(h.addGenerating).not.toHaveBeenCalled();
+    });
+
+    it('a past-dated MOVE names the DESTINATION, not the post', async () => {
+      h.claimQueue = [[{ ...moveRow, payload: { kind: 'move', cycleId: 'cycle-1', postId: 'post-9', toDate: '2026-06-01' } }]];
+      const r = await approveProposal(CLIENT, 'prop-1', 'client');
+      expect(r.failed).toBe(true);
+      expect(r.message).toContain('1 June');
+    });
+
+    it('a move onto a past POST names the post instead — a different fix for a different fault', async () => {
+      h.resolvePost.mockResolvedValue({ cycleId: 'cycle-1', scheduledDate: '2026-06-01', channel: 'instagram' });
+      h.claimQueue = [[moveRow]];
+      const r = await approveProposal(CLIENT, 'prop-1', 'client');
+      expect(r.failed).toBe(true);
+      expect(r.message).toContain('read-only');
+    });
+
+    /**
+     * THE QUOTA, which is the likeliest real cause of a vanished item in a launch arc: several
+     * AI changes in one ask, and the cap lands part-way through. It took the same silent path.
+     */
+    it('an exhausted AI-change quota: failed, and the client is told the number', async () => {
+      h.blocked = true;
+      h.usage = { used: 30, limit: 30, unlimited: false };
+      h.claimQueue = [[{ ...moveRow, intent: 'rewrite_post', payload: { kind: 'rewrite', cycleId: 'cycle-1', postId: 'post-9', instruction: 'warmer' } }]];
+      const r = await approveProposal(CLIENT, 'prop-1', 'client');
+      expect(r.proposal?.status).toBe('failed');
+      expect(r.failed).toBe(true);
+      expect(r.message).toContain('30 AI changes');
+      expect(h.enqueue).not.toHaveBeenCalled();
+    });
+
+    it('a thrown mutation is a refusal too — never a bare failed proposal with no words', async () => {
+      h.patch.mockRejectedValue(new Error('boom'));
+      h.claimQueue = [[moveRow]];
+      const r = await approveProposal(CLIENT, 'prop-1', 'client');
+      expect(r.failed).toBe(true);
+      expect(r.message).toBeTruthy();
+    });
+
+    it('an APPLIED approval carries neither — `failed` is the exception, not a field to check', async () => {
+      h.claimQueue = [[moveRow]];
+      const r = await approveProposal(CLIENT, 'prop-1', 'client');
+      expect(r.proposal?.status).toBe('applied');
+      expect(r.failed).toBeUndefined();
+      expect(r.message).toBeUndefined();
+    });
+  });
+
   it('the claim UPDATE is scoped by clientId AND guarded on status=pending', async () => {
     h.claimQueue = [[moveRow]];
     await approveProposal(CLIENT, 'prop-1', 'client');

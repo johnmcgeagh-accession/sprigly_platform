@@ -14,6 +14,17 @@
  * magic-link redirect cannot drop it; `?nav=off` clears it. Renders nothing unless armed
  * (`NavTracePanel.tsx`), so it is safe to leave in the build.
  *
+ * ── ARMABLE ON THE DEVICE, ROUND 4 ───────────────────────────────────────────────────
+ *
+ * A query parameter is an instruction to retype a URL, and the operator reaches this surface
+ * through a magic link on a phone — by the time they have found the address bar and got
+ * `?nav=trace` into it, the session they wanted to watch is over, and the jump happens when it
+ * happens rather than when the trace is on. So the flag is also reachable from the SURFACE:
+ * three taps on the wordmark (`PlanShell.tsx`) toggle it, mid-session, with no reload, and the
+ * panel appears immediately because arming notifies the same listeners an entry does.
+ *
+ * The URL form is unchanged and still wins on load; this is a second door to the same flag.
+ *
  * The one event class that matters most is the one this exists for: a `select` line whose
  * reason is NOT `user:*`. Every legitimate selection change is a gesture or a restore; anything
  * else in that column is the bug, timestamped.
@@ -48,6 +59,29 @@ export function navTraceEnabled(): boolean {
   } catch {
     try { return new URLSearchParams(window.location.search).get('nav') === 'trace'; } catch { return false; }
   }
+}
+
+/**
+ * Arm or disarm the trace for this tab, from the surface rather than from the URL.
+ *
+ * Returns the state it landed in, so the caller can say so. Notifies the same listeners an
+ * entry does — that is what makes the panel appear on the third tap instead of on the next
+ * navigation, which on a surface whose bug IS a navigation would be a trap.
+ */
+export function navTraceArm(on: boolean): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    if (on) window.sessionStorage.setItem(FLAG_KEY, '1');
+    else window.sessionStorage.removeItem(FLAG_KEY);
+  } catch { /* a tab with no storage cannot hold the flag; the URL form still works */ }
+  if (!on) { entries = []; t0 = 0; }   // disarming clears: a stale log is worse than none
+  for (const l of listeners) l();
+  return navTraceEnabled();
+}
+
+/** Flip it. The wordmark's triple tap calls this. */
+export function navTraceToggle(): boolean {
+  return navTraceArm(!navTraceEnabled());
 }
 
 /**

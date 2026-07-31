@@ -59,10 +59,13 @@ test('TRANSCRIPT: the Emma loop through the conversation sheet', async ({ page }
 
   await page.reload();
   await page.getByTestId('plan-shell').waitFor();
-  const row = await page.getByTestId('what-changed-row').textContent();
-  await page.getByTestId('what-changed-row').click();
-  const lines = await page.getByTestId('what-changed-line').allTextContents();
-  console.log(`row ▸ ${row?.trim()}\n${lines.map((l) => `  · ${l.replace(/\s+/g, ' ').trim()}`).join('\n')}\n`);
+  // The changed-surface is the calendar's own dots now — the header row is gone by ruling —
+  // so the transcript records the DAYS that came back marked.
+  await page.getByTestId('nav-month').click();
+  const marked = await page.locator('[data-testid="grid-cell"]:has([data-testid="grid-changed"])')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-date') ?? ''));
+  console.log(`changed days ▸ ${marked.join(', ') || '(none)'}\n`);
+  await page.getByTestId('nav-day').click();
 
   await page.getByTestId('nav-mic').click();
   await page.getByTestId('turn-agent').first().waitFor();
