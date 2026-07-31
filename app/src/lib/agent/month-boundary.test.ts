@@ -56,6 +56,8 @@ vi.mock('@/lib/agent/cycle-state', async (orig) => {
   const ROWS = [{ id: 'cyc-oct', month: '2026-09', status: 'workbook_built' }];   // plans OCTOBER
   return {
     ...real,
+    // X1a: the context seam reads the client's cycles through this one function.
+    listClientCycles: async () => ROWS,
     getClientCycleMonths: async (_c: string, viewed: string) => real.describeCycles(ROWS, viewed),
     getCycleMonth: async () => real.planMonthOf('2026-09'),
   };

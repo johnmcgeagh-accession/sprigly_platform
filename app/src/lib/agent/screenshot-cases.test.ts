@@ -55,6 +55,8 @@ vi.mock('@/lib/agent/cycle-state', async (orig) => {
   ];
   return {
     ...real,
+    // X1a: the context seam reads the client's cycles through this one function.
+    listClientCycles: async () => ROWS,
     getClientCycleMonths: async (_c: string, viewed: string) => real.describeCycles(ROWS, viewed),
     getCycleMonth: async (_c: string, id: string) => {
       const row = ROWS.find((r) => r.id === id);
@@ -112,14 +114,26 @@ describe('screenshot 1 — "August 5th is in a past workbook"', () => {
     expect(r.message ?? '').not.toMatch(/different month isn’t available/i);
   });
 
-  it('the AUGUST view builds an AUGUST prompt — month, digest and marker all agree', async () => {
+  /**
+   * DELIBERATE CHANGE (X1a). This asserted `planDigest` did NOT contain 'Sep' — the digest was
+   * one cycle's posts, and that single fact is what made August untouchable from October and
+   * September unreachable from August. The digest is now the SPAN. What has to stay true is the
+   * thing the assertion was really protecting: the prompt must not lose track of WHICH month is
+   * on screen, because a bare "the 5th" resolves there. So the marker is asserted instead of the
+   * absence, on both the month list and the digest's own headings.
+   */
+  it('the AUGUST view names August as the month on screen — and can still SEE September', async () => {
     h.tasks = [{ action: 'clarify', question: 'ok' }] as ParsedTask[];
     await ask('cyc-aug', 'what have I got on');
     const ctx = lastCtx();
 
     expect(ctx.viewedMonth).toBe('August 2026');
     expect(ctx.planDigest).toContain('5 Aug');
-    expect(ctx.planDigest).not.toContain('Sep');
+    // The span: September's posts are IN the digest, under their own heading, and August's
+    // heading is the one marked.
+    expect(ctx.planDigest).toContain('4 Sep');
+    expect(ctx.planDigest).toMatch(/August 2026 \(2026-08\) \[the month on screen\]/);
+    expect(ctx.planDigest).toMatch(/September 2026 \(2026-09\):/);
     expect(ctx.cycleMonths).toMatch(/August 2026 .*\[the month on screen\]/);
     // September is still listed, so "push it into next month" has somewhere to land.
     expect(ctx.cycleMonths).toContain('September 2026');

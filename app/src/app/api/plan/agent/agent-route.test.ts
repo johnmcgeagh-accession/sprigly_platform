@@ -29,15 +29,27 @@ const h = vi.hoisted(() => ({
 // this stands in for the module-scope DATABASE_URL parse.
 vi.mock('@sprigly/db', () => ({ db: {}, contentCycles: {}, contentCyclePosts: {} }));
 vi.mock('@/lib/auth', () => ({ getSession: async () => h.session }));
-vi.mock('@/lib/plan', () => ({ loadPlanPosts: async () => h.posts }));
+// The span (X1a) loads a post list per cycle, so this answers per cycle: the seeded posts
+// belong to cycle-1 and nothing else invents rows the fixtures would then see twice.
+vi.mock('@/lib/plan', () => ({ loadPlanPosts: async (_c: string, cycleId: string) => (cycleId === 'cycle-1' ? h.posts : []) }));
 vi.mock('@/lib/agent/model', () => ({ getModelClient: () => ({}), getEmbeddingClient: () => ({}), AGENT_MODEL: 'haiku' }));
 vi.mock('@/lib/agent/task-parser', () => ({ parseTasks: async () => h.tasks }));
 vi.mock('@/lib/agent/catalogue', () => ({ loadProductIndex: async () => ({}) }));
-vi.mock('@/lib/agent/cycle-state', () => ({
-  getClientCycleMonths: async () => 'months', cycleDigest: () => 'digest', resolveCycleForMonth: async () => 'cycle-x',
-  getCycleMonth: async () => '2026-09',   // the seed post is 2026-09-03; same-month moves proceed
-  cycleBelongsToClient: async (_c: string, id: string) => h.clientCycles.includes(id),
-}));
+// The REAL cycle-state over fixture rows: `plan-context.ts` builds the span from
+// `listClientCycles`, so a wholesale stub would have to re-implement half the module.
+vi.mock('@/lib/agent/cycle-state', async (orig) => {
+  const real = await orig<typeof import('@/lib/agent/cycle-state')>();
+  const ROWS = [
+    { id: 'cycle-1',   month: '2026-08', status: 'scheduled' },       // plans SEPTEMBER (the seed post's month)
+    { id: 'cycle-aug', month: '2026-07', status: 'workbook_built' },  // plans AUGUST
+  ];
+  return {
+    ...real,
+    listClientCycles: async () => ROWS,
+    getClientCycleMonths: async () => 'months',
+    cycleBelongsToClient: async (_c: string, id: string) => h.clientCycles.includes(id),
+  };
+});
 vi.mock('@/lib/agent/conversation', () => ({
   // Records the cycle the TURN actually ran against — the only place the route's scoping choice
   // is observable from outside.
@@ -158,7 +170,11 @@ describe('add_note', () => {
     const res = await post({ instruction: 'remember we launch the wool coat on the 14th' });
     const body = await res.json();
     expect(h.saveNote).toHaveBeenCalledTimes(1);
-    expect(h.saveNote.mock.calls[0]![0]).toMatchObject({ clientId: 'client-1', cycleId: 'cycle-x', content: 'Launch the wool coat on the 14th.' });
+    // DELIBERATE CHANGE (X1b). The target month resolves through the turn's own month→cycle
+    // lookup, which now answers from the span before it reaches the database. September's cycle
+    // IS cycle-1, so that is where the note lands; the old 'cycle-x' was a stub id no real
+    // resolution could ever have produced.
+    expect(h.saveNote.mock.calls[0]![0]).toMatchObject({ clientId: 'client-1', cycleId: 'cycle-1', content: 'Launch the wool coat on the 14th.' });
     expect(body.proposals).toHaveLength(0);
   });
 });

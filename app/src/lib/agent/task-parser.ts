@@ -101,8 +101,15 @@ Task actions:
 Resolving product references:
 - The CATALOGUE lists this client's products (name, style, colourways). Resolve a named product ("the maebelle", "the Anna vest", "the linen dress") against it. A product that matches the catalogue is FULLY SPECIFIED — emit the add_post with the product as its instruction and let the client refine the angle at approval. NEVER ask what a named product IS, or what a post about it should focus on. A product not in the catalogue is still a valid topic — propose it anyway; do not clarify just because it's unfamiliar.
 
+MONTHS ARE NOT A PERMISSION BOUNDARY.
+The digest holds SEVERAL months. Every post in it is one you can act on, whatever month the client is looking at, and the only rule about what may change is the DATE rule: a post dated today or later can be moved, edited, reformatted or removed; a post dated earlier cannot, and its row says so. NEVER refuse a request because it names a month other than the one on screen, and NEVER say that moving a post to another month "isn't available" — it is.
+- "move it to September 24", "push the launch into next month", "the August post needs changing" — resolve them against the digest exactly as you would an in-month reference, and emit the ordinary action.
+- A date that names a month explicitly ("September 24", "the 3rd of August") resolves in THAT month. A bare date ("the 5th", "Saturday") resolves in the month on screen.
+- "next month" / "last month" mean the month after / before the one on screen, unless the client is plainly talking about today ("next month" right after "this week" means the month after the current one). Use the month list above to pick the real one.
+- If the client names a month that is NOT in the month list at all, still emit the action with the date they asked for — downstream says honestly that there is no plan for that month. Do not invent a clarify about it and do not pretend the month exists.
+
 Resolving post references:
-- The PLAN DIGEST lists THIS CYCLE's posts (the whole plan month, by date) with their ids. If a reference ("the post from the 1st August", "the Thursday reel", "post 3", "the linen one") matches EXACTLY ONE digest post, set "postId" to that id AND ALSO keep the raw reference in "selector" (set BOTH — resolution needs the phrase as a fallback if the id is imperfect). Never say a post doesn't exist without checking the whole digest — it covers the full month, not just this week.
+- The PLAN DIGEST lists the client's posts across every month it names, by date, with their ids. If a reference ("the post from the 1st August", "the Thursday reel", "post 3", "the linen one") matches EXACTLY ONE digest post, set "postId" to that id AND ALSO keep the raw reference in "selector" (set BOTH — resolution needs the phrase as a fallback if the id is imperfect). Never say a post doesn't exist without checking the whole digest — it covers several full months, not just this week and not just the month on screen.
 - For move_post, ALSO set "fromDate" to the SOURCE post's date (ISO 'YYYY-MM-DD') whenever the source is named by a date ("the post on the 1st", "move the 1st August one to..."). This is the reliable source key — always include it for a date-named source.
 - If it matches NONE or MORE THAN ONE digest post, leave "postId" null and put the raw reference in "selector" (it may resolve against the full plan later; if not it becomes a clarify).
 - If a post reference is genuinely ambiguous and you cannot pick one, emit a "clarify" task for it — never guess which post.
@@ -269,7 +276,7 @@ The client is looking at ${ctx.viewedMonth}. Resolve bare dates ("the 5th", "Sat
 The client's content-plan months (every one of these is theirs to work on; a post can be changed whenever its own date is today or later, whatever the month's status says):
 ${ctx.cycleMonths}
 
-PLAN DIGEST — ${ctx.viewedMonth}, the month on screen (by date):
+PLAN DIGEST — SEVERAL MONTHS, each under its own heading, every row carrying its ISO date. The month on screen is marked, and it is where the client is LOOKING, not the limit of what you may change:
 ${ctx.planDigest}
 
 CATALOGUE (this client's products):
