@@ -54,7 +54,7 @@ import { fmtDate, postTitle } from './selectors';
 import { planMonthOf, planWindowLine, monthLabel, describeCycles, listClientCycles, type CycleRow } from './cycle-state';
 
 /** Why a cycle is in the span. Carried so the prompt can say it and a fixture can assert it. */
-export type SpanReason = 'viewed' | 'adjacent' | 'now';
+export type SpanReason = 'viewed' | 'adjacent' | 'now' | 'reachable';
 
 export interface SpanCycle {
   cycleId:   string;
@@ -66,6 +66,22 @@ export interface SpanCycle {
 
 export interface ContextCycle extends SpanCycle {
   posts: PlanPost[];
+  /**
+   * Is this month PRINTED in the digest?
+   *
+   * ── THE DIGEST AND THE RESOLUTION SET ARE DIFFERENT THINGS (F2) ────────────────────
+   *
+   * They used to be the same list, and that is what made cross-month one-way: from the October
+   * view the span reached August (the now-rule), so an August post resolved; from the August
+   * view it did not reach October, so *"move the post on the 16th of October to the 19th"*
+   * could not find a post and the turn said so.
+   *
+   * The digest is what the model BROWSES — it costs tokens, so it is the span. The resolution
+   * set is what a reference may REACH, and a reference does not need to have been browsed:
+   * the client said "the 16th of October" out of their own head. Every month the client can
+   * still act in is loaded; only the span is printed.
+   */
+  inDigest: boolean;
 }
 
 export interface PlanContext {
@@ -73,15 +89,18 @@ export interface PlanContext {
   viewedCycleId: string;
   /** The viewed cycle's plan month, 'YYYY-MM'. Null when the cycle row is missing. */
   viewedMonth:   string | null;
-  /** The span, ascending by plan month. */
+  /** Every LOADED cycle, ascending by plan month. `inDigest` says which are printed. */
   cycles:        ContextCycle[];
-  /** Every post in the span, ascending by date — THE RESOLUTION SET. A selector, a postId or
-   *  a date resolves against this, which is the whole of X1: a reference can only reach a post
-   *  the context loaded. */
+  /**
+   * Every post the agent may resolve a reference to, ascending by date — THE RESOLUTION SET.
+   * A selector, a postId or a date resolves against this, and a reference can only ever reach
+   * a post that is in it. Wider than the digest by design (F2): the client can name a month
+   * they are not looking at, and did.
+   */
   posts:         PlanPost[];
-  /** The prompt block: the window line naming every month in scope, then the rows. */
+  /** The prompt block: the window line naming every month in the SPAN, then its rows. */
   digest:        string;
-  /** Plan months in scope, ascending. */
+  /** Plan months printed in the digest, ascending. */
   months:        string[];
   /** EVERY month the client has, formatted for the prompt — with the ones loaded below marked.
    *  The span says what is READABLE this turn; this says what EXISTS, and the two are different
@@ -114,7 +133,7 @@ export function selectSpan(
 
   const picked = new Map<string, SpanReason>();
   // A later rule never downgrades an earlier one: 'viewed' outranks 'adjacent' outranks 'now'.
-  const RANK: Record<SpanReason, number> = { viewed: 3, adjacent: 2, now: 1 };
+  const RANK: Record<SpanReason, number> = { viewed: 4, adjacent: 3, now: 2, reachable: 1 };
   const pick = (cycleId: string | undefined, reason: SpanReason) => {
     if (!cycleId) return;
     const cur = picked.get(cycleId);
@@ -156,11 +175,12 @@ export function selectSpan(
  * would allow.
  */
 export function spanDigest(cycles: readonly ContextCycle[], today: string, viewedCycleId: string): string {
-  const months = cycles.map((c) => c.planMonth);
+  const printed = cycles.filter((c) => c.inDigest);
+  const months = printed.map((c) => c.planMonth);
   const head = planWindowLine(months);
-  if (!cycles.length) return head ?? '(no plan months on record)';
+  if (!printed.length) return head ?? '(no plan months on record)';
 
-  const blocks = cycles.map((c) => {
+  const blocks = printed.map((c) => {
     const mark = c.cycleId === viewedCycleId ? ' [the month on screen]' : '';
     const rows = [...c.posts]
       .sort((a, b) => a.date.localeCompare(b.date))
@@ -175,22 +195,66 @@ export function spanDigest(cycles: readonly ContextCycle[], today: string, viewe
 }
 
 /**
+ * WHICH MONTHS A REFERENCE MAY REACH (F2).
+ *
+ * Every cycle whose plan month is not already over — from the month BEFORE today's onward. The
+ * lower bound is what keeps this from growing without limit on a long-lived client: a post in a
+ * finished month is read-only anyway (`isEditableDate`), so a reference to one can only ever be
+ * refused, and loading a year of history to refuse it is spend with no outcome. One month of
+ * slack below today, because "the post on the 29th" said on the 1st is usually last month's.
+ *
+ * Ascending, so a lookup that has to choose meets the nearest month first.
+ */
+export function resolutionCycles(rows: readonly CycleRow[], today: string): SpanCycle[] {
+  const floor = previousMonth(today.slice(0, 7));
+  return [...rows]
+    .map((r) => ({ cycleId: r.id, planMonth: planMonthOf(r.month), status: r.status, reason: 'reachable' as SpanReason }))
+    .filter((c) => c.planMonth >= floor)
+    .sort((a, b) => a.planMonth.localeCompare(b.planMonth));
+}
+
+/** 'YYYY-MM' → the month before it. */
+function previousMonth(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  return (m ?? 1) === 1 ? `${(y ?? 2026) - 1}-12` : `${y}-${String((m ?? 1) - 1).padStart(2, '0')}`;
+}
+
+/**
  * Build the agent's plan context for one turn.
  *
- * One query for the cycle rows, then one `loadPlanPosts` per cycle in the span (≤5). It is N+1
- * by construction and deliberately so: `loadPlanPosts` is the ONE read that applies the draft
- * fence (`excludeDraftPosts`) and folds in the checklist, and a bespoke multi-cycle query here
- * would be a second definition of "what is the plan" that could disagree with the first. At five
- * cycles the cost is five indexed reads on a hot path that already makes a Bedrock call.
+ * One query for the cycle rows, then one `loadPlanPosts` per REACHABLE cycle. It is N+1 by
+ * construction and deliberately so: `loadPlanPosts` is the ONE read that applies the draft fence
+ * (`excludeDraftPosts`) and folds in the checklist, and a bespoke multi-cycle query here would be
+ * a second definition of "what is the plan" that could disagree with the first.
+ *
+ * ── The cost, stated ─────────────────────────────────────────────────────────────────
+ *
+ * Before F2 this loaded the span (≤5). It now loads every month from last month onward, because
+ * the resolution set has to be wider than the digest — see `ContextCycle.inDigest`. A cycle is a
+ * monthly planning run, so that is the client's live months and no more: five or six for the
+ * operator, and bounded below by the date gate rather than by a cap nobody would see hit. The
+ * extra reads are indexed and land on a path that already makes a Bedrock call; the digest — the
+ * part that costs tokens on every turn — is unchanged.
  */
 export async function buildPlanContext(
   clientId: string, viewedCycleId: string, today: string,
 ): Promise<PlanContext> {
   const rows = await listClientCycles(clientId);
   const span = selectSpan(rows, viewedCycleId, today);
-  const cycles: ContextCycle[] = await Promise.all(
-    span.map(async (c) => ({ ...c, posts: await loadPlanPosts(clientId, c.cycleId) })),
-  );
+  const inSpan = new Map(span.map((c) => [c.cycleId, c] as const));
+
+  // The union: everything reachable, plus anything the span picked that the floor excluded (a
+  // viewed month in the past is still the month on screen, and its rows must be listed).
+  const reachable = resolutionCycles(rows, today);
+  const wanted = new Map<string, SpanCycle>();
+  for (const c of reachable) wanted.set(c.cycleId, inSpan.get(c.cycleId) ?? c);
+  for (const c of span) wanted.set(c.cycleId, c);
+
+  const cycles: ContextCycle[] = (await Promise.all(
+    [...wanted.values()]
+      .sort((a, b) => a.planMonth.localeCompare(b.planMonth))
+      .map(async (c) => ({ ...c, inDigest: inSpan.has(c.cycleId), posts: await loadPlanPosts(clientId, c.cycleId) })),
+  ));
 
   const posts = cycles.flatMap((c) => c.posts).sort((a, b) => a.date.localeCompare(b.date));
   return {
@@ -200,8 +264,8 @@ export async function buildPlanContext(
     cycles,
     posts,
     digest: spanDigest(cycles, today, viewedCycleId),
-    months: cycles.map((c) => c.planMonth),
-    allMonths: describeCycles(rows, viewedCycleId, cycles.map((c) => c.cycleId)),
+    months: cycles.filter((c) => c.inDigest).map((c) => c.planMonth),
+    allMonths: describeCycles(rows, viewedCycleId, cycles.filter((c) => c.inDigest).map((c) => c.cycleId)),
   };
 }
 

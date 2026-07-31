@@ -107,6 +107,7 @@ The digest holds SEVERAL months. Every post in it is one you can act on, whateve
 - "move it to September 24", "push the launch into next month", "the August post needs changing" — resolve them against the digest exactly as you would an in-month reference, and emit the ordinary action.
 - A date that names a month explicitly ("September 24", "the 3rd of August") resolves in THAT month. A bare date ("the 5th", "Saturday") resolves in the month on screen.
 - "next month" / "last month" mean the month after / before the one on screen, unless the client is plainly talking about today ("next month" right after "this week" means the month after the current one). Use the month list above to pick the real one.
+- A MONTH WHOSE POSTS ARE NOT LISTED IS STILL A MONTH YOU CAN CHANGE. The digest prints a few months; the month list above marks the rest "posts not listed below". Those months are loaded — a reference into one RESOLVES. So "move the post on the 16th of October to the 19th", asked from the August view, is an ordinary move_post: set toDate, set fromDate to the source date the client named, and put their phrase in selector. NEVER answer that a month "is not in your current plan view", "isn't loaded", or anything of that shape. You do not know what is loaded; you know what the client named.
 - If the client names a month that is NOT in the month list at all, still emit the action with the date they asked for — downstream says honestly that there is no plan for that month. Do not invent a clarify about it and do not pretend the month exists.
 
 Resolving post references:
@@ -154,6 +155,9 @@ Message: "move the post on the 10th to the 11th and make it a carousel"  (a comp
 
 Message: "move the post on the 1st August to the 22nd August"  (source named by date → set fromDate AND postId/selector)
 → {"tasks":[{"action":"move_post","postId":"<aug-1 post id from digest>","selector":"the post on the 1st August","fromDate":"<1 Aug ISO>","toDate":"<22 Aug ISO>","reason":"move the post on the 1st August to the 22nd August"}]}
+
+Message: "move the post on the 16th of October to the 19th"  (asked from the AUGUST view; October is in the month list but its posts are not printed — emit the move anyway, with no postId)
+→ {"tasks":[{"action":"move_post","selector":"the post on the 16th of October","fromDate":"2026-10-16","toDate":"2026-10-19","reason":"move the post on the 16th of October to the 19th"}]}
 
 Message: "make the reel warmer"  (two reels in the digest)
 → {"tasks":[{"action":"clarify","question":"You have two reels this week — which one should I rewrite: Tuesday's or Friday's?","reason":"make the reel warmer"}]}

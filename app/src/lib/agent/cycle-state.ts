@@ -118,7 +118,7 @@ export function describeCycles(
     .map((r) => ({ ...r, plan: planMonthOf(r.month) }))
     .sort((a, b) => a.plan.localeCompare(b.plan))
     .map((r) => `- ${monthLabel(r.plan)} (${r.plan})${r.id === viewedCycleId ? ' [the month on screen]' : ''}`
-      + `${loaded ? (loaded.has(r.id) ? ' [posts listed below]' : ' [posts NOT listed — you can still add or move INTO this month]') : ''} — ${r.status}`)
+      + `${loaded ? (loaded.has(r.id) ? ' [posts listed below]' : ' [posts not listed below — name a date or a title and I WILL find the post; you can also add and move into this month]') : ''} — ${r.status}`)
     .join('\n');
 }
 
