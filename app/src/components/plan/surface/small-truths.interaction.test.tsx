@@ -6,9 +6,8 @@
  *   a) the month summary's rows carry the POST'S REAL format — rowsFromPosts never set
  *      `format`, so every format-led row fell through `?? 'single'` and drew the image tile
  *      for reels and carousels alike.
- *   b) the activity waveform moves when RESULTS flow — iOS WebKit doesn't reliably fire
- *      onspeechstart, so `speaking` (wired to it alone) stayed false while words arrived,
- *      and the one-pipeline meter was born flat.
+ *   b) DELETED (F4). The activity meter is gone — see `voice-sheet.interaction`, which now
+ *      pins its absence and the transcript landing in the field instead.
  *   c) theme-color follows the sheet — the scrim dims the app while the status-bar band
  *      stayed bright canvas; the meta now blends to the scrim tone while a sheet is up and
  *      restores on the last close.
@@ -26,7 +25,6 @@ import { Feedback } from './Feedback';
 import { Sheet } from './Sheet';
 import { agentLines, stripMarkdown } from './agent-prose';
 import { blendHex } from './theme-color';
-import { Waveform } from './Waveform';
 import type { PlanPost } from '@/lib/types';
 
 const post = (over: Partial<PlanPost> = {}): PlanPost => ({
@@ -52,28 +50,6 @@ describe('a) the row carries the post’s real format', () => {
     render(<MonthDaySummary date="2026-10-02" items={items} onOpen={() => {}} />);
     const tiles = screen.getAllByTestId('format-tile').map((el) => el.getAttribute('data-format'));
     expect(tiles).toEqual(['reel', 'carousel', 'single']);
-  });
-});
-
-describe('b) the activity meter moves when results flow', () => {
-  it('speaking=true animates the bars off the flatline; false holds them there', async () => {
-    // speaking !== undefined forces ACTIVITY mode (no second capture) in jsdom. Frames are
-    // captured, not run — the loop re-schedules itself, so a synchronous mock recurses forever.
-    let frame: FrameRequestCallback | null = null;
-    const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { frame = cb; return 1; });
-    try {
-      const { rerender, container } = render(<Waveform active speaking={false} pulse={0} />);
-      const bar = () => container.querySelector('[data-testid="waveform"] span') as HTMLSpanElement;
-      expect(screen.getByTestId('waveform').getAttribute('data-source')).toBe('activity');
-      expect(bar().style.height).toBe('6%');                       // the flatline
-
-      await act(async () => { rerender(<Waveform active speaking pulse={1} />); });
-      await act(async () => { frame?.(16); });                     // one animation frame
-      expect(parseFloat(bar().style.height)).toBeGreaterThan(6);   // moving
-
-      await act(async () => { rerender(<Waveform active speaking={false} pulse={1} />); });
-      expect(bar().style.height).toBe('6%');                       // real silence flatlines
-    } finally { raf.mockRestore(); }
   });
 });
 

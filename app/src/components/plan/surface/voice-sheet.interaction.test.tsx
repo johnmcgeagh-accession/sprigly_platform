@@ -104,16 +104,62 @@ describe('the microphone is a TAP control on a keyboard-first composer', () => {
     expect(FakeRecognition.live!.interimResults).toBe(true);
   });
 
-  it('an interim streams as a preview and is NOT written into the field; the final is', () => {
+  /**
+   * ── DELIBERATE CHANGE (F4): THE INTERIM GOES INTO THE FIELD ──────────────────────────
+   *
+   * This asserted the opposite — an interim shown as a preview UNDER the composer and kept out
+   * of it, so a guess the engine might revise could never overwrite the client's typing.
+   *
+   * That is the mechanism behind "final results sometimes don't land". The only route from
+   * heard to in-the-box was a FINAL, and a final is not guaranteed: `stop()` on iOS tears the
+   * session down without flushing a part-recognised utterance, `onend` restarts a session
+   * WebKit ended by itself and the tail goes with it, and `clearSpeaking` wiped the preview on
+   * `speechend`. Each of those left the client watching their sentence appear and then vanish.
+   *
+   * The field now holds `typed + finals + interim`, so what has been heard is already in the
+   * box and stopping keeps it. The typing it used to protect is protected by rebasing instead:
+   * a manual edit becomes the new base (see below).
+   */
+  it('an interim goes STRAIGHT into the field, and the final replaces it in place', () => {
     open();
     fireEvent.click(screen.getByTestId('voice-mic'));
     act(() => { FakeRecognition.live!.hear('the candle relaunches', false); });
-    expect(screen.getByTestId('voice-partial').textContent).toBe('the candle relaunches');
-    expect(composer().value).toBe('');                     // the client's own typing is safe
+    expect(composer().value).toBe('the candle relaunches');
+    expect(screen.queryByTestId('voice-partial'), 'no second surface for the words').toBeNull();
 
     act(() => { FakeRecognition.live!.hear('The candle relaunches on the 24th.', true); });
     expect(composer().value).toBe('The candle relaunches on the 24th.');
-    expect(screen.queryByTestId('voice-partial')).toBeNull();
+  });
+
+  it('STOPPING KEEPS THE TAIL — the words that used to be lost', () => {
+    open();
+    fireEvent.click(screen.getByTestId('voice-mic'));
+    act(() => { FakeRecognition.live!.hear('move the launch to the 24th', false); });
+    // The client taps Stop before the engine has finalised anything. Before F4 this was the
+    // whole sentence gone.
+    fireEvent.click(screen.getByTestId('voice-mic'));
+    expect(composer().value).toBe('move the launch to the 24th');
+  });
+
+  it('and a session the engine ends by itself keeps it too', () => {
+    open();
+    fireEvent.click(screen.getByTestId('voice-mic'));
+    act(() => { FakeRecognition.live!.hear('the linen restock', false); });
+    act(() => { FakeRecognition.live!.onspeechend?.(); });
+    expect(composer().value).toBe('the linen restock');
+  });
+
+  it('speaking APPENDS to what was typed, and typing REBASES what was heard', () => {
+    open();
+    fireEvent.change(composer(), { target: { value: 'move it' } });
+    fireEvent.click(screen.getByTestId('voice-mic'));
+    act(() => { FakeRecognition.live!.hear('to the 24th', true); });
+    expect(composer().value).toBe('move it to the 24th');
+
+    // The client corrects it by hand; the next result must append to THAT, not to the old base.
+    fireEvent.change(composer(), { target: { value: 'move it to the 25th' } });
+    act(() => { FakeRecognition.live!.hear('please', true); });
+    expect(composer().value).toBe('move it to the 25th please');
   });
 
   it('takes the microphone ONCE, not once per render', () => {
@@ -134,12 +180,26 @@ describe('the microphone is a TAP control on a keyboard-first composer', () => {
     expect(rec.started).toBe(false);
   });
 
-  it('the meter strip renders inline while capturing, and leaves when it stops', () => {
+  /**
+   * DELIBERATE CHANGE (F4, operator ruling): THE METER IS DELETED. It was a third thing to look
+   * at, a second audio consumer to referee, and a frame budget spent on decoration — and it
+   * answered "is it hearing me?" less well than the words themselves do.
+   *
+   * The listening state is now the Speak control's own pressed state, and the text appearing.
+   */
+  it('there is NO meter — the control’s pressed state is the listening state', () => {
     open();
+    const mic = screen.getByTestId('voice-mic');
+    expect(mic.getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(mic);
+    expect(screen.queryByTestId('waveform')).toBeNull();
+    expect(screen.getByTestId('voice-mic').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('voice-mic').textContent).toContain('Stop');
+
     fireEvent.click(screen.getByTestId('voice-mic'));
-    expect(screen.getByTestId('waveform').getAttribute('data-active')).toBe('true');
-    fireEvent.click(screen.getByTestId('voice-mic'));      // stop
-    expect(screen.queryByTestId('waveform')).toBeNull();   // the strip is FOR the capture
+    expect(screen.getByTestId('voice-mic').getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByTestId('voice-mic').textContent).toContain('Speak');
   });
 });
 
