@@ -391,12 +391,20 @@ describe('the grabber is a control (round 6, P7)', () => {
     return el;
   };
 
+  /**
+   * DELIBERATE CHANGE (round 5). A tap now closes on the CLICK the browser sends for it rather
+   * than on `pointerup`, so that the compatibility click is consumed by the grabber instead of
+   * landing on the month arrow it overlaps (`Sheet.tsx`, and `sheet-close.interaction` for the
+   * whole argument). The gesture the client makes is unchanged; the event it completes on is
+   * not, so the fixture completes it.
+   */
   it('a plain TAP on the grabber closes the sheet', () => {
     render(<CommittedSurface data={fakeData()} />);
     openSheet();
     const g = grab('detail-sheet-grabber');
     fireEvent.pointerDown(g, { clientY: 200, pointerId: 1 });
     fireEvent.pointerUp(g, { clientY: 200, pointerId: 1 });
+    fireEvent.click(g, { clientY: 200 });
 
     expect(screen.queryByTestId('detail-sheet')).toBeNull();
   });
@@ -441,6 +449,7 @@ describe('the grabber is a control (round 6, P7)', () => {
     const g = grab('move-sheet-grabber');
     fireEvent.pointerDown(g, { clientY: 200, pointerId: 1 });
     fireEvent.pointerUp(g, { clientY: 200, pointerId: 1 });
+    fireEvent.click(g, { clientY: 200 });
 
     expect(screen.queryByTestId('move-sheet')).toBeNull();
     expect(screen.getByTestId('detail-sheet')).toBeTruthy();   // the sheet it opened from stays

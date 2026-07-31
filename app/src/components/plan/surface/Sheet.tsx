@@ -37,30 +37,57 @@ const DISMISS_PX = 96;
 /** Under this, a pointer sequence was a tap and not a drag. */
 const TAP_SLOP_PX = 6;
 /**
- * Swallow the click a browser synthesises after the pointer sequence that just dismissed us.
+ * ── THE GHOST CLICK, AND WHY A TAP NO LONGER CLOSES ON `pointerup` (round 5) ─────────
  *
- * ── The bug this exists for ──────────────────────────────────────────────────────────
+ * Measured, in the browser, at 390×844:
  *
- * Dismissal happens on `pointerup`, and the sheet unmounts inside that handler. The browser then
- * dispatches the `click` for that same sequence at the same coordinates — onto whatever is
- * underneath NOW. The grabber is a full-width band at the top of a sheet pinned to `bottom-0
- * h-[92%]`, so at 390×844 it sits at y 67.5–101.5 directly over `PlanShell`'s title row (the ‹ ›
- * month arrows) and Today row. A ghost click on `next-month` switched the month, and the
- * surface's re-anchor moved the selected day to the new month's earliest post: the operator
- * closed a sheet on 13 August and landed on 2 September.
+ *     next-month  x 129.4 … 169.4   y 32 … 72
+ *     grabber     x 0     … 390     y 67.5 … 101.5
  *
- * Capture phase, so it runs before anything on the way down, and scoped THREE ways so it can only
- * ever eat the one click it is for:
+ * The sheet's close control OVERLAPS the month arrow — 4.5px here, and more on a phone with
+ * browser chrome, because the panel is `h-[92%]`: at 700px of visible height the grabber starts
+ * at y 56 and the overlap is 16px, half its height. A thumb closing the sheet is over the arrow.
  *
- *   - by time: `setTimeout(…, 0)`. A browser dispatches the compatibility click in the same
- *     input-dispatch turn as the `pointerup` that caused it, so the disarm always runs after that
- *     click and before the client's next deliberate tap. The grabber carries `touch-action: none`,
- *     so there is no 300ms tap delay to outlast.
+ * So when dismissal happened on `pointerup`, the sheet unmounted inside that handler and the
+ * browser then dispatched the `click` for the same gesture onto whatever was underneath now:
+ * `next-month`. The surface switched cycle, and its re-anchor moved the day to the new month's
+ * first post. That is the operator's trace, verbatim — `cycle user:next-month` 4.3 seconds after
+ * the day tap, i.e. at the moment they closed the post.
+ *
+ * ── Round 4 tried to eat that click. Round 5 stops producing it ──────────────────────
+ *
+ * The old guard armed a capture-phase click-eater on `pointerup` and disarmed it on
+ * `setTimeout(…, 0)`, on the assumption that a browser dispatches the compatibility click in the
+ * same input-dispatch turn. Nothing specifies that. It is a RACE, iOS loses it the other way,
+ * and a guard that is right most of the time on a navigation bug is indistinguishable from no
+ * guard at all.
+ *
+ * A TAP NOW CLOSES ON `click`. The compatibility click is then consumed BY THE GRABBER ITSELF —
+ * it is still mounted when the click arrives, because nothing has closed yet — and there is no
+ * second click to land anywhere. No window, no coordinates, no ordering assumption: the class is
+ * gone rather than mitigated.
+ *
+ * A DRAG still dismisses on `pointerup`, because a drag has no click of its own to close on, and
+ * it keeps a guard — hardened below.
+ */
+
+/**
+ * The guard for the DRAG path only.
+ *
+ * Scoped three ways, and the first is now structural rather than temporal:
+ *
+ *   - by GESTURE: it disarms on the next `pointerdown`. A compatibility click is never preceded
+ *     by its own pointerdown, so the first one after the drag is by definition a new deliberate
+ *     gesture. That is a fact about how input works, not a bet on scheduling.
  *   - by place: within GHOST_RADIUS_PX of where the finger lifted. A compatibility click is at
- *     the same coordinates by definition; a real tap somewhere else must not be touched.
+ *     those coordinates by definition.
  *   - by count: one. It disarms itself the moment it fires.
+ *
+ * The timer survives only as a ceiling, so the guard cannot outlive its own gesture on a surface
+ * that never sees another pointerdown.
  */
 const GHOST_RADIUS_PX = 24;
+const GHOST_CEILING_MS = 1200;
 
 function swallowNextClick(at: { x: number; y: number }): void {
   if (typeof window === 'undefined') return;
@@ -73,10 +100,12 @@ function swallowNextClick(at: { x: number; y: number }): void {
   };
   const disarm = () => {
     window.removeEventListener('click', kill, true);
+    window.removeEventListener('pointerdown', disarm, true);
     window.clearTimeout(timer);
   };
-  const timer = window.setTimeout(disarm, 0);
+  const timer = window.setTimeout(disarm, GHOST_CEILING_MS);
   window.addEventListener('click', kill, true);
+  window.addEventListener('pointerdown', disarm, true);
 }
 
 export interface SheetProps {
@@ -110,7 +139,7 @@ export function Sheet({ open, label, testid, onClose, layer = 0, hasOwnClose = f
   // `travelled` is the largest ABSOLUTE movement seen, which is what separates a tap from a
   // gesture. `dy` is the clamped downward offset, which is what separates a dismissal from a
   // hesitation. Two facts, because one number cannot tell an upward drag from a still thumb.
-  const drag = useRef({ x: 0, y: 0, dy: 0, travelled: 0, active: false });
+  const drag = useRef({ x: 0, y: 0, dy: 0, travelled: 0, active: false, wasTap: false, sawPointer: false });
 
   useFocusTrap(open, ref, onClose);
 
@@ -131,7 +160,7 @@ export function Sheet({ open, label, testid, onClose, layer = 0, hasOwnClose = f
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
-    drag.current = { x: e.clientX, y: e.clientY, dy: 0, travelled: 0, active: true };
+    drag.current = { x: e.clientX, y: e.clientY, dy: 0, travelled: 0, active: true, wasTap: false, sawPointer: true };
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
 
@@ -148,17 +177,40 @@ export function Sheet({ open, label, testid, onClose, layer = 0, hasOwnClose = f
     if (!drag.current.active) return;
     const { dy, travelled } = drag.current;
     drag.current.active = false;
+    drag.current.wasTap = travelled <= TAP_SLOP_PX;
     setOffset(0);
-    // A tap IS a drag of no distance, and it closes too. A drag that went far enough down
-    // closes as well. Everything between — a hesitation, or a drag that went UP and came to
-    // nothing — springs back, because neither is an instruction to dismiss.
-    if (travelled <= TAP_SLOP_PX || dy >= DISMISS_PX) {
-      // ARM THE GUARD FIRST. The sheet unmounts inside `onClose`, and the click the browser is
-      // about to send for this gesture would then land on the shell underneath. It is armed at
-      // the point the finger LIFTED, which is where that click will be.
+    /**
+     * A TAP IS NOT CLOSED HERE — see the header. It is a drag of no distance, so it has a click
+     * of its own coming, and letting THAT click close the sheet is what stops the click landing
+     * on the month arrow underneath. `wasTap` is the note to `onClick` that this was one.
+     *
+     * A DRAG far enough down closes here, because it has no click to wait for. Everything
+     * between — a hesitation, a drag that went up and came to nothing — springs back.
+     */
+    if (!drag.current.wasTap && dy >= DISMISS_PX) {
+      // The guard, for the one path that still dismisses without a click of its own. Armed at
+      // the point the finger LIFTED, which is where any trailing click would be.
       swallowNextClick({ x: e.clientX, y: e.clientY });
+      drag.current.sawPointer = false;
       onClose();
     }
+  };
+
+  /**
+   * WHERE A TAP ACTUALLY CLOSES.
+   *
+   * `wasTap` covers pointer input: the sequence ended within the slop, so this click is its
+   * compatibility click and the sheet is still here to receive it.
+   *
+   * `!sawPointer` covers the KEYBOARD. The grabber is the close control on a sheet with no ✕
+   * (`hasOwnClose` false), so Enter or Space on it must dismiss — and a keyboard activation
+   * arrives as a click with no pointer sequence in front of it. That absence is the signal.
+   */
+  const onClick = () => {
+    const { wasTap, sawPointer } = drag.current;
+    drag.current.wasTap = false;
+    drag.current.sawPointer = false;
+    if (wasTap || !sawPointer) onClose();
   };
 
   if (!open) return null;
@@ -193,7 +245,7 @@ export function Sheet({ open, label, testid, onClose, layer = 0, hasOwnClose = f
               ? { 'aria-hidden': true as const, tabIndex: -1 }
               : { 'aria-label': 'Close' })}
             onPointerDown={onPointerDown} onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
+            onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onClick={onClick}
             className="flex h-[34px] w-full flex-none touch-none items-center justify-center"
           >
             <span aria-hidden="true" className="block h-[5px] w-[38px] rounded-full bg-line/45" />

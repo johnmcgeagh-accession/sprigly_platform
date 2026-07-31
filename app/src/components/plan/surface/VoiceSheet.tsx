@@ -38,10 +38,9 @@
  * listening / lost / refused / unsupported) — those are facts about the capture, not about the
  * agent, and they live beside the control they describe.
  */
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Sheet } from './Sheet';
 import { MicGlyph, SendGlyph, CloseGlyph } from './icons';
-import { Waveform } from './Waveform';
 import { AgentSays } from './AgentVoice';
 import { capAnnouncement } from '@sprigly/engine/ai-change-cap';
 import { InterpretationTurn, type InterpretationStatus } from './Interpretation';
@@ -155,7 +154,6 @@ export function VoiceSheet({
   isPending?: ((proposalId: string) => boolean) | undefined;
 }) {
   const [text, setText] = useState('');
-  const [loud, setLoud] = useState(false);
   const [turns, setTurns] = useState<ThreadTurn[]>([]);
   /** THIS session's conversation. Sent with every turn, so the context window is the session. */
   const conversationId = useRef<string | null>(null);
@@ -165,10 +163,51 @@ export function VoiceSheet({
    *  what actually happened — typed words on a mic-opened sheet are still 'web'. */
   const heard = useRef(false);
 
-  const speech = useSpeechInput((chunk) => { heard.current = true; setText((t) => (t ? `${t} ${chunk}` : chunk)); });
+  /**
+   * ── THE TRANSCRIPT GOES STRAIGHT INTO THE FIELD (F4, operator ruling) ────────────────
+   *
+   * WHY WORDS USED TO GO MISSING. Only FINAL results were written into the composer; interims
+   * were rendered as a preview UNDERNEATH it and thrown away. So the only route from "heard" to
+   * "in the box" was a final — and a final is not guaranteed to arrive. `stop()` on iOS tears
+   * the session down without flushing a part-recognised utterance; `onend` restarts a session
+   * WebKit ended by itself and the tail goes with it; `clearSpeaking` cleared the preview on
+   * `speechend` and `audioend`. Every one of those left the client having watched their sentence
+   * appear under the field and then vanish. That is the "sometimes they don't land".
+   *
+   * There is no separate preview now. The field holds `typed + finals + the interim`, rebuilt on
+   * every result — so whatever the engine has heard is ALREADY in the box, and stopping keeps it
+   * rather than discarding it. A final only confirms what is on screen.
+   *
+   * The trade, stated: an interim is a guess the engine may still revise, so a capture cut off
+   * mid-word leaves a word that may be wrong. The client reads it and presses send when they are
+   * ready — which is the ruling — and a word to correct is strictly better than a sentence to
+   * say again.
+   *
+   * TWO REFS, because the field has two authors. `typedRef` is what the CLIENT put there and is
+   * the base every rebuild starts from; `heardRef` is what this listening run has committed.
+   * Any manual edit rebases both, so typing after speaking is never overwritten by the next
+   * result — and speaking after typing appends rather than replacing.
+   */
+  const typedRef = useRef('');
+  const heardRef = useRef('');
+  const compose = useCallback((interim = '') => {
+    return [typedRef.current, heardRef.current, interim].map((s) => s.trim()).filter(Boolean).join(' ');
+  }, []);
+  const speech = useSpeechInput((chunk) => {
+    heard.current = true;
+    heardRef.current = heardRef.current ? `${heardRef.current} ${chunk}` : chunk;
+    setText(compose());
+  });
   const listening = speech.state === 'recording';
   const starting = speech.state === 'starting';
   const { start: startSpeech, stop: stopSpeech } = speech;
+
+  /** The INTERIM, streamed into the same field the finals land in. Nothing else renders it. */
+  useEffect(() => {
+    if (!speech.partial) return;
+    heard.current = true;
+    setText(compose(speech.partial));
+  }, [speech.partial, compose]);
 
   const framing = FRAMING[context](monthName);
 
@@ -189,7 +228,8 @@ export function VoiceSheet({
   if (open !== wasOpen) {
     setWasOpen(open);
     if (open) {
-      setText(''); setLoud(false); setTurns([]); heard.current = false;
+      setText(''); setTurns([]); heard.current = false;
+      typedRef.current = ''; heardRef.current = '';
       historyLoaded.current = false; conversationId.current = null;   // a new open is a new session
     }
   }
@@ -290,6 +330,9 @@ export function VoiceSheet({
     if (!value || busy) return;
     speech.stop();
     setText('');
+    // The field's two authors are reset with it. Without this the next dictation would append
+    // to a sentence that has already been sent.
+    typedRef.current = ''; heardRef.current = '';
     // The client's turn lands NOW, and the agent's begins as dots — the working state is a
     // turn being born, not a separate status line.
     const workingKey = nextKey();
@@ -397,7 +440,7 @@ export function VoiceSheet({
     : speech.state === 'error' ? 'The microphone stopped. Tap it to pick it up, or type.'
     : stalled ? 'We’ve lost the microphone — nothing is reaching us. Tap it, or type.'
     : starting ? 'Getting the mic…'
-    : listening ? (loud ? 'Listening…' : 'Go ahead — one sentence is enough.')
+    : listening ? 'Go ahead — one sentence is enough.'
     : null;
   const micAlert = speech.state === 'no-permission' || speech.state === 'error' || stalled;
 
@@ -487,43 +530,42 @@ export function VoiceSheet({
               {micLine}
             </p>
           )}
-          {/* The meter, inline: proof the capture is live, exactly where the words will land.
-              Same pipeline rules as ever (audio-contention.ts) — no second capture on WebKit.
-              It pulses off INTERIM results now, so it moves WHILE the client speaks rather
-              than reporting a sentence that has already ended (C2, useSpeechInput). */}
-          {(listening || starting) && (
-            <div className="mb-1.5">
-              <Waveform active={listening} onLevel={setLoud} speaking={speech.speaking} pulse={speech.pulse} />
-            </div>
-          )}
+          {/* NO METER (F4, operator ruling). A live waveform was a third thing to look at, a
+              second audio consumer to referee (audio-contention.ts, deleted with it) and a frame
+              decoration — and it answered a question the words themselves answer better. The
+              listening state is the Speak control's own pressed state and the text appearing. */}
           <textarea
             ref={field} data-testid="voice-input" value={text} disabled={busy} rows={2}
-            onChange={(e) => setText(e.target.value)}
+            // A MANUAL EDIT REBASES. Whatever the client has just made the field say becomes the
+            // base the next result appends to, so typing over dictated words is never undone by
+            // the interim that arrives a moment later.
+            onChange={(e) => { typedRef.current = e.target.value; heardRef.current = ''; setText(e.target.value); }}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void submit(); } }}
             placeholder={framing.placeholder}
             aria-label="Message your plan"
             className="max-h-[160px] min-h-[64px] w-full resize-none rounded-2xl border border-line/55 bg-surface px-3.5 py-3 text-[16.5px] leading-[1.45] text-chrome outline-none placeholder:text-muted"
           />
-          {/* THE LIVE TRANSCRIPT, streaming. Interims are what the engine has heard and not
-              finalised — shown under the field rather than written into it, so the client's
-              own typing is never overwritten by a guess the engine is about to revise. */}
-          {speech.partial && (
-            <p data-testid="voice-partial" aria-hidden="true" className="mt-1 px-1 text-[14px] italic leading-[1.4] text-muted">
-              {speech.partial}
-            </p>
-          )}
           <div className="mt-2 flex items-center gap-2">
             <button
               type="button" data-testid="voice-mic" aria-pressed={listening}
               aria-label={listening ? 'Stop listening' : 'Start listening'}
               disabled={speech.state === 'unsupported'}
-              onClick={() => (listening || starting ? speech.stop() : speech.start())}
+              // Starting a run fixes the base: everything already in the field is the client's,
+              // and everything the engine hears from here is appended to it.
+              onClick={() => {
+                if (listening || starting) { speech.stop(); return; }
+                typedRef.current = text; heardRef.current = '';
+                speech.start();
+              }}
+              // THE LISTENING STATE, and all of it (F4): `aria-pressed`, and the control filling
+              // in. No meter, no ring that tracked loudness — the words appearing in the field
+              // are the feedback that the microphone is working, and they are the only feedback
+              // that is also the thing the client came for.
               className={[
-                'flex min-h-[44px] flex-none items-center gap-2 rounded-full px-4 text-[14px] font-semibold transition-all duration-200',
+                'flex min-h-[44px] flex-none items-center gap-2 rounded-full px-4 text-[14px] font-semibold transition-colors duration-200',
                 listening ? 'bg-coral-650 text-white' :
                 starting ? 'bg-coral-100 text-coral-800 ring-1 ring-inset ring-coral-600'
                   : 'bg-line-soft text-coral-800 disabled:text-muted',
-                loud ? 'shadow-[0_0_0_6px_rgb(var(--t-accent-600,232_112_95)_/_0.18)]' : '',
               ].join(' ')}
             >
               <MicGlyph className="h-5 w-5 [stroke-width:1.8]" />

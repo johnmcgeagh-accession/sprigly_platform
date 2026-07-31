@@ -68,9 +68,13 @@ export type SpeechState = 'idle' | 'starting' | 'recording' | 'unsupported' | 'n
  * to "is the microphone actually open", and the UI had no access to it: it was inferring from
  * `state === 'recording'`, which only means we asked.
  *
- * `speaking` / `pulse` — `onspeechstart`/`onspeechend`/`onresult`. The meter is driven from
- * these on any platform that cannot afford a second stream, so the bars move because the
- * recogniser is hearing words rather than because a separate analyser is reading room tone.
+ * `speaking` — `onspeechstart`/`onspeechend`/`onresult`. Kept as an honest capture fact; the
+ * meter it used to drive is deleted (F4), and with it the `pulse` counter, which existed only to
+ * give an animation something to tick on and re-rendered the sheet several times a second for it.
+ *
+ * `partial` — the words the engine has heard and not finalised. It is no longer a preview
+ * rendered beside the field: the sheet writes it INTO the field (`VoiceSheet`), which is what
+ * makes a stopped capture keep its tail instead of losing it. See `onresult` below.
  */
 export function useSpeechInput(onChunk: (text: string) => void) {
   const [state, setState] = useState<SpeechState>('idle');
@@ -78,8 +82,6 @@ export function useSpeechInput(onChunk: (text: string) => void) {
   const [audioLive, setAudioLive] = useState(false);
   /** The recogniser is hearing speech right now. */
   const [speaking, setSpeaking] = useState(false);
-  /** Bumped on every sign of life. The synthetic meter animates off the change. */
-  const [pulse, setPulse] = useState(0);
   /** The words the engine has heard but not finalised — the live preview the composer shows
    *  while the client is still talking. Replaced by each interim, cleared by the final. */
   const [partial, setPartial] = useState('');
@@ -169,19 +171,28 @@ export function useSpeechInput(onChunk: (text: string) => void) {
 
       rec.onstart = () => { micTrace('rec:start'); if (wantRef.current) setState('recording'); };
       // The capture is open. Not "we asked for it" — open.
-      rec.onaudiostart = () => { micTrace('rec:audiostart'); setAudioLive(true); setPulse((n) => n + 1); if (wantRef.current) setState('recording'); };
+      rec.onaudiostart = () => { micTrace('rec:audiostart'); setAudioLive(true); if (wantRef.current) setState('recording'); };
       rec.onaudioend = () => { micTrace('rec:audioend'); setAudioLive(false); clearSpeaking(); };
-      rec.onspeechstart = () => { micTrace('rec:speechstart'); markSpeaking(); setPulse((n) => n + 1); };
+      rec.onspeechstart = () => { micTrace('rec:speechstart'); markSpeaking(); };
       rec.onspeechend = () => { micTrace('rec:speechend'); clearSpeaking(); };
 
       rec.onresult = (e) => {
-        // A result proves the session is live whatever `onstart` did, and is a pulse for the
-        // meter — AND it is speech detected, on engines that never fire onspeechstart (F7b).
+        // A result proves the session is live whatever `onstart` did — AND it is speech
+        // detected, on engines that never fire onspeechstart (F7b).
         if (wantRef.current) setState((s) => (s === 'starting' ? 'recording' : s));
         markSpeaking();
-        setPulse((n) => n + 1);
-        // FINALS are the transcript; INTERIMS are the live preview the composer streams while
-        // the client is still speaking, and are replaced by the next one rather than appended.
+        /**
+         * FINALS are appended; INTERIMS replace each other and are reported through `partial`.
+         *
+         * THE CONSUMER CHANGED, AND IT IS THE WHOLE OF F4's RELIABILITY HALF. `partial` used to
+         * be rendered as a preview beside the composer and discarded, so words could only reach
+         * the field through a FINAL — and a final is not guaranteed to arrive. `stop()` on iOS
+         * tears the session down without flushing a part-recognised utterance; `onend` restarts
+         * a session WebKit ended by itself and the tail goes with it; `clearSpeaking` below
+         * wipes `partial` on `speechend` and `audioend`. Each of those lost a sentence the
+         * client had watched appear. The sheet now writes `partial` into the field itself, so
+         * what has been heard is already where it is going.
+         */
         let got = 0;
         let interim = '';
         for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -265,5 +276,5 @@ export function useSpeechInput(onChunk: (text: string) => void) {
   }, []);
 
   const listening = state === 'recording' || state === 'starting';
-  return { state, listening, audioLive, speaking, pulse, partial, start, stop, toggle: () => (listening ? stop() : start()) };
+  return { state, listening, audioLive, speaking, partial, start, stop, toggle: () => (listening ? stop() : start()) };
 }

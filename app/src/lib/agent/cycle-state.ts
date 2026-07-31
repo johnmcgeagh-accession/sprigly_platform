@@ -8,6 +8,7 @@ import { loadPlanPosts } from '../plan';
 import { isEditableDate } from '../edit-scope';
 import type { PlanPost } from '../types';
 import { fmtDate, parseISO, postTitle } from './selectors';
+import { weekLines, weekWindows } from './weeks';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -117,7 +118,7 @@ export function describeCycles(
     .map((r) => ({ ...r, plan: planMonthOf(r.month) }))
     .sort((a, b) => a.plan.localeCompare(b.plan))
     .map((r) => `- ${monthLabel(r.plan)} (${r.plan})${r.id === viewedCycleId ? ' [the month on screen]' : ''}`
-      + `${loaded ? (loaded.has(r.id) ? ' [posts listed below]' : ' [posts NOT listed — you can still add or move INTO this month]') : ''} — ${r.status}`)
+      + `${loaded ? (loaded.has(r.id) ? ' [posts listed below]' : ' [posts not listed below — name a date or a title and I WILL find the post; you can also add and move into this month]') : ''} — ${r.status}`)
     .join('\n');
 }
 
@@ -173,20 +174,18 @@ export async function cycleBelongsToClient(clientId: string, cycleId: string): P
   return !!row;
 }
 
-/** Monday-anchored start of the week containing `d` (local). */
-function weekStart(d: Date): Date {
-  const r = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  r.setDate(r.getDate() - ((r.getDay() + 6) % 7));
-  return r;
-}
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-/** Posts in the same week as `today` (Monday-anchored). */
+/**
+ * Posts in the same week as `today`.
+ *
+ * The Monday anchor is `weeks.ts`'s (F1). It used to be a private `weekStart` here — correct, but
+ * a second copy of a definition that also has to appear in two prompts, and the prompts are where
+ * it went wrong. One function now, and the words the model reads are printed from it.
+ */
 export function currentWeekPosts(posts: PlanPost[], today: Date): PlanPost[] {
-  const mon = weekStart(today);
-  const next = new Date(mon); next.setDate(mon.getDate() + 7);
-  const from = iso(mon), to = iso(next);
-  return posts.filter((p) => p.date >= from && p.date < to).sort((a, b) => a.date.localeCompare(b.date));
+  const { from, to } = weekWindows(iso(today)).thisWeek;
+  return posts.filter((p) => p.date >= from && p.date <= to).sort((a, b) => a.date.localeCompare(b.date));
 }
 
 /**
@@ -238,13 +237,13 @@ export interface CycleState {
  *  states the plan's calendar window in the summary — the query answerer reads ONLY this
  *  summary, so without it the plan's end is the last post (G2). */
 export function bucketCycleState(posts: PlanPost[], today: Date, planMonth?: string | readonly string[] | null): CycleState {
-  const mon = weekStart(today);
-  const nextMon = new Date(mon); nextMon.setDate(mon.getDate() + 7);
-  const weekAfter = new Date(mon); weekAfter.setDate(mon.getDate() + 14);
-  const thisFrom = iso(mon), nextFrom = iso(nextMon), nextTo = iso(weekAfter);
+  // Both windows from `weeks.ts` — the SAME function that prints them into the prompt below, so
+  // the sentence the model reads and the posts it is given can never describe different weeks.
+  const { thisWeek: tw, nextWeek: nw } = weekWindows(iso(today));
+  const inWeek = (w: { from: string; to: string }) => (p: PlanPost) => p.date >= w.from && p.date <= w.to;
 
-  const thisWeek = posts.filter((p) => p.date >= thisFrom && p.date < nextFrom);
-  const nextWeek = posts.filter((p) => p.date >= nextFrom && p.date < nextTo);
+  const thisWeek = posts.filter(inWeek(tw));
+  const nextWeek = posts.filter(inWeek(nw));
 
   const counts: Record<string, number> = {};
   for (const p of posts) counts[p.status] = (counts[p.status] ?? 0) + 1;
@@ -264,8 +263,25 @@ export function bucketCycleState(posts: PlanPost[], today: Date, planMonth?: str
   // answer any date/week question from the dates + today — never blinkered to "this week".
   const byDate = [...posts].sort((a, b) => a.date.localeCompare(b.date));
   const window = planWindowLine(planMonth);
+  /**
+   * ── THE WEEK IS STATED, NOT DERIVED (F1) ───────────────────────────────────────────
+   *
+   * Asked on Friday 31 July, the agent answered about 7–13 August: today + 7 through today + 13,
+   * a rolling seven days. The buckets three lines above hold the right answer — Mon 3 to Sun 9 —
+   * and this summary is ALL the query answerer reads, so until now that answer was computed and
+   * discarded while the model was left to do calendar arithmetic it had no calendar for.
+   *
+   * `weekLines` prints the two windows; the counts beneath come from the buckets themselves, so
+   * the prose and the data cannot disagree. Same treatment as `TODAY IS` and the plan window: the
+   * model reads the answer off the line rather than working it out.
+   */
+  const weekCount = (label: string, list: PlanPost[]) =>
+    `${label}: ${list.length} post${list.length === 1 ? '' : 's'}${list.length ? ` — ${list.map((p) => p.date).join(', ')}` : ''}.`;
   const summary = [
     `TODAY IS ${todayIso}. A date is in the FUTURE if it is later than that, and in the PAST only if it is earlier. Compare the ISO dates.`,
+    weekLines(todayIso),
+    weekCount('THIS WEEK holds', thisWeek),
+    weekCount('NEXT WEEK holds', nextWeek),
     ...(window ? [window] : []),
     `Plan has ${posts.length} live posts (${Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(', ') || 'none'}).`,
     byDate.length ? 'Posts (by date):' : '(no posts scheduled yet)',

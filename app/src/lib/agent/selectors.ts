@@ -19,6 +19,22 @@ const FORMAT_WORDS: Record<string, PostFormat> = {
 
 const WK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTH_WORDS: Record<string, number> = {
+  january: 1, jan: 1, february: 2, feb: 2, march: 3, mar: 3, april: 4, apr: 4,
+  may: 5, june: 6, jun: 6, july: 7, jul: 7, august: 8, aug: 8,
+  september: 9, sept: 9, sep: 9, october: 10, oct: 10, november: 11, nov: 11, december: 12, dec: 12,
+};
+
+/** The 1-based months a reference names, in the order it names them. Empty when it names none.
+ *  'may' is deliberately included: a false positive scopes to a month that has posts, which the
+ *  other branches then still have to match, and a bare "may" as a verb almost never reaches here. */
+export function monthsNamedIn(text: string): number[] {
+  const out: number[] = [];
+  for (const [word, n] of Object.entries(MONTH_WORDS)) {
+    if (new RegExp(`\\b${word}\\b`).test(text) && !out.includes(n)) out.push(n);
+  }
+  return out;
+}
 
 // Generic reference words stripped before caption matching, so "the Mabel post"
 // keys on "mabel" and a filler word like "post" can't drag in every caption. Format
@@ -91,6 +107,34 @@ export function titleFromSubject(subject: string | null | undefined): string | n
 export function resolveTargets(text: string, posts: PlanPost[], today?: string): PlanPost[] {
   const t = text.toLowerCase();
 
+  /**
+   * ── A NAMED MONTH NARROWS THE FIELD FIRST (F2) ─────────────────────────────────────
+   *
+   * The candidate set now spans every month the client can still act in, which is what makes
+   * "the post on the 16th of October" reachable from the August view. It also makes the plain
+   * day-number branch below ambiguous by construction: the 16th exists in five months.
+   *
+   * So a reference that NAMES a month is scoped to it before anything else runs. This is not a
+   * new kind of matching — it is the same branches, over the months the client actually said.
+   */
+  const named = monthsNamedIn(t);
+  if (named.length) {
+    // A HARD filter, and it has to be. Falling through on an empty result would let "the post on
+    // the 16th of October", asked from the August view, match AUGUST'S 16th — the day-number
+    // branch below has no month in it. Naming a month with no posts in it is not a near miss to
+    // be recovered from; it is "no such post", and saying so is the honest answer.
+    //
+    // The cost, stated: a month WORD inside a caption ("the August sale") is no longer findable
+    // by that word alone once the reference is read as naming August. A date-named month is the
+    // overwhelmingly common case and the one the client uses to reach across months at all.
+    return matchIn(t, posts.filter((p) => named.includes(Number(p.date.slice(5, 7)))), today);
+  }
+  return matchIn(t, posts, today);
+}
+
+/** The match branches themselves, over whatever set the caller has narrowed to. */
+function matchIn(t: string, posts: PlanPost[], today?: string): PlanPost[] {
+
   for (const [name, dow] of Object.entries(WEEKDAYS)) {
     if (new RegExp(`\\b${name}\\b`).test(t)) {
       const hits = posts.filter((p) => parseISO(p.date).getDay() === dow);
@@ -161,9 +205,24 @@ export function resolvePostSelector(selector: string, posts: PlanPost[], today?:
  * when the id round-trips imperfectly.
  */
 export type MoveSource = { post: PlanPost } | { ambiguous: PlanPost[] } | null;
-export function resolveMoveSource(ref: { postId?: string | null; fromDate?: string | null; selector?: string | null }, posts: PlanPost[], today?: string): MoveSource {
+export function resolveMoveSource(
+  ref: { postId?: string | null; fromDate?: string | null; selector?: string | null },
+  posts: PlanPost[], today?: string,
+  /** The month on screen. A bare reference resolves HERE first (F2) — see `resolvePostRef`.
+   *  Defaults to the whole set, so every existing caller is unchanged. */
+  viewedPosts: PlanPost[] = posts,
+): MoveSource {
   if (ref.postId) { const p = posts.find((x) => x.id === ref.postId); if (p) return { post: p }; }
+  // fromDate is a FULL ISO date, so it is unambiguous across months by construction and is
+  // matched against the whole set — it is the key that carries "the 16th of October".
   if (ref.fromDate) { const on = posts.filter((p) => p.date === ref.fromDate); if (on.length === 1) return { post: on[0]! }; if (on.length > 1) return { ambiguous: on }; }
-  if (ref.selector) { const hits = resolveTargets(ref.selector, posts, today); if (hits.length === 1) return { post: hits[0]! }; if (hits.length > 1) return { ambiguous: hits }; }
+  if (ref.selector) {
+    const inView = resolveTargets(ref.selector, viewedPosts, today);
+    if (inView.length === 1) return { post: inView[0]! };
+    if (inView.length > 1) return { ambiguous: inView };
+    const hits = resolveTargets(ref.selector, posts, today);
+    if (hits.length === 1) return { post: hits[0]! };
+    if (hits.length > 1) return { ambiguous: hits };
+  }
   return null;
 }

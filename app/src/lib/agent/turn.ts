@@ -72,12 +72,33 @@ const agentToday = (): { iso: string; date: Date } => {
  * caller lists them), or null (nothing matched / a hallucinated id).
  */
 type PostRef = { post: PlanPost } | { ambiguous: PlanPost[] } | null;
-function resolvePostRef(task: ParsedTask, posts: PlanPost[], today: string): PostRef {
+function resolvePostRef(task: ParsedTask, posts: PlanPost[], today: string, viewedPosts: PlanPost[] = posts): PostRef {
   if (task.postId) {
     const byId = posts.find((p) => p.id === task.postId);
     if (byId) return { post: byId };
   }
   if (task.selector) {
+    /**
+     * ── THE MONTH ON SCREEN GETS FIRST REFUSAL (F2) ──────────────────────────────────
+     *
+     * The candidate set now spans every month the client can act in, which is what makes a
+     * reference to another month resolve at all. It also means a bare in-month reference —
+     * "the 16th", "the linen one" — can match five months' worth of posts and come back
+     * ambiguous where it used to be certain.
+     *
+     * So the VIEWED month is tried first and wins outright when it answers with exactly one
+     * post. That is what "the 16th" means to someone looking at August, and it is what the
+     * parser is told to assume. Only when the month on screen does not answer — no match, or
+     * several — does the reference reach across, which is precisely the case the client had to
+     * name another month to create.
+     */
+    const inView = resolveTargets(task.selector, viewedPosts, today);
+    if (inView.length === 1) return { post: inView[0]! };
+    // The month on screen answering with SEVERAL is an ambiguity in its own right, and those
+    // are the candidates to put to the client. Widening it to five months' worth of the same
+    // day-number would turn "there are 2 posts on the 16th" into "there are 4", over posts in
+    // months the client never mentioned.
+    if (inView.length > 1) return { ambiguous: inView };
     const hits = resolveTargets(task.selector, posts, today);
     if (hits.length === 1) return { post: hits[0]! };
     if (hits.length > 1) return { ambiguous: hits };
@@ -331,7 +352,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
     if (task.amends && pending.length) await supersedePending();
     switch (task.action) {
       case 'move_post': {
-        const ref = resolveMoveSource(task, posts, todayNow);
+        const ref = resolveMoveSource(task, posts, todayNow, viewedPosts);
         if (!ref) { cannot(moveNotFound(task)); break; }
         if ('ambiguous' in ref) { cannot(moveAmbiguous(ref.ambiguous, task)); break; }
         const post = ref.post;
@@ -378,7 +399,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
         break;
       }
       case 'delete_post': {
-        const ref = resolvePostRef(task, posts, todayNow);
+        const ref = resolvePostRef(task, posts, todayNow, viewedPosts);
         if (!ref) { cannot(whichPost(task.reason)); break; }
         if ('ambiguous' in ref) { cannot(whichOfThese(ref.ambiguous, task.reason)); break; }
         const post = ref.post;
@@ -387,7 +408,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
         break;
       }
       case 'rewrite_post': {
-        const ref = resolvePostRef(task, posts, todayNow);
+        const ref = resolvePostRef(task, posts, todayNow, viewedPosts);
         if (!ref) { cannot(whichPost(task.reason)); break; }
         if ('ambiguous' in ref) { cannot(whichOfThese(ref.ambiguous, task.reason)); break; }
         const post = ref.post;
@@ -397,7 +418,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
         break;
       }
       case 'change_format': {
-        const ref = resolvePostRef(task, posts, todayNow);
+        const ref = resolvePostRef(task, posts, todayNow, viewedPosts);
         if (!ref) { cannot(whichPost(task.reason)); break; }
         if ('ambiguous' in ref) { cannot(whichOfThese(ref.ambiguous, task.reason)); break; }
         const post = ref.post;
@@ -446,7 +467,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
       }
       case 'generate_hook': {
         if (task.postId || task.selector) {
-          const ref = resolvePostRef(task, posts, todayNow);
+          const ref = resolvePostRef(task, posts, todayNow, viewedPosts);
           if (!ref) { cannot(whichPost(task.reason)); break; }
           if ('ambiguous' in ref) { cannot(whichOfThese(ref.ambiguous, task.reason)); break; }
           const post = ref.post;
@@ -471,7 +492,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
         const target = task.target === 'hook' || task.target === 'script' ? task.target : null;
         if (!target || !task.instruction) { cannot('Should I refine the hook or the script, and what change?'); break; }
         if (task.postId || task.selector) {
-          const ref = resolvePostRef(task, posts, todayNow);
+          const ref = resolvePostRef(task, posts, todayNow, viewedPosts);
           if (!ref) { cannot(whichPost(task.reason)); break; }
           if ('ambiguous' in ref) { cannot(whichOfThese(ref.ambiguous, task.reason)); break; }
           const post = ref.post;

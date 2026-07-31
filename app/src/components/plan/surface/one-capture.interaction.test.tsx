@@ -27,6 +27,15 @@
  *
  * These tests count acquisitions. They are the guard that the count stays at one, because the
  * fault has now been reintroduced once by a fix aimed at it.
+ *
+ * ── F4 CLOSED IT BY SUBTRACTION ──────────────────────────────────────────────────────
+ *
+ * The meter is deleted, so consumer (3) no longer exists on ANY platform — and with it
+ * `audio-contention.ts`, whose whole subject was whether a browser may hold two captures at
+ * once. That is not a question this surface asks any more. The count these tests guard is now
+ * ZERO everywhere: the sheet takes no `getUserMedia` at all, and `SpeechRecognition` is the one
+ * claimant. The tests stay, because a count that is structurally right is exactly the kind that
+ * a future convenience re-opens.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
@@ -35,7 +44,6 @@ import { render, screen, cleanup, fireEvent, act } from '@testing-library/react'
 vi.mock('@sprigly/db', () => ({ db: {}, contentCycles: {}, contentCyclePosts: {} }));
 
 import { VoiceSheet } from './VoiceSheet';
-import { canRunTwoCaptures } from './audio-contention';
 
 /** Every `getUserMedia` call anywhere in the tree, whoever made it. */
 const gum = { calls: 0, live: 0 };
@@ -114,26 +122,11 @@ describe('on iPhone — one audio session, one claimant', () => {
     expect(FakeRecognition.live!.started).toBe(true);
   });
 
-  it('the meter runs in ACTIVITY mode, off the recogniser’s own events', () => {
+  it('there is no meter to be a second claimant — F4 deleted it', () => {
     open();
     fireEvent.click(screen.getByTestId('voice-mic'));
-    expect(screen.getByTestId('waveform').getAttribute('data-source')).toBe('activity');
-  });
-
-  it('speaking moves it and silence flatlines it — the meter’s one job survives the change', () => {
-    open();
-    fireEvent.click(screen.getByTestId('voice-mic'));
-    const rec = FakeRecognition.live!;
-    const bars = () => Array.from(screen.getByTestId('waveform').children).map((b) => (b as HTMLElement).style.height);
-
-    expect(new Set(bars()).size, 'silent = every bar identical').toBe(1);
-    act(() => { rec.onspeechstart?.(); });
-    act(() => { /* one frame of the rAF wave */ });
-    // The wave is driven by rAF, which jsdom runs; a paint may not have landed yet, so assert
-    // the state that produces it rather than the pixels.
-    expect(screen.getByTestId('waveform').getAttribute('data-active')).toBe('true');
-    act(() => { rec.onspeechend?.(); });
-    expect(new Set(bars()).size).toBe(1);
+    expect(screen.queryByTestId('waveform')).toBeNull();
+    expect(gum.calls).toBe(0);
   });
 
   it('and a spoken phrase still lands — the point of all of it', () => {
@@ -145,83 +138,25 @@ describe('on iPhone — one audio session, one claimant', () => {
   });
 });
 
-describe('on Chromium — the real analyser is kept', () => {
+describe('on Chromium — where a second capture was ALLOWED, there is still none', () => {
   beforeEach(() => setUA(CHROME));
 
-  it('uses the analyser, and opens exactly ONE stream for it', async () => {
+  it('opens NO stream at all: the analyser went with the meter (F4)', async () => {
     open();
     fireEvent.click(screen.getByTestId('voice-mic'));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    expect(screen.getByTestId('waveform').getAttribute('data-source')).toBe('analyser');
-    // One — the meter's. The hook takes none: the priming warm-up is gone everywhere, not just
-    // where it was fatal, because it bought nothing that `permissions.query` does not.
-    expect(gum.calls).toBe(1);
-  });
-});
-
-describe('the contention predicate is an ALLOW-list', () => {
-  it('says no to every WebKit surface a client can reach', () => {
-    for (const ua of [
-      IPHONE,
-      'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1',
-      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 CriOS/120.0 Mobile/15E148 Safari/604.1',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15',
-      // An in-app browser: a client opening the link from Instagram gets a WKWebView.
-      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Instagram 300.0',
-    ]) expect(canRunTwoCaptures(ua, 5), ua.slice(0, 40)).toBe(false);
+    // Chromium tolerated two, which is why the meter survived here after WebKit lost it. The
+    // ruling deletes the meter outright, so the count is zero on the platform that could
+    // afford one — and the contention predicate that arbitrated it is gone with it.
+    expect(screen.queryByTestId('waveform')).toBeNull();
+    expect(gum.calls).toBe(0);
+    expect(FakeRecognition.built).toBe(1);
   });
 
-  it('an iPad reporting itself as a Mac is still an iPad', () => {
-    const IPADOS = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15';
-    expect(canRunTwoCaptures(IPADOS, 5)).toBe(false);
-  });
-
-  it('says no to anything it does not recognise, rather than assuming', () => {
-    expect(canRunTwoCaptures('SomeNewBrowser/1.0', 0)).toBe(false);
-    expect(canRunTwoCaptures('', 0)).toBe(false);
-  });
-
-  it('says yes only to Chromium, which is where coexistence is established', () => {
-    expect(canRunTwoCaptures(CHROME, 0)).toBe(true);
-    expect(canRunTwoCaptures('Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 Chrome/131 Safari/537.36 Edg/131', 0)).toBe(true);
-  });
-});
-
-describe('"Listening…" now requires a capture that actually opened', () => {
-  it('a session that starts but never opens audio is ADMITTED, not claimed as listening', () => {
-    vi.useFakeTimers();
-    try {
-      // The bug, exactly: `onstart` fires — we are "recording" — but `onaudiostart` never does,
-      // because the audio session went elsewhere. The old sheet printed "Listening…" over this
-      // for as long as the client kept talking.
-      const orig = FakeRecognition.prototype.start;
-      FakeRecognition.prototype.start = function patched(this: FakeRecognition) {
-        this.started = true; FakeRecognition.live = this; this.onstart?.();   // no onaudiostart
-      };
-      open();
-      fireEvent.click(screen.getByTestId('voice-mic'));
-      // The three-state heading is gone; the composer's status line carries the same honesty.
-      expect(screen.getByTestId('voice-state').textContent).toContain('Go ahead');   // grace: not yet
-      act(() => { vi.advanceTimersByTime(3000); });
-      const state = screen.getByTestId('voice-state');
-      expect(state.textContent).toContain('lost the microphone');
-      expect(state.textContent).toContain('nothing is reaching us');
-      expect(state.getAttribute('role')).toBe('alert');
-      FakeRecognition.prototype.start = orig;
-    } finally { vi.useRealTimers(); }
-  });
-
-  it('an ordinary pause between utterances does NOT trip it', () => {
-    vi.useFakeTimers();
-    try {
-      open();
-      fireEvent.click(screen.getByTestId('voice-mic'));
-      const rec = FakeRecognition.live!;
-      act(() => { rec.onaudioend?.(); });                 // WebKit does this between phrases
-      act(() => { vi.advanceTimersByTime(1200); });       // inside the grace
-      act(() => { rec.onaudiostart?.(); });               // and picks straight back up
-      act(() => { vi.advanceTimersByTime(5000); });
-      expect(screen.getByTestId('voice-state').textContent).toContain('Go ahead');
-    } finally { vi.useRealTimers(); }
+  it('and a spoken phrase lands in the composer here too', () => {
+    open();
+    fireEvent.click(screen.getByTestId('voice-mic'));
+    act(() => { FakeRecognition.live!.say('The candle relaunches on the 24th'); });
+    expect((screen.getByTestId('voice-input') as HTMLTextAreaElement).value).toBe('The candle relaunches on the 24th');
   });
 });

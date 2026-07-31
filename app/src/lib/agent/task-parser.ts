@@ -13,6 +13,7 @@ import type { AuditLogger } from '@sprigly/audit';
 import { AGENT_MODEL } from './model';
 import type { ParsedTask, PendingIntent, TaskActionType } from './types';
 import { MUTATING_ACTIONS } from './types';
+import { weekLines } from './weeks';
 
 const ACTIONS: readonly TaskActionType[] = [
   'move_post', 'delete_post', 'rewrite_post', 'add_post', 'change_format', 'generate_hook', 'refine', 'add_note', 'query', 'clarify',
@@ -106,6 +107,7 @@ The digest holds SEVERAL months. Every post in it is one you can act on, whateve
 - "move it to September 24", "push the launch into next month", "the August post needs changing" — resolve them against the digest exactly as you would an in-month reference, and emit the ordinary action.
 - A date that names a month explicitly ("September 24", "the 3rd of August") resolves in THAT month. A bare date ("the 5th", "Saturday") resolves in the month on screen.
 - "next month" / "last month" mean the month after / before the one on screen, unless the client is plainly talking about today ("next month" right after "this week" means the month after the current one). Use the month list above to pick the real one.
+- A MONTH WHOSE POSTS ARE NOT LISTED IS STILL A MONTH YOU CAN CHANGE. The digest prints a few months; the month list above marks the rest "posts not listed below". Those months are loaded — a reference into one RESOLVES. So "move the post on the 16th of October to the 19th", asked from the August view, is an ordinary move_post: set toDate, set fromDate to the source date the client named, and put their phrase in selector. NEVER answer that a month "is not in your current plan view", "isn't loaded", or anything of that shape. You do not know what is loaded; you know what the client named.
 - If the client names a month that is NOT in the month list at all, still emit the action with the date they asked for — downstream says honestly that there is no plan for that month. Do not invent a clarify about it and do not pretend the month exists.
 
 Resolving post references:
@@ -137,7 +139,8 @@ THE CONVERSATION SO FAR — when the message includes a recent-thread block, it 
 
 RELATIVE REFERENCES resolve against TODAY, from the day table:
 - A bare weekday — "Friday's post", "the Friday post", "move Friday to Saturday" — means the NEXT such weekday from today (today itself counts when today is that weekday). Read its ISO date from the table and set fromDate/toDate accordingly. Do NOT ask which Friday; a wrong default costs one Discard because the resolved date is SHOWN to the client before anything applies. Ask only when the resolved DAY holds more than one post and the reference doesn't pick between them.
-- "tomorrow" = the day after today; "next week" = the week starting the coming Monday; "the 14th" = the 14th of the month on screen (or the named month). All from the table and the viewed month — never from arithmetic you do in your head.
+- "tomorrow" = the day after today; "the 14th" = the 14th of the month on screen (or the named month). All from the table and the viewed month — never from arithmetic you do in your head.
+- WEEKS RUN MONDAY TO SUNDAY, and the message states both windows by date. "This week" is the Monday on or before today through its Sunday; "next week" is the FOLLOWING Monday through its Sunday. "Next week" is NOT today + 7 days: on a Friday those are four days apart and land in different weeks. Read the two ranges off the WEEKS block — never count forward from today.
 
 Output ONLY a JSON object, no prose, no code fences:
 {"tasks": [ { "action": "...", ... } ]}
@@ -152,6 +155,9 @@ Message: "move the post on the 10th to the 11th and make it a carousel"  (a comp
 
 Message: "move the post on the 1st August to the 22nd August"  (source named by date → set fromDate AND postId/selector)
 → {"tasks":[{"action":"move_post","postId":"<aug-1 post id from digest>","selector":"the post on the 1st August","fromDate":"<1 Aug ISO>","toDate":"<22 Aug ISO>","reason":"move the post on the 1st August to the 22nd August"}]}
+
+Message: "move the post on the 16th of October to the 19th"  (asked from the AUGUST view; October is in the month list but its posts are not printed — emit the move anyway, with no postId)
+→ {"tasks":[{"action":"move_post","selector":"the post on the 16th of October","fromDate":"2026-10-16","toDate":"2026-10-19","reason":"move the post on the 16th of October to the 19th"}]}
 
 Message: "make the reel warmer"  (two reels in the digest)
 → {"tasks":[{"action":"clarify","question":"You have two reels this week — which one should I rewrite: Tuesday's or Friday's?","reason":"make the reel warmer"}]}
@@ -267,6 +273,9 @@ export function dayTable(todayIso: string): string {
  */
 function buildUserMessage(text: string, ctx: ParserContext): MessagePart[] {
   const invariant = `TODAY IS ${ctx.today} (ISO). Anything later than that is in the future; only earlier dates are past.
+
+WEEKS (F1 — read week phrases off these two lines, never by counting days from today):
+${weekLines(ctx.today)}
 
 THE NEXT 14 DAYS (resolve every relative reference from this table):
 ${dayTable(ctx.today)}
