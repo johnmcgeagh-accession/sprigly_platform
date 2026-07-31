@@ -25,9 +25,7 @@ const RATES: Record<ModelFamily, Record<ModelProvider, TokenRates>> = {
     bedrock:   { inputPer1M: 1357, outputPer1M: 6820 },  // × 1.15; placeholder — not yet available on Bedrock eu-west-2
   },
   // Amazon Titan Text Embeddings V2 — $0.02/MTok input, no output tokens.
-  // 0.02 USD × 79 p/USD = 1.58 p per 1M, i.e. ~0.00008p for a typical query embed —
-  // which the Math.ceil below cannot yet represent. That is a separate defect; the RATE
-  // belongs in the table either way, so a Titan call stops pricing as a hard zero.
+  // 0.02 USD × 79 p/USD = 1.58 p per 1M, i.e. ~0.00008p for a typical query embed.
   //
   // BOTH provider rows carry the same number, and that is not an oversight: Titan is an
   // Amazon model with no Anthropic equivalent, and it is invoked DIRECTLY (InvokeModel with
@@ -54,6 +52,27 @@ function detectProvider(modelId: string): ModelProvider {
   return /^(eu|us)\./.test(modelId) ? 'bedrock' : 'anthropic';
 }
 
+/**
+ * SUB-PENNY PRECISION, and why it is not a rounding preference.
+ *
+ * This used to end `Math.ceil(inputCost + outputCost)`, which cannot return anything between
+ * 0 and 1: every call that genuinely cost a fraction of a penny was posted to the ledger as a
+ * whole penny. On the batch paths that barely showed — a Sonnet brief extraction costs several
+ * pence, so the ceil was a rounding artefact. On the CONVERSATIONAL path it is the whole
+ * measurement: a Haiku parse turn costs ~0.55p and a Titan query embed costs ~0.00008p, and
+ * ceil reports them as 1p and 1p — the second overstated by a factor of twelve thousand, and
+ * the two indistinguishable from each other on a ledger meant to tell them apart.
+ *
+ * So the function now returns the real number and the storage carries it (cost_pence is
+ * numeric(12,6) — migration 0091). Six decimal places is micropence: enough that a single
+ * Titan embed is a non-zero row rather than a fake 0, and 1M such rows still sum exactly.
+ * Rounding happens at RENDER only (admin/audit formats to £x.xx).
+ *
+ * The unit did not change. A cost_pence of 1 meant one penny before and means one penny now;
+ * the column simply stopped refusing to hold 0.55.
+ */
+const MICROPENCE_DP = 6;
+
 export function computeCostPence(
   modelId: string,
   inputTokens: number,
@@ -65,5 +84,8 @@ export function computeCostPence(
   const r = RATES[family][provider];
   const inputCost  = (inputTokens  / 1_000_000) * r.inputPer1M;
   const outputCost = (outputTokens / 1_000_000) * r.outputPer1M;
-  return Math.ceil(inputCost + outputCost);
+  // Round to micropence rather than truncating: binary floating point cannot represent these
+  // products exactly, and an unrounded value would carry ~1e-17 of noise into a numeric column
+  // that would then reject or silently truncate it.
+  return Number((inputCost + outputCost).toFixed(MICROPENCE_DP));
 }

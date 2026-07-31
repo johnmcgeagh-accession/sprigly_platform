@@ -298,7 +298,23 @@ export const auditLog = pgTable('audit_log', {
   modelId: text('model_id'),
   inputTokens: integer('input_tokens'),
   outputTokens: integer('output_tokens'),
-  costPence: integer('cost_pence'),
+  /**
+   * Cost in PENCE, to six decimal places (micropence). Same unit it always was — a 1 here
+   * meant one penny before migration 0091 and means one penny after; the column simply stopped
+   * being unable to hold 0.55.
+   *
+   * It was `integer`, and `computeCostPence` ceil'd to it, so every call that genuinely cost a
+   * fraction of a penny posted as a whole penny. On the conversational path that is not a
+   * rounding artefact but the entire measurement: a Haiku parse turn (~0.55p) and a Titan query
+   * embed (~0.00008p) both posted as 1p, indistinguishable from each other and from a call that
+   * really did cost a penny.
+   *
+   * numeric, not float: these values are summed across thousands of rows for a spend figure, and
+   * numeric sums exactly where doubles drift. Drizzle types a numeric column as `string` — the
+   * audit logger formats on write and the admin surface parses on read, which is also the point
+   * at which rounding for DISPLAY happens (£x.xx), and the only point at which it happens.
+   */
+  costPence: numeric('cost_pence', { precision: 12, scale: 6 }),
   metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}).notNull(),
 });
 

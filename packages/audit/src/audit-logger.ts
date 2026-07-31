@@ -16,7 +16,11 @@ export class DrizzleAuditLogger implements AuditLogger {
       modelId: params.modelId,
       inputTokens: params.inputTokens,
       outputTokens: params.outputTokens,
-      costPence: computeCostPence(params.modelId, params.inputTokens, params.outputTokens),
+      // cost_pence is numeric(12,6) since migration 0091, and Drizzle types a numeric column as
+      // string. Fixing to exactly six places here is what makes the stored value the computed
+      // one: handing Postgres a JS number would round-trip through float notation on the way in,
+      // and `1e-7` is not something a numeric column should have to parse.
+      costPence: computeCostPence(params.modelId, params.inputTokens, params.outputTokens).toFixed(6),
       metadata: params.metadata ?? {},
     });
   }

@@ -6,9 +6,23 @@ import { formatDateTimeShort } from '@/lib/format-date';
 import { db, auditLog, clients } from '@sprigly/db';
 import { eq, desc } from 'drizzle-orm';
 
-function formatCost(costPence: number | null): string {
+/**
+ * ROUNDING HAPPENS HERE AND NOWHERE ELSE (migration 0091).
+ *
+ * cost_pence is numeric(12,6) and arrives as a string. The stored value is exact; this is the
+ * one place it is allowed to lose precision, because this is the only place a human reads it.
+ *
+ * Sub-penny costs are shown in PENCE rather than as `£0.00`. A conversational turn genuinely
+ * costs a fraction of a penny, and the whole point of storing that honestly is defeated by a
+ * column of £0.00 that reads as free. Above a penny the pounds format is kept, unchanged.
+ */
+function formatCost(costPence: string | number | null): string {
   if (costPence == null) return '—';
-  return `£${(costPence / 100).toFixed(2)}`;
+  const pence = typeof costPence === 'string' ? Number(costPence) : costPence;
+  if (!Number.isFinite(pence)) return '—';
+  if (pence === 0) return '£0.00';
+  if (pence < 1) return `${pence.toPrecision(2)}p`;
+  return `£${(pence / 100).toFixed(2)}`;
 }
 
 async function getAuditLog() {

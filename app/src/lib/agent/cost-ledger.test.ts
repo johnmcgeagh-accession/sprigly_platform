@@ -13,7 +13,8 @@
  *
  *   · exactly N parse rows for N turns (one call, one row — never zero, never two)
  *   · one answer row per query turn, and none for turns that asked nothing
- *   · ledger rows and agent_messages agree: 2N messages (user + assistant) to N parse rows *
+ *   · ledger rows and agent_messages agree: 2N messages (user + assistant) to N parse rows
+ *   · costs are sub-penny reals, not the pre-0091 ceil-to-1p *
  * It also pins what is NOT yet measured (the Titan query embed), so that gap has to be closed
  * deliberately rather than discovered again.
  */
@@ -213,6 +214,40 @@ describe('a query turn spends twice and says so', () => {
     h.replies.push({ ...CLARIFY });
     await ask('move something');
     expect(rowsFor('plan-agent:answer-query')).toHaveLength(0);
+  });
+});
+
+describe('the costs on those rows are honest (migration 0091)', () => {
+  it('a parse turn posts a FRACTION of a penny, not a whole one', async () => {
+    h.replies.push({ ...CLARIFY });
+    await ask('one turn');
+
+    const cost = Number(rowsFor('plan-agent:parse-tasks')[0]!.costPence);
+    expect(cost).toBeGreaterThan(0);      // never a fake 0
+    expect(cost).toBeLessThan(1);         // Math.ceil posted 1p here before 0091
+  });
+
+  it('stores six decimal places, so a session total is exact rather than inflated', async () => {
+    const N = 10;
+    for (let i = 0; i < N; i++) h.replies.push({ ...CLARIFY });
+    for (let i = 0; i < N; i++) await ask(`turn ${i + 1}`);
+
+    const stored = rows().map((r) => String(r.costPence));
+    for (const s of stored) expect(s).toMatch(/^\d+\.\d{6}$/);
+
+    // Ten cheap turns cost well under ten pence. Under the old ceil they cost exactly 10p —
+    // which is the overstatement this whole change exists to remove.
+    const total = stored.reduce((a, s) => a + Number(s), 0);
+    expect(total).toBeLessThan(N);
+  });
+
+  it('a cheaper call costs strictly less than a dearer one — the ledger can rank turns', async () => {
+    h.replies.push({ ...QUERY }, { ...ANSWER });
+    await ask('what is scheduled this week?');
+
+    const parse  = Number(rowsFor('plan-agent:parse-tasks')[0]!.costPence);
+    const answer = Number(rowsFor('plan-agent:answer-query')[0]!.costPence);
+    expect(answer).toBeLessThan(parse);   // 900 in vs 4,600 in — both were 1p before 0091
   });
 });
 
