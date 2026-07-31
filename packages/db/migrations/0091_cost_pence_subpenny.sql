@@ -56,10 +56,18 @@
 --     audit_log_workflow_run_id_workflow_runs_id_fk (workflow_run_id)
 --   None reference cost_pence. None are touched.
 --
---   There are NO check constraints, NO indexes, and NO triggers on audit_log — so the type
---   change has nothing hanging off it to rebuild. ALTER TYPE integer → numeric does rewrite the
---   table; audit_log is append-only and small, and the rewrite takes an ACCESS EXCLUSIVE lock
---   for its duration. Apply it out of hours, or accept a brief pause on audit writes.
+--   There are NO check constraints and NO triggers on audit_log. There is ONE index —
+--   audit_log_pkey, the primary key on `id` — and it does not reference cost_pence, so the type
+--   change has nothing hanging off it to rebuild.
+--
+--   (An earlier draft of this comment said "NO indexes", which was simply wrong: `\d audit_log`
+--   shows audit_log_pkey, as every table with a primary key does. The conclusion was unaffected
+--   — nothing is indexed ON cost_pence — but a migration comment that misdescribes the table is
+--   worse than one that says nothing, because the next person reads it instead of looking.)
+--
+--   ALTER TYPE integer → numeric does rewrite the table; audit_log is append-only and small, and
+--   the rewrite takes an ACCESS EXCLUSIVE lock for its duration. Apply it out of hours, or accept
+--   a brief pause on audit writes.
 --
 -- Apply manually:
 --   psql "<DATABASE_URL>" -f 0091_cost_pence_subpenny.sql

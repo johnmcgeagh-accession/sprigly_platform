@@ -5,7 +5,7 @@ Branch `dev`. Three pieces of work: close the audit path so conversational calls
 evidence rather than argument (W3).
 
 Headline: the sheet's turn loop was spending on every message and writing nothing down; it now
-writes one row per call. The rows it writes are honest to a millionth of a penny rather than
+writes one row per call — all three of them on a query turn. The rows it writes are honest to a millionth of a penny rather than
 rounded up to whole pence. And the prefix each turn re-sent — **5,712 tokens, verified live** — is
 now cached, so a turn after the first pays full price on about 76 tokens instead of 5,775.
 
@@ -224,26 +224,29 @@ the second turn.
   `MODEL_PROVIDER=bedrock` everywhere deployed.
 - **Titan embeddings** — not applicable; `InvokeModel`, no prompt caching.
 
-### ⚠️ Open item: caching makes `cost_pence` understate
+### Closed: caching no longer makes `cost_pence` understate
 
-`computeCostPence` prices `inputTokens` only, and Bedrock excludes cached tokens from that figure.
-So after this change the ledger prices a cached turn's 76 uncached tokens and **ignores the 5,712
-read tokens**, which really do cost ~10%:
+This section previously flagged an open defect. `computeCostPence` priced `inputTokens` only, and
+Bedrock reports cache tokens separately from it, so the commit that made the conversation cheap
+made its cost unreadable:
 
-| | Real input cost | Ledger posts | |
+| Turn shape | True cost | Posted (before) | |
 |---|---|---|---|
-| Cached turn (76 full + 5,712 read) | ~0.0446p | ~0.0052p | **~88% understated** |
-| Turn 1 (25 full + 5,712 write) | ~0.4944p | ~0.0017p | ~99.7% understated |
+| 25 in + 109 out + 5,712 **write** | 0.534497p | 0.041837p | 92.2% light |
+| 63 in + 88 out + 5,712 **read** | 0.076144p | 0.036731p | 51.8% light |
 
-Nothing is lost — `cacheReadTokens` and `cacheWriteTokens` are recorded in each row's `metadata`,
-so the data to correct this is already on the ledger. But the `cost_pence` column is currently
-optimistic on this path, and that should not stand in a system whose point is honesty.
+Fixed. `computeCostPence` now takes the cache counts and prices them at the published Bedrock
+multipliers for the Anthropic families — **cache read 0.1× the base input rate, cache write 1.25×**
+(the five-minute entry, which is what `cachePoint: { type: 'default' }` creates; the one-hour cache
+is 2×). Both sources are cited in `price-map.ts`, and the constant is expressed as a ratio so a
+base-rate correction propagates instead of leaving three numbers to update by hand.
 
-The fix is small and was left out only because the brief scoped the price-map work to (c) and (d):
-extend `computeCostPence` to take optional cache-read and cache-write token counts and price them
-at the provider's multipliers (Bedrock: 0.1× read, 1.25× write), then pass them from
-`DrizzleAuditLogger`. Recommend doing this in the same follow-up commit that touches the ledger
-next.
+The counts come from the row's own `metadata`, where the conversational writes were already
+recording them — so no call site changed. Non-numeric values under those keys are ignored rather
+than coerced: `cost_pence` is `numeric(12,6)` and a `NaN` reaching it is a failed insert at best.
+
+Historical rows are untouched. Backfilling would mean inventing cache counts for calls made before
+caching existed; correctness is forward from here.
 
 ---
 
@@ -291,27 +294,31 @@ these two outputs quoted in the commit message.
 
 ## What is still dark
 
-**The query embed.** A query turn makes three billable calls, not two: the parse, the answer, and a
-Titan embedding of the question inside `retrieveChunks`. Nothing in `@sprigly/knowledge` accepts an
-`AuditLogger`, so the embed is real spend with no row. The brief named two writes and this is a
-third, so it was not added — but the Titan rate is now in the price map, so the row is honest the
-day the write lands rather than needing a rate hunted down then.
+**Nothing on the conversational path.** Both gaps this report previously flagged are closed: the
+query embed is billed (`plan-agent:query-embed`), and cached turns are priced at their true cost.
 
-The reconciliation test **asserts this gap** (`the embed is spent but not yet measured`) rather than
-leaving it to be rediscovered: one embed happens, no titan row appears, three calls produce two
-rows. When the write lands, that test fails and gets updated. It is fractions of a fraction of a
-penny — and "too small to matter" is the argument that produced every gap this session closed.
+A query turn now produces three rows for its three billable calls:
 
-**`cost_pence` under caching** — see the open item in W2 above.
+```
+  plan-agent:parse-tasks   eu.anthropic.claude-haiku-4-5-20251001-v1:0   in= 4600 out=  55  cost_pence=0.337640
+  plan-agent:query-embed   amazon.titan-embed-text-v2:0                  in=   60 out=   0  cost_pence=0.000095
+  plan-agent:answer-query  eu.anthropic.claude-haiku-4-5-20251001-v1:0   in=  900 out=  30  cost_pence=0.073140
+```
+
+One caveat worth keeping visible: an embedding client that cannot report its token usage produces
+**no row at all** rather than an estimated one. Today only `BedrockTitanClient` implements
+`embedWithUsage`, so that branch is theoretical — but if another provider is added without it, its
+embeds will be silently unbilled, and the honest failure mode is silence rather than invention.
 
 ---
 
 ## Files changed
 
 **Ledger**
-- `packages/audit/src/price-map.ts` — titan family; `Math.ceil` → micropence precision
+- `packages/audit/src/price-map.ts` — titan family; `Math.ceil` → micropence precision; cache multipliers
 - `packages/audit/src/price-map.test.ts` — sub-penny and titan guarantees (12 tests)
-- `packages/audit/src/audit-logger.ts` — formats to 6dp on write
+- `packages/audit/src/audit-logger.ts` — formats to 6dp on write; prices cache tokens from metadata
+- `packages/audit/src/audit-logger.test.ts` — the metadata→money seam (11 tests)
 - `packages/db/src/schema.ts` — `cost_pence` → `numeric(12,6)`
 - `packages/db/migrations/0091_cost_pence_subpenny.sql` (+ `.down.sql`) — new; hand-applied migration (this repo's convention: migrations are run by an operator with `psql -f`, not by a deploy step)
 - `admin/src/app/admin/audit/page.tsx` — rounds at render; sub-penny shown in pence
@@ -324,7 +331,10 @@ penny — and "too small to matter" is the argument that produced every gap this
 - `app/src/lib/agent/query.ts` — answer write
 - `app/src/lib/agent/turn.ts` — one logger per turn, threaded to both call sites
 - `app/src/lib/agent/model.ts` — note on why the ledger is *not* behind this seam
-- `app/src/lib/agent/cost-ledger.test.ts` — **new**, 12 tests
+- `app/src/lib/agent/cost-ledger.test.ts` — **new**, 16 tests
+- `packages/embedding-client/src/types.ts` — `EmbedUsage`, optional `embedWithUsage`
+- `packages/embedding-client/src/bedrock-titan-client.ts` — keeps `inputTextTokenCount`
+- `packages/knowledge/src/retrieve.ts` — optional auditor; bills `plan-agent:query-embed`
 
 **Caching**
 - `packages/model-client/src/types.ts` — `MessagePart`, `ModelMessage`, cache counters
@@ -342,10 +352,10 @@ penny — and "too small to matter" is the argument that produced every gap this
 
 | Suite | Result |
 |---|---|
-| `@sprigly/app` | 1016 passed, 14 skipped |
+| `@sprigly/app` | 1024 passed, 14 skipped |
 | `@sprigly/worker` (engine) | 415 passed, 38 skipped |
 | `@sprigly/model-client` | 26 passed |
-| `@sprigly/audit` | 12 passed |
+| `@sprigly/audit` | 32 passed |
 | Type-checks | `app`, `web`, `worker` all clean |
 | Builds | `model-client`, `db`, `audit`, `engine` all clean |
 
@@ -354,10 +364,12 @@ requirement of their import graph, unrelated to this work).
 
 ## Migration status
 
-**As of this commit, `0091` is in the tree and has been applied to NO database.** It is a schema
-change and this repo does not run migrations from a deploy step, so it will not apply itself. Until
-it is run, `cost_pence` remains `integer` and the writes above will round on insert — the code
-change alone does not deliver the fix.
+**`0091` has been applied to UAT** (2026-07-31; `cost_pence` is `numeric(12,6)` there, verified
+with `\d audit_log`). **Production has NOT had it applied.**
+
+This repo does not run migrations from a deploy step, so it will not apply itself anywhere. Until
+it is run against a given database, `cost_pence` there remains `integer` and the writes above round
+on insert — the code change alone does not deliver the fix.
 
 ## Deploy order
 
