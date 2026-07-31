@@ -73,10 +73,46 @@ function detectProvider(modelId: string): ModelProvider {
  */
 const MICROPENCE_DP = 6;
 
+/**
+ * PROMPT-CACHE MULTIPLIERS, applied to the family's own base INPUT rate.
+ *
+ * Source: Anthropic's published prompt-caching pricing, which Amazon Bedrock mirrors for the
+ * Anthropic model families — cache reads bill at 0.1× the base input rate, and a cache WRITE
+ * bills at a premium over it because the prefix has to be processed once to be stored.
+ *   · https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching  (pricing section)
+ *   · https://aws.amazon.com/bedrock/pricing/                             (prompt caching)
+ *
+ * The write premium depends on the entry's TTL: 1.25× for the default five-minute cache, 2× for
+ * the one-hour cache. `bedrock-client.ts` emits `cachePoint: { type: 'default' }` with no `ttl`,
+ * which is the five-minute entry — so 1.25× is the right constant for what this codebase
+ * actually sends. If a caller ever passes `ttl: '1h'`, this number becomes wrong and the
+ * multiplier has to move onto the call alongside it.
+ *
+ * These are ratios rather than a second rate table on purpose: they hold across the Anthropic
+ * families, so expressing them as multipliers means a base-rate correction propagates to the
+ * cached figures automatically instead of leaving three numbers to update by hand.
+ */
+const CACHE_READ_MULTIPLIER  = 0.1;
+const CACHE_WRITE_MULTIPLIER = 1.25;   // five-minute TTL; 2.0 for the one-hour cache
+
+/**
+ * The cache token counts for a call, as the provider reported them.
+ *
+ * These are DISJOINT from `inputTokens`, verified empirically against Bedrock on 2026-07-31:
+ * a turn that wrote 5,712 tokens of prefix reported `inputTokens: 25` alongside it. So they are
+ * added to the bill, never subtracted from it — pricing `inputTokens` alone was what made a
+ * cached turn post ~88% light.
+ */
+export interface CacheTokens {
+  cacheReadTokens?:  number | undefined;
+  cacheWriteTokens?: number | undefined;
+}
+
 export function computeCostPence(
   modelId: string,
   inputTokens: number,
   outputTokens: number,
+  cache: CacheTokens = {},
 ): number {
   const family = detectFamily(modelId);
   if (!family) return 0;
@@ -84,8 +120,10 @@ export function computeCostPence(
   const r = RATES[family][provider];
   const inputCost  = (inputTokens  / 1_000_000) * r.inputPer1M;
   const outputCost = (outputTokens / 1_000_000) * r.outputPer1M;
+  const cacheReadCost  = ((cache.cacheReadTokens  ?? 0) / 1_000_000) * r.inputPer1M * CACHE_READ_MULTIPLIER;
+  const cacheWriteCost = ((cache.cacheWriteTokens ?? 0) / 1_000_000) * r.inputPer1M * CACHE_WRITE_MULTIPLIER;
   // Round to micropence rather than truncating: binary floating point cannot represent these
   // products exactly, and an unrounded value would carry ~1e-17 of noise into a numeric column
   // that would then reject or silently truncate it.
-  return Number((inputCost + outputCost).toFixed(MICROPENCE_DP));
+  return Number((inputCost + outputCost + cacheReadCost + cacheWriteCost).toFixed(MICROPENCE_DP));
 }
