@@ -532,6 +532,16 @@ export async function runContentCycleTick(params: {
    * reach an operator instead.
    */
   sweepFailedGenerations?: () => Promise<unknown>;
+  /**
+   * THE BANKED-RUN TRIGGER (X2b).
+   *
+   * Work the monthly AI-change cap refused is stored with its instruction and a promise to the
+   * client naming the reset date. This is what keeps it. Injected on the same terms as its two
+   * siblings — the tick knows nothing about allowances or queues — and it runs on EVERY tick
+   * rather than on the 1st, because the allowance also comes back when an operator raises a
+   * limit mid-month.
+   */
+  releaseBankedChanges?: () => Promise<unknown>;
 }): Promise<void> {
   const { db, queue, logger } = params;
   const now = params.now ?? new Date();
@@ -559,6 +569,15 @@ export async function runContentCycleTick(params: {
   if (params.sweepFailedGenerations) {
     try { await params.sweepFailedGenerations(); }
     catch (err) { logger.warn({ err: String(err) }, 'content-cycle-scheduler: generation sweep failed (non-fatal)'); }
+  }
+
+  // Then the banked-run trigger, on the same terms: a post the monthly change cap refused gets
+  // written the first time the allowance is there for it. Best-effort — a client whose banked
+  // work cannot be released today is exactly where they were yesterday, and the message on
+  // their post is still true.
+  if (params.releaseBankedChanges) {
+    try { await params.releaseBankedChanges(); }
+    catch (err) { logger.warn({ err: String(err) }, 'content-cycle-scheduler: banked release failed (non-fatal)'); }
   }
 
   const enabledRows = await db

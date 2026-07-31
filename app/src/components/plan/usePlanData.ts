@@ -18,7 +18,7 @@ export interface DraftSurfaceData {
   receipts: DraftReceipt[];
 }
 import type { PlanPost, PlanBeat, PlanIntake, DurableItemView, CycleSummary, PostStepView, ShapeResult, ExtractedSummary, IntakeResult } from '@/lib/types';
-import type { InterpretedItem, ProposalView } from '@/lib/agent/types';
+import type { CapNotice, InterpretedItem, ProposalView } from '@/lib/agent/types';
 import { PROPOSAL_REFUSED } from '@/lib/agent/types';
 import type { NoteView } from '@/lib/agent/notes';
 import { indexForecast, type WeatherDay, type WeatherWireDay } from '@/lib/weather';
@@ -33,11 +33,14 @@ export interface AgentReply {
   conversationId?: string;
   /** Pending proposals this turn amended and therefore rejected (C3). */
   supersededProposalIds?: string[];
+  /** The allowance would not cover this request (X2a) — the sheet renders the offer to bank it
+   *  and the one affordance for wanting more. Absent whenever the request fits. */
+  capNotice?: CapNotice;
 }
 
 /** Which field a Shape/refine instruction targets (§26). */
 export type ShapeTarget = 'caption' | 'hook' | 'script';
-interface AgentTurn { conversationId: string; message: string; proposals?: ProposalView[]; items?: InterpretedItem[]; supersededProposalIds?: string[] }
+interface AgentTurn { conversationId: string; message: string; proposals?: ProposalView[]; items?: InterpretedItem[]; supersededProposalIds?: string[]; capNotice?: CapNotice }
 
 export interface PlanDataInit {
   posts: PlanPost[];
@@ -652,6 +655,7 @@ export function usePlanData(init: PlanDataInit) {
       const reply: AgentReply = {
         message: r.message, proposals: created, items: r.items ?? [], conversationId: r.conversationId,
         ...(r.supersededProposalIds?.length ? { supersededProposalIds: r.supersededProposalIds } : {}),
+        ...(r.capNotice ? { capNotice: r.capNotice } : {}),
       };
       setAgentReply(reply);
       if (created.length) {

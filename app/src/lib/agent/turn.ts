@@ -25,7 +25,9 @@ import { createProposal, loadPendingPayloads, rejectProposal } from '@/lib/agent
 import { saveNote } from '@/lib/agent/notes';
 import { answerQuery } from '@/lib/agent/query';
 import { editScopeToday, isEditableDate } from '@/lib/edit-scope';
-import type { AgentTurnResponse, InterpretedItem, ParsedTask, PendingIntent, ProposalView } from '@/lib/agent/types';
+import { getUsageForCycle, remainingAiChanges } from '@/lib/usage';
+import { capAnnouncement } from '@sprigly/engine/ai-change-cap';
+import type { AgentTurnResponse, CapNotice, InterpretedItem, ParsedTask, PendingIntent, ProposalView } from '@/lib/agent/types';
 
 export interface AgentTurnArgs {
   clientId:        string;
@@ -548,11 +550,47 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
     ? { ...asking.intent, ...(asking.question ? { question: asking.question } : {}) }
     : null;
 
+  /**
+   * ── THE CAP IS RAISED BEFORE THE WORK, NOT AFTER IT (X2a) ────────────────────────────
+   *
+   * Found live: a request that exceeded the monthly allowance produced posts that were REFUSED
+   * at apply time, stored an honest message nobody surfaced, and rendered as "On its way". The
+   * client learned about the cap by watching nothing happen.
+   *
+   * So the turn says it here, while there is still a decision to make. Three facts and an
+   * offer: how many changes this needs, how many are left, when more arrive, and that we can
+   * hold the whole thing and run it then (`capAnnouncement`).
+   *
+   * WHICH CHANGES COST. The cap governs the EXPENSIVE path — a Bedrock call through the
+   * planning-critic / planning-repair loop. An add is a caption written; a rewrite and a refine
+   * are the same loop over an existing field; a hook is a generation. A MOVE, a DELETE and a
+   * FORMAT CHANGE are structural writes with no model in them, and have always been free.
+   *
+   * It is an ANNOUNCEMENT, not a gate. The proposals are already made and the client can still
+   * apply them; what happens then is the honest banked state (X2b/c) rather than a surprise.
+   * That is also why a failed usage read is swallowed: a cost line that cannot be computed must
+   * never change what the client is allowed to ask for.
+   */
+  const EXPENSIVE: ReadonlySet<string> = new Set(['add', 'rewrite', 'refine', 'hook']);
+  const needed = items.filter((i) => i.kind === 'change' && EXPENSIVE.has(i.action)).length;
+  let capNotice: CapNotice | null = null;
+  if (needed > 0) {
+    try {
+      const usage = await getUsageForCycle(clientId, cycleId);
+      const remaining = remainingAiChanges(usage);
+      if (!usage.unlimited && needed > remaining) {
+        capNotice = { needed, remaining, limit: usage.limit, resetsOn: usage.resetsOn };
+        replyParts.push(capAnnouncement({ needed, remaining, resetsOn: usage.resetsOn }));
+      }
+    } catch { /* the cap is a sentence, not a gate — an unreadable allowance changes nothing */ }
+  }
+
   const message = replyParts.join('\n') || (proposals.length ? '' : 'Okay.');
   const resp: AgentTurnResponse = {
     conversationId: convId, message, proposals, items,
     changeSetId: proposals.length ? changeSetId : null,
     ...(superseded.length ? { supersededProposalIds: superseded } : {}),
+    ...(capNotice ? { capNotice } : {}),
   };
 
   await appendMessage({
@@ -566,6 +604,8 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
       proposalIds: proposals.map((p) => p.id), items,
       // The assembly, if this turn is still holding one (G1). Absent on every turn that isn't.
       ...(pendingIntent ? { pendingIntent } : {}),
+      // The cap announcement, so a reopened thread renders the same turn it showed live (X2a).
+      ...(capNotice ? { capNotice } : {}),
     },
   });
 

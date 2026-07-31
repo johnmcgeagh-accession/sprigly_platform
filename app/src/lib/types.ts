@@ -94,6 +94,10 @@ export interface PlanPost {
   // generates/regenerates this post, and the last generation error (if failed).
   pendingInstruction?: string | null;
   generationError?:    string | null;
+  /** The monthly AI-change cap refused this post's generation and the work is BANKED (X2c):
+   *  stored, and set to run by itself when the allowance resets. Distinct from any other empty
+   *  post, because it is the one nothing is currently working on. */
+  banked?:             boolean;
   /**
    * When this post goes out, as a LABEL — '06:00', or 'Evening', or null.
    *

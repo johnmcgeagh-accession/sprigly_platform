@@ -33,7 +33,7 @@ import type { PlanData, ShapeTarget } from '../usePlanData';
 import { FormatTile, InfoGlyph, CopyGlyph, PencilGlyph, CalGlyph, SparkleGlyph, BinGlyph, SendGlyph, FORMAT_WORD } from './icons';
 import { cardText, realCaption } from './card-text';
 import { dayTitle } from './dates';
-import { isOnTheWay, ON_THE_WAY_LABEL, ON_THE_WAY_BODY } from '@/lib/generation-state';
+import { isPostOnTheWay, isBanked, ON_THE_WAY_LABEL, ON_THE_WAY_BODY, BANKED_LABEL, BANKED_TEASER } from '@/lib/generation-state';
 import { Sheet } from './Sheet';
 import { FormatControl } from './FormatControl';
 import { Skeleton } from './Skeleton';
@@ -128,7 +128,9 @@ export function DetailSheet({
   if (!post) return null;
 
   const { heading } = cardText(post);
-  const onWay = isOnTheWay(post.status);
+  // X2c: banked is its OWN state and outranks "on its way" — nothing is being written.
+  const banked = isBanked(post);
+  const onWay = isPostOnTheWay(post);
   const written = !!(realCaption(post) || post.hook || post.script);
   const editable = data.canEdit(post.date);
   const body = fieldOf(post, tab);
@@ -222,7 +224,7 @@ export function DetailSheet({
           </div>
         )}
 
-        {written && !onWay && tabs.length > 1 && !shaping && !editing && (
+        {written && !onWay && !banked && tabs.length > 1 && !shaping && !editing && (
           <div role="tablist" aria-label="Post fields" className="flex flex-none gap-1 px-[18px] pt-3">
             {tabs.map(({ key, label }) => (
               // NOT disabled when empty any more (round 6, P3). An empty tab that this format
@@ -289,6 +291,19 @@ export function DetailSheet({
                 </div>
               )}
             </>
+          ) : banked ? (
+            /* THE CAP'S OWN STATE (X2c). The stored message names the reset date, and the
+               instruction we are holding is shown BACK to the client — between them they say
+               what will happen and when, which is the whole difference from a promise. */
+            <div data-testid="detail-banked" className="rounded-2xl border border-line/30 bg-line-soft px-4 py-5">
+              <p className="text-[15px] font-semibold text-chrome">{BANKED_LABEL}</p>
+              <p className="mt-1.5 text-[13.5px] leading-normal text-muted">{post.generationError || BANKED_TEASER}</p>
+              {post.pendingInstruction && (
+                <p data-testid="banked-instruction" className="mt-2.5 text-[13.5px] leading-normal text-chrome">
+                  “{post.pendingInstruction}”
+                </p>
+              )}
+            </div>
           ) : onWay ? (
             <div data-testid="detail-on-the-way" className="rounded-2xl border border-line/30 bg-line-soft px-4 py-5">
               <p className="text-[15px] font-semibold text-chrome">{ON_THE_WAY_LABEL}</p>

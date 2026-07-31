@@ -212,6 +212,28 @@ export type InterpretedItem =
   /** The extractor could not resolve it. Carries the real question, and applies nothing. */
   | { kind: 'unresolved'; question: string };
 
+/**
+ * ── THE CAP, ANNOUNCED BEFORE THE WORK (X2a) ─────────────────────────────────────────
+ *
+ * What the client is told when a request needs more AI changes than they have left: how many it
+ * needs, how many remain, and when more arrive. It rides on the TURN rather than being written
+ * into the message alone, because the surface has to render one thing the sentence cannot — the
+ * single affordance that records their interest in more (X2d).
+ *
+ * Absent whenever the request fits, and absent for an unlimited client, who is never given a
+ * count of anything.
+ */
+export interface CapNotice {
+  /** How many AI changes this request would spend. */
+  needed:    number;
+  /** How many are left this month. */
+  remaining: number;
+  /** The month's allowance, for the operator-facing record and for the upsell row. */
+  limit:     number;
+  /** ISO instant the allowance resets — the first of next month, UTC. */
+  resetsOn:  string;
+}
+
 /** The /api/plan/agent turn response. Mutations never apply here — they arrive as
  *  proposals to review. */
 export interface AgentTurnResponse {
@@ -226,4 +248,6 @@ export interface AgentTurnResponse {
    *  turns superseded and stops offering their Apply — two versions of one change must never
    *  both be applicable. */
   supersededProposalIds?: string[];
+  /** The allowance would not cover this request (X2a). Present only when that is true. */
+  capNotice?: CapNotice;
 }

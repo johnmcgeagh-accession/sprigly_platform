@@ -46,7 +46,7 @@ import { VoiceSheet } from './VoiceSheet';
 import { Feedback, type UndoState } from './Feedback';
 import { MonthDaySummary, rowsFromPosts } from './rows';
 import { defaultDayFor, monthOf, monthTitle, monthGrid, shortDate } from './dates';
-import { isOnTheWay } from '@/lib/generation-state';
+import { isPostOnTheWay } from '@/lib/generation-state';
 import { orphanPosts } from '@/lib/cycle-nav';
 import { lateCount } from '../derive';
 import { cardText } from './card-text';
@@ -232,9 +232,14 @@ export function CommittedSurface({ data }: { data: PlanData }) {
   const postsOn = useCallback((iso: string) => byDate.get(iso) ?? [], [byDate]);
 
   /** One mark per post. A committed month's marks are `chrome`; a post still being written is
-   *  a RING, so the exception reads as a different shape and not a different hue. */
+   *  a RING, so the exception reads as a different shape and not a different hue.
+   *
+   *  A BANKED post takes the ring too (X2c), and that is deliberate rather than an oversight:
+   *  the ring says *no words on this one yet*, which is true of both. The difference between
+   *  "coming" and "waiting for your changes to refresh" is a sentence with a date in it, and a
+   *  5px dot cannot carry a sentence — the card and the sheet do, where the client can read it. */
   const marksFor = useCallback(
-    (iso: string): DayMark[] => postsOn(iso).map((p) => (isOnTheWay(p.status) ? 'onway' : 'committed')),
+    (iso: string): DayMark[] => postsOn(iso).map((p) => (p.status === 'generating' || p.status === 'generation_failed' ? 'onway' : 'committed')),
     [postsOn],
   );
   const markFor = useCallback((iso: string): DayMark => marksFor(iso)[0] ?? 'none', [marksFor]);
@@ -310,7 +315,10 @@ export function CommittedSurface({ data }: { data: PlanData }) {
     () => monthGrid(month).filter((c) => c.inMonth).flatMap((c) => postsOn(c.iso)),
     [month, postsOn],
   );
-  const inFlight = monthPosts.filter((p) => isOnTheWay(p.status)).length;
+  // The month footer counts what is genuinely BEING WRITTEN. A banked post is not, so it is not
+  // in this number — "3 are still being written" over a post nothing is touching is the same
+  // untruth the card state exists to remove.
+  const inFlight = monthPosts.filter((p) => isPostOnTheWay(p)).length;
   const monthFooter = monthPosts.length === 0
     ? `Nothing planned across ${monthTitle(month).split(' ')[0]} yet.`
     : `${monthPosts.length} post${monthPosts.length === 1 ? '' : 's'} across ${monthTitle(month).split(' ')[0]}.`
@@ -394,7 +402,28 @@ export function CommittedSurface({ data }: { data: PlanData }) {
               ...(reply.message ? { message: reply.message } : {}),
               ...(reply.conversationId ? { conversationId: reply.conversationId } : {}),
               ...(reply.supersededProposalIds ? { supersededProposalIds: reply.supersededProposalIds } : {}),
+              // X2a: the allowance would not cover this. It becomes its own turn in the thread.
+              ...(reply.capNotice ? { capNotice: reply.capNotice } : {}),
             };
+          }}
+          /**
+           * X2d — THE UPSELL, and the whole of it.
+           *
+           * The moment the agent says "you've none left this month" is the moment the client
+           * most wants more, so the offer sits on that turn and nowhere else. It records the
+           * interest and says a person will be in touch. There is deliberately no price, no
+           * plan change and no payment flow: shipping those would mean shipping a number
+           * nobody has set, and the fact worth capturing — that this client wanted N more
+           * changes on this date — is available today.
+           */
+          onWantMore={async (notice) => {
+            try {
+              const r = await fetch('/api/plan/upsell-interest', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cycleId: data.viewedCycleId, changesWanted: notice.needed }),
+              });
+              return r.ok;
+            } catch { return false; }   // nothing was filed, so nothing claims it was
           }}
           // F4, threaded: the apply runs in the background and the settled report becomes the
           // confirmation turn; chip + highlights land outside the sheet either way.

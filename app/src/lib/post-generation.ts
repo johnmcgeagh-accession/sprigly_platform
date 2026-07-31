@@ -7,9 +7,10 @@
  * in flight, 'generation_failed' (instruction preserved) if quota is exhausted or
  * the enqueue fails — never the default placeholder.
  */
+import { bankedLine } from '@sprigly/engine/ai-change-cap';
 import { getUsageForCycle, isRewriteBlocked } from './usage';
 import { enqueueShape, enqueueHookJob } from './queue';
-import { markPostGenerating, markPostGenerationFailed } from './mutations';
+import { markPostGenerating, markPostGenerationFailed, markPostBanked } from './mutations';
 import { editScopeToday } from './edit-scope';
 import type { PlanActor } from '@sprigly/db';
 
@@ -35,7 +36,10 @@ export function defaultCaptionBrief(date: string, format: string): string {
 
 export type StartGenerationResult =
   | { jobId: string }
-  | { blocked: true; message: string }
+  /** `banked: true` is the CAP's own outcome, distinct from any other block: the work is stored
+   *  and will run by itself on `resetsOn`. Callers that tell the client anything must say which
+   *  of the two happened, because only one of them is a promise. */
+  | { blocked: true; message: string; banked?: boolean; resetsOn?: string }
   | { error: string }
   | { readOnly: true };
 
@@ -52,9 +56,23 @@ export async function startPostGeneration(
 ): Promise<StartGenerationResult> {
   const usage = await getUsageForCycle(clientId, cycleId);
   if (isRewriteBlocked(usage)) {
-    const message = `You’ve used all ${usage.limit} AI changes this month. This post is saved, so it’ll wait until the 1st — or you can edit it directly.`;
-    await markPostGenerationFailed(clientId, cycleId, postId, message);
-    return { blocked: true, message };
+    /**
+     * ── THE CAP BANKS THE WORK; IT DOES NOT LOSE IT (X2b) ────────────────────────────
+     *
+     * This already stored an honest sentence and kept the instruction — the post has everything
+     * it needs to be written the moment the allowance comes back. What it did not do is SAY SO
+     * in a form anything could act on: the row read `generation_failed`, which `isOnTheWay`
+     * collapses into "On its way", so the client was told words were coming when nothing was
+     * coming until the reset, and the daily sweep re-ran the refusal to be refused again.
+     *
+     * `markPostBanked` writes the FLAG. Everything downstream keys on it: the surface renders
+     * the quiet state (`generation-state.ts`), the sweep classifies it QUOTA and never retries
+     * it (`ai-change-cap.ts` → `generation-sweep.ts`), and the banked-run trigger picks it up
+     * on the first tick after the reset (`banked-changes.ts`).
+     */
+    const message = bankedLine(usage.resetsOn);
+    await markPostBanked(clientId, cycleId, postId, instruction, message);
+    return { blocked: true, message, banked: true, resetsOn: usage.resetsOn };
   }
 
   // DATE POLICY: markPostGenerating refuses a past-dated post (null) — surface that.

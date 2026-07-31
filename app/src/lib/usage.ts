@@ -1,65 +1,31 @@
 /**
- * usage.ts — AI-change limits & usage (Phase 4). ONLY AI changes count: rewrites/
- * regen and AI caption-gen for new drafts (every row in post_edits). Structural
- * edits (move/reorder/add-blank/manual caption + structural agent-bar commands) are
- * free and never counted or blocked.
+ * usage.ts — AI-change limits & usage (Phase 4), as the APP sees them.
  *
- * Used  = post_edits rows for the client+channel in the CURRENT calendar month
- *         (resets on the 1st). post_edits has no client_id, so join via cycle_id →
- *         content_cycles (client_id + channel).
- * Limit = client_channels.ai_change_limit; an override_until in the future ⇒ unlimited.
+ * ONLY AI changes count: rewrites/regen and AI caption-gen for new drafts (every `post_edits`
+ * row). Structural edits — move, reorder, add-blank, a manual caption, the agent's structural
+ * commands — are free and never counted or blocked.
+ *
+ * ── The read moved, and why (X2) ─────────────────────────────────────────────────────
+ *
+ * The count and the limit now live in `@sprigly/db` (`ai-change-usage.ts`), which states the
+ * rules in full; what they MEAN lives in `@sprigly/engine/ai-change-cap`. This file is what the
+ * app calls, and nothing more.
+ *
+ * The reason is that a SECOND process reads the same allowance: the worker's banked-run trigger,
+ * which releases the work the cap refused once the month resets. Two hand-written copies of a
+ * join that decides whether a client is billed is exactly the duplication that drifts and then
+ * disagrees about somebody's money — and the boundary they would drift on, the reset instant, is
+ * the one place a difference stays invisible until the 1st.
  */
-import { and, eq, gte, sql as dsql } from 'drizzle-orm';
-import { db, clientChannels, contentCycles, postEdits } from '@sprigly/db';
+import { and, eq } from 'drizzle-orm';
+import { db, contentCycles, readAiChangeUsage, type AiChangeUsage } from '@sprigly/db';
+import { isCapReached, remainingChanges } from '@sprigly/engine/ai-change-cap';
 
-export interface UsageInfo {
-  used:          number;
-  limit:         number;
-  overrideUntil: string | null;   // ISO, or null
-  resetsOn:      string;          // ISO — first of next calendar month (UTC)
-  unlimited:     boolean;         // override_until is in the future
-}
-
-/** UTC month window: [start of this month, start of next month). */
-function monthWindow(now: Date): { start: Date; resetsOn: Date } {
-  return {
-    start:    new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(),     1)),
-    resetsOn: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)),
-  };
-}
+export type UsageInfo = AiChangeUsage;
 
 /** Usage for an explicit client+channel. */
 export async function getUsage(clientId: string, channel: string): Promise<UsageInfo> {
-  const [ch] = await db
-    .select({ limit: clientChannels.aiChangeLimit, overrideUntil: clientChannels.aiChangeLimitOverrideUntil })
-    .from(clientChannels)
-    .where(and(eq(clientChannels.clientId, clientId), eq(clientChannels.channel, channel)))
-    .limit(1);
-
-  const limit         = ch?.limit ?? 30;
-  const overrideUntil = ch?.overrideUntil ?? null;
-  const now           = new Date();
-  const unlimited     = overrideUntil != null && overrideUntil.getTime() > now.getTime();
-  const { start, resetsOn } = monthWindow(now);
-
-  const [cnt] = await db
-    .select({ n: dsql<number>`count(*)::int` })
-    .from(postEdits)
-    .innerJoin(contentCycles, eq(postEdits.cycleId, contentCycles.id))
-    .where(and(
-      eq(contentCycles.clientId, clientId),
-      eq(contentCycles.channel,  channel),
-      eq(postEdits.passed, true),
-      gte(postEdits.createdAt, start),
-    ));
-
-  return {
-    used:          cnt?.n ?? 0,
-    limit,
-    overrideUntil: overrideUntil ? overrideUntil.toISOString() : null,
-    resetsOn:      resetsOn.toISOString(),
-    unlimited,
-  };
+  return readAiChangeUsage(db, clientId, channel);
 }
 
 /** Usage for a session cycle — resolves the channel from the cycle row first. */
@@ -74,5 +40,14 @@ export async function getUsageForCycle(clientId: string, cycleId: string): Promi
 
 /** True when a rewrite must be soft-blocked (at/over limit and no active override). */
 export function isRewriteBlocked(usage: UsageInfo): boolean {
-  return !usage.unlimited && usage.used >= usage.limit;
+  return isCapReached(usage);
+}
+
+/**
+ * How many AI changes are left this month — the number the agent ANNOUNCES before it does the
+ * work (X2a). `Infinity` under an active override, which is why every caller checks `unlimited`
+ * before printing anything: an unlimited client is never given a count.
+ */
+export function remainingAiChanges(usage: UsageInfo): number {
+  return remainingChanges(usage);
 }

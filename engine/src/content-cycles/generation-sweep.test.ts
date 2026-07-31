@@ -44,6 +44,10 @@ vi.mock('@sprigly/engine/generation-recovery', () => {
   };
 });
 
+// The classification is the REAL one (packages/engine/src/ai-change-cap.ts) — what these
+// fixtures are about is what the sweep DOES with it, and a stub would be testing the stub.
+vi.mock('@sprigly/engine/ai-change-cap', async () => await import('../../../packages/engine/src/ai-change-cap.js'));
+
 vi.mock('drizzle-orm', () => ({
   and: (...a: unknown[]) => a,
   or: (...a: unknown[]) => ['or', ...a],
@@ -236,6 +240,75 @@ describe('X4 — a post stranded in `generating` with nothing working on it', ()
     // Three attempts, exponential from 5s, each capped at a 180s Bedrock call — minutes, not hours.
     expect(STRANDED_GENERATING_MS).toBeGreaterThan(30 * 60 * 1000);
     expect(STRANDED_GENERATING_MS).toBeLessThan(24 * 60 * 60 * 1000);
+  });
+});
+
+/**
+ * ── X2e: three classes, three treatments ──────────────────────────────────────────────
+ *
+ * The sweep used to re-enqueue every failure twice, whatever had gone wrong. Two of the three
+ * things that go wrong cannot be fixed by trying again, and the cost of not knowing which is
+ * one paid Bedrock call per post per day.
+ */
+describe('X2e — the sweep classifies before it spends', () => {
+  const failedWith = (error: string, extra: Record<string, unknown> = {}) =>
+    post({ sourceMeta: { title: 'T', generationError: error, ...extra } });
+
+  it('QUOTA is held, never retried — a refusal can only be refused again', async () => {
+    h.rows = [failedWith('You’ve none left this month.', { quotaBanked: true })];
+    const r = await sweepFailedGenerations({ db, logger }, makeQueue());
+
+    expect(r.quotaHeld).toBe(1);
+    expect(r.reenqueued).toBe(0);
+    expect(h.added).toHaveLength(0);
+    expect(h.updates).toHaveLength(0);   // and it is NOT dragged out of its banked state
+  });
+
+  it('TRANSIENT is retried, under the same spend bound', async () => {
+    h.rows = [failedWith('Bedrock timed out after 180s')];
+    const r = await sweepFailedGenerations({ db, logger }, makeQueue());
+
+    expect(r.reenqueued).toBe(1);
+    expect(r.operatorItems).toBe(0);
+    expect(h.added).toHaveLength(1);
+  });
+
+  it('DETERMINISTIC stops on the FIRST pass and becomes an operator item', async () => {
+    h.rows = [failedWith('Could not get that change on-brand — left the caption as it was.')];
+    const r = await sweepFailedGenerations({ db, logger }, makeQueue());
+
+    expect(r.operatorItems).toBe(1);
+    expect(r.reenqueued).toBe(0);
+    expect(h.added).toHaveLength(0);
+    // It keeps its state and its reason, which is what the admin list reads.
+    expect(h.updates).toHaveLength(0);
+  });
+
+  it('an unrecognised error is deterministic — the default stops rather than bills', async () => {
+    h.rows = [failedWith('something nobody has seen before')];
+    const r = await sweepFailedGenerations({ db, logger }, makeQueue());
+    expect(r.operatorItems).toBe(1);
+    expect(h.added).toHaveLength(0);
+  });
+
+  it('a STRANDED post is none of the three, and is always re-enqueued', async () => {
+    // No error at all: nothing ran. Classifying it would call it deterministic and strand it
+    // for good, which is why the stranded branch is checked first.
+    h.rows = [post({ status: 'generating', sourceMeta: { title: 'T' } })];
+    const r = await sweepFailedGenerations({ db, logger }, makeQueue());
+    expect(r.stranded).toBe(1);
+    expect(r.operatorItems).toBe(0);
+    expect(r.reenqueued).toBe(1);
+  });
+
+  it('a mixed pass treats each on its own terms and does not abandon the others', async () => {
+    h.rows = [
+      failedWith('You’ve none left this month.', { quotaBanked: true }),
+      failedWith('ThrottlingException: Too many requests'),
+      failedWith('Could not produce a clean caption for that change — left it unchanged.'),
+    ];
+    const r = await sweepFailedGenerations({ db, logger }, makeQueue());
+    expect(r).toMatchObject({ considered: 3, quotaHeld: 1, reenqueued: 1, operatorItems: 1 });
   });
 });
 

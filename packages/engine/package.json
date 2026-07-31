@@ -30,6 +30,10 @@
       "import": "./dist/generation-recovery.js",
       "types": "./dist/generation-recovery.d.ts"
     },
+    "./ai-change-cap": {
+      "import": "./dist/ai-change-cap.js",
+      "types": "./dist/ai-change-cap.d.ts"
+    },
     "./contrast": {
       "import": "./dist/contrast.js",
       "types": "./dist/contrast.d.ts"

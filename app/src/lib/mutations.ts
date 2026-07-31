@@ -8,6 +8,7 @@
  */
 import { and, eq, isNull, desc } from 'drizzle-orm';
 import { db, contentCyclePosts, DRAFT_PLACEHOLDER_CAPTION } from '@sprigly/db';
+import { QUOTA_BANKED_KEY, QUOTA_BANKED_AT_KEY } from '@sprigly/engine/ai-change-cap';
 import type { ContentCyclePostRow } from '@sprigly/db';
 import { loadPlanPosts } from '@/lib/plan';
 import { resolveRevert } from '@/lib/revert';
@@ -257,6 +258,35 @@ export async function markPostGenerationFailed(clientId: string, cycleId: string
   const row = await ownedPost(clientId, cycleId, postId);
   if (!row) return;
   const meta = { ...((row.sourceMeta ?? {}) as Record<string, unknown>), generationError: error };
+  await db.update(contentCyclePosts).set({ status: 'generation_failed', sourceMeta: meta }).where(scopedPost(clientId, cycleId, postId));
+}
+
+/**
+ * BANK a post's generation against the monthly cap (X2b).
+ *
+ * Deliberately NOT `markPostGenerationFailed` with a different sentence. Three things need to
+ * tell a banked post from a broken one, and none of them can do it from prose: the surface
+ * renders a different state, the sweep must never retry it, and the banked-run trigger has to
+ * find it. So the FLAG is the fact and the message is only copy.
+ *
+ * The instruction is stored the way a retry stores it — `pendingInstruction` — because that is
+ * exactly what this is: the same work, deferred. Nothing new is invented to hold it, and the
+ * release path (`banked-changes.ts`) re-runs it through `instructionFor`, the same reader the
+ * sweep uses.
+ */
+export async function markPostBanked(
+  clientId: string, cycleId: string, postId: string, instruction: string, message: string,
+  now: Date = new Date(),
+): Promise<void> {
+  const row = await ownedPost(clientId, cycleId, postId);
+  if (!row) return;
+  const meta = {
+    ...((row.sourceMeta ?? {}) as Record<string, unknown>),
+    pendingInstruction: instruction,
+    generationError: message,
+    [QUOTA_BANKED_KEY]: true,
+    [QUOTA_BANKED_AT_KEY]: now.toISOString(),
+  };
   await db.update(contentCyclePosts).set({ status: 'generation_failed', sourceMeta: meta }).where(scopedPost(clientId, cycleId, postId));
 }
 

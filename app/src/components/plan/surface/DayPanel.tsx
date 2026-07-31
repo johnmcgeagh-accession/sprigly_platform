@@ -32,7 +32,7 @@ import React from 'react';
 import type { PlanPost, PlanBeat } from '@/lib/types';
 import { FormatTile, PlusGlyph } from './icons';
 import { dayTitle } from './dates';
-import { isOnTheWay, ON_THE_WAY_LABEL, ON_THE_WAY_TEASER, ON_THE_WAY_ARIA } from '@/lib/generation-state';
+import { isPostOnTheWay, isBanked, ON_THE_WAY_LABEL, ON_THE_WAY_TEASER, ON_THE_WAY_ARIA, BANKED_LABEL, BANKED_TEASER, BANKED_ARIA } from '@/lib/generation-state';
 import { cardText } from './card-text';
 import { WeatherHeaderBadge } from '../pieces';
 import { BeatMarker, beatFlashText } from '../BeatMarker';
@@ -123,7 +123,19 @@ export function DayPanel({
  *  Copy is NOT here — it lives in the detail sheet's tabs, beside the words it copies.
  *  A card is a thing you read (spec §4, D1). */
 function PostCard({ post, time, changed = false, onOpen }: { post: PlanPost; time: string; changed?: boolean; onOpen: () => void }) {
-  const onWay = isOnTheWay(post.status);
+  /**
+   * ── THE BANKED STATE, ON THE CARD (X2c) ───────────────────────────────────────────
+   *
+   * A post the monthly change cap refused reads as its OWN quiet state and never as *On its
+   * way*. It is not being written, and saying it is was the live untruth: the row already
+   * carried an honest message and the client was shown a promise instead of it.
+   *
+   * No dots and no motion, because nothing is in flight; the stored message (which names the
+   * reset date) and the instruction we are holding, because between them they say exactly what
+   * will happen and when.
+   */
+  const banked = isBanked(post);
+  const onWay = isPostOnTheWay(post);
   const { heading, source, teaser } = cardText(post);
   return (
     <button
@@ -148,7 +160,27 @@ function PostCard({ post, time, changed = false, onOpen }: { post: PlanPost; tim
       <h4 className="mb-[5px] text-[16.5px] font-semibold leading-[1.3] tracking-[-.02em] text-chrome">
         {source === 'none' ? <span className="font-medium italic text-muted">Untitled</span> : heading}
       </h4>
-      {onWay ? (
+      {banked ? (
+        <>
+          <p data-testid="banked-message" className="text-[13.5px] leading-normal text-muted">
+            {post.generationError || BANKED_TEASER}
+          </p>
+          {post.pendingInstruction && (
+            <p data-testid="banked-instruction" className="mt-1.5 line-clamp-2 text-[13.5px] leading-normal text-chrome">
+              “{post.pendingInstruction}”
+            </p>
+          )}
+          <div className="mt-2.5 flex items-center gap-2">
+            {/* A ring, not a pulse: the shape says "not finished", and the stillness says
+                "nothing is happening right now" — which is the whole difference from the state
+                above it. Muted rather than accent, for the same reason. */}
+            <span aria-hidden="true" className="block h-[7px] w-[7px] flex-none rounded-full border-[1.5px] border-muted/60" />
+            <span data-testid="banked" aria-label={BANKED_ARIA} className="text-[12.5px] font-semibold text-muted">
+              {BANKED_LABEL}
+            </span>
+          </div>
+        </>
+      ) : onWay ? (
         <>
           <p className="text-[13.5px] leading-normal text-muted">{ON_THE_WAY_TEASER}</p>
           <div className="mt-2.5 flex items-center gap-2">
