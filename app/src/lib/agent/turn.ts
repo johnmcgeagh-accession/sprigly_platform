@@ -83,13 +83,28 @@ function resolvePostRef(task: ParsedTask, posts: PlanPost[], today: string): Pos
   return null;
 }
 
-/** A sensible default date for an add_post with no date: two days after the last
- *  scheduled post, else a week out. */
-function defaultAddDate(posts: PlanPost[], today: Date): string {
+/**
+ * A sensible default date for an add_post with no date: two days after the last scheduled
+ * post, else a week out — held inside the plan month's own calendar.
+ *
+ * THE SECOND max(scheduled_date) DERIVATION (G2). This one is a real placement rather than a
+ * sentence, and it had the same fault in the other direction: with the last post on the 30th,
+ * "two days after" is the 1st of the NEXT month — a post proposed into a month this cycle does
+ * not plan, which the move guard would then refuse to move back. Clamped to the plan month,
+ * and never behind today, so the default is always a date the client can actually keep.
+ */
+function defaultAddDate(posts: PlanPost[], today: Date, planMonth?: string | null): string {
   const dates = posts.map((p) => p.date).sort();
   const base = dates.length ? new Date(`${dates[dates.length - 1]}T00:00:00`) : today;
   const d = new Date(base); d.setDate(d.getDate() + (dates.length ? 2 : 7));
-  return todayIso(d);
+  const iso = todayIso(d);
+  if (!planMonth || !/^\d{4}-\d{2}$/.test(planMonth)) return iso;
+  const [y, m] = planMonth.split('-').map(Number);
+  const first = `${planMonth}-01`;
+  const last = `${planMonth}-${String(new Date(y!, m!, 0).getDate()).padStart(2, '0')}`;
+  const clamped = iso < first ? first : iso > last ? last : iso;
+  // A clamp backwards can land behind today; today itself is addable, so that is the floor.
+  return clamped < todayIso(today) ? todayIso(today) : clamped;
 }
 
 const whichPost = (reason?: string | null) =>
@@ -190,7 +205,9 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
       cycleMonths: await getClientCycleMonths(clientId, cycleId),
       // `todayNow` rides into the digest so every row carries its own side of today, computed
       // with `isEditableDate` rather than left for the model to work out from a month name.
-      planDigest: cycleDigest(posts, todayNow),
+      // `cycleMonth` states the plan's CALENDAR WINDOW, so the plan's end is the month's last
+      // day rather than its last post (G2 — the "runs up to the 28th" refusal).
+      planDigest: cycleDigest(posts, todayNow, cycleMonth),
       productIndex: await loadProductIndex(clientId, 'instagram'),
       recentThread,
       ...(pendingBlock ? { pending: pendingBlock } : {}),
@@ -324,7 +341,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
         break;
       }
       case 'add_post': {
-        const date = task.toDate ?? defaultAddDate(posts, today);
+        const date = task.toDate ?? defaultAddDate(posts, today, cycleMonth);
         const inferred = task.format === 'reel' || task.format === 'carousel' || task.format === 'single';
         const format = inferred ? task.format! : 'single';
         const pv = await propose('add_post',
