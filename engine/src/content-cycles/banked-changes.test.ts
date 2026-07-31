@@ -31,8 +31,10 @@ vi.mock('@sprigly/db', () => ({
   },
 }));
 
-// The REAL rules — what is being tested is how the loop uses them.
-vi.mock('@sprigly/engine/ai-change-cap', async () => await import('../../../packages/engine/src/ai-change-cap.js'));
+// The REAL rules, through the package's own export map — what is being tested is how the loop
+// uses them, and the specifier is the only import allowed to cross a package boundary. See the
+// note in `generation-sweep.test.ts`: the deep relative path this replaces built under vitest and
+// failed the worker's `tsc` for climbing out of its rootDir.
 
 vi.mock('drizzle-orm', () => ({
   and: (...a: unknown[]) => a,

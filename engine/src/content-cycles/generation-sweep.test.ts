@@ -44,9 +44,13 @@ vi.mock('@sprigly/engine/generation-recovery', () => {
   };
 });
 
-// The classification is the REAL one (packages/engine/src/ai-change-cap.ts) — what these
-// fixtures are about is what the sweep DOES with it, and a stub would be testing the stub.
-vi.mock('@sprigly/engine/ai-change-cap', async () => await import('../../../packages/engine/src/ai-change-cap.js'));
+// NOT MOCKED, deliberately: the classification is the REAL one, because what these fixtures are
+// about is what the sweep DOES with it and a stub would be testing the stub. It reaches
+// `@sprigly/engine/ai-change-cap` through the package's own export map — the only way one
+// workspace package may read another. A deep relative path into `packages/engine/src` resolved
+// fine under vitest and broke the WORKER'S BUILD: `engine/tsconfig.json` sets `rootDir: "src"`
+// and includes the tests, so an import climbing out of it is TS6059 on `pnpm --filter
+// @sprigly/worker... build`. `turbo`'s `test` task depends on `^build`, so `dist` is there.
 
 vi.mock('drizzle-orm', () => ({
   and: (...a: unknown[]) => a,

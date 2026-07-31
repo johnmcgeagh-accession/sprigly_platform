@@ -273,6 +273,7 @@ platforms. `small-truths`' meter block is removed with the component it tested.
 | gate | result |
 |---|---|
 | `tsc --noEmit` (app) | clean, after every commit |
+| `pnpm --filter @sprigly/worker... build` | **exit 0** from a cleaned `dist` — the command Railway runs |
 | app unit / interaction (Node 22) | **1164 passed**, 14 skipped (was 1127) |
 | worker unit (`engine`) | **301 passed**, 38 skipped — unchanged |
 | shared (`packages/engine`) | **377 passed** — unchanged |
@@ -283,6 +284,14 @@ platforms. `small-truths`' meter block is removed with the component it tested.
 | terminology fence | 6 passed |
 | draft invisibility | 5 passed |
 | detector | 0 findings on every changed component |
+
+**The worker's BUILD was not a gate, and should have been.** `tsc --noEmit` in `app/` and
+`vitest` in `engine/` both pass over a test file that imports across a package boundary by
+relative path; the worker's own `tsc` does not, because `engine/tsconfig.json` sets
+`rootDir: "src"` and includes the tests, so an import climbing out of it is TS6059. Two such
+imports were introduced in the X2 session and only Railway saw them. The command that would have
+caught them is the one Railway runs — `pnpm --filter @sprigly/worker... build` — and it is now
+part of this report's gate list rather than assumed to follow from the type-check.
 
 **Fence proof.** `git diff b96678c HEAD -- '*terminology.fence.test.ts' '*tokens.fence.test.ts'
 '*draft-invisibility.test.ts'` is **empty**.
