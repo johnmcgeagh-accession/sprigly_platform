@@ -327,7 +327,16 @@ describe('fixture 3 — a date question is about the date, not the month on scre
 
     const planState = h.modelCalls.find((m) => m.includes('PLAN STATE'))!;
     expect(planState).toContain('2026-11-01 to 2026-11-30 (November 2026)');
-    expect(planState).not.toContain('2026-08');
+    /**
+     * DELIBERATE CHANGE (F1). This asserted the state contained no '2026-08' at all. It now
+     * names next week's dates — 2026-08-03 to 2026-08-09 — and that is the improvement, not a
+     * regression: the answerer can only say "next week is the 3rd to the 9th and I can't see it,
+     * here is what I can" if it has been told which dates those are. What must still be absent
+     * is any August POST, because none was loaded.
+     */
+    expect(planState).toContain('NEXT WEEK is 2026-08-03 to 2026-08-09');
+    expect(planState).toContain('NEXT WEEK holds: 0 posts');
+    expect(planState.split('\n').filter((l) => l.trim().startsWith('- 2026-08'))).toEqual([]);
   });
 
   it('the system prompt forbids answering "nothing planned" for a week it cannot see', async () => {

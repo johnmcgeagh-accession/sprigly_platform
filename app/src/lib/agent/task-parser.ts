@@ -13,6 +13,7 @@ import type { AuditLogger } from '@sprigly/audit';
 import { AGENT_MODEL } from './model';
 import type { ParsedTask, PendingIntent, TaskActionType } from './types';
 import { MUTATING_ACTIONS } from './types';
+import { weekLines } from './weeks';
 
 const ACTIONS: readonly TaskActionType[] = [
   'move_post', 'delete_post', 'rewrite_post', 'add_post', 'change_format', 'generate_hook', 'refine', 'add_note', 'query', 'clarify',
@@ -137,7 +138,8 @@ THE CONVERSATION SO FAR — when the message includes a recent-thread block, it 
 
 RELATIVE REFERENCES resolve against TODAY, from the day table:
 - A bare weekday — "Friday's post", "the Friday post", "move Friday to Saturday" — means the NEXT such weekday from today (today itself counts when today is that weekday). Read its ISO date from the table and set fromDate/toDate accordingly. Do NOT ask which Friday; a wrong default costs one Discard because the resolved date is SHOWN to the client before anything applies. Ask only when the resolved DAY holds more than one post and the reference doesn't pick between them.
-- "tomorrow" = the day after today; "next week" = the week starting the coming Monday; "the 14th" = the 14th of the month on screen (or the named month). All from the table and the viewed month — never from arithmetic you do in your head.
+- "tomorrow" = the day after today; "the 14th" = the 14th of the month on screen (or the named month). All from the table and the viewed month — never from arithmetic you do in your head.
+- WEEKS RUN MONDAY TO SUNDAY, and the message states both windows by date. "This week" is the Monday on or before today through its Sunday; "next week" is the FOLLOWING Monday through its Sunday. "Next week" is NOT today + 7 days: on a Friday those are four days apart and land in different weeks. Read the two ranges off the WEEKS block — never count forward from today.
 
 Output ONLY a JSON object, no prose, no code fences:
 {"tasks": [ { "action": "...", ... } ]}
@@ -267,6 +269,9 @@ export function dayTable(todayIso: string): string {
  */
 function buildUserMessage(text: string, ctx: ParserContext): MessagePart[] {
   const invariant = `TODAY IS ${ctx.today} (ISO). Anything later than that is in the future; only earlier dates are past.
+
+WEEKS (F1 — read week phrases off these two lines, never by counting days from today):
+${weekLines(ctx.today)}
 
 THE NEXT 14 DAYS (resolve every relative reference from this table):
 ${dayTable(ctx.today)}

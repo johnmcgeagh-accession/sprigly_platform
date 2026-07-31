@@ -142,8 +142,9 @@ describe('the prompt states each date’s side of today instead of setting arith
   it('the query answerer’s plan state opens with today and marks past rows the same way', () => {
     const state = bucketCycleState(AUG_POSTS as never, new Date(2026, 6, 30));
     expect(state.summary).toContain('TODAY IS 2026-07-30');
-    const lines = state.summary.split('\n');
-    expect(lines.find((l) => l.includes('2026-07-29'))).toContain('[past — read-only]');
-    expect(lines.find((l) => l.includes('2026-08-14'))).not.toContain('past');
+    // The POST rows specifically (F1 added week lines above them, which name dates too).
+    const rows = state.summary.split('\n').filter((l) => l.trim().startsWith('- 2026-'));
+    expect(rows.find((l) => l.includes('2026-07-29'))).toContain('[past — read-only]');
+    expect(rows.find((l) => l.includes('2026-08-14'))).not.toContain('past');
   });
 });
