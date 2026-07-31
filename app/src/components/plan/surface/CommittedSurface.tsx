@@ -33,8 +33,8 @@ import { restoreDayFor, saveNavState } from '../nav-state';
 import { navTrace } from '../nav-trace';
 import { SummaryChip } from './SummaryChip';
 import { appliedChipLabel, applyFailureMessage } from './applied-summary';
-import { lineFor, shortDate as interpDate } from './Interpretation';
-import { readAndStampVisit, changeWord, changedDays, type ChangeRow } from './what-changed';
+import { lineFor } from './Interpretation';
+import { readAndStampVisit, changedDays, type ChangeRow } from './what-changed';
 import { PlanShell } from './PlanShell';
 import type { PlanView } from './NavPill';
 import { WeekStrip, type DayMark } from './WeekStrip';
@@ -100,17 +100,23 @@ export function CommittedSurface({ data }: { data: PlanData }) {
   const [changedIds, setChangedIds] = useState<readonly string[]>([]);
 
   /**
-   * ── WHAT-CHANGED VISIBILITY (operator-agreed) ────────────────────────────────────────
+   * ── WHAT-CHANGED VISIBILITY ──────────────────────────────────────────────────────────
    *
-   * a) Day dots gain a recently-changed state: an accent second dot on days holding posts
-   *    changed since the LAST VISIT (localStorage stamp, what-changed.ts), decaying as each
-   *    marked day is viewed.
-   * b) A "What changed" row from the month header lists the recent receipts (the existing
-   *    plan_activity ledger via /api/plan/changes), tapping through to the day.
+   * The DAY DOTS ARE THE WHOLE TREATMENT (operator ruling, round 4). A day holding posts
+   * changed since the LAST VISIT (localStorage stamp, what-changed.ts) carries an accent
+   * second dot, and the mark decays as each marked day is viewed.
+   *
+   * The header row that listed the same receipts in words is GONE, and its removal is the
+   * ruling rather than a tidy-up. Two surfaces answered one question: a pill counting the
+   * changes and a panel naming them, over dots already marking the days they happened on —
+   * so the month header carried a number the calendar underneath was already showing, and
+   * tapping it replaced the plan with a list of the plan. One changed-surface, on the
+   * calendar, where the change actually is.
+   *
+   * The ledger read stays: it is what the dots are computed FROM.
    */
   const [recentChanges, setRecentChanges] = useState<ChangeRow[]>([]);
   const [seenDays, setSeenDays] = useState<Set<string>>(new Set());
-  const [whatChangedOpen, setWhatChangedOpen] = useState(false);
   useEffect(() => {
     let cancelled = false;
     const prev = readAndStampVisit(data.viewedCycleId, new Date().toISOString());
@@ -144,7 +150,7 @@ export function CommittedSurface({ data }: { data: PlanData }) {
     setSelected(kept ?? defaultDayFor(month, data.today, data.calendarPosts.map((p) => p.date)), kept ? 'restore:month-change' : 'user:month-change');
     // The what-changed treatment belongs to the month it happened on — and so do the marks.
     setAppliedChip(null); setChipOpen(false); setChangedIds([]);
-    setRecentChanges([]); setSeenDays(new Set()); setWhatChangedOpen(false);
+    setRecentChanges([]); setSeenDays(new Set());
   }
 
   /**
@@ -309,19 +315,8 @@ export function CommittedSurface({ data }: { data: PlanData }) {
       // The what-changed chip (F4) — the draft month's spec-§3 treatment, on the committed
       // month. Never grows; tapping toggles the itemised panel; absent until an apply lands.
       chip={appliedChip ? <SummaryChip label={appliedChip.label} expanded={chipOpen} onToggle={() => setChipOpen((o) => !o)} /> : undefined}
-      // The "What changed" row (what-changed visibility, b): recent receipts since the last
-      // visit, from the month header, tap-through to the day. Absent when nothing changed —
-      // a row reading "0 changes" spends its height saying nothing.
-      badge={recentChanges.length > 0 ? (
-        <button
-          type="button" data-testid="what-changed-row" aria-expanded={whatChangedOpen}
-          onClick={() => setWhatChangedOpen((o) => !o)}
-          className="flex min-h-[40px] items-center gap-2 rounded-full border border-line/30 bg-surface px-3.5 text-[13px] font-semibold text-coral-800 shadow-card active:bg-coral-100"
-        >
-          <span aria-hidden="true" className="h-[7px] w-[7px] rounded-full bg-coral-600" />
-          What changed · {recentChanges.length}
-        </button>
-      ) : undefined}
+      // No `badge`. The "What changed" pill that used to live here is gone by ruling — the day
+      // dots are the sole changed-surface, and a committed month's state row is empty again.
       overlays={<>
         <DetailSheet
           post={openPost} data={data} rationale={openPost?.rationale ?? ''}
@@ -410,39 +405,7 @@ export function CommittedSurface({ data }: { data: PlanData }) {
           </button>
         </div>
       )}
-      {/* The "What changed" list (b): the recent receipts, each tapping through to its day.
-          Replaces the view like the chip's panel does; the words come from the ledger action
-          and the post's own resolved title — never narrated. */}
-      {whatChangedOpen && !chipOpen && (
-        <div data-testid="what-changed-panel" className="flex-1 overflow-y-auto px-5 pb-[104px] pt-2.5 [scrollbar-width:none]">
-          <h2 className="mb-3 text-[22px] font-bold tracking-[-.02em] text-chrome">What changed</h2>
-          <div className="overflow-hidden rounded-[20px] border border-line/30 bg-surface shadow-card">
-            {recentChanges.map((c) => (
-              <button
-                key={c.id} type="button" data-testid="what-changed-line"
-                onClick={() => {
-                  setWhatChangedOpen(false);
-                  if (c.date) { setSelected(c.date, 'user:what-changed'); setView('day'); }
-                }}
-                className="flex min-h-[56px] w-full items-center gap-2.5 px-[13px] py-2.5 text-left transition-colors duration-100 active:bg-line-soft [&+&]:border-t [&+&]:border-line/30"
-              >
-                <span className="min-w-0 flex-1 text-[14.5px] leading-[1.4] text-chrome">
-                  <span className="font-semibold">{changeWord(c.action)}</span>
-                  {c.title ? <span> “{c.title}”</span> : null}
-                </span>
-                {c.date && <span className="flex-none text-[12.5px] font-semibold tabular-nums text-muted">{interpDate(c.date)}</span>}
-              </button>
-            ))}
-          </div>
-          <button
-            type="button" data-testid="what-changed-close" onClick={() => setWhatChangedOpen(false)}
-            className="mt-4 min-h-[44px] text-[13.5px] font-semibold text-muted"
-          >
-            Close
-          </button>
-        </div>
-      )}
-      {!chipOpen && !whatChangedOpen && view === 'day' && (
+      {!chipOpen && view === 'day' && (
         <DayPanel
           date={selected} today={data.today}
           posts={postsOn(selected)}
@@ -457,7 +420,7 @@ export function CommittedSurface({ data }: { data: PlanData }) {
           weather={data.weather.get(selected)}
         />
       )}
-      {!chipOpen && !whatChangedOpen && view === 'month' && (
+      {!chipOpen && view === 'month' && (
         <MonthGrid
           month={month} selected={selected} today={data.today}
           // lockToMonth: the grid's padding cells are another month's days, and picking one is
@@ -466,7 +429,7 @@ export function CommittedSurface({ data }: { data: PlanData }) {
           summary={<MonthDaySummary date={selected} items={rowsFromPosts(postsOn(selected), timeOf)} onOpen={setOpenId} />}
         />
       )}
-      {!chipOpen && !whatChangedOpen && view === 'tasks' && <TasksPanel data={data} onOpen={setOpenId} />}
+      {!chipOpen && view === 'tasks' && <TasksPanel data={data} onOpen={setOpenId} />}
     </PlanShell>
   );
 }

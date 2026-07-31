@@ -1,13 +1,16 @@
 /**
  * @vitest-environment jsdom
  *
- * what-changed.interaction.test.tsx — the recently-changed marks and the What-changed row.
+ * what-changed.interaction.test.tsx — the recently-changed marks, which are now the whole of it.
  *
- * The operator-agreed design: (a) day dots gain a recently-changed state — an accent second dot
- * on days holding posts changed since the LAST VISIT, decaying as each day is viewed; (b) a
- * "What changed" row from the month header lists the recent receipts (the existing ledger via
- * /api/plan/changes), tapping through to the day. First visits mark nothing — there is no
+ * The operator ruling (round 4): the day dots are the SOLE changed-surface. A day holding posts
+ * changed since the LAST VISIT carries an accent second dot (the existing ledger via
+ * /api/plan/changes), decaying as each day is viewed. First visits mark nothing — there is no
  * "since" to mark against, and a fresh link covered in alerts is crying wolf on arrival.
+ *
+ * The "What changed" header row and its panel are gone, and the block that covered them is now
+ * the block that proves their ABSENCE — a deleted surface with no fixture is a surface that can
+ * come back by accident.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
@@ -16,7 +19,7 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 vi.mock('@sprigly/db', () => ({ db: {}, contentCycles: {}, contentCyclePosts: {} }));
 
 import { CommittedSurface } from './CommittedSurface';
-import { changeWord, changedDays, readAndStampVisit, resetVisitStamps } from './what-changed';
+import { changedDays, readAndStampVisit, resetVisitStamps } from './what-changed';
 import type { PlanPost } from '@/lib/types';
 import type { PlanData } from '../usePlanData';
 
@@ -75,13 +78,6 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('the helpers', () => {
-  it('changeWord maps ledger actions to receipt words, never model prose', () => {
-    expect(changeWord('rescheduled')).toBe('Moved');
-    expect(changeWord('post_created')).toBe('Added');
-    expect(changeWord('hook_saved')).toBe('Hook updated');
-    expect(changeWord('something_new')).toBe('Updated');
-  });
-
   it('changedDays collects the changed dates minus what has been viewed', () => {
     const days = changedDays(CHANGES, new Set(['2026-10-02']));
     expect(days.size).toBe(0);
@@ -134,37 +130,24 @@ describe('a) the recently-changed day dots', () => {
   });
 });
 
-describe('b) the What-changed row', () => {
-  it('lists the recent receipts with their words, titles and days', async () => {
+describe('the What-changed row is GONE (operator ruling)', () => {
+  it('no pill in the header, however many receipts came back', async () => {
     visited();
     render(<CommittedSurface data={fakeData()} />);
-    const row = await screen.findByTestId('what-changed-row');
-    expect(row.textContent).toContain('What changed · 2');
-
-    fireEvent.click(row);
-    const lines = screen.getAllByTestId('what-changed-line');
-    expect(lines).toHaveLength(2);
-    expect(lines[0]!.textContent).toContain('Moved');
-    expect(lines[0]!.textContent).toContain('Wilderness is back.');
-    expect(lines[0]!.textContent).toContain('Fri 2 Oct');
-    expect(lines[1]!.textContent).toContain('Caption updated');
-  });
-
-  it('a line taps through to the day', async () => {
-    visited();
-    render(<CommittedSurface data={fakeData()} />);
-    fireEvent.click(await screen.findByTestId('what-changed-row'));
-    fireEvent.click(screen.getAllByTestId('what-changed-line')[0]!);
-
-    expect(screen.queryByTestId('what-changed-panel')).toBeNull();
-    expect(screen.getByTestId('day-panel').getAttribute('data-date')).toBe('2026-10-02');
-  });
-
-  it('is ABSENT when nothing changed — a row reading "0 changes" says nothing', async () => {
-    visited();
-    stubChanges([]);
-    render(<CommittedSurface data={fakeData()} />);
-    await new Promise((r) => setTimeout(r, 10));
+    // The dots prove the ledger read still ran and still found the two changes…
+    await screen.findByTestId('day-changed');
+    // …and the header carries nothing about them.
     expect(screen.queryByTestId('what-changed-row')).toBeNull();
+    expect(screen.queryByText(/What changed ·/)).toBeNull();
+  });
+
+  it('and no panel to open — the plan is never replaced by a list of the plan', async () => {
+    visited();
+    render(<CommittedSurface data={fakeData()} />);
+    await screen.findByTestId('day-changed');
+    expect(screen.queryByTestId('what-changed-panel')).toBeNull();
+    expect(screen.queryByTestId('what-changed-line')).toBeNull();
+    // The day panel is still the day panel.
+    expect(screen.getByTestId('day-panel')).toBeTruthy();
   });
 });

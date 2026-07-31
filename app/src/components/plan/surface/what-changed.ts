@@ -3,12 +3,16 @@
 /**
  * what-changed.ts — the seen-state and the words for the recently-changed marks.
  *
- * ── The design (operator-agreed) ─────────────────────────────────────────────────────
+ * ── The design (operator ruling, round 4) ────────────────────────────────────────────
  *
- * a) Day dots gain a RECENTLY-CHANGED state: an accent second dot on days holding posts
- *    changed since the client's last visit, decaying as each day is viewed.
- * b) A "What changed" row from the month header lists the recent receipts (the existing
- *    plan_activity ledger, read through /api/plan/changes), tapping through to the day.
+ * ONE changed-surface: day dots gain a RECENTLY-CHANGED state — an accent second dot on days
+ * holding posts changed since the client's last visit, decaying as each day is viewed. They
+ * are computed from the existing plan_activity ledger, read through /api/plan/changes.
+ *
+ * The "What changed" row and its panel are GONE. They listed, in words, the same receipts the
+ * dots were already marking on the calendar — a count in the header over a calendar that had
+ * the answer, and a tap that replaced the plan with a list of the plan. `changeWord` went with
+ * them: it existed to write that panel's lines and had no other reader.
  *
  * ── The seen-state ───────────────────────────────────────────────────────────────────
  *
@@ -59,21 +63,6 @@ export function readAndStampVisit(cycleId: string, nowIso: string): string | nul
 
 /** TEST-ONLY: a jsdom module outlives many renders; each test is its own "page load". */
 export function resetVisitStamps(): void { visitPrev.clear(); }
-
-/** The words a receipt row carries. Computed from the ledger action — never model prose. */
-export function changeWord(action: string): string {
-  switch (action) {
-    case 'post_created':  return 'Added';
-    case 'rescheduled':   return 'Moved';
-    case 'caption_saved': return 'Caption updated';
-    case 'hook_saved':    return 'Hook updated';
-    case 'script_saved':  return 'Script updated';
-    case 'format_changed': return 'Format changed';
-    case 'post_deleted':  return 'Removed';
-    case 'post_reverted': return 'Reverted';
-    default: return 'Updated';
-  }
-}
 
 /** The days that should carry the recently-changed mark, minus what has been viewed. */
 export function changedDays(changes: readonly ChangeRow[], seen: ReadonlySet<string>): Set<string> {
