@@ -46,9 +46,12 @@ vi.mock('@sprigly/engine/generation-recovery', () => {
 
 vi.mock('drizzle-orm', () => ({
   and: (...a: unknown[]) => a,
+  or: (...a: unknown[]) => ['or', ...a],
   eq: (a: unknown, b: unknown) => ['eq', a, b],
+  lt: (a: unknown, b: unknown) => ['lt', a, b],
   isNull: (a: unknown) => ['isNull', a],
   gte: (a: unknown, b: unknown) => ['gte', a, b],
+  inArray: (a: unknown, b: unknown) => ['inArray', a, b],
   sql: Object.assign((strings: TemplateStringsArray, ...v: unknown[]) => ['sql', strings.join('?'), v], { raw: (s: string) => s }),
 }));
 
@@ -89,7 +92,7 @@ function makeQueue(opts: { existingState?: string | null; addThrows?: boolean } 
   } as never;
 }
 
-import { sweepFailedGenerations, instructionFor, MAX_SWEEP_ATTEMPTS } from './generation-sweep.js';
+import { sweepFailedGenerations, instructionFor, MAX_SWEEP_ATTEMPTS, STRANDED_GENERATING_MS } from './generation-sweep.js';
 
 const post = (over: Record<string, unknown> = {}) => ({
   id: 'p1', clientId: 'c1', cycleId: 'cyc1', pillar: 'Everyday Ritual',
@@ -179,6 +182,60 @@ describe('what the sweep will not do', () => {
     const r = await sweepFailedGenerations({ db, logger }, queue);
     expect(r.failed).toBe(1);
     expect(r.reenqueued).toBe(1);
+  });
+});
+
+/**
+ * ── X4: the second status ────────────────────────────────────────────────────────────
+ *
+ * `generating` with nothing on the queue is the stuck state the sweep's own header says must
+ * not exist, and until now nothing looked for it: a process dying between the insert and the
+ * enqueue left a post reading *On its way* forever.
+ *
+ * The mocked db here returns whatever rows it is given, so what these pin is the LOOP's
+ * treatment of a stranded row — that it is counted separately, re-enqueued on the same terms,
+ * and skipped when a job really is in flight. The WHERE clause's age bound is a database
+ * behaviour and is asserted as a constant rather than pretended at.
+ */
+describe('X4 — a post stranded in `generating` with nothing working on it', () => {
+  it('is re-enqueued, and counted as stranded rather than as an ordinary failure', async () => {
+    h.rows = [post({ status: 'generating' })];
+    const r = await sweepFailedGenerations({ db, logger }, makeQueue());
+
+    expect(r.stranded).toBe(1);
+    expect(r.reenqueued).toBe(1);
+    expect(h.added).toHaveLength(1);
+    expect((h.updates[0]!.set['sourceMeta'] as Record<string, unknown>)['generationSweepAttempts']).toBe(1);
+  });
+
+  it('is SKIPPED when a job for it is genuinely in flight — the queue is the real arbiter', async () => {
+    h.rows = [post({ status: 'generating' })];
+    const r = await sweepFailedGenerations({ db, logger }, makeQueue({ existingState: 'waiting' }));
+
+    expect(r.busy).toBe(1);
+    expect(h.added).toHaveLength(0);
+    expect(h.updates).toHaveLength(0);
+  });
+
+  it('an ordinary generation_failed post is NOT counted as stranded', async () => {
+    h.rows = [post()];
+    const r = await sweepFailedGenerations({ db, logger }, makeQueue());
+    expect(r.stranded).toBe(0);
+    expect(r.reenqueued).toBe(1);
+  });
+
+  it('takes the same spend bound as a failure — it is not a way round the cap', async () => {
+    h.rows = [post({ status: 'generating', sourceMeta: { title: 'T', generationSweepAttempts: MAX_SWEEP_ATTEMPTS } })];
+    const r = await sweepFailedGenerations({ db, logger }, makeQueue());
+    expect(r.reenqueued).toBe(0);
+    expect(h.updates).toHaveLength(0);
+  });
+
+  it('the age bound is far past any honest job and far short of the daily tick', () => {
+    expect(STRANDED_GENERATING_MS).toBe(2 * 60 * 60 * 1000);
+    // Three attempts, exponential from 5s, each capped at a 180s Bedrock call — minutes, not hours.
+    expect(STRANDED_GENERATING_MS).toBeGreaterThan(30 * 60 * 1000);
+    expect(STRANDED_GENERATING_MS).toBeLessThan(24 * 60 * 60 * 1000);
   });
 });
 

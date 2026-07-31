@@ -26,28 +26,13 @@ import { and, eq } from 'drizzle-orm';
 import { db, contentCycles } from '@sprigly/db';
 import { getSession } from '@/lib/auth';
 import { addGeneratingPost } from '@/lib/mutations';
-import { startPostGeneration, enqueueFollowOnGeneration } from '@/lib/post-generation';
+import { startPostGeneration, enqueueFollowOnGeneration, defaultCaptionBrief } from '@/lib/post-generation';
 import { loadPlanPosts } from '@/lib/plan';
 import { titleFromSubject } from '@/lib/agent/selectors';
 import { editScopeToday, canAddPost } from '@/lib/edit-scope';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-const FORMAT_WORD: Record<string, string> = { reel: 'reel', carousel: 'carousel', single: 'single image post' };
-
-/**
- * The brief for an add with no subject.
- *
- * It says only what the client's own act said: this day, this format. No topic is invented — the
- * generator writes from the client's voice and their plan context, which is what it does for
- * every other post in the month. An empty instruction would have been rejected by
- * `startPostGeneration`; a placeholder caption was the alternative, and it was worse.
- */
-function defaultCaptionBrief(date: string, format: string): string {
-  return `Write a caption for a ${FORMAT_WORD[format] ?? 'post'} going out on ${date}. `
-    + 'No subject was given, so choose one that fits this client’s voice and the rest of the month.';
-}
 
 export async function POST(req: Request) {
   const session = await getSession();

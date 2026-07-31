@@ -13,6 +13,26 @@ import { markPostGenerating, markPostGenerationFailed } from './mutations';
 import { editScopeToday } from './edit-scope';
 import type { PlanActor } from '@sprigly/db';
 
+const FORMAT_WORD: Record<string, string> = { reel: 'reel', carousel: 'carousel', single: 'single image post' };
+
+/**
+ * THE BRIEF FOR AN ADD WITH NO SUBJECT — one copy, for every add path (X4).
+ *
+ * It says only what the client's own act said: this day, this format. No topic is invented — the
+ * generator writes from the client's voice and their plan context, which is what it does for
+ * every other post in the month.
+ *
+ * It lived in `/api/posts` alone, which is the whole of the enqueue gap: the route that had it
+ * always enqueued, and the AGENT's add path, which did not, fell through to `addDraft` — a
+ * placeholder caption, status 'new', and no job. Both callers read it from here now, so "an add
+ * always gets a caption written" is one rule with one wording rather than a property of whichever
+ * door the client happened to come through.
+ */
+export function defaultCaptionBrief(date: string, format: string): string {
+  return `Write a caption for a ${FORMAT_WORD[format] ?? 'post'} going out on ${date}. `
+    + 'No subject was given, so choose one that fits this client’s voice and the rest of the month.';
+}
+
 export type StartGenerationResult =
   | { jobId: string }
   | { blocked: true; message: string }

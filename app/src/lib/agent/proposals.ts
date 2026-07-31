@@ -3,7 +3,7 @@
  *
  * EVERY mutating action (move/delete/rewrite/add) is a pending proposal; nothing
  * applies at parse time. Approval applies deterministically for move/delete/add
- * (patchPost/softDeletePost/addDraft — client+cycle scoped per commit 33f658f) and
+ * (patchPost/softDeletePost/addGeneratingPost — client+cycle scoped per commit 33f658f) and
  * enqueues the existing quota'd, validated BullMQ shape job for rewrite. Apply is
  * gated by a conditional status transition (only 'pending' proceeds), so a
  * double-approve never double-applies.
@@ -11,14 +11,14 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { db, agentProposals, contentCycles, contentCyclePosts, planActivity, hasRealCaption } from '@sprigly/db';
 import type { AgentProposalRow } from '@sprigly/db';
-import { patchPost, softDeletePost, addDraft, addGeneratedPost, addGeneratingPost } from '../mutations';
+import { patchPost, softDeletePost, addGeneratedPost, addGeneratingPost } from '../mutations';
 import type { ActivityActor } from '../activity';
 import { enqueueShape, enqueueHookJob, enqueueScriptJob } from '../queue';
 
 /** Matches the interactive default and script-ready.ts's fan-out default. */
 const DEFAULT_SCRIPT_SECONDS = 30;
 import { getUsageForCycle, isRewriteBlocked } from '../usage';
-import { startPostGeneration, enqueueFollowOnGeneration } from '../post-generation';
+import { startPostGeneration, enqueueFollowOnGeneration, defaultCaptionBrief } from '../post-generation';
 import { resolvePostForEdit, isEditableDate, canAddPost, editScopeToday } from '../edit-scope';
 import { markNoteIntegrated } from './notes';
 import type { MutatingAction, ProposalPayload, ProposalView } from './types';
@@ -342,28 +342,43 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
       if (!canAddPost(payload.date, today)) return readOnlyFail();   // ADD POLICY: see canAddPost
       const channel = payload.channel ?? await cycleChannel(row.clientId, payload.cycleId);
       const format = payload.format ?? 'single';   // the inferred (or defaulted) format
-      const instruction = payload.instruction?.trim();
-      if (instruction) {
-        // Add-with-instruction: insert the post NOW so it takes its slot, then
-        // generate the caption async. Quota is checked/counted by the shape job.
-        // Quota-block or enqueue failure leaves the post in a failed state (not the
-        // default placeholder) — the approval still succeeds because the post exists.
-        // The title the client's own words gave it (X3) — carried on the payload since the turn
-        // that proposed it, so the row is headed with the line they read on the interpretation.
-        const created = await addGeneratingPost(row.clientId, payload.cycleId, { channel, date: payload.date, instruction, format, title: payload.title ?? null }, agentActor, today);
-        if (!created) return readOnlyFail();
-        const gen = await startPostGeneration(row.clientId, payload.cycleId, created.postId, instruction, today);
-        if ('jobId' in gen) genJobId = gen.jobId;
-        // THE FULL GENERATION (F5): an added carousel gets its hook enqueued alongside the
-        // caption (autoSelect, phase2's own reasoning). An added reel needs nothing here —
-        // the worker enqueues its combined hook+script the moment the caption lands
-        // (consumer.ts → enqueueScriptIfReady), and that chain covers this path already.
-        await enqueueFollowOnGeneration(row.clientId, payload.cycleId, created.postId, format);
-        changedPostIds = [created.postId];
-      } else {
-        const added = await addDraft(row.clientId, payload.cycleId, channel, payload.date, agentActor, format, today, payload.title ?? null);
-        if (added?.mode === 'applied') changedPostIds = added.changedPostIds;
-      }
+      /**
+       * ── THE ENQUEUE GAP (X4) ───────────────────────────────────────────────────────
+       *
+       * This branched. WITH an instruction the post was inserted as `generating` and a shape
+       * job wrote its caption; WITHOUT one it fell to `addDraft` — status 'new', the
+       * scaffolding placeholder in the caption column, and NOTHING enqueued, ever.
+       *
+       * That second post is unrecoverable by design rather than by accident. `isOnTheWay`
+       * is false for 'new', so it does not even read as in flight; the failed-generation
+       * sweep only looks at 'generation_failed'; and the status counts cannot tell it apart
+       * from a post whose generation SUCCEEDED, because a successful generation also
+       * resolves to 'new' (engine/shape.ts). So it sits on the calendar, empty, forever,
+       * and nothing anywhere is looking for it.
+       *
+       * `/api/posts` closed exactly this hole for the client's own add slot and said so in
+       * its own comment — "CAPTION GENERATION ENQUEUES REGARDLESS; AN INSTRUCTION ONLY
+       * STEERS IT". The agent's add path was simply left behind. There is one path now, and
+       * `defaultCaptionBrief` is shared with that route so the neutral brief is one wording.
+       */
+      const instruction = payload.instruction?.trim() || defaultCaptionBrief(payload.date, format);
+      // The title the client's own words gave it (X3) — carried on the payload since the turn
+      // that proposed it, so the row is headed with the line they read on the interpretation.
+      const created = await addGeneratingPost(row.clientId, payload.cycleId, { channel, date: payload.date, instruction, format, title: payload.title ?? null }, agentActor, today);
+      if (!created) return readOnlyFail();
+      // Quota-block or enqueue failure leaves the post in a failed state (not the default
+      // placeholder) — the approval still succeeds because the post exists and the reason is
+      // on the row. Insert THEN enqueue, in that order: a post marked generating with nothing
+      // enqueued is the stuck state the sweep exists to prevent, and the reverse ordering
+      // would create it on every failed insert.
+      const gen = await startPostGeneration(row.clientId, payload.cycleId, created.postId, instruction, today);
+      if ('jobId' in gen) genJobId = gen.jobId;
+      // THE FULL GENERATION (F5): an added carousel gets its hook enqueued alongside the
+      // caption (autoSelect, phase2's own reasoning). An added reel needs nothing here —
+      // the worker enqueues its combined hook+script the moment the caption lands
+      // (consumer.ts → enqueueScriptIfReady), and that chain covers this path already.
+      await enqueueFollowOnGeneration(row.clientId, payload.cycleId, created.postId, format);
+      changedPostIds = [created.postId];
     } else if (payload.kind === 'generate_hook') {
       // Resolve the target (existing reel/carousel, or the post created by the referenced
       // add proposal). If it isn't ready (the create step hasn't been approved yet), this is
