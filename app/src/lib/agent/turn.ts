@@ -13,6 +13,8 @@ import { randomUUID } from 'node:crypto';
 import { loadPlanPosts } from '@/lib/plan';
 import type { PlanPost } from '@/lib/types';
 import { getModelClient, getEmbeddingClient } from '@/lib/agent/model';
+import { createAuditLogger } from '@sprigly/audit';
+import { db } from '@sprigly/db';
 import { parseTasks } from '@/lib/agent/task-parser';
 import { getClientCycleMonths, getCycleMonth, resolveCycleForMonth, cycleDigest } from '@/lib/agent/cycle-state';
 import { loadProductIndex } from '@/lib/agent/catalogue';
@@ -138,6 +140,15 @@ const monthName = (iso: string): string => {
 export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnResponse> {
   const { clientId, cycleId, instruction, source } = args;
 
+  /**
+   * THE COST LEDGER FOR THIS TURN.
+   *
+   * One per turn, shared by both calls that can spend here — the parse (always) and the query
+   * answerer (only on a "query" task). Both write behind their own try/catch, so a ledger that
+   * cannot write never changes what the client is told.
+   */
+  const audit = createAuditLogger(db);
+
   const convId = await ensureConversation(clientId, cycleId, args.conversationId);
   // THE THREAD, read BEFORE this turn's message lands so the window is the conversation as it
   // stood when the client spoke. "Move it back" resolves against the previous exchange, and the
@@ -184,7 +195,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
       recentThread,
       ...(pendingBlock ? { pending: pendingBlock } : {}),
     };
-    tasks = await parseTasks(instruction, ctx, getModelClient());
+    tasks = await parseTasks(instruction, ctx, getModelClient(), { audit, clientId });
   } catch {
     tasks = [{ action: 'clarify', question: 'I couldn’t process that just now. Please try again in a moment.' }];
   }
@@ -394,7 +405,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
         try {
           answer = await answerQuery(
             { clientId, cycleId, question: task.question ?? instruction, today },
-            { model: getModelClient(), embeddingClient: getEmbeddingClient() },
+            { model: getModelClient(), embeddingClient: getEmbeddingClient(), audit },
           );
         } catch { answer = 'I couldn’t look that up just now. Please try again.'; }
         replyParts.push(answer);

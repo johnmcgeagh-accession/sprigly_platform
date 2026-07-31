@@ -26,5 +26,11 @@ export function getEmbeddingClient(): EmbeddingClient {
   return embeddingClient;
 }
 
+// The cost ledger deliberately does NOT live here, though it would sit neatly beside these two.
+// This module is the seam the fixtures stub to keep Bedrock out of the tests, and the ledger is
+// the opposite kind of dependency: it should run for real in a test, writing through a mocked
+// `db` so the reconciliation test can count the rows a session actually produces. `turn.ts`
+// builds it from `createAuditLogger(db)` directly for that reason.
+
 /** Logical model for the agent's synchronous calls (fast + cheap). */
 export const AGENT_MODEL = 'haiku';

@@ -9,6 +9,7 @@
  * downstream.
  */
 import type { ModelClient } from '@sprigly/model-client';
+import type { AuditLogger } from '@sprigly/audit';
 import { AGENT_MODEL } from './model';
 import type { ParsedTask, TaskActionType } from './types';
 
@@ -320,8 +321,28 @@ function normalizeTask(raw: unknown): ParsedTask {
   return amends ? { ...task, amends: true } : task;
 }
 
+/**
+ * THE COST LEDGER FOR THIS CALL.
+ *
+ * The parser is the ONLY entry to the plan agent, so every sheet turn is exactly one call
+ * through here — which makes this the one place a conversational cost can be counted, and made
+ * it the largest unmeasured spend in the product while it wrote nothing. Both fields are
+ * required together: an auditor with no client has nothing to attribute the row to.
+ *
+ * Optional because the fixtures drive `parseTasks` directly with a fake model and no database.
+ */
+export interface ParserAudit {
+  audit:    AuditLogger;
+  clientId: string;
+}
+
 /** Parse a message into an ordered list of tasks. Never throws. */
-export async function parseTasks(text: string, ctx: ParserContext, model: ModelClient): Promise<ParsedTask[]> {
+export async function parseTasks(
+  text: string,
+  ctx: ParserContext,
+  model: ModelClient,
+  ledger?: ParserAudit,
+): Promise<ParsedTask[]> {
   let raw = '';
   try {
     const res = await model.complete({
@@ -332,6 +353,27 @@ export async function parseTasks(text: string, ctx: ParserContext, model: ModelC
       temperature: 0,
     });
     raw = res.content;
+
+    // Logged AFTER a successful call and BEFORE parsing, because the two failures are not the
+    // same event: a call that returned junk still SPENT, and belongs on the ledger; a call that
+    // never returned did not. Auditing must never change what the client gets, so a ledger
+    // failure is swallowed the same way every other call site swallows it.
+    if (ledger) {
+      try {
+        await ledger.audit.logModelCall({
+          clientId: ledger.clientId,
+          modelId: res.modelId, inputTokens: res.inputTokens, outputTokens: res.outputTokens,
+          action: 'plan-agent:parse-tasks',
+          metadata: {
+            viewedMonth: ctx.viewedMonth,
+            // What the turn actually carried, so a spend spike can be read back to its cause
+            // rather than guessed at. Sizes, never content — this is a cost row, not a transcript.
+            hasThread: !!ctx.recentThread, hasPending: !!ctx.pending,
+            digestChars: ctx.planDigest.length, catalogueChars: ctx.productIndex.length,
+          },
+        });
+      } catch { /* auditing must never change the answer */ }
+    }
   } catch {
     return [clarify('I couldn’t process that just now — send it again in a moment.')];
   }

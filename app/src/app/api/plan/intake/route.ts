@@ -19,6 +19,7 @@
 import { NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import { db, contentCycles, clearStructuredBriefIfPrePlanning, PRE_PLANNING_STATUSES } from '@sprigly/db';
+import { createAuditLogger } from '@sprigly/audit';
 import { extractStructuredBrief, distributeBriefAnswers, loadDurableInputs, BASE_QUESTIONS, type IntakeJson, type StructuredBrief } from '@sprigly/engine';
 import type { ExtractedSummary } from '@/lib/types';
 import { getSession } from '@/lib/auth';
@@ -54,7 +55,14 @@ async function extractAndPersistBrief(cycleId: string, cycleMonth: string, intak
     const planMonth = nextMonth(cycleMonth);
     const durableContext = await loadDurableContext(clientId, planMonth);
     const brief = await Promise.race([
-      extractStructuredBrief({ planContent: intake.planContent, planMonth, model: getModelClient(), clientId, durableContext }),
+      extractStructuredBrief({
+        planContent: intake.planContent, planMonth, model: getModelClient(), clientId, durableContext,
+        // The heaviest single call on this route (one Sonnet extraction of the whole brief) and
+        // it was leaving no row. `extractStructuredBrief` has taken an auditor all along and
+        // logs behind `if (audit && clientId)` — clientId was already being passed; the auditor
+        // never was, so the guard silently never fired.
+        audit: createAuditLogger(db),
+      }),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error('extract timeout')), EXTRACT_TIMEOUT_MS)),
     ]);
     await db.update(contentCycles).set({ structuredBrief: brief as unknown, updatedAt: new Date() }).where(eq(contentCycles.id, cycleId));
@@ -91,7 +99,10 @@ function summariseBrief(brief: StructuredBrief): ExtractedSummary {
 async function distributeIntoEmptyAnswers(intake: IntakeJson, questions: string[], clientId: string): Promise<void> {
   try {
     const distributed = await Promise.race([
-      distributeBriefAnswers({ freeNotes: intake.planContent.freeNotes, questions, model: getModelClient(), clientId }),
+      distributeBriefAnswers({
+        freeNotes: intake.planContent.freeNotes, questions, model: getModelClient(), clientId,
+        audit: createAuditLogger(db),
+      }),
       new Promise<Record<string, string>>((resolve) => setTimeout(() => resolve({}), EXTRACT_TIMEOUT_MS)),
     ]);
     for (const [q, a] of Object.entries(distributed)) {

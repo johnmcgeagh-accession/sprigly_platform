@@ -1,0 +1,261 @@
+/**
+ * cost-ledger.test.ts — RECONCILIATION. A sheet session's turns and its ledger rows must agree.
+ *
+ * The failure this exists to prevent is not a wrong number, it is a MISSING ROW. Every call site
+ * on this path logs behind an `if (audit && ...)` guard, which means forgetting to pass the
+ * auditor is silent: the feature works, the client sees their answer, and the spend simply never
+ * appears. That is precisely how the conversational path came to be the largest unmeasured cost
+ * in the product while every unit test stayed green.
+ *
+ * So this test counts. It drives N real turns through `runPlanAgentTurn` with the model faked and
+ * the DATABASE faked but the LEDGER REAL — the actual `DrizzleAuditLogger` and the actual
+ * `computeCostPence` run, writing through a recording `db.insert` — and asserts:
+ *
+ *   · exactly N parse rows for N turns (one call, one row — never zero, never two)
+ *   · one answer row per query turn, and none for turns that asked nothing
+ *   · ledger rows and agent_messages agree: 2N messages (user + assistant) to N parse rows *
+ * It also pins what is NOT yet measured (the Titan query embed), so that gap has to be closed
+ * deliberately rather than discovered again.
+ */
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type { PlanPost } from '../types';
+
+const P = (id: string, date: string, caption: string): PlanPost => ({
+  id, cycleId: 'cyc-aug', clientId: 'c1', channel: 'instagram', date,
+  format: 'single', pillar: 'Style', caption, status: 'planned', reviewState: null, steps: [],
+} as never);
+
+/** A Bedrock cross-region haiku id, so the REAL price map prices it as the real thing. */
+const HAIKU = 'eu.anthropic.claude-haiku-4-5-20251001-v1:0';
+
+interface LedgerRow {
+  clientId: string; action: string; modelId: string | null;
+  inputTokens: number | null; outputTokens: number | null;
+  costPence: string | null; metadata: Record<string, unknown>;
+}
+
+const h = vi.hoisted(() => ({
+  /** Everything the audit logger inserted — this IS the ledger under test. */
+  ledger: [] as Array<Record<string, unknown>>,
+  /** Everything appendMessage persisted — the agent_messages stand-in. */
+  messages: [] as Array<{ role: string; content: string }>,
+  posts: [] as unknown[],
+  /** Canned model replies, consumed in call order; each carries its own token counts. */
+  replies: [] as Array<{ content: string; inputTokens: number; outputTokens: number }>,
+  modelCalls: [] as Array<{ system?: string | undefined }>,
+  /** Titan embed calls — counted to pin that they happen and are NOT logged. */
+  embeds: 0,
+}));
+
+// The database, faked down to the one operation the ledger performs. `insert().values()` is
+// recorded rather than executed; nothing else on this path touches `db` (every other collaborator
+// is stubbed below), so an insert arriving here came from the audit logger.
+vi.mock('@sprigly/db', () => ({
+  db: {
+    insert: () => ({
+      values: (row: Record<string, unknown>) => { h.ledger.push(row); return Promise.resolve(); },
+    }),
+  },
+  auditLog: { __table: 'audit_log' },
+  contentCycles: {}, contentCyclePosts: {}, conversations: {}, agentMessages: {},
+}));
+
+vi.mock('@/lib/plan', () => ({ loadPlanPosts: async () => [...h.posts] }));
+vi.mock('@/lib/agent/catalogue', () => ({ loadProductIndex: async () => '- Maebelle (dress) — navy, cream' }));
+vi.mock('@/lib/e2e-fake', () => ({ e2eTodayIso: () => '2026-08-01', e2eFakeEnabled: () => false }));
+
+// The model, faked — but `parseTasks` and `answerQuery` themselves are REAL, so the audit writes
+// under test are the real ones, reached through the real control flow.
+vi.mock('@/lib/agent/model', () => ({
+  // AGENT_MODEL must be re-exported: `task-parser` imports it from this module, and a mock that
+  // drops it makes the parse throw before the model is ever called — which the parser then
+  // degrades into a clarify, silently, exactly like a Bedrock outage.
+  AGENT_MODEL: 'haiku',
+  getModelClient: () => ({
+    async complete(params: { system?: string }) {
+      h.modelCalls.push({ system: params.system });
+      const next = h.replies.shift() ?? { content: '{"tasks":[]}', inputTokens: 0, outputTokens: 0 };
+      return { ...next, modelId: HAIKU, stopReason: 'end_turn' };
+    },
+    async completeStreaming() { throw new Error('not used'); },
+  }),
+  getEmbeddingClient: () => ({
+    async embed() { h.embeds++; return new Array(1024).fill(0); },
+    async embedBatch() { h.embeds++; return []; },
+    dimensions: 1024,
+  }),
+}));
+
+// Retrieval is real code with a real DB behind it; only its DB half is stubbed. The embedding
+// client above is still called, which is the point — the embed SPENDS and is counted here.
+vi.mock('@sprigly/knowledge', () => ({
+  retrieveChunks: async (_a: unknown, deps: { embeddingClient: { embed: (t: string) => Promise<number[]> } }) => {
+    await deps.embeddingClient.embed('q');
+    return [];
+  },
+}));
+
+vi.mock('@/lib/agent/cycle-state', async (orig) => {
+  const real = await orig<typeof import('./cycle-state')>();
+  const ROWS = [{ id: 'cyc-aug', month: '2026-07', status: 'workbook_built' }];
+  return {
+    ...real,
+    getClientCycleMonths: async (_c: string, viewed: string) => real.describeCycles(ROWS, viewed),
+    getCycleMonth: async () => real.planMonthOf('2026-07'),
+    readCycleState: async () => ({ summary: 'TODAY IS 2026-08-01\n(no posts)', thisWeek: [], nextWeek: [], counts: {} }),
+  };
+});
+
+vi.mock('@/lib/agent/conversation', async (orig) => {
+  const real = await orig<typeof import('./conversation')>();
+  return {
+    ...real,
+    ensureConversation: async (_c: string, _cy: string | null, id?: string) => id ?? 'conv-1',
+    listTurns: async () => [],
+    appendMessage: async (a: { role: string; content: string }) => {
+      h.messages.push({ role: a.role, content: a.content });
+      return `m${h.messages.length}`;
+    },
+  };
+});
+
+vi.mock('@/lib/agent/proposals', () => ({
+  createProposal: async (args: Record<string, unknown>) => ({
+    id: 'pv-1', intent: args.action, summary: args.summary, status: 'pending', changeSetId: args.changeSetId,
+  }),
+  loadPendingPayloads: async () => [],
+  rejectProposal: async () => null,
+}));
+vi.mock('@/lib/agent/notes', () => ({ saveNote: async () => undefined }));
+
+import { runPlanAgentTurn } from './turn';
+
+const ask = (instruction: string) =>
+  runPlanAgentTurn({ clientId: 'c1', cycleId: 'cyc-aug', instruction, source: 'voice', conversationId: 'conv-1' });
+
+const rows = (): LedgerRow[] => h.ledger as unknown as LedgerRow[];
+const rowsFor = (action: string) => rows().filter((r) => r.action === action);
+
+/** A parse reply that yields one clarify task — cheapest possible turn, still a full one. */
+const CLARIFY = { content: '{"tasks":[{"action":"clarify","question":"ok"}]}', inputTokens: 4_500, outputTokens: 40 };
+/** A parse reply that yields a query task, which makes the turn spend a SECOND time. */
+const QUERY  = { content: '{"tasks":[{"action":"query","question":"What is scheduled this week?"}]}', inputTokens: 4_600, outputTokens: 55 };
+/** The answerer's own reply, consumed by the query task's call. */
+const ANSWER = { content: 'Two posts this week.', inputTokens: 900, outputTokens: 30 };
+
+beforeEach(() => {
+  h.ledger.length = 0;
+  h.messages.length = 0;
+  h.modelCalls.length = 0;
+  h.replies.length = 0;
+  h.embeds = 0;
+  h.posts = [P('p-a', '2026-08-03', 'Linen, one more time')];
+});
+
+describe('N turns produce exactly N parse rows', () => {
+  it('one row per turn across a scripted five-turn session', async () => {
+    const N = 5;
+    for (let i = 0; i < N; i++) h.replies.push({ ...CLARIFY });
+
+    for (let i = 0; i < N; i++) await ask(`turn ${i + 1}`);
+
+    expect(rowsFor('plan-agent:parse-tasks')).toHaveLength(N);
+    expect(rows()).toHaveLength(N);                        // nothing else spent, nothing else logged
+  });
+
+  it('the ledger and agent_messages agree — 2N messages to N parse rows', async () => {
+    const N = 4;
+    for (let i = 0; i < N; i++) h.replies.push({ ...CLARIFY });
+
+    for (let i = 0; i < N; i++) await ask(`turn ${i + 1}`);
+
+    expect(h.messages).toHaveLength(2 * N);                            // user + assistant per turn
+    expect(h.messages.filter((m) => m.role === 'user')).toHaveLength(N);
+    expect(rowsFor('plan-agent:parse-tasks')).toHaveLength(h.messages.filter((m) => m.role === 'user').length);
+  });
+
+  it('every row is attributed to the client and names the model that spent', async () => {
+    h.replies.push({ ...CLARIFY });
+    await ask('one turn');
+
+    const [row] = rowsFor('plan-agent:parse-tasks');
+    expect(row!.clientId).toBe('c1');
+    expect(row!.modelId).toBe(HAIKU);
+    expect(row!.inputTokens).toBe(CLARIFY.inputTokens);
+    expect(row!.outputTokens).toBe(CLARIFY.outputTokens);
+  });
+});
+
+describe('a query turn spends twice and says so', () => {
+  it('adds an answer row alongside the parse row', async () => {
+    h.replies.push({ ...QUERY }, { ...ANSWER });
+    await ask('what is scheduled this week?');
+
+    expect(rowsFor('plan-agent:parse-tasks')).toHaveLength(1);
+    expect(rowsFor('plan-agent:answer-query')).toHaveLength(1);
+    expect(rowsFor('plan-agent:answer-query')[0]!.inputTokens).toBe(ANSWER.inputTokens);
+  });
+
+  it('a mixed session reconciles per turn — 3 turns, 1 of them a query, 4 rows', async () => {
+    h.replies.push({ ...CLARIFY }, { ...QUERY }, { ...ANSWER }, { ...CLARIFY });
+
+    await ask('move something');
+    await ask('what is scheduled this week?');
+    await ask('and another thing');
+
+    expect(rowsFor('plan-agent:parse-tasks')).toHaveLength(3);
+    expect(rowsFor('plan-agent:answer-query')).toHaveLength(1);
+    expect(rows()).toHaveLength(4);
+    expect(h.messages).toHaveLength(6);
+  });
+
+  it('a turn that asks nothing writes no answer row', async () => {
+    h.replies.push({ ...CLARIFY });
+    await ask('move something');
+    expect(rowsFor('plan-agent:answer-query')).toHaveLength(0);
+  });
+});
+
+describe('what the row carries for diagnosis', () => {
+  it('records the shape of the turn, not its content', async () => {
+    h.replies.push({ ...CLARIFY });
+    await ask('one turn');
+
+    const meta = rowsFor('plan-agent:parse-tasks')[0]!.metadata;
+    expect(meta).toMatchObject({ viewedMonth: 'August 2026', hasPending: false });
+    expect(typeof meta.digestChars).toBe('number');
+    expect(typeof meta.catalogueChars).toBe('number');
+    // The client's words are NOT on the cost row — that is what agent_messages is for.
+    expect(JSON.stringify(meta)).not.toContain('one turn');
+  });
+
+  it('a model reply that is junk still spent, so it still posts a row', async () => {
+    h.replies.push({ content: 'not json at all', inputTokens: 4_500, outputTokens: 12 });
+    const r = await ask('something');
+
+    expect(rowsFor('plan-agent:parse-tasks')).toHaveLength(1);
+    expect(r.items[0]).toMatchObject({ kind: 'unresolved' });   // degraded to a clarify, as designed
+  });
+});
+
+/**
+ * THE REMAINING GAP, pinned deliberately.
+ *
+ * A query turn makes THREE billable calls, not two: the parse, the answer, and a Titan embedding
+ * of the question inside `retrieveChunks`. Nothing in @sprigly/knowledge takes an auditor, so the
+ * embed is real spend with no row. It is fractions of a fraction of a penny — the Titan rate is
+ * already in the price map — but "too small to matter" is the argument that produced the gap this
+ * whole change is closing, so the shortfall is asserted rather than left to be rediscovered.
+ *
+ * When the embed write lands, this test should FAIL and be updated to expect the row.
+ */
+describe('the embed is spent but not yet measured', () => {
+  it('a query turn embeds once and logs nothing for it', async () => {
+    h.replies.push({ ...QUERY }, { ...ANSWER });
+    await ask('what is scheduled this week?');
+
+    expect(h.embeds).toBe(1);                                          // it happened
+    expect(rows().some((r) => String(r.modelId).includes('titan'))).toBe(false);   // and cost nothing on paper
+    expect(rows()).toHaveLength(2);                                    // 3 calls, 2 rows
+  });
+});

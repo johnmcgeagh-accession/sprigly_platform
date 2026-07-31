@@ -9,6 +9,7 @@
  */
 import type { ModelClient } from '@sprigly/model-client';
 import type { EmbeddingClient } from '@sprigly/embedding-client';
+import type { AuditLogger } from '@sprigly/audit';
 import { retrieveChunks } from '@sprigly/knowledge';
 import { AGENT_MODEL } from './model';
 import { readCycleState } from './cycle-state';
@@ -34,6 +35,9 @@ export interface AnswerQueryArgs {
 export interface AnswerQueryDeps {
   model: ModelClient;
   embeddingClient: EmbeddingClient;
+  /** The cost ledger. Optional: the fixtures call this with a fake model and no database.
+   *  `clientId` rides in on `args`, so unlike the parser this needs no companion field. */
+  audit?: AuditLogger;
 }
 
 export async function answerQuery(args: AnswerQueryArgs, deps: AnswerQueryDeps): Promise<string> {
@@ -70,5 +74,27 @@ ${args.question}`;
     maxTokens: 600,
     temperature: 0,
   });
+
+  // A "query" turn spends TWICE — this answer call, and the Titan embed inside retrieveChunks
+  // above. Only this half reaches the ledger: nothing in @sprigly/knowledge takes an auditor,
+  // so the embed is still unmeasured (see docs/reports/conversational-cost.md §"What is still
+  // dark"). The Titan rate is in the price map ready for it, so the row is honest the day the
+  // write lands rather than needing a rate hunted down then.
+  if (deps.audit) {
+    try {
+      await deps.audit.logModelCall({
+        clientId: args.clientId,
+        modelId: res.modelId, inputTokens: res.inputTokens, outputTokens: res.outputTokens,
+        action: 'plan-agent:answer-query',
+        metadata: {
+          cycleId: args.cycleId,
+          // Whether retrieval contributed. A query answered from plan state alone is a different
+          // cost shape from one that pulled six chunks in, and the row should say which.
+          knowledgeUsed: knowledge !== '(no matching knowledge on file)' && knowledge !== '(knowledge lookup unavailable)',
+        },
+      });
+    } catch { /* auditing must never change the answer */ }
+  }
+
   return res.content.trim();
 }

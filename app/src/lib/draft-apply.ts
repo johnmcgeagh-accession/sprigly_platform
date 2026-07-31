@@ -333,7 +333,13 @@ export async function applyIntakeToDraft(params: {
   const y = Number(cycle.cycleMonth.slice(0, 4)), m = Number(cycle.cycleMonth.slice(5, 7));
   const planMonth = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
 
-  const routing = params.routing ?? await classifyIntake({ text: sourceText, planMonth, model });
+  // On the ledger, like the brief path's segments are (:553). This is the SINGLE-INPUT reshape
+  // branch, and it was the one classify call in the product that spent Bedrock without leaving a
+  // row — not because it was exempt, but because `classifyIntake`'s auditor is optional and this
+  // caller never passed one. `params.routing` short-circuits it (the "add to this month" path
+  // re-routes a backlog item without re-classifying), and that path spends nothing to log.
+  const routing = params.routing
+    ?? await classifyIntake({ text: sourceText, planMonth, model, audit: createAuditLogger(db), clientId });
 
   const base: Omit<DraftApplication, 'scope' | 'lines' | 'changedIds'> = {
     id: receiptId(now.getTime(), sourceText),
