@@ -385,12 +385,16 @@ export function usePlanData(init: PlanDataInit) {
   }, [call, optimistic, posts, crossMonthPosts]);
 
   /** Poll a shape job until it settles; returns the terminal status. */
-  const pollJob = useCallback(async (jobId: string): Promise<'done' | 'error' | 'gone' | 'timeout'> => {
+  const pollJob = useCallback(async (jobId: string, opts: { quiet?: boolean } = {}): Promise<'done' | 'error' | 'gone' | 'timeout'> => {
     for (let i = 0; i < 30; i++) {
       await new Promise((r) => setTimeout(r, 1600));
       let j: { status: string; posts?: PlanPost[]; summary?: string };
       try { const res = await fetch(`/api/jobs/${jobId}`); if (!res.ok) continue; j = (await res.json()) as typeof j; } catch { continue; }
-      if (j.status === 'done') { flash(j.summary ?? 'Updated the caption.'); await refreshPlan(); return 'done'; }
+      // QUIET is for the background batch (F4/G4): three captions landing during one apply
+      // would strobe the one feedback channel with three "Updated the caption." lines, at a
+      // moment the client has already been told what happened. The refetch still runs — the
+      // words arriving on the cards IS the notification.
+      if (j.status === 'done') { if (!opts.quiet) flash(j.summary ?? 'Updated the caption.'); await refreshPlan(); return 'done'; }
       if (j.status === 'error') { return 'error'; }
       if (j.status === 'gone') { await refreshPlan(); return 'gone'; }
     }
@@ -704,8 +708,8 @@ export function usePlanData(init: PlanDataInit) {
    * reason rides back with them so the caller can NAME what didn't happen.
    */
   const decide = useCallback(async (
-    id: string, action: 'approve' | 'reject', opts: { quiet?: boolean } = {},
-  ): Promise<{ ok: boolean; changedPostIds: string[]; reason?: string; retryable?: boolean }> => {
+    id: string, action: 'approve' | 'reject', opts: { quiet?: boolean; deferContent?: boolean } = {},
+  ): Promise<{ ok: boolean; changedPostIds: string[]; reason?: string; retryable?: boolean; jobId?: string; hookPostId?: string }> => {
     const no = { ok: false, changedPostIds: [] as string[] };
     if (proposalBusy) return no;
     setProposalBusy(id);
@@ -735,11 +739,31 @@ export function usePlanData(init: PlanDataInit) {
       track(action === 'approve' ? 'proposal_approved' : 'proposal_discarded', { id });
       if (action === 'approve') {
         if (!opts.quiet) flash('Change approved.');
-        await refreshPlan();
-        if (d.hookPostId && d.jobId) { void pollHookInto(d.hookPostId, d.jobId); }   // hooks surface in the post's hook UI
-        else if (d.jobId) { await pollJob(d.jobId); await refreshPlan(); }
+        /**
+         * ── STRUCTURE IS NOT CONTENT (G4) ──────────────────────────────────────────────
+         *
+         * `deferContent` returns the moment the ROW exists, handing the caller the job to
+         * poll instead of polling it here. It is what a batch apply passes, and the reason is
+         * measured: this function used to `await pollJob(...)` — 1600ms before its first read,
+         * then a model call — INSIDE a loop the batch runs sequentially. Item 2's row was not
+         * written until item 1's CAPTION had been generated. A three-post launch arc put two
+         * model calls on the critical path to drawing three empty cards, and the plan looked
+         * broken for as long as that took.
+         *
+         * The row is already complete when the approve returns (`addGeneratingPost` inserts it
+         * with status 'generating'), and the surface renders that honestly as *On its way*. So
+         * there is nothing the caption is needed FOR here.
+         */
+        if (!opts.deferContent) {
+          await refreshPlan();
+          if (d.hookPostId && d.jobId) { void pollHookInto(d.hookPostId, d.jobId); }   // hooks surface in the post's hook UI
+          else if (d.jobId) { await pollJob(d.jobId); await refreshPlan(); }
+        }
       } else if (!opts.quiet) { flash('Dismissed.'); }
-      return { ok: true, changedPostIds: d.changedPostIds ?? [] };
+      return {
+        ok: true, changedPostIds: d.changedPostIds ?? [],
+        ...(d.jobId ? { jobId: d.jobId } : {}), ...(d.hookPostId ? { hookPostId: d.hookPostId } : {}),
+      };
     } catch { if (!opts.quiet) flash('Network error. Please try again.'); return no; }
     finally { setProposalBusy(null); }
   }, [proposalBusy, flash, refreshPlan, pollJob, pollHookInto, track]);
@@ -775,16 +799,64 @@ export function usePlanData(init: PlanDataInit) {
     const failed: string[] = [];
     const failures: Array<{ proposalId: string; reason: string | null; retryable: boolean }> = [];
     const changedPostIds: string[] = [];
+    /** The content jobs this batch started. Polled AFTER the structure has landed. */
+    const jobs: Array<{ jobId: string; hookPostId?: string }> = [];
+    /** Items a dependency blocked — the proposal is untouched and can be tried again once
+     *  whatever they were waiting for has arrived. */
+    const blocked: string[] = [];
+
+    const approve = async (id: string) => {
+      const r = await decide(id, 'approve', { quiet: true, deferContent: true });
+      if (r.ok) {
+        applied.push(id);
+        changedPostIds.push(...r.changedPostIds);
+        if (r.jobId) jobs.push({ jobId: r.jobId, ...(r.hookPostId ? { hookPostId: r.hookPostId } : {}) });
+        return true;
+      }
+      return r;
+    };
+
+    // ── PASS 1: the STRUCTURE. Approvals only, in order, nothing waiting on a model call.
     for (const id of ids) {
-      const r = await decide(id, 'approve', { quiet: true });
-      if (r.ok) { applied.push(id); changedPostIds.push(...r.changedPostIds); }
-      else {
-        failed.push(id);
-        failures.push({ proposalId: id, reason: r.reason ?? null, retryable: r.retryable ?? true });
+      const r = await approve(id);
+      if (r !== true) {
+        if (r.retryable !== false && r.reason) blocked.push(id);
+        else { failed.push(id); failures.push({ proposalId: id, reason: r.reason ?? null, retryable: r.retryable ?? true }); }
       }
     }
+    // ONE refetch for the batch, not one per item plus one per job. This is the point at which
+    // the client's calendar has every row the apply created, each rendering as *On its way*.
+    await refreshPlan();
+
+    /**
+     * ── PASS 2: what genuinely needed the content ────────────────────────────────────
+     *
+     * A hook or a refine on a reel created in this SAME batch is blocked until its caption
+     * exists — both fields are written from it, so the guard refuses and leaves the proposal
+     * approvable. That dependency is real and is the one thing the old serial `await pollJob`
+     * was buying. It is paid for HERE instead, after the structure is on screen, and only when
+     * something is actually waiting on it.
+     */
+    let settled = 0;   // how many of `jobs` have already been waited on
+    if (blocked.length && jobs.length) {
+      settled = jobs.length;
+      await Promise.all(jobs.slice(0, settled).map((j) => pollJob(j.jobId, { quiet: true })));
+      for (const id of blocked) {
+        const r = await approve(id);
+        if (r !== true) { failed.push(id); failures.push({ proposalId: id, reason: r.reason ?? null, retryable: r.retryable ?? true }); }
+      }
+      await refreshPlan();
+    } else {
+      for (const id of blocked) { failed.push(id); failures.push({ proposalId: id, reason: null, retryable: true }); }
+    }
+    // The rest arrive on their own clock, and each poll refetches when it lands. Deliberately
+    // NOT awaited — this is the half that takes minutes, and nothing is waiting for it.
+    for (const j of jobs.slice(settled)) {
+      if (j.hookPostId) void pollHookInto(j.hookPostId, j.jobId);
+      else void pollJob(j.jobId, { quiet: true });
+    }
     return { applied, failed, failures, changedPostIds: [...new Set(changedPostIds)] };
-  }, [decide]);
+  }, [decide, refreshPlan, pollJob, pollHookInto]);
 
   /** Throw changes away without applying them. Silent — discarding is not news. */
   const discardChanges = useCallback(async (ids: readonly string[]): Promise<void> => {
