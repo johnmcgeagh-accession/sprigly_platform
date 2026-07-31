@@ -8,7 +8,7 @@
  * The parser only PARSES — nothing applies here; mutating tasks become proposals
  * downstream.
  */
-import type { ModelClient } from '@sprigly/model-client';
+import type { ModelClient, MessagePart } from '@sprigly/model-client';
 import type { AuditLogger } from '@sprigly/audit';
 import { AGENT_MODEL } from './model';
 import type { ParsedTask, TaskActionType } from './types';
@@ -185,20 +185,47 @@ export function dayTable(todayIso: string): string {
   return lines.join('\n');
 }
 
-function buildUserMessage(text: string, ctx: ParserContext): string {
-  return `TODAY IS ${ctx.today} (ISO). Anything later than that is in the future; only earlier dates are past.
+/**
+ * THE MESSAGE, SPLIT AT THE CACHE BOUNDARY.
+ *
+ * Every turn of a sheet session re-sends the same several thousand tokens: the system prompt,
+ * the day table, the client's cycle months, the plan digest, and the product catalogue. Only the
+ * last few hundred tokens — the pending change, the thread, and what the client just said —
+ * differ from the turn before. Before this split the two were interleaved, with PENDING and the
+ * thread sitting ABOVE the digest, so the invariant bulk had variable text in front of it and
+ * nothing could be cached: prefix caching matches from the front, and the first differing byte
+ * ends the match.
+ *
+ * So the order is now stability order, not narrative order:
+ *
+ *   [ system prompt ]                    ← invariant for the life of the deploy
+ *   today + day table                    ← invariant for the day
+ *   viewed month + cycle months          ← invariant for the session
+ *   PLAN DIGEST                          ← invariant until the plan changes
+ *   CATALOGUE                            ← invariant until the catalogue changes
+ *   ──────── cache_point ────────
+ *   PENDING                              ← changes per turn
+ *   THE CONVERSATION SO FAR              ← grows every turn
+ *   Client message                       ← always new
+ *
+ * The parts either side of the breakpoint read as one continuous message to the model — a
+ * cache_point is a billing marker, not a separator — so the prompt's MEANING is unchanged. What
+ * moved is where PENDING and the thread sit relative to the digest, and they read at least as
+ * naturally there: context first, then the conversation, then the thing being said.
+ *
+ * Two ways this silently does nothing, both worth knowing before reading a flat cost line as
+ * proof it works: a prefix shorter than the model's minimum cacheable length is not cached and
+ * no error is raised, and the digest changing between turns (the client applied something) ends
+ * the match for that turn. Both show up as `cacheReadTokens: 0` on the audit row, which is why
+ * that field is recorded.
+ */
+function buildUserMessage(text: string, ctx: ParserContext): MessagePart[] {
+  const invariant = `TODAY IS ${ctx.today} (ISO). Anything later than that is in the future; only earlier dates are past.
 
 THE NEXT 14 DAYS (resolve every relative reference from this table):
 ${dayTable(ctx.today)}
 
 The client is looking at ${ctx.viewedMonth}. Resolve bare dates ("the 5th", "Saturday") in ${ctx.viewedMonth} unless they name another month.
-${ctx.pending ? `
-PENDING — the client is looking at this change and has NOT applied it. An ambiguous correction amends IT:
-${ctx.pending}
-` : ''}${ctx.recentThread ? `
-THE CONVERSATION SO FAR (oldest first — "it"/"move it back" resolve against this):
-${ctx.recentThread}
-` : ''}
 
 The client's content-plan months (every one of these is theirs to work on; a post can be changed whenever its own date is today or later, whatever the month's status says):
 ${ctx.cycleMonths}
@@ -207,12 +234,35 @@ PLAN DIGEST — ${ctx.viewedMonth}, the month on screen (by date):
 ${ctx.planDigest}
 
 CATALOGUE (this client's products):
-${ctx.productIndex}
+${ctx.productIndex}`;
+
+  const variable = `${ctx.pending ? `
+PENDING — the client is looking at this change and has NOT applied it. An ambiguous correction amends IT:
+${ctx.pending}
+` : ''}${ctx.recentThread ? `
+THE CONVERSATION SO FAR (oldest first — "it"/"move it back" resolve against this):
+${ctx.recentThread}
+` : ''}
 
 Client message:
 """
 ${text}
 """`;
+
+  return [
+    { type: 'text', text: invariant },
+    { type: 'cache_point' },
+    { type: 'text', text: variable },
+  ];
+}
+
+/** The message as one string — what the fixtures assert against, and what a provider without
+ *  caching effectively receives. Keeps the split above from becoming untestable. */
+export function renderUserMessage(text: string, ctx: ParserContext): string {
+  return buildUserMessage(text, ctx)
+    .filter((p): p is Extract<MessagePart, { type: 'text' }> => p.type === 'text')
+    .map((p) => p.text)
+    .join('');
 }
 
 function extractJson(raw: string): unknown {
@@ -370,6 +420,8 @@ export async function parseTasks(
             // rather than guessed at. Sizes, never content — this is a cost row, not a transcript.
             hasThread: !!ctx.recentThread, hasPending: !!ctx.pending,
             digestChars: ctx.planDigest.length, catalogueChars: ctx.productIndex.length,
+            ...(res.cacheReadTokens !== undefined ? { cacheReadTokens: res.cacheReadTokens } : {}),
+            ...(res.cacheWriteTokens !== undefined ? { cacheWriteTokens: res.cacheWriteTokens } : {}),
           },
         });
       } catch { /* auditing must never change the answer */ }

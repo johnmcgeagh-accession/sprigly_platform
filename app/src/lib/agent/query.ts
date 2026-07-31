@@ -91,6 +91,8 @@ ${args.question}`;
           // Whether retrieval contributed. A query answered from plan state alone is a different
           // cost shape from one that pulled six chunks in, and the row should say which.
           knowledgeUsed: knowledge !== '(no matching knowledge on file)' && knowledge !== '(knowledge lookup unavailable)',
+          ...(res.cacheReadTokens !== undefined ? { cacheReadTokens: res.cacheReadTokens } : {}),
+          ...(res.cacheWriteTokens !== undefined ? { cacheWriteTokens: res.cacheWriteTokens } : {}),
         },
       });
     } catch { /* auditing must never change the answer */ }

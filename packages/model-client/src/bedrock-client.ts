@@ -10,7 +10,7 @@ import {
   type ToolConfiguration,
   type ToolInputSchema,
 } from '@aws-sdk/client-bedrock-runtime';
-import type { ModelClient, ModelCompleteParams, ModelCompleteResult, AnthropicTool } from './types.js';
+import type { ModelClient, ModelCompleteParams, ModelCompleteResult, ModelMessage, AnthropicTool } from './types.js';
 
 const MAX_TOOL_TURNS      = 20;
 const THROTTLE_RETRIES    = 3;
@@ -60,6 +60,24 @@ async function* idleTimeoutIterator<T>(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * One message → Bedrock Converse content blocks.
+ *
+ * A `cache_point` part becomes a `cachePoint` block, which is how Converse marks a prefix
+ * boundary: everything the request renders before it (tools → system → earlier messages →
+ * earlier blocks of this one) becomes the cacheable prefix. It is a MARKER, not content — the
+ * model sees the text either side as continuous, so splitting a message around one changes the
+ * prompt's cost, never its meaning.
+ */
+function toContentBlocks(m: ModelMessage): ContentBlock[] {
+  if (typeof m.content === 'string') return [{ text: m.content }] as ContentBlock[];
+  return m.content.map((p): ContentBlock =>
+    p.type === 'cache_point'
+      ? ({ cachePoint: { type: 'default' } } as ContentBlock)
+      : ({ text: p.text } as ContentBlock),
+  );
 }
 
 function buildToolConfig(tools?: unknown[]): ToolConfiguration | undefined {
@@ -159,13 +177,16 @@ export class BedrockClient implements ModelClient {
   async complete(params: ModelCompleteParams): Promise<ModelCompleteResult> {
     const messages: Message[] = params.messages.map((m) => ({
       role: m.role,
-      content: [{ text: m.content }] as ContentBlock[],
+      content: toContentBlocks(m),
     }));
 
     const toolConfig = buildToolConfig(params.tools);
 
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
+    let totalCacheRead = 0;
+    let totalCacheWrite = 0;
+    let sawCacheUsage = false;
     let finalText = '';
     let finalStopReason = 'end_turn';
     let turnsUsed = 0;
@@ -190,6 +211,17 @@ export class BedrockClient implements ModelClient {
       const turnOutput = response.usage?.outputTokens ?? 0;
       totalInputTokens  += turnInput;
       totalOutputTokens += turnOutput;
+      // Cache counters are reported SEPARATELY from inputTokens, and are absent entirely on a
+      // request with no cachePoint (or a model that ignores it). `sawCacheUsage` distinguishes
+      // "cached nothing" from "caching not in play", which is the difference between a silent
+      // miss to investigate and a call that never asked.
+      const turnCacheRead  = response.usage?.cacheReadInputTokens;
+      const turnCacheWrite = response.usage?.cacheWriteInputTokens;
+      if (turnCacheRead !== undefined || turnCacheWrite !== undefined) {
+        sawCacheUsage = true;
+        totalCacheRead  += turnCacheRead  ?? 0;
+        totalCacheWrite += turnCacheWrite ?? 0;
+      }
       finalStopReason = response.stopReason ?? 'end_turn';
 
       const content = response.output?.message?.content ?? [];
@@ -200,6 +232,7 @@ export class BedrockClient implements ModelClient {
       console.info(
         `[bedrock] turn=${turnsUsed} model=${params.model} ` +
         `inputTokens=${turnInput} outputTokens=${turnOutput} stopReason=${finalStopReason} ` +
+        (sawCacheUsage ? `cacheRead=${turnCacheRead ?? 0} cacheWrite=${turnCacheWrite ?? 0} ` : '') +
         `contentLength=${turnText.length}`,
       );
       if (turnText.length > 0) {
@@ -295,6 +328,7 @@ export class BedrockClient implements ModelClient {
       modelId: params.model,
       stopReason: finalStopReason,
       ...(turnsUsed > 1 && { toolTurns: turnsUsed }),
+      ...(sawCacheUsage && { cacheReadTokens: totalCacheRead, cacheWriteTokens: totalCacheWrite }),
     };
   }
 
@@ -303,7 +337,7 @@ export class BedrockClient implements ModelClient {
       modelId: params.model,
       messages: params.messages.map((m) => ({
         role: m.role,
-        content: [{ text: m.content }],
+        content: toContentBlocks(m),
       })),
       ...(params.system !== undefined && { system: [{ text: params.system }] }),
       inferenceConfig: { maxTokens: params.maxTokens ?? 4096 },
@@ -313,6 +347,7 @@ export class BedrockClient implements ModelClient {
     const stream    = idleTimeoutIterator(rawStream, STREAM_IDLE_MS);
 
     let text = '', inputTokens = 0, outputTokens = 0, stopReason = 'end_turn';
+    let cacheRead: number | undefined, cacheWrite: number | undefined;
 
     for await (const event of stream) {
       if (event.contentBlockDelta?.delta?.text) text += event.contentBlockDelta.delta.text;
@@ -320,13 +355,21 @@ export class BedrockClient implements ModelClient {
       if (event.metadata?.usage) {
         inputTokens  = event.metadata.usage.inputTokens  ?? 0;
         outputTokens = event.metadata.usage.outputTokens ?? 0;
+        cacheRead    = event.metadata.usage.cacheReadInputTokens;
+        cacheWrite   = event.metadata.usage.cacheWriteInputTokens;
       }
     }
 
+    const cached = cacheRead !== undefined || cacheWrite !== undefined;
     console.info(
       `[bedrock] stream model=${params.model} inputTokens=${inputTokens} ` +
-      `outputTokens=${outputTokens} stopReason=${stopReason} contentLength=${text.length}`,
+      `outputTokens=${outputTokens} stopReason=${stopReason} ` +
+      (cached ? `cacheRead=${cacheRead ?? 0} cacheWrite=${cacheWrite ?? 0} ` : '') +
+      `contentLength=${text.length}`,
     );
-    return { content: text, inputTokens, outputTokens, modelId: params.model, stopReason };
+    return {
+      content: text, inputTokens, outputTokens, modelId: params.model, stopReason,
+      ...(cached && { cacheReadTokens: cacheRead ?? 0, cacheWriteTokens: cacheWrite ?? 0 }),
+    };
   }
 }
