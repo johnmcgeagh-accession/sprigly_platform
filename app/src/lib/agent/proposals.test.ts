@@ -300,7 +300,8 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     h.claimQueue = [[{ ...moveRow, intent: 'add_post', payload: { kind: 'add', cycleId: 'cycle-1', date: '2026-07-15', channel: 'instagram', instruction: 'a post about the linen restock' } }]];
     const r = await approveProposal(CLIENT, 'prop-1', 'client');
     expect(r.proposal?.status).toBe('applied');
-    expect(h.addGenerating).toHaveBeenCalledWith(CLIENT, 'cycle-1', { channel: 'instagram', date: '2026-07-15', instruction: 'a post about the linen restock', format: 'single' }, { origin: 'agent', actor: 'client', refProposalId: 'prop-1' }, '2026-07-11');
+    // `title` (X3) rides on the spec — null here because this payload states no subject line.
+    expect(h.addGenerating).toHaveBeenCalledWith(CLIENT, 'cycle-1', { channel: 'instagram', date: '2026-07-15', instruction: 'a post about the linen restock', format: 'single', title: null }, { origin: 'agent', actor: 'client', refProposalId: 'prop-1' }, '2026-07-11');
     expect(h.startGen).toHaveBeenCalledTimes(1);
     expect(h.startGen).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'post-new', 'a post about the linen restock', '2026-07-11');
     expect(r.jobId).toBe('shape_cycle-1_post-new');
@@ -337,7 +338,7 @@ describe('approve applies deterministically, scoped + idempotent', () => {
     h.claimQueue = [[{ ...moveRow, intent: 'add_post', payload: { kind: 'add', cycleId: 'cycle-1', date: '2026-07-15', channel: 'instagram' } }]];
     const r = await approveProposal(CLIENT, 'prop-1', 'client');
     expect(r.proposal?.status).toBe('applied');
-    expect(h.add).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'instagram', '2026-07-15', { origin: 'agent', actor: 'client', refProposalId: 'prop-1' }, 'single', '2026-07-11');
+    expect(h.add).toHaveBeenCalledWith(CLIENT, 'cycle-1', 'instagram', '2026-07-15', { origin: 'agent', actor: 'client', refProposalId: 'prop-1' }, 'single', '2026-07-11', null);
     expect(h.addGenerating).not.toHaveBeenCalled();
     expect(h.startGen).not.toHaveBeenCalled();
     expect(r.jobId).toBeUndefined();

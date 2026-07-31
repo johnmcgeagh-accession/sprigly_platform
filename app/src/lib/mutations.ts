@@ -131,7 +131,7 @@ export async function patchPost(clientId: string, cycleId: string, postId: strin
 /** Add a draft post (status 'new', placeholder caption) at a given date. `format` is the
  *  post's format (reel/carousel/single; default single — email is not creatable). Records
  *  a post_created ledger row atomically. */
-export async function addDraft(clientId: string, cycleId: string, channel: string, date: string, actor: ActivityActor = USER_ACTOR, format = 'single', today: string = editScopeToday()): Promise<ShapeResult | null> {
+export async function addDraft(clientId: string, cycleId: string, channel: string, date: string, actor: ActivityActor = USER_ACTOR, format = 'single', today: string = editScopeToday(), title?: string | null): Promise<ShapeResult | null> {
   if (!canAddPost(date, today)) return null;   // ADD POLICY: see canAddPost
   const fmt: PostFormat = FORMATS.has(format as PostFormat) && format !== 'email' ? (format as PostFormat) : 'single';
   // place it last
@@ -155,7 +155,8 @@ export async function addDraft(clientId: string, cycleId: string, channel: strin
         caption:       DRAFT_PLACEHOLDER_CAPTION,
         status:        'new',
         position,
-        sourceMeta:    {},   // no original → revert removes it
+        // No original → revert removes it. A stated subject rides in as the slot title (X3).
+        sourceMeta:    title?.trim() ? { title: title.trim() } : {},
       })
       .returning({ id: contentCyclePosts.id });
     newId = created?.id ?? null;
@@ -204,7 +205,13 @@ export async function addGeneratedPost(
  *  source_meta so a failed generation can be retried. Returns the new post id. */
 export async function addGeneratingPost(
   clientId: string, cycleId: string,
-  spec: { channel: string; date: string; instruction: string; format?: string | null },
+  /**
+   * `title` (X3) is the SLOT TITLE — what every surface reads for the card's heading
+   * (`card-text.ts`). Optional, and absent means absent: a post added with no stated subject
+   * genuinely has no title yet, and "Untitled" is the honest rendering of that. What was wrong
+   * before is that a post added WITH a subject had none either.
+   */
+  spec: { channel: string; date: string; instruction: string; format?: string | null; title?: string | null },
   actor: ActivityActor = USER_ACTOR, today: string = editScopeToday(),
 ): Promise<{ postId: string } | null> {
   if (!canAddPost(spec.date, today)) return null;   // ADD POLICY: see canAddPost
@@ -225,7 +232,7 @@ export async function addGeneratingPost(
         clientId, cycleId, channel: spec.channel,
         scheduledDate: spec.date, format: fmt, pillar: 'New idea', caption: '',
         status: 'generating', position,
-        sourceMeta: { pendingInstruction: spec.instruction },
+        sourceMeta: { pendingInstruction: spec.instruction, ...(spec.title?.trim() ? { title: spec.title.trim() } : {}) },
       })
       .returning({ id: contentCyclePosts.id });
     newId = created!.id;

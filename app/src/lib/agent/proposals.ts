@@ -348,7 +348,9 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
         // generate the caption async. Quota is checked/counted by the shape job.
         // Quota-block or enqueue failure leaves the post in a failed state (not the
         // default placeholder) — the approval still succeeds because the post exists.
-        const created = await addGeneratingPost(row.clientId, payload.cycleId, { channel, date: payload.date, instruction, format }, agentActor, today);
+        // The title the client's own words gave it (X3) — carried on the payload since the turn
+        // that proposed it, so the row is headed with the line they read on the interpretation.
+        const created = await addGeneratingPost(row.clientId, payload.cycleId, { channel, date: payload.date, instruction, format, title: payload.title ?? null }, agentActor, today);
         if (!created) return readOnlyFail();
         const gen = await startPostGeneration(row.clientId, payload.cycleId, created.postId, instruction, today);
         if ('jobId' in gen) genJobId = gen.jobId;
@@ -359,7 +361,7 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
         await enqueueFollowOnGeneration(row.clientId, payload.cycleId, created.postId, format);
         changedPostIds = [created.postId];
       } else {
-        const added = await addDraft(row.clientId, payload.cycleId, channel, payload.date, agentActor, format, today);
+        const added = await addDraft(row.clientId, payload.cycleId, channel, payload.date, agentActor, format, today, payload.title ?? null);
         if (added?.mode === 'applied') changedPostIds = added.changedPostIds;
       }
     } else if (payload.kind === 'generate_hook') {

@@ -51,6 +51,25 @@ export function postTitle(p: Pick<PlanPost, 'caption' | 'pillar'>): string {
 }
 
 /**
+ * THE ROW'S TITLE, FROM THE CLIENT'S OWN SUBJECT (X3).
+ *
+ * `source_meta.title` is what every surface reads for a card's heading (`card-text.ts`), and an
+ * agent-added post never had one — so a launch arc the interpretation named "Oak tree tease" and
+ * "Oak tree launch" landed on the calendar as two rows both reading *Untitled*, indistinguishable
+ * until a caption had been generated and a heading could be derived from its first sentence.
+ *
+ * The subject the parser extracted IS the title, and it is the client's own words rather than
+ * something generation has to invent later. Trimmed of a trailing stop (a title is not a
+ * sentence) and capped at the same 44 characters `postTitle` uses, so a heading written here and
+ * a heading derived from a caption are never a different shape.
+ */
+export function titleFromSubject(subject: string | null | undefined): string | null {
+  const s = (subject ?? '').trim().replace(/\s+/g, ' ').replace(/[.。]+$/, '').trim();
+  if (!s) return null;
+  return s.length > 44 ? `${s.slice(0, 43)}…` : s;
+}
+
+/**
  * Candidate posts a textual reference could mean: weekday, day-number, a format
  * noun, or a pillar keyword. Returns all matches (0, 1, or many).
  *

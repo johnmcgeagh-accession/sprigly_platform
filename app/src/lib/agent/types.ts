@@ -121,7 +121,10 @@ export type ProposalPayload =
   | { kind: 'delete';  cycleId: string; postId: string }
   | { kind: 'rewrite'; cycleId: string; postId: string; instruction: string }
   | { kind: 'format';  cycleId: string; postId: string; format: string }
-  | { kind: 'add';     cycleId: string; date: string; channel: string | null; instruction?: string | null; format?: string | null }
+  // `title` (X3) is the SUBJECT the client named, carried to the row so the card has a heading
+  // the moment it exists — the same string the interpretation line showed them. Without it an
+  // agent-added post renders "Untitled" until a caption lands and one can be derived.
+  | { kind: 'add';     cycleId: string; date: string; channel: string | null; instruction?: string | null; format?: string | null; title?: string | null }
   // generate_hook enqueues the existing hook engine job on approve. The target is EITHER an
   // existing reel/carousel (postId set) OR a post created earlier in the SAME ask by an
   // add proposal (refProposalId set, postId null) — resolved at apply time from the ledger

@@ -18,7 +18,7 @@ import { parseTasks } from '@/lib/agent/task-parser';
 import { resolveCycleForMonth } from '@/lib/agent/cycle-state';
 import { buildPlanContext } from '@/lib/agent/plan-context';
 import { loadProductIndex } from '@/lib/agent/catalogue';
-import { resolveTargets, resolveMoveSource, postTitle, parseISO } from '@/lib/agent/selectors';
+import { resolveTargets, resolveMoveSource, postTitle, titleFromSubject, parseISO } from '@/lib/agent/selectors';
 import { moveSummary, deleteSummary, rewriteSummary, addSummary, formatSummary, generateHookSummary, refineSummary } from '@/lib/agent/summaries';
 import { ensureConversation, appendMessage, listTurns, threadForParser, latestPendingIntent, intentForParser } from '@/lib/agent/conversation';
 import { createProposal, loadPendingPayloads, rejectProposal } from '@/lib/agent/proposals';
@@ -433,7 +433,10 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
         // the transcript echo this whole rendering exists to replace.
         const subject = task.instruction?.trim() || null;
         const pv = await propose('add_post',
-          { kind: 'add', cycleId: destCycle, date, channel: task.channel ?? null, instruction: subject, format },
+          // X3: the TITLE travels with the change. It is the same string the interpretation line
+          // below shows, so the row the client gets is headed with what they read and consented
+          // to — rather than landing as "Untitled" until a caption exists to derive one from.
+          { kind: 'add', cycleId: destCycle, date, channel: task.channel ?? null, instruction: subject, format, title: titleFromSubject(subject) },
           addSummary(date, format, inferred, task.reason, task.instruction),
           { action: 'add', title: subject, toDate: date, format });
         lastAdd = { proposalId: pv.id, format, topic: subject || task.reason?.trim() || 'the new post' };
