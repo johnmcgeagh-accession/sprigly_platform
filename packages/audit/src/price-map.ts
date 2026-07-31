@@ -6,7 +6,7 @@
 // To update: adjust the RATES table below. No other files need changing —
 // computeCostPence() detects family and provider from the model ID string.
 
-type ModelFamily   = 'haiku' | 'sonnet' | 'opus';
+type ModelFamily   = 'haiku' | 'sonnet' | 'opus' | 'titan';
 type ModelProvider = 'anthropic' | 'bedrock';
 
 interface TokenRates { inputPer1M: number; outputPer1M: number }
@@ -24,12 +24,28 @@ const RATES: Record<ModelFamily, Record<ModelProvider, TokenRates>> = {
     anthropic: { inputPer1M: 1180, outputPer1M: 5930 },  // $15.00/$75.00/MTok
     bedrock:   { inputPer1M: 1357, outputPer1M: 6820 },  // × 1.15; placeholder — not yet available on Bedrock eu-west-2
   },
+  // Amazon Titan Text Embeddings V2 — $0.02/MTok input, no output tokens.
+  // 0.02 USD × 79 p/USD = 1.58 p per 1M, i.e. ~0.00008p for a typical query embed —
+  // which the Math.ceil below cannot yet represent. That is a separate defect; the RATE
+  // belongs in the table either way, so a Titan call stops pricing as a hard zero.
+  //
+  // BOTH provider rows carry the same number, and that is not an oversight: Titan is an
+  // Amazon model with no Anthropic equivalent, and it is invoked DIRECTLY (InvokeModel with
+  // the bare id `amazon.titan-embed-text-v2:0`) rather than through a cross-region inference
+  // profile — so it carries no cross-region premium AND it does not match the `eu.`/`us.`
+  // prefix detectProvider() keys on. Writing the rate once per provider keeps the table's
+  // shape uniform and makes the answer right whichever way the id is classified.
+  titan: {
+    anthropic: { inputPer1M: 1.58, outputPer1M: 0 },
+    bedrock:   { inputPer1M: 1.58, outputPer1M: 0 },
+  },
 };
 
 function detectFamily(modelId: string): ModelFamily | null {
   if (modelId.includes('haiku'))  return 'haiku';
   if (modelId.includes('sonnet')) return 'sonnet';
   if (modelId.includes('opus'))   return 'opus';
+  if (modelId.includes('titan'))  return 'titan';
   return null;
 }
 
