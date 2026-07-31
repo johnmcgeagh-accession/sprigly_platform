@@ -24,7 +24,7 @@
  */
 import { and, desc, eq } from 'drizzle-orm';
 import { db, conversations, agentMessages } from '@sprigly/db';
-import type { InterpretedItem } from './types';
+import type { InterpretedItem, PendingIntent } from './types';
 
 /**
  * Start a conversation for this cycle and return its id. One per sheet open — the SESSION is
@@ -84,6 +84,10 @@ export interface ConversationTurn {
   items?: InterpretedItem[];
   changeSetId?: string | null;
   proposalIds?: string[];
+  /** The change this turn was still ASSEMBLING when it asked its question (G1). Stored on the
+   *  message rather than on the conversation: an intent belongs to the turn that asked, so a
+   *  turn that resolves it simply carries none, and no row needs clearing. */
+  pendingIntent?: PendingIntent | null;
 }
 
 /** The most recent `limit` turns of a conversation, oldest first. Ownership is enforced by the
@@ -103,6 +107,8 @@ export async function listTurns(clientId: string, conversationId: string, limit 
     const meta = (r.metadata ?? {}) as Record<string, unknown>;
     const items = Array.isArray(meta['items']) ? (meta['items'] as InterpretedItem[]) : undefined;
     const proposalIds = Array.isArray(meta['proposalIds']) ? (meta['proposalIds'] as string[]) : undefined;
+    const pi = meta['pendingIntent'];
+    const pendingIntent = pi && typeof pi === 'object' ? (pi as PendingIntent) : undefined;
     return {
       id: r.id,
       role: (r.role === 'assistant' ? 'assistant' : 'user') as 'user' | 'assistant',
@@ -112,6 +118,7 @@ export async function listTurns(clientId: string, conversationId: string, limit 
       ...(items ? { items } : {}),
       ...(meta['changeSetId'] !== undefined ? { changeSetId: (meta['changeSetId'] as string | null) } : {}),
       ...(proposalIds ? { proposalIds } : {}),
+      ...(pendingIntent ? { pendingIntent } : {}),
     };
   });
 }
@@ -121,13 +128,28 @@ export async function listTurns(clientId: string, conversationId: string, limit 
  * assistant turn that carried an interpretation is serialised from its RESOLVED items (title +
  * ISO dates), because "move it back" resolves against what actually happened, not against
  * "Proposed 1 change for review." — the prose fallback says nothing a reference can grip.
+ *
+ * ── A QUESTION IS NOT A FAILURE (G1) ─────────────────────────────────────────────────
+ *
+ * An `unresolved` item used to serialise as `could not do: <question>`. The question text was
+ * there — the raspberry thread's "Is it new, or an existing one coming back?" reached the
+ * parser verbatim — but it arrived under a label that says the ask was DROPPED. Nothing in
+ * that line tells a model that a reply is outstanding, so the next utterance had nothing to be
+ * an answer TO, and "Reels" could only be read as a fresh, verbless request.
+ *
+ * `unresolved` carries two different states and the label now distinguishes them: a genuine
+ * dead end (`could not do:`) and an open question (`asked:`). A question is one that ends in a
+ * question mark — which is what the thing itself is, rather than a flag someone has to
+ * remember to set.
  */
 export function threadForParser(turns: readonly ConversationTurn[], maxTurns = 12): string {
   const recent = turns.slice(-maxTurns);
   if (!recent.length) return '';
   const lineOf = (i: InterpretedItem): string => {
     if (i.kind === 'idea') return `saved idea: "${i.text}"`;
-    if (i.kind === 'unresolved') return `could not do: ${i.question}`;
+    if (i.kind === 'unresolved') {
+      return /\?\s*$/.test(i.question) ? `asked: "${i.question}"` : `could not do: ${i.question}`;
+    }
     const dates = [i.fromDate, i.toDate].filter(Boolean).join(' → ');
     return `${i.action} "${i.title ?? 'post'}"${dates ? ` ${dates}` : ''}${i.format ? ` (${i.format})` : ''}`;
   };
@@ -139,6 +161,44 @@ export function threadForParser(turns: readonly ConversationTurn[], maxTurns = 1
     })
     .filter((l) => l.length > 'ASSISTANT: '.length)
     .join('\n');
+}
+
+/**
+ * The intent still being assembled, if any — the last assistant turn's, and only the LAST.
+ *
+ * An intent belongs to the turn that asked for the missing slot. If the turn after it carried
+ * none, the assembly either resolved or the client walked away from it, and either way there is
+ * nothing left to merge an answer into. Reaching further back would resurrect an ask the
+ * conversation has already moved past, which is the wall-of-history failure the per-session
+ * ruling exists to prevent, in miniature.
+ */
+export function latestPendingIntent(turns: readonly ConversationTurn[]): PendingIntent | null {
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const t = turns[i]!;
+    if (t.role !== 'assistant') continue;
+    return t.pendingIntent ?? null;
+  }
+  return null;
+}
+
+/** The intent, as the parser reads it: the slots that are filled, the ones that are not, and
+ *  the question the last turn asked. Empty string when nothing is being assembled. */
+export function intentForParser(intent: PendingIntent | null | undefined): string {
+  if (!intent) return '';
+  const s = intent.slots ?? {};
+  const line = (name: string, v: unknown) =>
+    `- ${name}: ${v === null || v === undefined || v === '' ? '(not yet said)' : String(v)}`;
+  const asked = intent.asked?.length ? `\nALREADY ASKED ABOUT: ${intent.asked.join(', ')} — do not ask about these again.` : '';
+  return [
+    `A ${intent.action} is being assembled across turns. What is known so far:`,
+    line('subject', s.subject),
+    line('angle', s.angle),
+    line('format', s.format),
+    line('count', s.count),
+    line('date', s.date),
+    intent.question ? `YOUR LAST TURN ASKED: "${intent.question}"` : '',
+    asked,
+  ].filter(Boolean).join('\n');
 }
 
 /** Append a message and bump the conversation's last_message_at. Returns the id. */

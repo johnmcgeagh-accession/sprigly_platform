@@ -20,12 +20,12 @@ import { getClientCycleMonths, getCycleMonth, resolveCycleForMonth, cycleDigest 
 import { loadProductIndex } from '@/lib/agent/catalogue';
 import { resolveTargets, resolveMoveSource, postTitle, parseISO } from '@/lib/agent/selectors';
 import { moveSummary, deleteSummary, rewriteSummary, addSummary, formatSummary, generateHookSummary, refineSummary } from '@/lib/agent/summaries';
-import { ensureConversation, appendMessage, listTurns, threadForParser } from '@/lib/agent/conversation';
+import { ensureConversation, appendMessage, listTurns, threadForParser, latestPendingIntent, intentForParser } from '@/lib/agent/conversation';
 import { createProposal, loadPendingPayloads, rejectProposal } from '@/lib/agent/proposals';
 import { saveNote } from '@/lib/agent/notes';
 import { answerQuery } from '@/lib/agent/query';
 import { editScopeToday, isEditableDate } from '@/lib/edit-scope';
-import type { AgentTurnResponse, InterpretedItem, ParsedTask, ProposalView } from '@/lib/agent/types';
+import type { AgentTurnResponse, InterpretedItem, ParsedTask, PendingIntent, ProposalView } from '@/lib/agent/types';
 
 export interface AgentTurnArgs {
   clientId:        string;
@@ -170,7 +170,23 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
   // previous exchange is what this captures — assistant turns serialised from their RESOLVED
   // items (titles + ISO dates), never from prose.
   let recentThread = '';
-  try { recentThread = threadForParser(await listTurns(clientId, convId)); }
+  /**
+   * ── THE PENDING INTENT (G1) ──────────────────────────────────────────────────────────
+   *
+   * The change the LAST assistant turn was still assembling when it asked its question. It
+   * rides into the prompt as its own block so this utterance is read as the ANSWER before it
+   * is read as anything else — which is the whole of the raspberry failure: "Reels" had no
+   * question to belong to, so it could only be a verbless noun to ask about.
+   *
+   * Read from the SAME listTurns call as the thread, because it is the same fact about the
+   * same conversation and a second read could disagree with the first.
+   */
+  let openIntent: PendingIntent | null = null;
+  try {
+    const turns = await listTurns(clientId, convId);
+    recentThread = threadForParser(turns);
+    openIntent = latestPendingIntent(turns);
+  }
   catch { /* an unreadable thread degrades to a threadless turn, never a failed one */ }
   const userMeta: Record<string, unknown> = { source };
   if (args.sessionId) userMeta.sessionId = args.sessionId;
@@ -211,6 +227,7 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
       productIndex: await loadProductIndex(clientId, 'instagram'),
       recentThread,
       ...(pendingBlock ? { pending: pendingBlock } : {}),
+      ...(openIntent ? { intent: intentForParser(openIntent) } : {}),
     };
     tasks = await parseTasks(instruction, ctx, getModelClient(), { audit, clientId });
   } catch {
@@ -438,6 +455,26 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
     }
   }
 
+  /**
+   * ── WHAT THIS TURN IS STILL ASSEMBLING ───────────────────────────────────────────────
+   *
+   * The intent the parser attached to a clarify, if it attached one — the change we are still
+   * writing down, carried on this turn so the NEXT one can read the client's reply as its
+   * answer. It is stored on the message rather than on the conversation, which means a turn
+   * that RESOLVES the assembly simply carries none and nothing has to be cleared: the intent
+   * dies with the turn that stopped asking.
+   *
+   * The question the client actually saw is stamped onto it here rather than trusted from the
+   * model, because `cannot()` above is what put those words on the screen and the two must be
+   * the same sentence. And the slot just asked about joins `asked`, which is what stops the
+   * second question about a thing the client has already declined to specify — the loop that
+   * turns a conversation into a form.
+   */
+  const asking = tasks.find((t) => t.action === 'clarify' && t.intent) ?? null;
+  const pendingIntent: PendingIntent | null = asking?.intent
+    ? { ...asking.intent, ...(asking.question ? { question: asking.question } : {}) }
+    : null;
+
   const message = replyParts.join('\n') || (proposals.length ? '' : 'Okay.');
   const resp: AgentTurnResponse = {
     conversationId: convId, message, proposals, items,
@@ -451,7 +488,12 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
     // `items` persists ON the turn so the thread can re-render its interpretation across a
     // reopen (the sheet reads it back through listTurns) and so the NEXT turn's parser window
     // can serialise what this one resolved — "move it back" grips the resolved dates here.
-    metadata: { tasks: tasks.map((t) => t.action), changeSetId: resp.changeSetId, proposalIds: proposals.map((p) => p.id), items },
+    metadata: {
+      tasks: tasks.map((t) => t.action), changeSetId: resp.changeSetId,
+      proposalIds: proposals.map((p) => p.id), items,
+      // The assembly, if this turn is still holding one (G1). Absent on every turn that isn't.
+      ...(pendingIntent ? { pendingIntent } : {}),
+    },
   });
 
   return resp;

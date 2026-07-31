@@ -165,7 +165,9 @@ export function CommittedSurface({ data }: { data: PlanData }) {
    * The items come FROM THE TURN (the sheet passes them), not from `agentReply` — a reopened
    * thread's interpretation has no in-memory reply to read.
    */
-  const runApply = async (ids: string[], items: readonly InterpretedItem[]): Promise<{ text: string }> => {
+  const runApply = async (
+    ids: string[], items: readonly InterpretedItem[], conversationId: string | null,
+  ): Promise<{ text: string }> => {
     const lines = items
       .filter((i): i is Extract<InterpretedItem, { kind: 'change' }> => i.kind === 'change' && ids.includes(i.proposalId));
     const r = await data.applyChanges(ids);
@@ -188,10 +190,29 @@ export function CommittedSurface({ data }: { data: PlanData }) {
       .filter((f): f is NonNullable<typeof f> => f !== null);
     const failureText = failures.length ? applyFailureMessage(failures, r.applied.length) : null;
     if (failureText && !voiceOpenRef.current) setUndo({ message: failureText });
-    return {
-      text: failureText
-        ?? (r.applied.length === 1 ? 'Done — your plan is updated.' : `Done — ${r.applied.length} changes are in.`),
-    };
+    const text = failureText
+      ?? (r.applied.length === 1 ? 'Done — your plan is updated.' : `Done — ${r.applied.length} changes are in.`);
+
+    /**
+     * THE CONFIRMATION BECOMES A TURN, on the server (G1/G3).
+     *
+     * Two things depend on it. The sentence survives a remount inside the session, which it
+     * never did — Apply is background work in the browser, so its report lived only in React
+     * state. And a REFUSED change is written back as a pending intent, which is what turns
+     * "Tell me another date and I'll put it in" from a promise into a mechanism: without it the
+     * proposal is consumed and the next utterance — "the 30th then" — has no referent at all.
+     *
+     * Best effort, deliberately: the client has already read the report on screen, so a write
+     * that fails must not change what they were told.
+     */
+    if (conversationId) {
+      const refusedIds = failures.filter((f) => !f.retryable).map((f) => f.change.proposalId);
+      void fetch('/api/plan/conversation/confirm', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationId, text, refusedProposalIds: refusedIds }),
+      }).catch(() => {});
+    }
+    return { text };
   };
 
   // Persist the position on every change — including the anchor's own placement, so an

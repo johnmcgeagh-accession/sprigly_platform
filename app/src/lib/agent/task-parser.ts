@@ -11,7 +11,8 @@
 import type { ModelClient, MessagePart } from '@sprigly/model-client';
 import type { AuditLogger } from '@sprigly/audit';
 import { AGENT_MODEL } from './model';
-import type { ParsedTask, TaskActionType } from './types';
+import type { ParsedTask, PendingIntent, TaskActionType } from './types';
+import { MUTATING_ACTIONS } from './types';
 
 const ACTIONS: readonly TaskActionType[] = [
   'move_post', 'delete_post', 'rewrite_post', 'add_post', 'change_format', 'generate_hook', 'refine', 'add_note', 'query', 'clarify',
@@ -33,15 +34,43 @@ export interface ParserContext {
   /** The UNAPPLIED change the client is looking at, if there is one (C3) — the referent an
    *  ambiguous correction resolves against before anything else. Absent when nothing pends. */
   pending?: string;
+  /** The change being ASSEMBLED across turns (G1) — the slots gathered so far and the question
+   *  the last turn asked. The next utterance is read as its answer before anything else.
+   *  Absent when nothing is being assembled. */
+  intent?: string;
 }
 
 export const TASK_PARSER_SYSTEM_PROMPT = `You turn a single message from a clothing-brand client into an ordered list of TASKS for their content-plan assistant. The message may be typed or transcribed from speech — messy, rambling, or self-correcting. Read for intent.
 
-THE CLIENT CANNOT REPLY TO A TASK. Every task renders as an Approve/Discard suggestion or a dismissible notice — there is NO inline answer box. So NEVER phrase a task as a question waiting for an answer ("what should this focus on?", "which angle?", "what's the maebelle?"). If you are unsure what the client wants, emit your BEST-GUESS approvable action and name the alternatives in "reason" — a wrong guess costs the client one Discard, but an unanswerable question stalls the whole interaction with no way forward.
+PREFER A BEST GUESS TO A QUESTION. Every task renders as an Apply/Discard suggestion or a notice. If you are unsure what the client wants, emit your BEST-GUESS applyable action and name the alternatives in "reason" — a wrong guess costs the client one Discard, but a question costs them a turn. NEVER ask about something the product already defines ("what kind of hooks?", "what's the maebelle?"), and NEVER ask twice about the same thing.
+
+WHEN YOU DO ASK, THE QUESTION MUST CARRY AN INTENT. There is exactly one case where a question is right: a change is being ASSEMBLED and one slot genuinely cannot be guessed. Then the clarify MUST carry an "intent" object holding everything said so far — because a question with nowhere for the answer to go is what produced this exchange:
+
+  CLIENT     I want to launch the raspberry set
+  ASSISTANT  Is it new, or an existing one coming back?
+  CLIENT     It's new. Angle is fresh, new-in.
+  ASSISTANT  What format were you thinking?
+  CLIENT     Reels
+  ASSISTANT  What would you like to do with the reels?   ← THE FAILURE
+
+"Reels" was an ANSWER. Read on its own it is a verbless noun, and the only reading left was "the client said a word". The intent object is what stops that: it holds the launch the three turns before it were building.
+
+  { "action": "clarify", "question": "How many reels were you thinking?", "intent": {
+      "action": "add_post",
+      "slots": { "subject": "the raspberry set", "angle": "fresh, new-in", "format": "reel", "count": null, "date": null },
+      "asked": ["status", "format"] } }
+
+A PENDING INTENT BLOCK MEANS THE NEXT MESSAGE IS AN ANSWER. When the message includes one, read it as the answer to the question that block quotes, BEFORE any other reading:
+- MERGE what the message supplies into the slots and carry EVERY other slot forward untouched.
+- A bare format ("Reels", "carousel"), a bare quantity ("three", "a couple"), a bare date ("the 19th", "launch week"), a bare angle, a bare yes/no — ALWAYS an answer to the open question, NEVER a new request and NEVER a query.
+- RESOLVE AS SOON AS YOU CAN. The moment the intent has a subject and anything else, emit the real action task(s) with the merged slots — do not keep collecting. "count": 3 means THREE add_post tasks. Missing "date" defaults downstream; missing "format" defaults to single; missing "angle" defaults to introducing the subject. Only ask when a slot changes what gets built and cannot be defaulted.
+- NEVER ask about a slot listed in ALREADY ASKED ABOUT. One question per slot: if it is still empty, choose and proceed.
+- An amendment mid-assembly — "actually make it the 19th", "no, carousels", "make it two" — REPLACES that slot and keeps the rest. Emit the same clarify-with-intent (or resolve, if it is now complete); do not start over.
+- Only an utterance that PLAINLY names a different intent ("what's on next week?", "move the Tuesday post") breaks out. Then resolve it normally and let the intent go.
 
 DECOMPOSE COMPOUND REQUESTS. A message can contain MANY requests joined by "and", commas, or sequenced verbs ("move X to Friday AND make it a carousel"; "delete the Tuesday post, add a linen reel on Saturday"). Split every atomic action into its OWN task, IN THE ORDER they appear. One task = one thing that can be approved on its own. Two edits to the SAME post (e.g. reschedule it AND change its format) are still TWO separate tasks. Never fold a second action into the first, and never silently drop a clause.
 
-NEVER silently drop a clause. If a clause genuinely cannot be mapped to any action below, emit a "clarify" — but a "clarify" is a STATEMENT of what you couldn't map ("Couldn't map 'sponsor the 10k' to a plan change"), NEVER a question soliciting content, a topic, an angle, or wording. Reserve "clarify" for two cases only: (1) a clause that maps to no action at all, and (2) an ambiguous reference for a DESTRUCTIVE edit (move/delete) where guessing the wrong post would lose work. For everything else — a vague topic, a missing angle, an unspecified format — PROPOSE your best guess as a real action rather than asking.
+NEVER silently drop a clause. If a clause genuinely cannot be mapped to any action below, emit a "clarify" — a STATEMENT of what you couldn't map ("Couldn't map 'sponsor the 10k' to a plan change"), which needs no intent because there is nothing being assembled. So "clarify" has three uses and no others: (1) a clause that maps to no action at all; (2) an ambiguous reference for a DESTRUCTIVE edit (move/delete) where guessing the wrong post would lose work; (3) an assembly question, which MUST carry an "intent". A vague topic, a missing angle or an unspecified format is none of these — PROPOSE your best guess as a real action.
 
 PRODUCT CONCEPTS — this assistant's OWN vocabulary. These are defined features of the product; NEVER ask the client to explain them or offer generic interpretations of them ("what kind of hooks — email subject lines? ad copy?" is WRONG):
 - HOOKS: short opening lines for a REEL or CAROUSEL. They are generated in the post editor from a pattern library and stored on the post. A request to write/add/generate/come up with hooks is a "generate_hook" task; a request to CHANGE an existing hook ("make the hook punchier") is a "refine" task with target "hook". Hooks do NOT apply to single-image or email posts.
@@ -67,7 +96,7 @@ Task actions:
 - "refine": change an EXISTING hook or script on a post to a client instruction. Fields: postId or selector; target ('hook' or 'script'); instruction (the change to make, e.g. "punchier", "shorter", "rework the CTA", "warmer"). Use this for refinement verbs aimed at a hook or script — "make the script on the 14th punchier", "tighten the Tuesday reel's hook", "rework the CTA on that script". (Refining a CAPTION is a rewrite_post, not a refine. If a reel/script is being CREATED in this same message and then refined, omit the post reference — the ordering is handled downstream.)
 - "add_note": remember a fact/instruction for the plan (not an edit to one existing post). Fields: content; targetMonth ('YYYY-MM', optional); relevantFrom/relevantTo (ISO dates, optional, if the note names a window).
 - "query": a question about the plan or brand knowledge. Fields: question.
-- "clarify": the request is too vague, a post reference is ambiguous, or a clause can't be mapped to an action. Fields: question (what you need to know / what you couldn't do).
+- "clarify": the request is too vague, a post reference is ambiguous, a clause can't be mapped to an action, or a change is being ASSEMBLED and one slot cannot be guessed. Fields: question (what you need to know / what you couldn't do); intent (REQUIRED when the question is part of an assembly — {action, slots:{subject,angle,format,count,date}, asked:[slot names]}). A question WITHOUT an intent is a dead end: the client answers it and the answer lands nowhere.
 
 Resolving product references:
 - The CATALOGUE lists this client's products (name, style, colourways). Resolve a named product ("the maebelle", "the Anna vest", "the linen dress") against it. A product that matches the catalogue is FULLY SPECIFIED — emit the add_post with the product as its instruction and let the client refine the angle at approval. NEVER ask what a named product IS, or what a post about it should focus on. A product not in the catalogue is still a valid topic — propose it anyway; do not clarify just because it's unfamiliar.
@@ -119,6 +148,15 @@ Message: "move the post on the 1st August to the 22nd August"  (source named by 
 
 Message: "make the reel warmer"  (two reels in the digest)
 → {"tasks":[{"action":"clarify","question":"You have two reels this week — which one should I rewrite: Tuesday's or Friday's?","reason":"make the reel warmer"}]}
+
+Message: "Reels"  (a PENDING INTENT block is present: add_post, subject "the raspberry set", angle "fresh, new-in", format not yet said, asked: status)
+→ {"tasks":[{"action":"clarify","question":"How many reels were you thinking?","intent":{"action":"add_post","slots":{"subject":"the raspberry set","angle":"fresh, new-in","format":"reel","count":null,"date":null},"asked":["status","format","count"]},"reason":"Reels"}]}
+
+Message: "three"  (the SAME intent, now with format "reel" and count asked)
+→ {"tasks":[{"action":"add_post","format":"reel","instruction":"Launch the raspberry set — fresh, new-in.","reason":"three"},{"action":"add_post","format":"reel","instruction":"Launch the raspberry set — fresh, new-in.","reason":"three"},{"action":"add_post","format":"reel","instruction":"Launch the raspberry set — fresh, new-in.","reason":"three"}]}
+
+Message: "actually make it the 19th"  (mid-assembly: the intent's date slot is REPLACED, everything else carried forward)
+→ {"tasks":[{"action":"clarify","question":"How many reels were you thinking?","intent":{"action":"add_post","slots":{"subject":"the raspberry set","angle":"fresh, new-in","format":"reel","count":null,"date":"<19th of the viewed month, ISO>"},"asked":["status","format","count"]},"reason":"actually make it the 19th"}]}
 
 Message: "add a reel about how hot it is this week"  (format word "reel" → format on the add)
 → {"tasks":[{"action":"add_post","format":"reel","instruction":"How hot it is this week.","reason":"add a reel about how hot it is"}]}
@@ -237,7 +275,10 @@ ${ctx.planDigest}
 CATALOGUE (this client's products):
 ${ctx.productIndex}`;
 
-  const variable = `${ctx.pending ? `
+  const variable = `${ctx.intent ? `
+PENDING INTENT — your last turn asked a question and this message is FIRST read as its ANSWER:
+${ctx.intent}
+` : ''}${ctx.pending ? `
 PENDING — the client is looking at this change and has NOT applied it. An ambiguous correction amends IT:
 ${ctx.pending}
 ` : ''}${ctx.recentThread ? `
@@ -365,11 +406,57 @@ function normalizeOne(raw: unknown): ParsedTask {
   }
 }
 
-/** Normalise, then carry `amends` — orthogonal to the action, so it is threaded once. */
+/**
+ * The assembly state a clarify carries (G1), normalised.
+ *
+ * Every field is validated rather than trusted: this object rides back into the NEXT turn's
+ * prompt, so a malformed one would poison the context it is meant to steady. Unknown slots are
+ * dropped, an unrecognised action makes the whole intent null (a clarify with no intent is a
+ * dead end, which is honest — better than one pointing at an action that does not exist).
+ */
+function normalizeIntent(raw: unknown): PendingIntent | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const action = typeof r['action'] === 'string' ? r['action'] : '';
+  if (!(MUTATING_ACTIONS as readonly string[]).includes(action)) return null;
+  const rawSlots = (r['slots'] && typeof r['slots'] === 'object' ? r['slots'] : {}) as Record<string, unknown>;
+  const count = typeof rawSlots['count'] === 'number' && Number.isFinite(rawSlots['count'])
+    // A launch is a handful of posts, not a hundred. The cap is a guard against a model typo
+    // becoming a hundred proposals, not a product limit.
+    ? Math.max(1, Math.min(10, Math.round(rawSlots['count'] as number)))
+    : null;
+  const slots: PendingIntent['slots'] = {
+    subject: str(rawSlots['subject']),
+    date: isoDate(rawSlots['date']) ?? str(rawSlots['date']),
+    format: str(rawSlots['format']),
+    count,
+    angle: str(rawSlots['angle']),
+  };
+  const asked = Array.isArray(r['asked'])
+    ? [...new Set(r['asked'].filter((a): a is string => typeof a === 'string' && !!a.trim()).map((a) => a.trim()))]
+    : [];
+  return {
+    action: action as PendingIntent['action'],
+    slots,
+    ...(str(r['question']) ? { question: str(r['question']) } : {}),
+    ...(asked.length ? { asked } : {}),
+  };
+}
+
+/** Normalise, then carry `amends` and `intent` — both orthogonal to the action, so both are
+ *  threaded once here rather than in ten branches. */
 function normalizeTask(raw: unknown): ParsedTask {
   const task = normalizeOne(raw);
-  const amends = !!(raw && typeof raw === 'object' && (raw as Record<string, unknown>)['amends'] === true);
-  return amends ? { ...task, amends: true } : task;
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const amends = r['amends'] === true;
+  // An intent belongs to a QUESTION. Attached to anything else it would keep an assembly alive
+  // past the turn that resolved it, and the next answer would merge into a change already made.
+  const intent = task.action === 'clarify' ? normalizeIntent(r['intent']) : null;
+  return {
+    ...task,
+    ...(amends ? { amends: true } : {}),
+    ...(intent ? { intent } : {}),
+  };
 }
 
 /**
@@ -419,7 +506,7 @@ export async function parseTasks(
             viewedMonth: ctx.viewedMonth,
             // What the turn actually carried, so a spend spike can be read back to its cause
             // rather than guessed at. Sizes, never content — this is a cost row, not a transcript.
-            hasThread: !!ctx.recentThread, hasPending: !!ctx.pending,
+            hasThread: !!ctx.recentThread, hasPending: !!ctx.pending, hasIntent: !!ctx.intent,
             digestChars: ctx.planDigest.length, catalogueChars: ctx.productIndex.length,
             ...(res.cacheReadTokens !== undefined ? { cacheReadTokens: res.cacheReadTokens } : {}),
             ...(res.cacheWriteTokens !== undefined ? { cacheWriteTokens: res.cacheWriteTokens } : {}),

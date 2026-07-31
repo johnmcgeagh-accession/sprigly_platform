@@ -121,6 +121,25 @@ export async function loadPendingPayloads(
     .map((r) => ({ id: r.id, intent: r.intent, summary: r.summary, payload: r.payload as unknown as ProposalPayload }));
 }
 
+/**
+ * One proposal's payload, WHATEVER its status — the refused one included.
+ *
+ * `loadPendingPayloads` deliberately serves only pending rows, because the C3 referent is what
+ * the client is looking at. The rescue (G3) needs the opposite: a change that a guard has
+ * already consumed, so its date can be amended and it can be built again. Client-scoped, and it
+ * returns the payload only — nothing here decides what to do with it.
+ */
+export async function loadProposalPayload(
+  clientId: string, id: string,
+): Promise<{ intent: string; summary: string; status: string; payload: ProposalPayload } | null> {
+  const [row] = await db
+    .select({ intent: agentProposals.intent, summary: agentProposals.summary, status: agentProposals.status, payload: agentProposals.payload })
+    .from(agentProposals)
+    .where(and(eq(agentProposals.id, id), eq(agentProposals.clientId, clientId)))
+    .limit(1);
+  return row ? { ...row, payload: row.payload as unknown as ProposalPayload } : null;
+}
+
 async function currentView(clientId: string, id: string): Promise<ProposalView | null> {
   const [row] = await db
     .select(cols)

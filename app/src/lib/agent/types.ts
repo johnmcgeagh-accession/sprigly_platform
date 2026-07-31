@@ -49,6 +49,69 @@ export interface ParsedTask {
    * both — an add they did not want and an add they did.
    */
   amends?: boolean | null;
+  /**
+   * THE CHANGE BEING ASSEMBLED ACROSS TURNS (G1). Set on a `clarify` that asks for a missing
+   * slot, and carried forward until the intent resolves into a real action. See `PendingIntent`.
+   */
+  intent?: PendingIntent | null;
+}
+
+/**
+ * ── A PENDING INTENT: A QUESTION WITH SOMEWHERE FOR THE ANSWER TO GO ─────────────────
+ *
+ * The raspberry launch, from the operator's screenshots:
+ *
+ *     CLIENT     I want to launch the raspberry set
+ *     ASSISTANT  Is it new, or an existing one coming back?
+ *     CLIENT     It's new. Angle is fresh, new-in.
+ *     ASSISTANT  What format were you thinking?
+ *     CLIENT     Reels
+ *     ASSISTANT  What would you like to do with the reels?
+ *
+ * The last line is the failure, and it is not a failure of understanding — it is a failure of
+ * STATE. Every turn was parsed on its own. "Reels" arrived as a complete utterance with no
+ * verb, no subject and no target, so the only reading available was "the client has said the
+ * word reels", and the only safe response to that is to ask what they mean. The launch that
+ * three turns had been assembling did not exist anywhere: not in the digest (nothing had been
+ * created), not in the pending proposals (nothing had been proposed), and not in the thread in
+ * any form an answer could attach to — the question turn serialised as
+ * `could not do: <question>` (`conversation.ts`), which reads to a model as an ask that was
+ * DROPPED rather than one that is OPEN.
+ *
+ * So the ask itself becomes an object. A pending intent is the change being built: which action
+ * it will be, which slots are filled, and the question the last turn asked. It rides in the
+ * parser's context every turn, answers MERGE into it, and it resolves into an interpretation
+ * the moment it has enough — at which point it is gone. Only an utterance that plainly names
+ * something else breaks out of it.
+ *
+ * It is deliberately NOT a proposal. A proposal is a change the client can apply; an intent is
+ * a change we are still writing down, and offering Apply on a half-built one would be offering
+ * consent to something nobody has stated yet.
+ */
+export interface PendingIntent {
+  /** What this will become when it resolves. */
+  action: MutatingAction;
+  /**
+   * What has been said so far. Every slot optional — assembly is incremental by definition, and
+   * a slot that is absent is a slot nobody has mentioned, which is different from an empty one.
+   */
+  slots: {
+    /** What the post is about — the product, drop, or event. */
+    subject?: string | null;
+    /** ISO 'YYYY-MM-DD' once resolved; the client's own phrase until then. */
+    date?: string | null;
+    format?: string | null;
+    /** How many posts the client wants. A launch is usually several. */
+    count?: number | null;
+    /** The take: "fresh, new-in", "back by demand". */
+    angle?: string | null;
+  };
+  /** The question the assistant asked on the turn that carried this. What the next utterance
+   *  is read as an answer to. */
+  question?: string | null;
+  /** Which slots have already been asked about. A slot is asked about ONCE — a second ask is
+   *  the interrogation the client walks away from, so an unanswered slot is defaulted instead. */
+  asked?: string[];
 }
 
 /** Payload persisted on an agent_proposals row — everything approval needs to

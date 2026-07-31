@@ -105,7 +105,9 @@ describe('speak → interpretation → apply-in-thread → confirmation turn', (
     expect(onSubmit).toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId('interp-apply'));
-    expect(onApply).toHaveBeenCalledWith(['pr1'], [MOVE_ITEM]);
+    // The session's conversation rides with the apply: the settled report is written back
+    // as a turn, which is what makes the rescue it may offer resolvable (G1/G3).
+    expect(onApply).toHaveBeenCalledWith(['pr1'], [MOVE_ITEM], expect.anything());
     expect(screen.getByTestId('interpretation').getAttribute('data-status')).toBe('applying');
     // The one working indicator is the turn's dots — no Apply button left to press twice.
     expect(screen.queryByTestId('interp-apply')).toBeNull();
@@ -260,7 +262,7 @@ describe('discard leaves the plan byte-identical', () => {
     expect(screen.getByTestId('interpretation').getAttribute('data-status')).toBe('open');
 
     await act(async () => { fireEvent.click(screen.getByTestId('interp-apply')); });
-    expect(onApply).toHaveBeenCalledWith(['pr2'], expect.anything());
+    expect(onApply).toHaveBeenCalledWith(['pr2'], expect.anything(), expect.anything());
   });
 });
 
