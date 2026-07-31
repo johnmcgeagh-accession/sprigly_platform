@@ -8,14 +8,17 @@
  * The operator closed a detail sheet on 13 August and landed on 2 September; from 2 September the
  * next close moved them toward October. Two mechanisms, both confirmed in the source:
  *
- * A · THE GHOST CLICK. `Sheet.tsx` dismisses on `pointerup`, and the sheet unmounts inside that
- *   handler. A browser then dispatches the synthetic `click` for that same pointer sequence at
- *   the same coordinates — onto whatever is underneath now. The grabber is `h-[34px] w-full` at
- *   the top of a sheet pinned to `bottom-0 h-[92%]`, so at 390×844 it occupies y 67.5–101.5
- *   ACROSS THE FULL WIDTH, and `PlanShell`'s title row (the ‹ › month arrows, ~35–75) and Today
- *   row (~81–121) sit under exactly that band. A ghost click on `next-month` calls
- *   `switchCycle`, the month changes, and `CommittedSurface`'s re-anchor moves the selected day
- *   to the new month's earliest post. 13 Aug → 2 Sep. Again → October.
+ * A · THE GHOST CLICK. The grabber is `h-[34px] w-full` at the top of a sheet pinned to
+ *   `bottom-0 h-[92%]`, so it lies across `PlanShell`'s title row (the ‹ › month arrows) and
+ *   Today row. Measured in the browser at 390×844: `next-month` occupies x 129.4–169.4,
+ *   y 32–72; the grabber x 0–390, y 67.5–101.5. They overlap, and by more on a phone with
+ *   browser chrome, because 92% of a shorter viewport starts higher.
+ *
+ *   ROUND 4 dismissed on `pointerup` and tried to EAT the click the browser then sent onto
+ *   whatever was underneath. ROUND 5 stops producing it: a TAP now closes on `click`, so the
+ *   compatibility click is consumed by the grabber itself and nothing reaches the shell. The
+ *   old guard survives for the DRAG path alone, which has no click of its own to close on, and
+ *   its disarm is a `pointerdown` rather than a timer. `Sheet.tsx` states the whole argument.
  *
  * B · THE FOCUS RESTORE SCROLLS. `useFocusTrap` returns focus to the opener with a bare
  *   `.focus()`, which scrolls it into view — so the day panel's scroll position moves on every
@@ -72,15 +75,27 @@ function fakeData(over: Partial<PlanData> = {}): PlanData {
   } as unknown as PlanData;
 }
 
-/** A pointer sequence on the grabber, followed by the click a browser synthesises for it. */
-function tapGrabber(testid = 'detail-sheet-grabber') {
+/**
+ * A thumb on the grabber, modelled the way a browser behaves: `pointerdown`, `pointerup`, then
+ * ONE compatibility click at the release point — dispatched onto whatever is under it AT THAT
+ * MOMENT. `under` names the shell control that is there once the sheet has gone.
+ *
+ * That last part is the whole test. If the sheet closed on `pointerup` the grabber is already
+ * unmounted and the click lands on the shell; if it is still mounted, the grabber eats its own
+ * click and nothing reaches anything. Deciding the target in the harness rather than asserting
+ * it would be writing the answer down.
+ */
+function tapGrabber(testid = 'detail-sheet-grabber', under = 'next-month') {
   const g = screen.getByTestId(testid) as HTMLElement & { setPointerCapture?: unknown };
   g.setPointerCapture = () => {};
   fireEvent.pointerDown(g, { clientY: 80, clientX: 195, pointerId: 1 });
   fireEvent.pointerUp(g, { clientY: 80, clientX: 195, pointerId: 1 });
+  const target = screen.queryByTestId(testid) ?? screen.queryByTestId(under);
+  if (target) fireEvent.click(target, { clientX: 195, clientY: 80 });
 }
 
-/** What the browser does next: one click, AT THE RELEASE POINT, on whatever is under it. */
+/** A click arriving on the shell after a dismissal that produced no click of its own — the DRAG
+ *  path, which is the only one that still dismisses without one. */
 function ghostClickOn(testid: string, at: { x: number; y: number } = { x: 195, y: 80 }) {
   fireEvent.click(screen.getByTestId(testid), { clientX: at.x, clientY: at.y });
 }
@@ -106,24 +121,24 @@ describe('A · a dismissed sheet must not leak its click to the shell', () => {
     expect(screen.getByTestId('today-btn')).toBeTruthy();
   });
 
-  it('THE BUG: tap-close, then the browser’s click lands on next-month and moves the day', () => {
+  it('THE BUG: a tap closes the sheet and its click reaches NOTHING underneath', () => {
     const data = fakeData();
     render(<CommittedSurface data={data} />);
     expect(day()).toBe(TODAY);
 
     fireEvent.click(screen.getAllByTestId('post-card')[0]!);
     tapGrabber();
+
+    // It closed, which is all the client asked for…
     expect(screen.queryByTestId('detail-sheet')).toBeNull();
-
-    ghostClickOn('next-month');
-
-    // The guard swallows it. Without the guard this called switchCycle, the month changed, and
-    // the re-anchor moved the selection to September's earliest post.
+    // …and the compatibility click went to the grabber, not to the arrow it overlaps. Before
+    // round 5 this called switchCycle, the month changed, and the re-anchor moved the selection
+    // to September's earliest post: 13 Aug → 2 Sep.
     expect(data.switchCycle).not.toHaveBeenCalled();
     expect(day()).toBe(TODAY);
   });
 
-  it('and the same click on Today is swallowed too — it is the whole band, not one control', () => {
+  it('and nothing reaches Today either — it is the whole band, not one control', () => {
     render(<CommittedSurface data={fakeData()} />);
     // Stand somewhere that is NOT today, so a Today click would be visible if it landed.
     fireEvent.click(screen.getByTestId('nav-month'));
@@ -132,9 +147,9 @@ describe('A · a dismissed sheet must not leak its click to the shell', () => {
     expect(day()).toBe('2026-08-06');
 
     fireEvent.click(screen.getByTestId('post-card'));
-    tapGrabber();
-    ghostClickOn('today-btn');
+    tapGrabber('detail-sheet-grabber', 'today-btn');
 
+    expect(screen.queryByTestId('detail-sheet')).toBeNull();
     expect(day()).toBe('2026-08-06');
   });
 
@@ -155,15 +170,27 @@ describe('A · a dismissed sheet must not leak its click to the shell', () => {
     expect(day()).toBe(TODAY);
   });
 
-  it('but a REAL tap on next-month still works — the guard is one click, not a mode', () => {
+  it('but a REAL tap on next-month still works — closing a sheet is not a mode', () => {
     const data = fakeData();
     render(<CommittedSurface data={data} />);
     fireEvent.click(screen.getAllByTestId('post-card')[0]!);
     tapGrabber();
-    ghostClickOn('next-month');          // swallowed
     fireEvent.click(screen.getByTestId('next-month'));   // the client's own, deliberate tap
 
     expect(data.switchCycle).toHaveBeenCalledWith('sep');
+  });
+
+  /**
+   * THE KEYBOARD. The grabber IS the close control on a sheet with no ✕, so Enter and Space must
+   * dismiss — and a keyboard activation is a click with no pointer sequence in front of it. That
+   * absence is what `Sheet`'s `onClick` reads, and it is the one case the pointer path could
+   * have quietly broken.
+   */
+  it('Enter on the grabber still closes it — a click with no pointer sequence is a keyboard one', () => {
+    render(<CommittedSurface data={fakeData()} />);
+    fireEvent.click(screen.getAllByTestId('post-card')[0]!);
+    fireEvent.click(screen.getByTestId('detail-sheet-grabber'));
+    expect(screen.queryByTestId('detail-sheet')).toBeNull();
   });
 
   it('a scrim tap closes without arming the guard — no pointer sequence, no ghost', () => {
@@ -203,7 +230,6 @@ describe('A · open and close returns to the SAME day, five days over two months
         fireEvent.click(screen.getByTestId('post-card'));
         expect(screen.getByTestId('detail-sheet')).toBeTruthy();
         tapGrabber();
-        ghostClickOn('next-month');
 
         expect(day()).toBe(d);
       });
@@ -216,7 +242,6 @@ describe('A · open and close returns to the SAME day, five days over two months
     fireEvent.click(screen.getByTestId('act-move'));
 
     tapGrabber('move-sheet-grabber');
-    ghostClickOn('next-month');
 
     expect(screen.queryByTestId('move-sheet')).toBeNull();
     expect(screen.getByTestId('detail-sheet')).toBeTruthy();   // the sheet it opened from stays
@@ -259,14 +284,41 @@ describe('the guard is one click, in one place, for one turn', () => {
     expect(screen.getByTestId('month-grid')).toBeTruthy();
   });
 
-  it('and it disarms after the first swallow, not after a timer', () => {
+  /**
+   * The DRAG path's guard, which is the only one left. It eats ONE click and then it is spent —
+   * and it disarms on the next `pointerdown` rather than on a timer, so a deliberate second tap
+   * always gets through whatever the scheduling did.
+   */
+  it('the drag guard eats one click and then is spent', () => {
     const data = fakeData();
     render(<CommittedSurface data={data} />);
     fireEvent.click(screen.getAllByTestId('post-card')[0]!);
-    tapGrabber();
+    const g = screen.getByTestId('detail-sheet-grabber') as HTMLElement & { setPointerCapture?: unknown };
+    g.setPointerCapture = () => {};
+    fireEvent.pointerDown(g, { clientX: 195, clientY: 80, pointerId: 1 });
+    fireEvent.pointerMove(g, { clientX: 195, clientY: 220, pointerId: 1 });
+    fireEvent.pointerUp(g, { clientX: 195, clientY: 220, pointerId: 1 });
 
-    ghostClickOn('next-month');                          // eaten
-    ghostClickOn('next-month');                          // the guard is spent
+    ghostClickOn('next-month', { x: 195, y: 220 });       // eaten
+    ghostClickOn('next-month', { x: 195, y: 220 });       // the guard is spent
     expect(data.switchCycle).toHaveBeenCalledTimes(1);
+  });
+
+  it('and a REAL gesture disarms it, whatever the timing did', () => {
+    const data = fakeData();
+    render(<CommittedSurface data={data} />);
+    fireEvent.click(screen.getAllByTestId('post-card')[0]!);
+    const g = screen.getByTestId('detail-sheet-grabber') as HTMLElement & { setPointerCapture?: unknown };
+    g.setPointerCapture = () => {};
+    fireEvent.pointerDown(g, { clientX: 195, clientY: 80, pointerId: 1 });
+    fireEvent.pointerMove(g, { clientX: 195, clientY: 220, pointerId: 1 });
+    fireEvent.pointerUp(g, { clientX: 195, clientY: 220, pointerId: 1 });
+
+    // A compatibility click is never preceded by its own pointerdown. This one is, so it is a
+    // new deliberate gesture and the guard steps aside — even at the same coordinates.
+    const next = screen.getByTestId('next-month');
+    fireEvent.pointerDown(next, { clientX: 195, clientY: 220, pointerId: 2 });
+    fireEvent.click(next, { clientX: 195, clientY: 220 });
+    expect(data.switchCycle).toHaveBeenCalledWith('sep');
   });
 });
