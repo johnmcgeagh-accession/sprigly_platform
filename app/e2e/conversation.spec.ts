@@ -66,7 +66,10 @@ test('the Emma loop: speak → interpretation turn → apply in thread → confi
   // ── 4 · Close: the plan surface carries the standard treatment ──────────────────────
   await page.getByTestId('voice-close').click();
   expect(await theme()).toBe(themeCanvas);   // the band restored on close
-  await expect(page.getByTestId('summary-chip')).toContainText('1 moved · 1 reformatted');
+  // X5b: the applied chip and its dropdown are DELETED. The mark on the card is the whole of
+  // the surface's changed treatment, and the count lives in the thread's confirmation turn.
+  await expect(page.getByTestId('summary-chip')).toHaveCount(0);
+  await expect(page.getByTestId('applied-panel')).toHaveCount(0);
   // 24 Jul is two weeks ahead of the frozen today — page the strip there.
   await page.getByTestId('next-week').click();
   await page.getByTestId('next-week').click();

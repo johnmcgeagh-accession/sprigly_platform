@@ -193,19 +193,27 @@ describe('THE OCTOBER CASE: a 3-item arc whose middle item a guard refuses', () 
     expect(said).not.toContain('still here');
   });
 
-  it('the two that DID apply are counted, named and highlighted — honestly, and only them', async () => {
+  /**
+   * DELIBERATE CHANGE (X5b). This read the applied list off the chip's dropdown panel, which is
+   * deleted. The fact it was protecting is unchanged and more important than where it was read:
+   * the two that applied are named as having applied, and the REFUSED one never appears among
+   * them. That claim lives in the confirmation turn now, which is the one place it is said.
+   */
+  it('the two that DID apply are named as such — and the refused one never joins them', async () => {
     stubNetwork(REFUSED);
     await mount();
     await askAndApply();
-    expect(lastAgentTurn()).toContain('2 changes went through');
+    const said = lastAgentTurn();
+    expect(said).toContain('2 changes went through');
+    // The failure sentence names the refused item, and only it.
+    expect(said).toContain('Add “Launch day”');
+    expect(said).not.toContain('Teaser one');
+    expect(said).not.toContain('Teaser two');
 
     fireEvent.click(screen.getByTestId('voice-close'));
-    expect(screen.getByTestId('summary-chip').textContent).toContain('2 added');
-    fireEvent.click(screen.getByTestId('summary-chip'));
-    const panel = screen.getByTestId('applied-panel').textContent ?? '';
-    expect(panel).toContain('Teaser one');
-    expect(panel).toContain('Teaser two');
-    expect(panel, 'the refused item must never appear among what applied').not.toContain('Launch day');
+    // And there is no second surface counting them behind the sheet.
+    expect(screen.queryByTestId('summary-chip')).toBeNull();
+    expect(screen.queryByTestId('applied-panel')).toBeNull();
   });
 
   it('a refusal with NO reason still names the item — silence about which one is the failure', async () => {
@@ -219,12 +227,13 @@ describe('THE OCTOBER CASE: a 3-item arc whose middle item a guard refuses', () 
     expect(said).toContain('2 changes went through');
   });
 
-  it('nothing refused → the confirmation is unchanged, and all three are counted', async () => {
+  it('nothing refused → the confirmation is unchanged, and it is the only count anywhere', async () => {
     stubNetwork();
     await mount();
     await askAndApply();
     expect(lastAgentTurn()).toContain('3 changes are in');
     fireEvent.click(screen.getByTestId('voice-close'));
-    expect(screen.getByTestId('summary-chip').textContent).toContain('3 added');
+    expect(screen.queryByTestId('summary-chip')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/\b3 added\b/);
   });
 });

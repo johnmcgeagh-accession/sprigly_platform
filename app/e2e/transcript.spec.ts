@@ -54,17 +54,21 @@ test('TRANSCRIPT: the Emma loop through the conversation sheet', async ({ page }
   await dumpThread(page, '4 · the conversation continues');
 
   await page.getByTestId('voice-close').click();
-  const chip = await page.getByTestId('summary-chip').textContent();
-  console.log(`\n===== 5 · the plan surface, behind the sheet =====\nchip ▸ ${chip?.trim()}`);
+  // X5b: no chip, no panel. What the surface shows is the MARK on the card that changed, so
+  // that is what the transcript records — and the absence is recorded too, because a deleted
+  // surface with nothing watching it can come back by accident.
+  const chips = await page.getByTestId('summary-chip').count();
+  const marked = await page.locator('[data-testid="post-card"][data-changed="true"]').count();
+  console.log(`\n===== 5 · the plan surface, behind the sheet =====\nchip ▸ ${chips === 0 ? '(none — deleted)' : '(!! still rendering)'}\nmarked cards ▸ ${marked}`);
 
   await page.reload();
   await page.getByTestId('plan-shell').waitFor();
   // The changed-surface is the calendar's own dots now — the header row is gone by ruling —
   // so the transcript records the DAYS that came back marked.
   await page.getByTestId('nav-month').click();
-  const marked = await page.locator('[data-testid="grid-cell"]:has([data-testid="grid-changed"])')
+  const markedDays = await page.locator('[data-testid="grid-cell"]:has([data-testid="grid-changed"])')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-date') ?? ''));
-  console.log(`changed days ▸ ${marked.join(', ') || '(none)'}\n`);
+  console.log(`changed days ▸ ${markedDays.join(', ') || '(none)'}\n`);
   await page.getByTestId('nav-day').click();
 
   await page.getByTestId('nav-mic').click();

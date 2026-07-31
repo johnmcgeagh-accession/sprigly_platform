@@ -721,6 +721,33 @@ describe('the mic on a committed month opens the CONVERSATION sheet', () => {
     await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
   };
 
+  /**
+   * ── X5b / X5a: ONE indicator, ONE changed-surface ─────────────────────────────────
+   *
+   * Both are operator rulings and both are deletions, so both are pinned as ABSENCES over the
+   * exact state that used to produce them.
+   */
+  it('X5a: a working turn shows ONE thinking indicator — not a second one over the sheet', () => {
+    render(<CommittedSurface data={withAgent({ agentBusy: true })} />);
+    // Closed: the top channel is the only surface there is, and it speaks.
+    expect(screen.getByTestId('feedback-agent')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('nav-mic'));
+    // Open: the THREAD owns it. The bar under the wordmark says nothing at all.
+    expect(screen.queryByTestId('feedback-agent')).toBeNull();
+    expect(screen.getByTestId('voice-sheet')).toBeTruthy();
+  });
+
+  it('X5a: and the working state still reaches the thread — the indicator moved, it did not go', async () => {
+    render(<CommittedSurface data={withAgent({ ask: vi.fn(() => new Promise(() => {})) })} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+    await speak('move it');
+    // Exactly one three-dot pulse on the whole surface, and it is inside the sheet.
+    const dots = screen.getAllByTestId('agent-dots');
+    expect(dots).toHaveLength(1);
+    expect(screen.getByTestId('voice-sheet').contains(dots[0]!)).toBe(true);
+  });
+
   it('opens the conversation sheet: one thread, one composer, one mic control', () => {
     render(<CommittedSurface data={withAgent()} />);
     fireEvent.click(screen.getByTestId('nav-mic'));
@@ -764,7 +791,7 @@ describe('the mic on a committed month opens the CONVERSATION sheet', () => {
    * as the next agent turn. The chip + highlights land outside the sheet either way (the
    * post-apply confirmation on the plan surface, unchanged).
    */
-  it('APPLY stays in the thread: dots on the turn, then the confirmation turn — and the chip lands outside', async () => {
+  it('APPLY stays in the thread: dots on the turn, then the confirmation turn — and the cards mark outside', async () => {
     let settle!: (v: ApplyReport) => void;
     const data = withAgent({
       applyChanges: vi.fn(() => new Promise((res) => { settle = res; })),
@@ -778,19 +805,25 @@ describe('the mic on a committed month opens the CONVERSATION sheet', () => {
     expect(data.applyChanges).toHaveBeenCalledWith(['pr1']);
     expect(screen.getByTestId('voice-sheet')).toBeTruthy();
     expect(screen.getByTestId('interpretation').getAttribute('data-status')).toBe('applying');
-    expect(screen.queryByTestId('summary-chip')).toBeNull();
 
     await act(async () => { settle({ applied: ['pr1'], failed: [], failures: [], changedPostIds: ['p1'] }); });
     // The confirmation is the next agent turn…
     const agents = screen.getAllByTestId('turn-agent');
     expect(agents[agents.length - 1]!.textContent).toContain('Done — your plan is updated.');
-    // …and the surface's treatment landed behind the sheet.
-    expect(screen.getByTestId('summary-chip').textContent).toContain('1 moved');
+    // …and the ONLY thing that landed behind the sheet is the mark on the card itself.
     fireEvent.click(screen.getByTestId('voice-close'));
     expect(screen.getByTestId('post-card').getAttribute('data-changed')).toBe('true');
+    expect(screen.queryByTestId('summary-chip')).toBeNull();
   });
 
-  it('the chip expands into the applied lines, and clearing it KEEPS the highlights', async () => {
+  /**
+   * ── X5b: the applied chip and its panel are DELETED ────────────────────────────────
+   *
+   * A deleted surface with no fixture is one that can come back by accident — the same
+   * reasoning G6's what-changed fixtures were rewritten under. This asserts the absence over
+   * a completed apply, which is the only state that could ever have produced it.
+   */
+  it('NO chip and NO panel after an apply — the marked card is the whole changed-surface', async () => {
     const data = withAgent({
       applyChanges: vi.fn(async () => ({ applied: ['pr1'], failed: [], failures: [], changedPostIds: ['p1'] })),
     } as Partial<PlanData>);
@@ -800,12 +833,15 @@ describe('the mic on a committed month opens the CONVERSATION sheet', () => {
     await act(async () => { fireEvent.click(screen.getByTestId('interp-apply')); });
     fireEvent.click(screen.getByTestId('voice-close'));
 
-    fireEvent.click(screen.getByTestId('summary-chip'));
-    expect(screen.getByTestId('applied-panel').textContent).toContain('Fragrance Note Deep Dive: Summer');
-    fireEvent.click(screen.getByTestId('applied-clear'));
     expect(screen.queryByTestId('summary-chip')).toBeNull();
-    // Different state, different lifetime (spec §3): the card stays marked.
+    expect(screen.queryByTestId('applied-panel')).toBeNull();
+    expect(screen.queryByTestId('applied-line')).toBeNull();
+    expect(screen.queryByTestId('applied-clear')).toBeNull();
+    // No count of the change anywhere on the surface — that sentence lives in the thread.
+    expect(document.body.textContent).not.toMatch(/\b1 moved\b/);
+    // The card is still marked, and the day is still there to tap.
     expect(screen.getByTestId('post-card').getAttribute('data-changed')).toBe('true');
+    expect(screen.getByTestId('day-panel')).toBeTruthy();
   });
 
   it('with the sheet OPEN a failure is the confirmation turn, not a second banner over the thread', async () => {
@@ -825,7 +861,6 @@ describe('the mic on a committed month opens the CONVERSATION sheet', () => {
     expect(agents[agents.length - 1]!.textContent).toContain('Move “Fragrance Note Deep Dive: Summer”');
     expect(agents[agents.length - 1]!.textContent).toContain('still here');
     expect(screen.queryByTestId('feedback')).toBeNull();
-    expect(screen.queryByTestId('summary-chip')).toBeNull();   // nothing applied, nothing to celebrate
   });
 
   it('with the sheet CLOSED at settle time, the failure goes to the ONE feedback channel', async () => {
