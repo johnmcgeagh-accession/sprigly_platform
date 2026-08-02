@@ -109,7 +109,7 @@ export { observeHistory, observeCadence, observeFormats } from './draft-history.
 export type { HistoryPost, HistoryObservation, CadenceObservation, FormatObservation } from './draft-history.js';
 export { buildSkeleton, spreadDates, spreadFormats, slotCountFor, cadenceFloorSlots, claimSeriesSlots, DRAFT_MIN_POSTS } from './draft-skeleton.js';
 export type { Skeleton, SkeletonSlot, BuildSkeletonParams } from './draft-skeleton.js';
-export { resolveRecurringSeries, observeSeriesHistory, recurringFormatWord, seriesMatchTerms, mentionsTerm } from './draft-recurring.js';
+export { resolveRecurringSeries, observeSeriesHistory, recurringFormatWord, seriesMatchTerms, seriesShortName, mentionsTerm } from './draft-recurring.js';
 export type { ResolvedSeries, SeriesObservation, PlannedPostRef } from './draft-recurring.js';
 export { allocateSlots, rankCandidates, DRAFT_DEFAULT_TEMPERATURE, REFUSED_LIFECYCLES } from './draft-allocator.js';
 export type { ExperimentCandidate, AllocatedSlot } from './draft-allocator.js';

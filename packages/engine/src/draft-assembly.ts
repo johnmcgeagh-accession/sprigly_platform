@@ -22,6 +22,7 @@ import { buildSkeleton, DRAFT_MIN_POSTS, type Skeleton } from './draft-skeleton.
 import { allocateSlots, type ExperimentCandidate, type AllocatedSlot } from './draft-allocator.js';
 import type { ResolvedSeries } from './draft-recurring.js';
 import { staleProducts, productBeatCap, type ProductCoverage } from './draft-coverage.js';
+import { deriveTitle } from './draft-transforms.js';
 import type { Pillar } from './types.js';
 
 /** A single assembled beat, ready to persist as a status='draft' post row. */
@@ -62,6 +63,25 @@ export interface DraftPlan {
  *  worth withholding the client's month over. */
 export const STALE_TRAWL_DAYS = 14;
 
+/**
+ * ── The title rule ───────────────────────────────────────────────────────────
+ *
+ * A beat title is a HEADLINE — `[series shorthand: ]subject` — not a sentence. The subject is
+ * the product, the client's own idea, or the pillar, in that order of preference.
+ *
+ * THE FORMAT IS APPENDED ONLY WHEN NOTHING ELSE DISTINGUISHES THE BEAT. The " — Carousel"
+ * suffix was never information: the format is on the card's tile, on the sheet's tile, and in
+ * the row that leads with it. It exists to keep two same-pillar beats in one month from
+ * reading identically. A title naming a product or quoting her own sentence is already
+ * distinct, so it takes no suffix; a pillar-only or series-only title still does, because four
+ * "Sunday Style" beats with nothing else to say would otherwise be four of the same line.
+ *
+ * The cap stays at 60 (TITLE_MAX, draft-transforms.ts) and was re-measured rather than
+ * assumed: the draft card clamps its heading to two lines of 16.5px semibold on a ~350px
+ * measure, which is very close to sixty characters. Shortening below that would give away
+ * card space already paid for. What changed is the SHAPE — see experimentTitle.
+ */
+
 /** Deterministic beat title, used as-is until (and if) the phrasing pass replaces it. */
 export function deterministicTitle(pillar: string, format: string): string {
   const f = format.charAt(0).toUpperCase() + format.slice(1);
@@ -77,9 +97,8 @@ export function deterministicTitle(pillar: string, format: string): string {
  * single most recognisable line in a Sprigly month, and it comes out of two structured facts
  * with nothing in between.
  */
-export function coverageTitle(product: string, format: string, seriesName?: string): string {
-  const f = format.charAt(0).toUpperCase() + format.slice(1);
-  return seriesName ? `${seriesName}: ${product} — ${f}` : `${product} — ${f}`;
+export function coverageTitle(product: string, seriesShortName?: string): string {
+  return seriesShortName ? `${seriesShortName}: ${product}` : product;
 }
 
 /**
@@ -90,19 +109,36 @@ export function coverageTitle(product: string, format: string, seriesName?: stri
  * fallback month must still be a concrete month. It is the same reasoning experimentTitle
  * already applies to the client's own words.
  */
-export function recurringTitle(seriesName: string, format: string): string {
+export function recurringTitle(seriesShortName: string, format: string): string {
   const f = format.charAt(0).toUpperCase() + format.slice(1);
-  return `${seriesName} — ${f}`;
+  return `${seriesShortName} — ${f}`;
 }
 
-/** Title for an experiment slot: the client's own idea, trimmed to a title's length.
- *  Their words, not a paraphrase — the point of an experiment beat is that the client
- *  recognises the thing they asked for. */
-export function experimentTitle(ideaContent: string, format: string): string {
-  const f = format.charAt(0).toUpperCase() + format.slice(1);
-  const firstLine = ideaContent.split(/\n/)[0]?.trim() ?? '';
-  const idea = firstLine.length > 60 ? `${firstLine.slice(0, 59)}\u2026` : (firstLine || 'New idea');
-  return `${idea} — ${f}`;
+/**
+ * Title for an experiment slot: the client's own idea, as a headline.
+ *
+ * Their words, never a paraphrase — the point of an experiment beat is that the client
+ * recognises the thing they asked for. But "their words" and "their first sixty characters"
+ * are not the same thing, and this used to take the second: the first LINE, then a hard
+ * slice at 59. Two ways that went wrong on her real backlog:
+ *
+ *   MID-WORD    "A hard-working wardrobe of incredible organic cotton staple… — Reel" — cut
+ *               inside "staples", and then handed a format suffix.
+ *   BARE LABEL  one idea opens with the line "Weekend Style Guide:", a heading over a dated
+ *               list on the lines below. First-line-only produced "Weekend Style Guide: —
+ *               Carousel": a label, a dangling colon, and a separator with nothing after it.
+ *
+ * deriveTitle already solves both, and was built for exactly this input — ivy-t's own
+ * briefing prose, pinned against the real stored strings (draft-title.test.ts). It takes the
+ * first SUBSTANTIVE clause rather than the first line, so a bare label falls through cleanly;
+ * it strips trailing enumerations and dangling separators; and it caps on a word boundary.
+ * Two derivations of the same thing were one too many, and the one with tests against her own
+ * data is the one to keep.
+ *
+ * No format suffix: her sentence is what distinguishes this beat. See the title rule above.
+ */
+export function experimentTitle(ideaContent: string): string {
+  return deriveTitle(ideaContent);
 }
 
 /** Detect the gaps that become intake questions. Order is fixed for determinism. */
@@ -314,11 +350,11 @@ export function assembleDraft(params: AssembleDraftParams): DraftPlan {
     // a beat has no subject of its own, which is the honest description of it rather than a
     // failure to find one.
     const title = alloc.candidate
-      ? experimentTitle(alloc.candidate.content, slot.format)
+      ? experimentTitle(alloc.candidate.content)
       : coverage
-        ? coverageTitle(coverage.product, slot.format, slot.series?.name)
+        ? coverageTitle(coverage.product, slot.series?.shortName)
         : slot.series
-          ? recurringTitle(slot.series.name, slot.format)
+          ? recurringTitle(slot.series.shortName, slot.format)
           : deterministicTitle(slot.pillar, slot.format);
 
     // The lossless columns the old planner wrote and the assembler dropped. Only what the
