@@ -25,10 +25,12 @@
  *                exception. Across 276 ivy-t captions, every product name but Ivy, Joy and
  *                Rose has ZERO lowercase occurrences. So matching is case-SENSITIVE, which
  *                separates "Joy" the product from "pure joy" at no cost to the other 40.
- *   AMBIGUOUS  — and a name she ALSO writes in lower case at all is dropped from the beat
- *                vocabulary entirely. Not because the case rule would miscount it, but
- *                because the phrasing validator must not reject an honest title for using an
- *                ordinary word.
+ *   AMBIGUOUS  — and a name she writes as an ordinary lower-case word AT LEAST AS OFTEN as
+ *                she writes it as a product is dropped from the beat vocabulary entirely. Not
+ *                because the case rule would miscount it, but because the phrasing validator
+ *                must not reject an honest title for using an ordinary word. The comparison
+ *                is load-bearing: an absolute rule threw out Connie, her flagship launch, on
+ *                one lower-case caption against forty-two capitalised ones.
  *
  * One residue is recorded rather than solved: a product name that is also a person's name
  * ("Sally") is counted whenever she signs off, so its `mentions` is inflated and it is
@@ -97,7 +99,7 @@ const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const namesProduct = (caption: string, name: string): boolean =>
   new RegExp(`(?<![A-Za-z0-9])${escapeRe(name)}(?![A-Za-z0-9])`).test(caption);
 
-/** Does she write this name ALL IN LOWER CASE anywhere? Then it is a word before it is a product. */
+/** Whole-word, all-lower-case: her writing this name as an ordinary word rather than a product. */
 const writtenAsAWord = (caption: string, name: string): boolean =>
   new RegExp(`(?<![A-Za-z0-9])${escapeRe(name.toLowerCase())}(?![A-Za-z0-9])`).test(caption);
 
@@ -142,9 +144,21 @@ export function observeProductCoverage(params: {
     if (names.some((other) => other !== name && isPrefixOf(other, name))) {
       excluded.push({ name, reason: 'parse-artefact' }); continue;
     }
-    // "pure joy" — she writes this one in lower case, so it is a word before it is a product.
-    if (name !== name.toLowerCase() && captions.some((p) => writtenAsAWord(p.caption, name))) {
-      excluded.push({ name, reason: 'ambiguous' }); continue;
+    // "pure joy" — a name she writes as an ordinary word AT LEAST AS OFTEN as she writes it as
+    // a product is a word first.
+    //
+    // The comparison is what makes this usable, and it was learned the hard way: an absolute
+    // rule ("excluded if she ever lower-cases it") threw out CONNIE, her flagship July launch,
+    // on the strength of a single caption — "my grey marl connie (which will officially be back
+    // this July)" — against forty-two capitalised mentions. One typo is not a vocabulary.
+    // Joy (4 lower, 1 capitalised) and Rose (1, 1) still go; Connie (1, 42) stays.
+    //
+    // The `> 0` guard matters as much: a product with no captions at all is 0 and 0, and it is
+    // precisely the never-featured products this whole module exists to surface.
+    if (name !== name.toLowerCase()) {
+      const asWord    = captions.filter((p) => writtenAsAWord(p.caption, name)).length;
+      const asProduct = captions.filter((p) => namesProduct(p.caption, name)).length;
+      if (asWord > 0 && asWord >= asProduct) { excluded.push({ name, reason: 'ambiguous' }); continue; }
     }
     usable.push(name);
   }

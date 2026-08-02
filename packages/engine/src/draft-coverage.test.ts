@@ -61,11 +61,39 @@ describe('observeProductCoverage — the three guards', () => {
     expect(find('Ivy')).toBeUndefined();
   });
 
-  it('excludes a name she also writes as an ORDINARY WORD', () => {
-    // "pure joy" twice. The case rule would count it correctly, but a title using the word
-    // honestly must not be rejected by the phrasing validator — so Joy leaves the vocabulary.
+  it('excludes a name she writes as an ORDINARY WORD at least as often as as a product', () => {
+    // "pure joy" twice against one "The Joy vest". The case rule would count it correctly, but
+    // a title using the word honestly must not be rejected by the phrasing validator — so Joy
+    // leaves the vocabulary.
     expect(why('Joy')).toBe('ambiguous');
     expect(find('Joy')).toBeUndefined();
+  });
+
+  it('KEEPS a product she lower-cased once against many capitalised mentions', () => {
+    // The regression this guards, found in ivy-t's live acceptance run: an absolute rule
+    // ("excluded if she ever lower-cases it") threw out CONNIE — her flagship July launch — on
+    // one caption, "my grey marl connie", against forty-two capitalised ones. One typo is not
+    // a vocabulary.
+    const posts = [
+      post('2026-04-03', 'my grey marl connie (which will officially be back this July)'),
+      ...Array.from({ length: 42 }, (_, i) => post(`2026-07-${String((i % 28) + 1).padStart(2, '0')}`, 'The Connie Edit is here')),
+    ];
+    const out = observeProductCoverage({ names: ['Connie'], posts, brandTokens: new Set() });
+    expect(out.excluded).toEqual([]);
+    expect(out.coverage[0]!.product).toBe('Connie');
+  });
+
+  it('excludes on a TIE — written as a word as often as as a product is a word', () => {
+    const posts = [post('2026-07-01', 'The Rose dress'), post('2026-07-02', 'a rose by any other name')];
+    const out = observeProductCoverage({ names: ['Rose'], posts, brandTokens: new Set() });
+    expect(out.excluded[0]).toEqual({ name: 'Rose', reason: 'ambiguous' });
+  });
+
+  it('never excludes a NEVER-MENTIONED product — 0 and 0 is not ambiguity', () => {
+    // The products this module exists to surface all score zero on both counts.
+    const out = observeProductCoverage({ names: ['Bea'], posts: [post('2026-07-01', 'unrelated')], brandTokens: new Set() });
+    expect(out.excluded).toEqual([]);
+    expect(out.coverage[0]).toEqual({ product: 'Bea', lastFeatured: null, mentions: 0 });
   });
 
   it('excludes a PARSER ARTEFACT whose real family is already in the list', () => {
