@@ -115,7 +115,10 @@ function evidenceFor(slot: AllocatedSlot, skeleton: Skeleton, pillarShare: numbe
     ...(pillarShare !== undefined ? { pillarShare } : {}),
     cadenceBasis: skeleton.cadenceBasis,
     ...(slot.slotType === 'experiment' && slot.candidate && slot.rank && slot.of
-      ? { candidateRank: { rank: slot.rank, of: slot.of, origin: slot.candidate.origin } }
+      ? { candidateRank: {
+          rank: slot.rank, of: slot.of, origin: slot.candidate.origin,
+          ...(slot.candidate.lifecycle ? { lifecycle: slot.candidate.lifecycle } : {}),
+        } }
       : {}),
   };
 }
@@ -127,7 +130,10 @@ export interface AssembleDraftParams {
   month:    string;                 // 'YYYY-MM' to plan FOR
   posts:    HistoryPost[];          // the client's ig_posts history
   pillars:  Pillar[];               // from client_planning_config
-  candidates: ExperimentCandidate[];// from loadDurableInputs — [] today, by design
+  /** The ideas backlog, from loadDurableInputs. NOT empty: ivy-t's September window returns
+   *  twenty (six never used) — the old note claiming otherwise described a Phase 0 snapshot
+   *  that stopped being true. See docs/reports/beat-grounding.md §2.5. */
+  candidates: ExperimentCandidate[];
   temperature: number | null;
   hasCatalogue: boolean;
   hasBriefedLaunch: boolean;

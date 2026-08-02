@@ -87,7 +87,18 @@ function firstOfMonthAfter(planMonth: string): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`;
 }
 
-export interface DurableInputRow { type: string; content: string; }
+export interface DurableInputRow {
+  /** plan_inputs.id. Carried so a beat built from this row can point AT the row. */
+  id:        string;
+  type:      string;
+  content:   string;
+  /**
+   * MATURITY — 'candidate' | 'used' | 'measured' | 'proven' | 'declined' | 'stale'.
+   * Orthogonal to `status` (availability), which the WHERE clause already pins to 'active'.
+   * Selected, never filtered on: see the note on the query below.
+   */
+  lifecycle: string;
+}
 
 /**
  * THE one durable relevance-window query — active plan_inputs of type idea|next_cycle whose
@@ -99,12 +110,19 @@ export interface DurableInputRow { type: string; content: string; }
  * diverge on the window again. Returns the rows; each caller decides existence vs content and
  * keeps its OWN error posture (the generator wraps this best-effort → []; the gate lets errors
  * propagate). The window is identical to the prior two inline copies except the fixed upper bound.
+ *
+ * `id` and `lifecycle` are SELECTED but the WHERE clause is untouched, deliberately. The draft
+ * assembler wants to rank a never-used idea above one that has already run, and to refuse a
+ * declined one outright — but doing that here would change what "is there anything plannable?"
+ * means for the gate and the app's intake route, which share this query precisely so the answer
+ * cannot come to differ between them. Selection is additive; a predicate would not be. The
+ * ranking policy therefore lives with the caller that has one (draft-plan.ts).
  */
 export async function loadDurableInputs(db: Db, clientId: string, planMonth: string): Promise<DurableInputRow[]> {
   const monthStart     = `${planMonth}-01`;
   const nextMonthStart = firstOfMonthAfter(planMonth);
   const rows = await db
-    .select({ type: planInputs.type, content: planInputs.content })
+    .select({ id: planInputs.id, type: planInputs.type, content: planInputs.content, lifecycle: planInputs.lifecycle })
     .from(planInputs)
     .where(and(
       eq(planInputs.clientId, clientId),
@@ -113,7 +131,7 @@ export async function loadDurableInputs(db: Db, clientId: string, planMonth: str
       or(isNull(planInputs.relevantFrom), lt(planInputs.relevantFrom, nextMonthStart)),
       or(isNull(planInputs.relevantTo),   gte(planInputs.relevantTo,   monthStart)),
     ));
-  return rows.map((r) => ({ type: r.type, content: r.content }));
+  return rows.map((r) => ({ id: r.id, type: r.type, content: r.content, lifecycle: r.lifecycle }));
 }
 
 /**

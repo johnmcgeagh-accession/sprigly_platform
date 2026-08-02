@@ -1002,8 +1002,12 @@ export interface BeatRationaleEvidence {
    *  fabricated {postsPerWeek: 0} would be exactly the invention this contract exists to
    *  prevent. */
   cadenceBasis?:     { postsPerWeek: number; source: 'observed' | 'config'; months: number };
-  /** For an experiment slot: how the candidate ranked, and against what. */
-  candidateRank?:    { rank: number; of: number; origin: 'client' | 'competitor' };
+  /** For an experiment slot: how the candidate ranked, and against what. `lifecycle` is the
+   *  backlog item's MATURITY at the moment it was drawn ('candidate' = she asked for it and
+   *  it has not run yet), so the rationale can say which of those two things happened rather
+   *  than the vaguer "this came from an idea you sent us". Absent on a candidate that came
+   *  from anywhere but plan_inputs. */
+  candidateRank?:    { rank: number; of: number; origin: 'client' | 'competitor'; lifecycle?: string };
   /**
    * The catalogue product this beat is about, and the coverage gap that chose it.
    *

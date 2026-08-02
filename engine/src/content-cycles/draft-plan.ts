@@ -21,7 +21,7 @@ import {
 } from '@sprigly/db';
 import {
   assembleDraft, applyPhrasing, phraseDraftTitles, loadDurableInputs, readDraftFlowFlag,
-  approveDraftCore, cadenceFloorSlots, STALE_TRAWL_DAYS,
+  approveDraftCore, cadenceFloorSlots, STALE_TRAWL_DAYS, DRAFT_DEFAULT_TEMPERATURE,
   type DraftPlan, type ExperimentCandidate, type HistoryPost,
 } from '@sprigly/engine';
 import type { Pillar } from '@sprigly/engine';
@@ -190,21 +190,28 @@ export async function assembleAndPersistDraft(
   const stale = await staleTrawlWarning(deps, clientId, channel, now);
   if (stale) logger.warn({ ...logCtx, stale }, 'draft-plan: stale IG history — assembling anyway (D2)');
 
-  // Experiment candidates: the ideas backlog. Returns [] for every client today (all live
-  // plan_inputs rows are type='note', which loadDurableInputs filters out). Expected.
+  // Experiment candidates: the ideas backlog.
+  //
+  // This used to synthesise `id: 'idea-0'` from the array index, because loadDurableInputs
+  // did not select the primary key — so beat_meta.sourceRef, documented as a plan_inputs.id
+  // (schema.ts), was an array position and a beat could not be traced back to the sentence it
+  // came from. It selects `id` now, and `lifecycle` with it, so an idea she has never seen run
+  // outranks one that has (rankCandidates).
   let candidates: ExperimentCandidate[] = [];
   try {
     const durable = await loadDurableInputs(db, clientId, month);
     candidates = durable
       .filter((d) => d.type === 'idea')
-      .map((d, i) => ({ id: `${d.type}-${i}`, content: d.content, origin: 'client' as const }));
+      .map((d) => ({ id: d.id, content: d.content, origin: 'client' as const, lifecycle: d.lifecycle }));
   } catch (err) {
     logger.warn({ ...logCtx, err: String(err) }, 'draft-plan: could not load idea backlog — proceeding with none');
   }
 
-  // Temperature: no per-client dial exists yet (D4 — the allocator interface lands in this
-  // build, the dial does not). null resolves to an all-proven month.
-  const temperature: number | null = null;
+  // Temperature: still no per-client dial (D4's dial has not landed), but `null` is not the
+  // honest stand-in for "unset" — it is an instruction to ignore the backlog entirely, and it
+  // was being followed. The default is a ceiling, clamped by allocateSlots to the candidates
+  // that actually exist, so a client with no backlog still gets an all-proven month.
+  const temperature: number = DRAFT_DEFAULT_TEMPERATURE;
 
   const briefSchedule = (cycle.structuredBrief as { schedule?: unknown[]; products?: unknown[] } | null);
   const hasBriefedLaunch = Array.isArray(briefSchedule?.products) && briefSchedule.products.length > 0;

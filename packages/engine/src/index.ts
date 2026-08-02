@@ -109,7 +109,7 @@ export { observeHistory, observeCadence, observeFormats } from './draft-history.
 export type { HistoryPost, HistoryObservation, CadenceObservation, FormatObservation } from './draft-history.js';
 export { buildSkeleton, spreadDates, spreadFormats, slotCountFor, cadenceFloorSlots, DRAFT_MIN_POSTS } from './draft-skeleton.js';
 export type { Skeleton, SkeletonSlot, BuildSkeletonParams } from './draft-skeleton.js';
-export { allocateSlots, rankCandidates } from './draft-allocator.js';
+export { allocateSlots, rankCandidates, DRAFT_DEFAULT_TEMPERATURE, REFUSED_LIFECYCLES } from './draft-allocator.js';
 export type { ExperimentCandidate, AllocatedSlot } from './draft-allocator.js';
 export { assembleDraft, detectAssumptions, deterministicTitle, experimentTitle, STALE_TRAWL_DAYS } from './draft-assembly.js';
 export type { DraftBeat, DraftPlan, AssembleDraftParams } from './draft-assembly.js';

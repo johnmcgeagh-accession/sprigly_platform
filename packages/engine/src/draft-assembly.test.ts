@@ -146,8 +146,8 @@ describe('allocateSlots — the temperature dial', () => {
   });
 
   it('EMPTY backlog with any temperature → a full proven month, never an empty one', () => {
-    // loadDurableInputs returns [] for every client today (all live plan_inputs rows are
-    // type='note', which it filters out). This is the expected day-one path.
+    // The default temperature is a CEILING, not a target: a client with nothing in their
+    // backlog still gets a complete, entirely proven month. Unchanged by B.
     const slots = allocateSlots(12, 1, []);
     expect(slots).toHaveLength(12);
     expect(slots.every((s) => s.slotType === 'proven')).toBe(true);
@@ -183,6 +183,56 @@ describe('allocateSlots — the temperature dial', () => {
     expect(at).toHaveLength(2);
     expect(at[0]).toBeGreaterThan(0);        // not slot 0
     expect(at[1]! - at[0]!).toBeGreaterThan(1);
+  });
+});
+
+// ── Maturity: an idea she has not seen run outranks one she has (B) ──────────
+
+describe('rankCandidates — backlog maturity', () => {
+  const c = (id: string, lifecycle?: string): ExperimentCandidate =>
+    ({ id, content: id, origin: 'client', ...(lifecycle ? { lifecycle } : {}) });
+
+  it('puts a never-used idea ahead of one that has already run', () => {
+    // ivy-t's live shape: 6 candidate + 14 used, all client-origin. Without this the month
+    // fills with repeats she has already seen.
+    const ranked = rankCandidates([c('z-used', 'used'), c('a-fresh', 'candidate')]);
+    expect(ranked.map((x) => x.id)).toEqual(['a-fresh', 'z-used']);
+  });
+
+  it('ranks proven above measured above used — a revival beats a repeat', () => {
+    const ranked = rankCandidates([c('d', 'used'), c('c', 'measured'), c('b', 'proven'), c('a', 'candidate')]);
+    expect(ranked.map((x) => x.id)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('REFUSES declined and stale outright — they are not ranked, they are dropped', () => {
+    const ranked = rankCandidates([c('a', 'declined'), c('b', 'stale'), c('c', 'candidate')]);
+    expect(ranked.map((x) => x.id)).toEqual(['c']);
+  });
+
+  it('origin still outranks maturity — a fresh competitor idea loses to a used client one', () => {
+    const ranked = rankCandidates([
+      { id: 'comp', content: 'x', origin: 'competitor', lifecycle: 'candidate' },
+      c('client', 'used'),
+    ]);
+    expect(ranked.map((x) => x.id)).toEqual(['client', 'comp']);
+  });
+
+  it('treats an unknown or absent lifecycle as already-used rather than promoting it', () => {
+    const ranked = rankCandidates([c('unknown', 'something-new'), c('none'), c('fresh', 'candidate')]);
+    expect(ranked[0]!.id).toBe('fresh');
+  });
+
+  it('is deterministic on a tie and does not mutate its input', () => {
+    const input = [c('b', 'candidate'), c('a', 'candidate')];
+    const snapshot = input.map((x) => x.id);
+    expect(rankCandidates(input).map((x) => x.id)).toEqual(['a', 'b']);
+    expect(input.map((x) => x.id)).toEqual(snapshot);
+  });
+
+  it('a month whose whole backlog is declined comes out fully proven', () => {
+    const slots = allocateSlots(10, 1, [c('a', 'declined'), c('b', 'stale')]);
+    expect(slots.every((s) => s.slotType === 'proven')).toBe(true);
+    expect(slots).toHaveLength(10);
   });
 });
 
@@ -333,6 +383,45 @@ describe('assembleDraft', () => {
   it('positions are contiguous from zero, so the beats have a stable order', () => {
     const draft = assembleDraft(baseParams());
     expect(draft.beats.map((b) => b.position)).toEqual(draft.beats.map((_, i) => i));
+  });
+
+  it('carries the backlog item\'s MATURITY into the evidence, so the reason can say which', () => {
+    const draft = assembleDraft(baseParams({
+      temperature: 0.2,
+      candidates: [{ id: 'pi-1', content: 'Why never to wear polyester', origin: 'client', lifecycle: 'candidate' }],
+    }));
+    const e = draft.beats.find((b) => b.beatMeta.slotType === 'experiment')!;
+    expect(e.beatMeta.sourceRef).toBe('pi-1');
+    expect(e.beatMeta.rationaleEvidence.candidateRank).toMatchObject({ origin: 'client', lifecycle: 'candidate' });
+  });
+
+  it('omits lifecycle rather than inventing one when the candidate has none', () => {
+    const draft = assembleDraft(baseParams({
+      temperature: 0.2, candidates: [{ id: 'pi-1', content: 'x', origin: 'client' }],
+    }));
+    const e = draft.beats.find((b) => b.beatMeta.slotType === 'experiment')!;
+    expect(e.beatMeta.rationaleEvidence.candidateRank!.lifecycle).toBeUndefined();
+  });
+
+  it('titles an experiment beat with the client\'s OWN words, not a paraphrase', () => {
+    const idea = 'Why never to wear polyester in summer';
+    const draft = assembleDraft(baseParams({
+      temperature: 0.2, candidates: [{ id: 'pi-1', content: idea, origin: 'client', lifecycle: 'candidate' }],
+    }));
+    const e = draft.beats.find((b) => b.beatMeta.slotType === 'experiment')!;
+    expect(e.title.startsWith(idea)).toBe(true);
+  });
+
+  it('trims a long idea to a title\'s length rather than dropping it', () => {
+    // ivy-t's real backlog runs to full sentences — 63 characters for the polyester one.
+    // The title keeps her opening words and marks the cut; it never paraphrases.
+    const idea = 'Why never to wear polyester or synthetics, especially in summer.';
+    const draft = assembleDraft(baseParams({
+      temperature: 0.2, candidates: [{ id: 'pi-1', content: idea, origin: 'client', lifecycle: 'candidate' }],
+    }));
+    const e = draft.beats.find((b) => b.beatMeta.slotType === 'experiment')!;
+    expect(e.title.startsWith('Why never to wear polyester')).toBe(true);
+    expect(e.title).toContain('…');
   });
 });
 
