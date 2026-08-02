@@ -18,7 +18,16 @@
  * What it keeps is the part that matters most on a draft: the REASON, behind the insights icon.
  * On a committed post that is a nice-to-have; on a planned one it is the whole proposition —
  * the client is being asked to approve a slot, and the evidence for the slot is what they are
- * approving. Gap 4 landed this session, so a beat the client's own words created finally says so.
+ * approving. Gap 4 landed earlier, so a beat the client's own words created finally says so.
+ *
+ * That affordance now carries the beat's GROUNDING, one fact per line, rather than the card's
+ * single compressed sentence. Beats stopped being pillar-shaped — they name a product and the
+ * date it was last in a caption, a recurring series and when it last ran, or the sentence she
+ * sent us and the month she sent it — and a sentence that fits a three-line card cannot hold
+ * that. Extending the insights panel rather than adding a section is the point: the reason a
+ * beat exists already lives behind this icon, and a second place to look for it would mean
+ * neither place was the answer. Every line is derived from `rationaleEvidence` by
+ * `groundingLines`; none of it is model prose, and a field that is absent produces no line.
  *
  * A separate component from `DetailSheet` rather than a mode of it: a `DraftBeatView` is not a
  * `PlanPost` and was made a separate type on purpose (see types.ts). Modelling one as the other
@@ -31,7 +40,7 @@ import { Sheet } from './Sheet';
 import { FormatControl } from './FormatControl';
 import { FormatTile, InfoGlyph, CalGlyph, BinGlyph } from './icons';
 import { dayTitle } from './dates';
-import { rationaleFor, slotLabel } from '@/lib/draft-rationale';
+import { groundingLines, slotLabel } from '@/lib/draft-rationale';
 
 export function DraftDetailSheet({
   beat, editable, busy, onClose, onMove, onDelete, onFormat,
@@ -52,7 +61,10 @@ export function DraftDetailSheet({
 
   if (!beat) return null;
 
-  const reason = rationaleFor(beat.evidence, beat.pillar);
+  // The SHEET reads the evidence as separate facts, one per line, where the card compresses
+  // the same evidence into a sentence (rationaleFor). Same source, two readings — the client
+  // is here to study it, so each claim stays separately checkable.
+  const grounding = groundingLines(beat.evidence, beat.pillar);
   const experiment = slotLabel(beat.slotType);
 
   return (
@@ -69,7 +81,7 @@ export function DraftDetailSheet({
                 {[dayTitle(beat.date), beat.pillar].filter(Boolean).join(' · ')}
               </p>
             </div>
-            {reason && (
+            {grounding.length > 0 && (
               <button
                 type="button" data-testid="insights-toggle" aria-expanded={insights}
                 aria-label="Why this post is here" onClick={() => setInsights((v) => !v)}
@@ -81,14 +93,33 @@ export function DraftDetailSheet({
           </div>
         </div>
 
-        {insights && reason && (
+        {insights && grounding.length > 0 && (
           <div data-testid="insights" className="flex-none px-[18px] pt-3">
             <div className="rounded-2xl border border-coral-600/45 bg-coral-100 px-3.5 py-3">
               <h3 className="text-[11px] font-bold uppercase tracking-[.1em] text-coral-800">Why this one is here</h3>
-              <p className="mt-1.5 text-[13.5px] leading-normal text-coral-800">{reason}</p>
+              {/* One fact per row, each separately checkable, rather than one run-on sentence.
+                  A `ul` because that is what this is; the marker is drawn as a dot so the list
+                  reads as evidence rather than as instructions. */}
+              <ul className="mt-2 space-y-2">
+                {grounding.map((line, i) => (
+                  <li key={`${line.kind}-${i}`} data-testid="grounding-line" data-kind={line.kind} className="flex gap-2">
+                    <span aria-hidden className="mt-[7px] h-[3px] w-[3px] flex-none rounded-full bg-coral-800/55" />
+                    <span className="min-w-0 flex-1 text-[13.5px] leading-normal text-coral-800">
+                      {line.text}
+                      {line.quote && (
+                        // HER WORDS, not ours — set apart so it is unmistakably a quotation and
+                        // never reads as our summary of what she said.
+                        <span data-testid="grounding-quote" className="mt-1 block break-words italic text-coral-800">
+                          “{line.quote}”
+                        </span>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
               {experiment && (
                 // §2.1: the marker's explanation lives HERE, not in a tooltip on the card.
-                <p data-testid="experiment-note" className="mt-2 text-[13.5px] leading-normal text-coral-800">
+                <p data-testid="experiment-note" className="mt-2.5 border-t border-coral-600/25 pt-2.5 text-[13.5px] leading-normal text-coral-800">
                   This one is a new idea we’re trying this month.
                 </p>
               )}

@@ -7,7 +7,7 @@
  * cost the client's trust in every other rationale on the page.
  */
 import { describe, it, expect } from 'vitest';
-import { rationaleFor, slotLabel, assumptionPrompt, isAnswerable, firstAnswerable } from '@/lib/draft-rationale';
+import { rationaleFor, groundingLines, slotLabel, assumptionPrompt, isAnswerable, firstAnswerable } from '@/lib/draft-rationale';
 import type { BeatEvidence } from '@/lib/types';
 
 describe('rationaleFor — observed evidence', () => {
@@ -342,5 +342,135 @@ describe('rationaleFor — a product gap is the one claim they can check in ten 
     const out = rationaleFor(thin, 'x');
     expect(out).toContain('You haven’t posted about Jules since 3 February');
     expect(out).toContain('don’t have enough of your posting history');
+  });
+});
+
+// ── groundingLines: the SHEET's reading of the same evidence (T1b) ───────────
+//
+// The card compresses the evidence into a sentence; the sheet lays it out one fact per line,
+// each separately checkable. Both derive from rationaleEvidence and neither adds to it. The
+// negative assertions matter most here, same as everywhere else in this file: a field that is
+// absent produces NO LINE — never a zero, never "no data", never a hedge.
+
+describe('groundingLines', () => {
+  const kinds = (e: BeatEvidence, pillar = 'Stable Foundations') =>
+    groundingLines(e, pillar).map((l) => l.kind);
+  const textOf = (e: BeatEvidence, kind: string, pillar = 'Stable Foundations') =>
+    groundingLines(e, pillar).find((l) => l.kind === kind)?.text;
+
+  it('a product gap reads as the brief specifies', () => {
+    expect(textOf({ basis: 'observed', productCoverage: { product: 'Jules', lastFeatured: '2026-02-03', mentions: 5 } }, 'product'))
+      .toBe('Jules — last in a caption on 3 February (5 captions)');
+  });
+
+  it('a NEVER-featured product says so, and carries no date and no zero', () => {
+    const line = textOf({ basis: 'observed', productCoverage: { product: 'Fiona', lastFeatured: null, mentions: 0 } }, 'product')!;
+    expect(line).toBe('Fiona — never appeared in a caption');
+    expect(line).not.toMatch(/\(0|1970|since|Invalid/);
+  });
+
+  it('singularises a one-caption sample', () => {
+    expect(textOf({ basis: 'observed', productCoverage: { product: 'Thia', lastFeatured: '2025-12-22', mentions: 1 } }, 'product'))
+      .toBe('Thia — last in a caption on 22 December (1 caption)');
+  });
+
+  it('a recurring series reads as the brief specifies', () => {
+    expect(textOf({ basis: 'observed', seriesDue: { name: 'Sunday Style', dayOfWeek: 'Sunday', lastPlanned: '2026-07-26', monthsObserved: 2 } }, 'series'))
+      .toBe('Sunday Style — weekly; last ran 26 July');
+  });
+
+  it('says monthly for a monthly series, and "hasn’t run yet" when it never has', () => {
+    expect(textOf({ basis: 'observed', seriesDue: { name: 'What our customers see', dayOfWeek: 'monthly', lastPlanned: null, monthsObserved: 0 } }, 'series'))
+      .toBe('What our customers see — monthly; hasn’t run yet');
+  });
+
+  it('a backlog beat gives the month AND quotes her sentence in full', () => {
+    const idea = 'Why never to wear polyester or synthetics, especially in summer.';
+    const line = groundingLines({
+      basis: 'observed',
+      candidateRank: { rank: 1, of: 6, origin: 'client', lifecycle: 'candidate' },
+      backlogIdea: { text: idea, givenAt: '2026-06-14' },
+    }, 'x').find((l) => l.kind === 'backlog')!;
+    expect(line.text).toBe('From what you told us in June');
+    // The title is a headline; the SHEET is where the whole sentence lives.
+    expect(line.quote).toBe(idea);
+  });
+
+  it('drops the month rather than guessing when the backlog date is missing or malformed', () => {
+    for (const givenAt of [null, 'nope']) {
+      const line = groundingLines({ basis: 'observed', backlogIdea: { text: 'An idea', givenAt } }, 'x')
+        .find((l) => l.kind === 'backlog')!;
+      expect(line.text).toBe('From what you told us');
+      expect(line.quote).toBe('An idea');
+    }
+  });
+
+  it('states format engagement WITH its sample size', () => {
+    expect(textOf({ basis: 'observed', formatEngagement: { format: 'carousel', avgEngagement: 31.9, posts: 86 } }, 'format'))
+      .toBe('Carousels average 32 likes and comments across your last 86 posts');
+  });
+
+  it('states cadence and what it was measured over', () => {
+    expect(textOf({ basis: 'observed', cadenceBasis: { postsPerWeek: 7.48, source: 'observed', months: 10 } }, 'cadence'))
+      .toBe('You post about 7.48 times a week, measured over 10 months of your feed');
+  });
+
+  it('says a CONFIGURED cadence came from the account, not from the feed', () => {
+    expect(textOf({ basis: 'observed', cadenceBasis: { postsPerWeek: 3, source: 'config', months: 0 } }, 'cadence'))
+      .toBe('Planned at 3 posts a week, the rate set on your account');
+  });
+
+  it('states the pillar share', () => {
+    expect(textOf({ basis: 'observed', pillarShare: 0.14 }, 'pillar', 'Simplify Your Morning'))
+      .toBe('Simplify Your Morning is about 14% of what you post');
+  });
+
+  it('ABSENCE IS A VALUE: no evidence, no lines at all', () => {
+    expect(groundingLines({ basis: 'observed' }, 'Stable Foundations')).toEqual([]);
+  });
+
+  it('omits every line whose field is absent — never a zero, never a placeholder', () => {
+    expect(kinds({ basis: 'observed', productCoverage: { product: 'Bea', lastFeatured: null, mentions: 0 } }))
+      .toEqual(['product']);
+  });
+
+  it('drops a zero-sample engagement figure rather than reporting a mean of nothing', () => {
+    expect(kinds({ basis: 'observed', formatEngagement: { format: 'reel', avgEngagement: 0, posts: 0 } })).toEqual([]);
+  });
+
+  it('orders strongest and most specific first: series, product, her words, then measurements', () => {
+    expect(kinds({
+      basis: 'observed',
+      seriesDue: { name: 'Sunday Style', dayOfWeek: 'Sunday', lastPlanned: '2026-07-26', monthsObserved: 2 },
+      productCoverage: { product: 'Jules', lastFeatured: '2026-02-03', mentions: 5 },
+      backlogIdea: { text: 'An idea', givenAt: '2026-06-01' },
+      formatEngagement: { format: 'carousel', avgEngagement: 31.9, posts: 86 },
+      pillarShare: 0.14,
+      cadenceBasis: { postsPerWeek: 7.48, source: 'observed', months: 10 },
+    })).toEqual(['series', 'product', 'backlog', 'format', 'pillar', 'cadence']);
+  });
+
+  it('a THIN-history beat still shows its facts, and names the gap last', () => {
+    const out = kinds({
+      basis: 'template',
+      reason: 'insufficient history: 9 posts, floor is 15',
+      seriesDue: { name: 'Sunday Style', dayOfWeek: 'Sunday', lastPlanned: '2026-07-26', monthsObserved: 2 },
+      cadenceBasis: { postsPerWeek: 3, source: 'config', months: 0 },
+    });
+    expect(out).toEqual(['series', 'cadence', 'thin']);
+  });
+
+  it('a hand-added beat says only that, and claims no evidence it does not have', () => {
+    expect(groundingLines({ basis: 'client_added' }, 'x')).toEqual([{ kind: 'added', text: 'You added this one yourself.' }]);
+  });
+
+  it('a client_input beat quotes her sentence rather than summarising it', () => {
+    const line = groundingLines({ basis: 'client_input', reason: 'The Wilderness candle relaunches on the 24th' }, 'x')[0]!;
+    expect(line.text).toBe('From what you told us');
+    expect(line.quote).toBe('The Wilderness candle relaunches on the 24th');
+  });
+
+  it('a client_input beat with no recorded text says nothing rather than inventing one', () => {
+    expect(groundingLines({ basis: 'client_input' }, 'x')).toEqual([]);
   });
 });

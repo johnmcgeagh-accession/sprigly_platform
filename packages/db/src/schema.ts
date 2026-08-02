@@ -1009,6 +1009,17 @@ export interface BeatRationaleEvidence {
    *  from anywhere but plan_inputs. */
   candidateRank?:    { rank: number; of: number; origin: 'client' | 'competitor'; lifecycle?: string };
   /**
+   * The backlog item this beat came from, quotable.
+   *
+   * `sourceRef` is the POINTER — a plan_inputs.id, for tracing and for the graduation loop.
+   * It is useless to a client surface, which cannot go and fetch the row. This is the same
+   * text, carried so the sheet can show her the sentence she sent us and when she sent it,
+   * exactly as `client_input` already carries `reason` for the beats a transform created.
+   * `givenAt` is plan_inputs.created_at as an ISO date, or null on a candidate from anywhere
+   * but the backlog.
+   */
+  backlogIdea?:      { text: string; givenAt: string | null };
+  /**
    * The catalogue product this beat is about, and the coverage gap that chose it.
    *
    * `lastFeatured` is the date of the most recent ig_posts caption naming this product, or

@@ -275,6 +275,11 @@ function evidenceFor(
           ...(slot.candidate.lifecycle ? { lifecycle: slot.candidate.lifecycle } : {}),
         } }
       : {}),
+    // Her sentence, carried so a surface can quote it. sourceRef points AT the row; a client
+    // surface cannot go and fetch it. Same reasoning as client_input's `reason`.
+    ...(slot.candidate
+      ? { backlogIdea: { text: slot.candidate.content, givenAt: slot.candidate.givenAt ?? null } }
+      : {}),
   };
 }
 
