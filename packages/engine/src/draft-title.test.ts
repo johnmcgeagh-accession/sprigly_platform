@@ -11,6 +11,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { deriveTitle, applyEvent, applySeries, applyLaunchArc, type TransformBeat } from './draft-transforms.js';
+import { experimentTitle } from './draft-assembly.js';
 import type { MonthScopedIntent } from './intake-classify.js';
 import type { BeatMeta } from '@sprigly/db';
 
@@ -155,5 +156,59 @@ describe('the transforms use it', () => {
     );
     const add = r.ops.find((o): o is Extract<typeof o, { op: 'add' }> => o.op === 'add')!;
     expect((add.beatMeta.rationaleEvidence as { reason?: string }).reason).toBe(LONG);
+  });
+});
+
+// ── experimentTitle: the same derivation, on her real backlog (T2b, T2c) ─────
+//
+// experimentTitle used to take content.split('\n')[0] and hard-slice it at 59, which is a
+// second derivation of the thing deriveTitle already does — and a worse one. These are the
+// six live plan_inputs rows the September draft actually draws on.
+
+describe('experimentTitle — her backlog, as headlines', () => {
+  it('caps on a WORD boundary rather than mid-word', () => {
+    // Was: "A hard-working wardrobe of incredible organic cotton staple… — Reel" — cut inside
+    // "staples", then given a format suffix.
+    expect(experimentTitle('A hard-working wardrobe of incredible organic cotton staples makes life easier.'))
+      .toBe('A hard-working wardrobe of incredible organic cotton…');
+  });
+
+  it('takes the first clause where one says enough on its own', () => {
+    expect(experimentTitle('We bring you simple things that work — from work presentations to hugs at the school gate.'))
+      .toBe('We bring you simple things that work');
+    expect(experimentTitle('Life is busy — make decision-making easy with a simple set of quality wardrobe staples.'))
+      .toBe('Life is busy');
+  });
+
+  it('keeps her punctuation, typos included — these are her words', () => {
+    expect(experimentTitle("It's just a sweatshirt (or is it)' — a post breaking down what makes our sweatshirts super soft"))
+      .toBe("It's just a sweatshirt (or is it)'");
+  });
+
+  it('THE BARE LABEL: a heading over a dated list resolves to the heading, with no dangle', () => {
+    // The one malformed case from the last report. First-line-only produced
+    // "Weekend Style Guide: — Carousel" — a label, a dangling colon, and a separator with
+    // nothing after it.
+    const title = experimentTitle('Weekend Style Guide:\nFriday 7th August - Maggie t-shirt grey marl \nFriday 14th August - Lily tee');
+    expect(title).toBe('Weekend Style Guide');
+    expect(title).not.toMatch(/[:—–-]\s*$/);
+  });
+
+  it('never appends a format — her sentence is what distinguishes the beat', () => {
+    for (const idea of [
+      'Why never to wear polyester or synthetics, especially in summer.',
+      'Weekend Style Guide:\nFriday 7th August - Maggie t-shirt grey marl',
+    ]) expect(experimentTitle(idea)).not.toMatch(/ — (Reel|Carousel|Single)$/);
+  });
+
+  it('never returns an empty title, whatever it is handed', () => {
+    for (const junk of ['', '   ', '\n\n', ':', '— —']) {
+      expect(experimentTitle(junk).trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  it('stays inside the cap', () => {
+    expect(experimentTitle('Why never to wear polyester or synthetics, especially in summer.').length)
+      .toBeLessThanOrEqual(61);
   });
 });

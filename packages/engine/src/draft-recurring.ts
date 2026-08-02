@@ -138,9 +138,29 @@ export function observeSeriesHistory(
   }]));
 }
 
+/**
+ * The client's own shorthand for a series — the part before the bracket.
+ *
+ * Her config names the Weekend Style Guide "WSG (Weekend Style Guide)", carrying both forms in
+ * one string, and every month she has ever run titles it by the short one: "WSG: Vests",
+ * "WSG: Connie Violet", "WSG: Maggie Almond". Her own `categories` list agrees — it contains
+ * "WSG", not the expansion — and so does `postingTimes.wsg`. Three independent places in her
+ * configuration say the same thing, so a beat titled "WSG (Weekend Style Guide): Lydia" is
+ * using our reading of her name rather than hers.
+ *
+ * A name with no bracket is already its own shorthand.
+ */
+export function seriesShortName(name: string): string {
+  const full = name.trim();
+  const m = /^(.*?)\s*\([^)]+\)\s*$/.exec(full);
+  return m?.[1]?.trim() || full;
+}
+
 /** A configured recurring series, resolved against the client's own plan history. */
 export interface ResolvedSeries {
   name:      string;
+  /** What a title calls it: "WSG", where `name` is "WSG (Weekend Style Guide)". */
+  shortName: string;
   /** As configured — 'Sunday' … 'Saturday' | 'monthly'. Carried verbatim into the evidence. */
   dayOfWeek: SeriesDayOfWeek;
   /** 0=Sun..6=Sat, or null for a monthly series. */
@@ -182,6 +202,7 @@ export function resolveRecurringSeries(
       const obs = observed.get(name) ?? { lastPlanned: null, monthsObserved: 0 };
       return {
         name,
+        shortName: seriesShortName(name),
         dayOfWeek: s.dayOfWeek,
         weekday:   WEEKDAY_INDEX[s.dayOfWeek] ?? null,
         format:    recurringFormatWord(s.format),

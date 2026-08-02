@@ -35,6 +35,8 @@ export interface ExperimentCandidate {
    * from anything but the backlog, and treated as unranked when so.
    */
   lifecycle?: string;
+  /** plan_inputs.created_at as 'YYYY-MM-DD' — when she gave us this idea. Absent when unknown. */
+  givenAt?: string;
 }
 
 /**

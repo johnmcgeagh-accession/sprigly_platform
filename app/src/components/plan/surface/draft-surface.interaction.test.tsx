@@ -877,3 +877,138 @@ describe('hardened against what a real client throws at it', () => {
     expect(screen.queryByTestId('add-pillar')).toBeNull();
   });
 });
+
+// ── The sheet shows the beat in full (T1) ────────────────────────────────────
+
+describe('the detail sheet is where the whole beat is readable', () => {
+  const openSheet = () => fireEvent.click(screen.getByTestId('draft-card'));
+  const lines = () => screen.getAllByTestId('grounding-line').map((el) => el.textContent);
+
+  /** ivy-t's real September beats, verbatim from the assembled draft. */
+  const PRODUCT = beat({
+    id: 'p1', title: 'WSG: Lydia', pillar: 'Simplify Your Morning', format: 'carousel',
+    evidence: {
+      basis: 'observed',
+      seriesDue: { name: 'WSG (Weekend Style Guide)', dayOfWeek: 'Saturday', lastPlanned: '2026-07-31', monthsObserved: 2 },
+      productCoverage: { product: 'Lydia', lastFeatured: '2026-02-22', mentions: 8 },
+      formatEngagement: { format: 'carousel', avgEngagement: 31.9, posts: 86 },
+      pillarShare: 0.142857,
+      cadenceBasis: { postsPerWeek: 7.48, source: 'observed', months: 10 },
+    },
+  });
+
+  const SERIES = beat({
+    id: 's1', title: 'Sunday Style — Carousel', pillar: 'Stable Foundations', format: 'carousel',
+    evidence: {
+      basis: 'observed',
+      seriesDue: { name: 'Sunday Style', dayOfWeek: 'Sunday', lastPlanned: '2026-07-26', monthsObserved: 2 },
+      cadenceBasis: { postsPerWeek: 7.48, source: 'observed', months: 10 },
+    },
+  });
+
+  const IDEA = 'Why never to wear polyester or synthetics, especially in summer.';
+  const BACKLOG = beat({
+    id: 'i1', title: 'Why never to wear polyester or synthetics, especially in…',
+    pillar: 'Ethical Without Compromise', format: 'reel', slotType: 'experiment',
+    evidence: {
+      basis: 'observed',
+      candidateRank: { rank: 1, of: 6, origin: 'client', lifecycle: 'candidate' },
+      backlogIdea: { text: IDEA, givenAt: '2026-06-14' },
+    },
+  });
+
+  it('a PRODUCT beat states the gap, the date and the sample', () => {
+    render(<DraftSurface data={fakeData({}, [PRODUCT])} />);
+    openSheet();
+    fireEvent.click(screen.getByTestId('insights-toggle'));
+    expect(lines()).toEqual([
+      'WSG (Weekend Style Guide) — weekly; last ran 31 July',
+      'Lydia — last in a caption on 22 February (8 captions)',
+      'Carousels average 32 likes and comments across your last 86 posts',
+      'Simplify Your Morning is about 14% of what you post',
+      'You post about 7.48 times a week, measured over 10 months of your feed',
+    ]);
+  });
+
+  it('a SERIES beat with no product says only what it knows — no invented product line', () => {
+    render(<DraftSurface data={fakeData({}, [SERIES])} />);
+    openSheet();
+    fireEvent.click(screen.getByTestId('insights-toggle'));
+    expect(lines()).toEqual([
+      'Sunday Style — weekly; last ran 26 July',
+      'You post about 7.48 times a week, measured over 10 months of your feed',
+    ]);
+    expect(screen.queryByTestId('grounding-line[data-kind="product"]')).toBeNull();
+  });
+
+  it('a BACKLOG beat quotes her whole sentence, which the headline title cannot hold', () => {
+    render(<DraftSurface data={fakeData({}, [BACKLOG])} />);
+    openSheet();
+    // The title is a headline and stops short…
+    expect(screen.getByTestId('detail-sheet').querySelector('h2')!.textContent).not.toContain('in summer');
+    fireEvent.click(screen.getByTestId('insights-toggle'));
+    // …and the sheet carries the rest, in her words, with the month she sent it.
+    expect(screen.getByTestId('grounding-line').textContent).toContain('From what you told us in June');
+    expect(screen.getByTestId('grounding-quote').textContent).toBe(`“${IDEA}”`);
+  });
+
+  it('the experiment note still sits with the grounding, not in a tooltip on the card', () => {
+    render(<DraftSurface data={fakeData({}, [BACKLOG])} />);
+    openSheet();
+    fireEvent.click(screen.getByTestId('insights-toggle'));
+    expect(screen.getByTestId('experiment-note').textContent).toContain('a new idea we’re trying');
+  });
+
+  it('offers NO insights affordance at all when the beat has nothing to show', () => {
+    render(<DraftSurface data={fakeData({}, [beat({ evidence: { basis: 'observed' } })])} />);
+    openSheet();
+    expect(screen.queryByTestId('insights-toggle')).toBeNull();
+    expect(screen.queryByTestId('insights')).toBeNull();
+  });
+
+  it.each([390, 375, 320])('renders the title WHOLE and wrapping at %ipx', (width) => {
+    window.innerWidth = width;
+    const LONG = 'WSG (Weekend Style Guide): a very long standing feature title that has to wrap rather than clip';
+    render(<DraftSurface data={fakeData({}, [beat({ title: LONG })])} />);
+    openSheet();
+    const h2 = screen.getByTestId('detail-sheet').querySelector('h2')!;
+    expect(h2.textContent).toBe(LONG);              // every character, not an ellipsis
+    expect(h2.className).toContain('break-words');  // wraps, including with nowhere to break
+    expect(h2.className).not.toMatch(/line-clamp|truncate/);
+  });
+
+  it.each([390, 375, 320])('keeps every grounding line readable at %ipx', (width) => {
+    window.innerWidth = width;
+    render(<DraftSurface data={fakeData({}, [PRODUCT])} />);
+    openSheet();
+    fireEvent.click(screen.getByTestId('insights-toggle'));
+    expect(screen.getAllByTestId('grounding-line')).toHaveLength(5);
+    for (const el of screen.getAllByTestId('grounding-line')) {
+      expect(el.className).not.toMatch(/line-clamp|truncate/);
+    }
+  });
+});
+
+// ── T3: the density rule is unchanged ────────────────────────────────────────
+
+describe('cards wrap, compact rows do not — the density rule holds', () => {
+  const LONG = 'WSG (Weekend Style Guide): a standing feature with a title long enough to need two lines';
+
+  it('a FULL card gives the title two lines before it clips', () => {
+    render(<DraftSurface data={fakeData({}, [beat({ title: LONG })])} />);
+    const h4 = screen.getByTestId('draft-card').querySelector('h4')!;
+    expect(h4.className).toContain('line-clamp-2');
+    expect(h4.className).toContain('break-words');
+    expect(h4.className).not.toContain('line-clamp-1');
+  });
+
+  it('a COMPACT row stays on ONE line — three posts a day is what the rule is for', () => {
+    // Three beats on a day tips the panel from cards to rows (densityOf). A row that wrapped
+    // would give back exactly the vertical space the rule exists to save.
+    const day = [beat({ id: 'a' }), beat({ id: 'b' }), beat({ id: 'c' })].map((b) => ({ ...b, title: LONG }));
+    render(<DraftSurface data={fakeData({}, day)} />);
+    for (const row of screen.getAllByTestId('post-row')) {
+      expect(row.querySelector('span.flex-1')!.className).toContain('truncate');
+    }
+  });
+});

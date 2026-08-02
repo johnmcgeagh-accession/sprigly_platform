@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   resolveRecurringSeries, observeSeriesHistory, recurringFormatWord, seriesMatchTerms,
-  mentionsTerm, type PlannedPostRef,
+  seriesShortName, mentionsTerm, type PlannedPostRef,
 } from './draft-recurring.js';
 import { claimSeriesSlots, buildSkeleton, spreadDates } from './draft-skeleton.js';
 import { observeHistory, type HistoryPost } from './draft-history.js';
@@ -291,6 +291,20 @@ describe('assembleDraft — a series beat says what it is', () => {
     expect(sunday.title).toBe('Sunday Style — Carousel');
   });
 
+  it('titles a series beat by the client\'s SHORTHAND, not the bracketed config name', () => {
+    // A full month, so the Saturday series has a slot to sit on at all.
+    const full = assembleDraft(baseParams({ series: SERIES, floorSlots: 30 }));
+    const wsg = full.beats.find((b) => b.beatMeta.rationaleEvidence.seriesDue?.name.startsWith('WSG'))!;
+    expect(wsg.title).toBe('WSG — Carousel');
+    expect(wsg.title).not.toContain('Weekend Style Guide');
+  });
+
+  it('keeps the format suffix on a series beat with NO product — four Sundays must differ', () => {
+    // Nothing else distinguishes them, so the suffix is still doing its one job.
+    const sunday = seriesBeats.find((b) => b.beatMeta.rationaleEvidence.seriesDue!.name === 'Sunday Style')!;
+    expect(sunday.title.endsWith(' — Carousel')).toBe(true);
+  });
+
   it('carries the series evidence: name, day, when it last ran, over how many months', () => {
     const sunday = seriesBeats.find((b) => b.beatMeta.rationaleEvidence.seriesDue!.name === 'Sunday Style')!;
     expect(sunday.beatMeta.rationaleEvidence.seriesDue).toEqual({
@@ -330,5 +344,38 @@ describe('assembleDraft — a series beat says what it is', () => {
   it('keeps the beat count and the dates identical to a month with no series', () => {
     const none = assembleDraft(baseParams());
     expect(draft.beats.map((b) => b.scheduledDate)).toEqual(none.beats.map((b) => b.scheduledDate));
+  });
+});
+
+// ── The client's own shorthand (T2a) ─────────────────────────────────────────
+
+describe('seriesShortName — a title calls it what she calls it', () => {
+  it('takes the form before the bracket', () => {
+    // Her config carries both forms in one string. Every month she has run titles it "WSG:
+    // Vests", "WSG: Connie Violet", "WSG: Maggie Almond"; her categories list holds "WSG";
+    // postingTimes holds `wsg`. Three places in her own configuration agree.
+    expect(seriesShortName('WSG (Weekend Style Guide)')).toBe('WSG');
+  });
+
+  it('leaves a name that is already short alone', () => {
+    expect(seriesShortName('Sunday Style')).toBe('Sunday Style');
+    expect(seriesShortName('Notes from the Founder')).toBe('Notes from the Founder');
+  });
+
+  it('does not strip a bracket that is not a trailing expansion', () => {
+    expect(seriesShortName('Style (Sunday) Notes')).toBe('Style (Sunday) Notes');
+  });
+
+  it('never returns empty — a name that is ONLY a bracket keeps its full form', () => {
+    expect(seriesShortName('(Weekend Style Guide)')).toBe('(Weekend Style Guide)');
+  });
+
+  it('is carried on the resolved series alongside the full name', () => {
+    const wsg = resolveRecurringSeries(CONFIGURED, CATEGORIES, HISTORY)
+      .find((s) => s.name.startsWith('WSG'))!;
+    expect(wsg.name).toBe('WSG (Weekend Style Guide)');
+    expect(wsg.shortName).toBe('WSG');
+    // The full name still governs matching and the phrasing licence — only titles shorten.
+    expect(wsg.category).toBe('WSG');
   });
 });

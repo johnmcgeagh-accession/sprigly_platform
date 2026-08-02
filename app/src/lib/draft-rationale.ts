@@ -95,6 +95,120 @@ function productClause(p: NonNullable<BeatEvidence['productCoverage']>): string 
   return `you haven’t posted about ${p.product} since ${when}${sample}`;
 }
 
+/** '2026-06-14' → 'June'. null for anything that is not an ISO date. */
+function monthName(iso: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' });
+}
+
+/** One fact behind a beat. `kind` keys the list and tells the sheet what to draw. */
+export interface GroundingLine {
+  kind: 'series' | 'product' | 'backlog' | 'format' | 'cadence' | 'pillar' | 'thin' | 'added';
+  text: string;
+  /** The client's own words, rendered as a quotation under `text`. */
+  quote?: string;
+}
+
+/**
+ * Every fact behind a beat, one per line — the sheet's reading of the same evidence
+ * `rationaleFor` compresses into a sentence for the card.
+ *
+ * TWO READINGS, ONE SOURCE. The card has three clamped lines and needs a sentence; the sheet
+ * has the room and the client is there to study it, so it gets the facts separately, each one
+ * checkable on its own. Both derive from `rationaleEvidence` and neither adds anything to it.
+ * A second function rather than a formatting flag because they genuinely differ in shape, and
+ * a shared one would end up serving neither.
+ *
+ * ABSENCE IS A VALUE, and it is the whole discipline of this file: a field that is not there
+ * produces NO LINE. Not a zero, not "no data", not a hedge. An empty array means the beat has
+ * nothing to show and the sheet shows nothing, which is the honest rendering of a beat we
+ * cannot justify.
+ *
+ * Order is fixed and meaningful: the standing commitment, then the product gap, then her own
+ * words, then the measurements. Strongest and most specific first.
+ */
+export function groundingLines(evidence: BeatEvidence, pillar: string): GroundingLine[] {
+  const out: GroundingLine[] = [];
+
+  if (evidence.basis === 'client_added') {
+    return [{ kind: 'added', text: 'You added this one yourself.' }];
+  }
+
+  // A beat a transform built from something she wrote. Her sentence is the whole reason.
+  if ((evidence.basis === 'client_input' || evidence.basis === 'emphasis_reweight') && evidence.reason?.trim()) {
+    out.push({
+      kind: 'backlog',
+      text: evidence.basis === 'client_input' ? 'From what you told us' : 'You asked us to lean the month this way',
+      quote: evidence.reason.trim(),
+    });
+  }
+
+  const s = evidence.seriesDue;
+  if (s) {
+    const cadence = s.dayOfWeek === 'monthly' ? 'monthly' : 'weekly';
+    const when = s.lastPlanned ? shortDate(s.lastPlanned) : null;
+    out.push({ kind: 'series', text: `${s.name} — ${cadence}; ${when ? `last ran ${when}` : 'hasn’t run yet'}` });
+  }
+
+  const p = evidence.productCoverage;
+  if (p) {
+    const when = p.lastFeatured ? shortDate(p.lastFeatured) : null;
+    out.push({
+      kind: 'product',
+      text: when
+        ? `${p.product} — last in a caption on ${when} (${p.mentions} caption${p.mentions === 1 ? '' : 's'})`
+        : `${p.product} — never appeared in a caption`,
+    });
+  }
+
+  // Her backlog sentence, and when she sent it. `sourceRef` points at the plan_inputs row and
+  // a client surface cannot go and fetch it, which is why the text travels on the beat.
+  const idea = evidence.backlogIdea;
+  if (idea?.text?.trim()) {
+    const month = idea.givenAt ? monthName(idea.givenAt) : null;
+    out.push({
+      kind: 'backlog',
+      text: month ? `From what you told us in ${month}` : 'From what you told us',
+      quote: idea.text.trim(),
+    });
+  }
+
+  const fe = evidence.formatEngagement;
+  if (fe && fe.posts > 0) {
+    const word = formatWord(fe.format);
+    out.push({
+      kind: 'format',
+      text: `${word.charAt(0).toUpperCase()}${word.slice(1)} average ${Math.round(fe.avgEngagement)} likes and comments across your last ${posts(fe.posts)}`,
+    });
+  }
+
+  const share = evidence.pillarShare;
+  if (typeof share === 'number' && share > 0 && pillar) {
+    out.push({ kind: 'pillar', text: `${pillar} is about ${Math.round(share * 100)}% of what you post` });
+  }
+
+  const cb = evidence.cadenceBasis;
+  if (cb && cb.postsPerWeek > 0) {
+    out.push({
+      kind: 'cadence',
+      text: cb.source === 'observed'
+        ? `You post about ${cb.postsPerWeek} times a week, measured over ${cb.months} month${cb.months === 1 ? '' : 's'} of your feed`
+        : `Planned at ${cb.postsPerWeek} posts a week, the rate set on your account`,
+    });
+  }
+
+  if (evidence.basis === 'template') {
+    out.push({
+      kind: 'thin',
+      text: 'We don’t have enough of your posting history yet, so this month uses a starting shape rather than a pattern we’ve seen work.',
+    });
+  }
+
+  return out;
+}
+
 /**
  * The one-line reason this beat is here.
  *

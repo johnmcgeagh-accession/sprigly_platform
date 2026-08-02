@@ -144,6 +144,9 @@ export interface BeatEvidence {
   /** The catalogue product this beat is about. `lastFeatured` is null when no caption has
    *  ever named it — "never featured", which is a stronger claim than any date. */
   productCoverage?:  { product: string; lastFeatured: string | null; mentions: number };
+  /** The backlog sentence this beat came from, quotable, and when she sent it. `sourceRef`
+   *  points at the plan_inputs row; a client surface cannot go and fetch it. */
+  backlogIdea?:      { text: string; givenAt: string | null };
 }
 
 export interface DraftBeatView {

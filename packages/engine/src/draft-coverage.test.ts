@@ -258,14 +258,15 @@ describe('assembleDraft — a beat that names a product says why', () => {
     // so the plain shape has to be observed on a month with no series at all.
     const noSeries = assembleDraft(baseParams({ productCoverage: COVERAGE }));
     const plain = noSeries.beats.find((b) => b.beatMeta.rationaleEvidence.productCoverage)!;
-    expect(plain.title).toBe('Bea — Reel');
+    // No format suffix: the product is what distinguishes this beat. See the title rule.
+    expect(plain.title).toBe('Bea');
   });
 
   it('gives the SERIES beats their products first — "Sunday Style: Bea"', () => {
     // This is the June/July shape restored: "Sunday Style: Claire", "WSG: Maggie Almond".
     const seriesBeat = draft.beats.find((b) => b.beatMeta.rationaleEvidence.seriesDue)!;
     expect(seriesBeat.beatMeta.rationaleEvidence.productCoverage).toBeDefined();
-    expect(seriesBeat.title).toBe('Sunday Style: Bea — Carousel');
+    expect(seriesBeat.title).toBe('Sunday Style: Bea');
   });
 
   it('never overwrites the client\'s own words with our gap analysis', () => {

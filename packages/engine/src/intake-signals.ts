@@ -98,6 +98,9 @@ export interface DurableInputRow {
    * Selected, never filtered on: see the note on the query below.
    */
   lifecycle: string;
+  /** plan_inputs.created_at as 'YYYY-MM-DD'. When she gave us the idea — the sheet says
+   *  "From what you told us in June" and this is the only thing that can date it. */
+  createdAt: string;
 }
 
 /**
@@ -111,7 +114,7 @@ export interface DurableInputRow {
  * keeps its OWN error posture (the generator wraps this best-effort → []; the gate lets errors
  * propagate). The window is identical to the prior two inline copies except the fixed upper bound.
  *
- * `id` and `lifecycle` are SELECTED but the WHERE clause is untouched, deliberately. The draft
+ * `id`, `lifecycle` and `createdAt` are SELECTED but the WHERE clause is untouched, deliberately. The draft
  * assembler wants to rank a never-used idea above one that has already run, and to refuse a
  * declined one outright — but doing that here would change what "is there anything plannable?"
  * means for the gate and the app's intake route, which share this query precisely so the answer
@@ -122,7 +125,10 @@ export async function loadDurableInputs(db: Db, clientId: string, planMonth: str
   const monthStart     = `${planMonth}-01`;
   const nextMonthStart = firstOfMonthAfter(planMonth);
   const rows = await db
-    .select({ id: planInputs.id, type: planInputs.type, content: planInputs.content, lifecycle: planInputs.lifecycle })
+    .select({
+      id: planInputs.id, type: planInputs.type, content: planInputs.content,
+      lifecycle: planInputs.lifecycle, createdAt: planInputs.createdAt,
+    })
     .from(planInputs)
     .where(and(
       eq(planInputs.clientId, clientId),
@@ -131,7 +137,10 @@ export async function loadDurableInputs(db: Db, clientId: string, planMonth: str
       or(isNull(planInputs.relevantFrom), lt(planInputs.relevantFrom, nextMonthStart)),
       or(isNull(planInputs.relevantTo),   gte(planInputs.relevantTo,   monthStart)),
     ));
-  return rows.map((r) => ({ id: r.id, type: r.type, content: r.content, lifecycle: r.lifecycle }));
+  return rows.map((r) => ({
+    id: r.id, type: r.type, content: r.content, lifecycle: r.lifecycle,
+    createdAt: r.createdAt.toISOString().slice(0, 10),
+  }));
 }
 
 /**

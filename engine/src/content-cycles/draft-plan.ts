@@ -269,7 +269,10 @@ export async function assembleAndPersistDraft(
     const durable = await loadDurableInputs(db, clientId, month);
     candidates = durable
       .filter((d) => d.type === 'idea')
-      .map((d) => ({ id: d.id, content: d.content, origin: 'client' as const, lifecycle: d.lifecycle }));
+      .map((d) => ({
+        id: d.id, content: d.content, origin: 'client' as const,
+        lifecycle: d.lifecycle, givenAt: d.createdAt,
+      }));
   } catch (err) {
     logger.warn({ ...logCtx, err: String(err) }, 'draft-plan: could not load idea backlog — proceeding with none');
   }
