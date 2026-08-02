@@ -113,8 +113,8 @@ export { allocateSlots, rankCandidates } from './draft-allocator.js';
 export type { ExperimentCandidate, AllocatedSlot } from './draft-allocator.js';
 export { assembleDraft, detectAssumptions, deterministicTitle, experimentTitle, STALE_TRAWL_DAYS } from './draft-assembly.js';
 export type { DraftBeat, DraftPlan, AssembleDraftParams } from './draft-assembly.js';
-export { phraseDraftTitles, applyPhrasing, parsePhrasing, validatePhrasing, PHRASING_SYSTEM } from './draft-phrasing.js';
-export type { PhrasingModel, PhrasingResult } from './draft-phrasing.js';
+export { phraseDraftTitles, applyPhrasing, parsePhrasing, validatePhrasing, isTitleFixed, seriesMatchTerms, PHRASING_SYSTEM } from './draft-phrasing.js';
+export type { PhrasingModel, PhrasingResult, PhrasingVocabulary } from './draft-phrasing.js';
 export { AUTO_RUN_MIN_WINDOW, deriveTouchSchedule, dueTouchForDay } from './touch-schedule.js';
 export type { Touch, TouchSchedule } from './touch-schedule.js';
 export {
