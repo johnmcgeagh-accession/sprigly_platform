@@ -76,6 +76,26 @@ function trimQuote(text: string): string {
 }
 
 /**
+ * The reason a coverage beat is here: their own product, and how long since they last posted
+ * about it.
+ *
+ * This is the strongest sentence the assembler can write, because it is checkable in one
+ * scroll of their own feed. "Jules — not featured since 3 February" is a claim they can
+ * falsify in ten seconds, which is exactly why it is worth making.
+ *
+ * NEVER FEATURED is its own clause, not a date-shaped hole. `lastFeatured: null` says the
+ * product has no captions at all, and the mention count is not repeated after it — "0
+ * mentions" adds nothing to "hasn't appeared".
+ */
+function productClause(p: NonNullable<BeatEvidence['productCoverage']>): string {
+  if (p.lastFeatured === null) return `${p.product} hasn’t appeared in any of your captions`;
+  const when = shortDate(p.lastFeatured);
+  if (!when) return `${p.product} hasn’t appeared in your captions for a while`;
+  const sample = ` (${p.mentions} caption${p.mentions === 1 ? '' : 's'} in the history we have)`;
+  return `you haven’t posted about ${p.product} since ${when}${sample}`;
+}
+
+/**
  * The one-line reason this beat is here.
  *
  * Returns '' when the evidence supports nothing sayable — the caller renders no rationale
@@ -119,15 +139,30 @@ export function rationaleFor(evidence: BeatEvidence, pillar: string): string {
       // A configured series survives the thin-history path — it is a standing commitment, not
       // an inference — so it still gets its sentence. Saying only "we don't have enough
       // history" on a Sunday Style beat would withhold the one thing we do know about it.
-      return evidence.seriesDue
-        ? `${seriesClause(evidence.seriesDue)}. We don’t have enough of your posting history yet to say more.`
-        : 'We don’t have enough of your posting history yet, so this is a starting shape rather than a pattern we’ve seen work.';
+      {
+        // A series and a caption date are both FACTS, not inferences from posting patterns.
+        // Thin history is no reason to withhold either — saying only "we don't have enough
+        // history" would drop the one checkable thing this beat knows about itself.
+        const kept = [
+          ...(evidence.seriesDue ? [seriesClause(evidence.seriesDue)] : []),
+          ...(evidence.productCoverage ? [productClause(evidence.productCoverage)] : []),
+        ];
+        if (kept.length === 0) {
+          return 'We don’t have enough of your posting history yet, so this is a starting shape rather than a pattern we’ve seen work.';
+        }
+        const [first, ...rest] = kept;
+        const sentence = [first!.charAt(0).toUpperCase() + first!.slice(1), ...rest].join('; ');
+        return `${sentence}. We don’t have enough of your posting history yet to say more.`;
+      }
 
     case 'observed': {
       const parts: string[] = [];
 
       // A standing commitment leads. See seriesClause.
       if (evidence.seriesDue) parts.push(seriesClause(evidence.seriesDue));
+
+      // Then the product gap — the one claim on the card they can check against their own feed.
+      if (evidence.productCoverage) parts.push(productClause(evidence.productCoverage));
 
       const fe = evidence.formatEngagement;
       if (fe && fe.posts > 0) {

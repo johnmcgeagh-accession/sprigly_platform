@@ -15,19 +15,20 @@
  */
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import {
-  clientChannels, clientConfigs, clientPlanningConfig, clientProductCatalogue, contentCycles,
-  contentCyclePosts, igPosts, voiceSnapshots, excludeDraftPosts, POST_STATUS_DRAFT,
-  PRE_PLANNING_STATUSES,
+  clients, clientChannels, clientConfigs, clientPlanningConfig, clientProductCatalogue,
+  contentCycles, contentCyclePosts, igPosts, voiceSnapshots, excludeDraftPosts,
+  POST_STATUS_DRAFT, PRE_PLANNING_STATUSES,
   type NewContentCyclePostRow,
 } from '@sprigly/db';
 import {
   assembleDraft, applyPhrasing, phraseDraftTitles, loadDurableInputs, readDraftFlowFlag,
-  approveDraftCore, cadenceFloorSlots, resolveRecurringSeries, STALE_TRAWL_DAYS,
-  DRAFT_DEFAULT_TEMPERATURE,
+  approveDraftCore, cadenceFloorSlots, resolveRecurringSeries, observeProductCoverage,
+  catalogueProductNames, STALE_TRAWL_DAYS, DRAFT_DEFAULT_TEMPERATURE,
   type DraftPlan, type ExperimentCandidate, type HistoryPost, type PlannedPostRef,
-  type ResolvedSeries,
+  type ResolvedSeries, type ProductCoverage,
 } from '@sprigly/engine';
 import type { Pillar, RecurringSeries } from '@sprigly/engine';
+import { deriveBrandTokens } from '../catalogue/validate-catalogue.js';
 import type { Queue } from 'bullmq';
 import type { PlanningDeps } from './planning.js';
 import { GENERATION_JOB_OPTIONS } from './job-options.js';
@@ -226,11 +227,25 @@ export async function assembleAndPersistDraft(
     .where(and(eq(clientPlanningConfig.clientId, clientId), eq(clientPlanningConfig.channel, channel)))
     .limit(1);
 
+  // The catalogue BODY, not an existence probe. This select used to read `id` and nothing
+  // else, so a 49-family blob was queried on every assembly to answer one boolean — and the
+  // assumption built on that boolean then told the client, by omission, that their products
+  // had been considered (docs/reports/beat-grounding.md §1.6, §2.1).
   const [catalogue] = await db
-    .select({ id: clientProductCatalogue.id })
+    .select({ id: clientProductCatalogue.id, catalogue: clientProductCatalogue.catalogue })
     .from(clientProductCatalogue)
     .where(and(eq(clientProductCatalogue.clientId, clientId), eq(clientProductCatalogue.channel, channel)))
     .limit(1);
+
+  // The client's own brand words, so the catalogue matcher does not read "Ivy" in 84 captions
+  // as the Ivy product family. deriveBrandTokens is the SAME function the caption validator
+  // and the planner already use for this — one definition of "that word is the brand".
+  const [clientRow] = await db
+    .select({ name: clients.name })
+    .from(clients)
+    .where(eq(clients.id, clientId))
+    .limit(1);
+  const brandTokens = deriveBrandTokens(clientRow?.name ?? '');
 
   const [chan] = await db
     .select({ postsPerWeek: clientChannels.postsPerWeek })
@@ -294,6 +309,25 @@ export async function assembleAndPersistDraft(
     logger.warn({ ...logCtx, err: String(err) }, 'draft-plan: could not resolve recurring series — proceeding without them');
   }
 
+  // Product coverage: the cached catalogue against the captions ALREADY in memory (loadHistory
+  // maps them and the history observation never reads them), so this costs no extra I/O at all.
+  // Names excluded as brand words, ordinary words she writes, or parser artefacts are logged
+  // rather than dropped in silence — a product missing from the month for a reason nobody can
+  // see is how a coverage claim stops being checkable.
+  let coverage: ProductCoverage[] = [];
+  try {
+    const names = catalogueProductNames(catalogue?.catalogue);
+    if (names.length > 0) {
+      const result = observeProductCoverage({ names, posts, brandTokens });
+      coverage = result.coverage;
+      if (result.excluded.length > 0) {
+        logger.info({ ...logCtx, excluded: result.excluded }, 'draft-plan: catalogue names kept out of the beat vocabulary');
+      }
+    }
+  } catch (err) {
+    logger.warn({ ...logCtx, err: String(err) }, 'draft-plan: could not observe product coverage — no beat will name a product');
+  }
+
   const draft = assembleDraft({
     clientId, cycleId: cycle.id, channel, month, posts,
     pillars: (planConfig?.pillars ?? []) as unknown as Pillar[],
@@ -303,6 +337,7 @@ export async function assembleAndPersistDraft(
     configPostsPerWeek: chan?.postsPerWeek ?? null,
     ...(floorSlots > 0 ? { floorSlots } : {}),
     ...(series.length > 0 ? { series } : {}),
+    ...(coverage.length > 0 ? { productCoverage: coverage } : {}),
     ...(stale ? { staleTrawlWarning: stale } : {}),
   });
 
@@ -322,9 +357,11 @@ export async function assembleAndPersistDraft(
 
   const phrasing = await phraseDraftTitles({
     beats: draft.beats, voiceSummary, model: deps.model,
-    // The names the model may be POLICED on. Series only, for now: a title naming Sunday
-    // Style on a beat that is not a Sunday Style beat is a fabrication we can catch exactly.
-    vocab: { seriesNames: series.map((s) => s.name) },
+    // The names the model may be POLICED on: naming one of these on a beat whose own evidence
+    // does not carry it fails the whole batch. The product list is the FILTERED one — brand
+    // words, ordinary words and parser artefacts are already out — because a name in this list
+    // that she also uses as an English word would reject honest titles, not catch fabrications.
+    vocab: { seriesNames: series.map((s) => s.name), productNames: coverage.map((c) => c.product) },
     onWarn: (message) => logger.warn(logCtx, `draft-plan: ${message}`),
   });
   draft.beats = applyPhrasing(draft.beats, phrasing);

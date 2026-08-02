@@ -432,7 +432,8 @@ describe('detectAssumptions — the gaps that become intake questions', () => {
 
   it('is silent when nothing is missing', () => {
     expect(detectAssumptions({
-      history: observeHistory(HISTORY), hasCatalogue: true, hasBriefedLaunch: true, skeleton: skeleton(),
+      history: observeHistory(HISTORY), hasCatalogue: true, hasBriefedLaunch: true,
+      skeleton: skeleton(), productBeats: 3,
     })).toEqual([]);
   });
 
@@ -443,6 +444,39 @@ describe('detectAssumptions — the gaps that become intake questions', () => {
     expect(out).toHaveLength(2);
     expect(out[0]).toMatch(/launches or restocks/i);
     expect(out[1]).toMatch(/catalogue/i);
+  });
+
+  // ── The §1.6 honesty defect ────────────────────────────────────────────────
+  // The catalogue assumption used to fire only when the ROW was absent. ivy-t has a
+  // catalogue — 49 families, cached since 1 July — so the line was suppressed on all thirty
+  // September beats while not one of them named a product. The client was told, by omission,
+  // that their products had been considered.
+
+  it('SPEAKS UP when a catalogue exists but no beat names a product', () => {
+    const out = detectAssumptions({
+      history: observeHistory(HISTORY), hasCatalogue: true, hasBriefedLaunch: true,
+      skeleton: skeleton(), productBeats: 0,
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatch(/No beat names a specific product this month/);
+    // Still matched by the surface's catalogue prompt, so it asks the right question.
+    expect(out[0]).toMatch(/catalogue/i);
+  });
+
+  it('says the catalogue is MISSING only when it actually is', () => {
+    const out = detectAssumptions({
+      history: observeHistory(HISTORY), hasCatalogue: false, hasBriefedLaunch: true,
+      skeleton: skeleton(), productBeats: 0,
+    });
+    expect(out[0]).toMatch(/No product catalogue is cached/);
+  });
+
+  it('is silent about the catalogue as soon as ONE beat names a product', () => {
+    const out = detectAssumptions({
+      history: observeHistory(HISTORY), hasCatalogue: true, hasBriefedLaunch: true,
+      skeleton: skeleton(), productBeats: 1,
+    });
+    expect(out.some((a) => /catalogue|names a specific product/i.test(a))).toBe(false);
   });
 
   it('flags equal-share pillars when the config predates sharePct', () => {

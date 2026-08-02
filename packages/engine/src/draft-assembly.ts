@@ -21,6 +21,7 @@ import { resolvePillarWeights } from './pillar-weights.js';
 import { buildSkeleton, DRAFT_MIN_POSTS, type Skeleton } from './draft-skeleton.js';
 import { allocateSlots, type ExperimentCandidate, type AllocatedSlot } from './draft-allocator.js';
 import type { ResolvedSeries } from './draft-recurring.js';
+import { staleProducts, productBeatCap, type ProductCoverage } from './draft-coverage.js';
 import type { Pillar } from './types.js';
 
 /** A single assembled beat, ready to persist as a status='draft' post row. */
@@ -68,6 +69,20 @@ export function deterministicTitle(pillar: string, format: string): string {
 }
 
 /**
+ * Title for a coverage slot: the product, and — when the slot is also a series instance —
+ * the series it runs under.
+ *
+ * "Sunday Style: Claire" is not a shape invented here; it is what the old planner wrote and
+ * what her feed has run every Sunday for months. A series beat naming its product is the
+ * single most recognisable line in a Sprigly month, and it comes out of two structured facts
+ * with nothing in between.
+ */
+export function coverageTitle(product: string, format: string, seriesName?: string): string {
+  const f = format.charAt(0).toUpperCase() + format.slice(1);
+  return seriesName ? `${seriesName}: ${product} — ${f}` : `${product} — ${f}`;
+}
+
+/**
  * Title for a recurring-series slot: the series' own name.
  *
  * The subject of a Sunday Style beat is Sunday Style. That the deterministic title says so —
@@ -96,15 +111,26 @@ export function detectAssumptions(params: {
   hasCatalogue:  boolean;
   hasBriefedLaunch: boolean;
   skeleton:      Skeleton;
+  /** How many beats ended up carrying productCoverage. Drives the catalogue assumption. */
+  productBeats?: number;
 }): string[] {
-  const { history, hasCatalogue, hasBriefedLaunch, skeleton } = params;
+  const { history, hasCatalogue, hasBriefedLaunch, skeleton, productBeats = 0 } = params;
   const out: string[] = [];
 
   if (!hasBriefedLaunch) {
     out.push('No launches or restocks are on record for this month — the draft assumes a business-as-usual month.');
   }
-  if (!hasCatalogue) {
-    out.push('No product catalogue is cached, so no beat names a specific product or colourway.');
+  // The assumption is about USE, not existence.
+  //
+  // It used to fire only when no catalogue row existed. ivy-t HAS one — 49 families, cached
+  // since 1 July — so the line was suppressed on all thirty September beats while not one of
+  // them named a product, because nothing downstream ever opened the blob. The client was told
+  // by omission that products had been considered (docs/reports/beat-grounding.md §1.6). What
+  // they need to know is whether this month names any, and if not, why not.
+  if (productBeats === 0) {
+    out.push(hasCatalogue
+      ? 'No beat names a specific product this month — nothing in your catalogue has gone long enough without a mention to be worth featuring.'
+      : 'No product catalogue is cached, so no beat names a specific product or colourway.');
   }
   if (skeleton.basis === 'template') {
     out.push(`Not enough posting history to plan from (${history.totalPosts} posts, ${DRAFT_MIN_POSTS} needed) — this month uses a neutral starting shape rather than observed patterns.`);
@@ -124,8 +150,45 @@ export function detectAssumptions(params: {
   return out;
 }
 
+/**
+ * Decide which beats get a product, and which product.
+ *
+ * ELIGIBILITY: any slot that does not already have the client's own words on it. An
+ * experiment slot is hers; overwriting its subject with our gap analysis would be the
+ * machine talking over her, and replacementTier draws that same line.
+ *
+ * ORDER: recurring-series slots first, then the rest, each in slot order. This is not a
+ * tidiness preference — it is what her months look like. "Sunday Style: Claire",
+ * "WSG: Maggie Almond", "WSG: Connie Violet": the standing features are where a product gets
+ * named, every week, and giving them the stalest products reproduces that shape exactly.
+ *
+ * CAP: productBeatCap. Stops a large stale catalogue from turning a month into a readthrough.
+ *
+ * Returns index → coverage. Fully determined by (slots, coverage, month).
+ */
+function assignCoverage(
+  skeleton: Skeleton, allocation: AllocatedSlot[], coverage: readonly ProductCoverage[], month: string,
+): Map<number, ProductCoverage> {
+  const out = new Map<number, ProductCoverage>();
+  const stale = staleProducts(coverage, month);
+  if (stale.length === 0) return out;
+
+  const isExperiment = (i: number) => allocation[i]?.slotType === 'experiment' && allocation[i]?.candidate;
+  const eligible = [
+    ...skeleton.slots.flatMap((s, i) => (s.series && !isExperiment(i) ? [i] : [])),
+    ...skeleton.slots.flatMap((s, i) => (!s.series && !isExperiment(i) ? [i] : [])),
+  ];
+
+  const cap = Math.min(productBeatCap(skeleton.slots.length), stale.length, eligible.length);
+  for (let n = 0; n < cap; n++) out.set(eligible[n]!, stale[n]!);
+  return out;
+}
+
 /** Build the structured evidence for one slot. Never prose, never invented. */
-function evidenceFor(slot: AllocatedSlot, skeleton: Skeleton, pillarShare: number | undefined): BeatRationaleEvidence {
+function evidenceFor(
+  slot: AllocatedSlot, skeleton: Skeleton, pillarShare: number | undefined,
+  coverage: ProductCoverage | undefined,
+): BeatRationaleEvidence {
   if (skeleton.basis === 'template') {
     // A configured series survives the template path. It is a fact about the client's
     // STANDING COMMITMENTS, not an inference from history, so thin history is no reason to
@@ -143,6 +206,10 @@ function evidenceFor(slot: AllocatedSlot, skeleton: Skeleton, pillarShare: numbe
             monthsObserved: templateSeries.monthsObserved,
           } }
         : {}),
+      // Coverage is a fact about the CATALOGUE and the CAPTIONS, not about posting patterns.
+      // Thin history makes the skeleton a template; it does not make "Jules has not appeared
+      // in a caption since 3 February" any less true.
+      ...(coverage ? { productCoverage: coverage } : {}),
       cadenceBasis: skeleton.cadenceBasis,
     };
   }
@@ -160,6 +227,7 @@ function evidenceFor(slot: AllocatedSlot, skeleton: Skeleton, pillarShare: numbe
           monthsObserved: series.monthsObserved,
         } }
       : {}),
+    ...(coverage ? { productCoverage: coverage } : {}),
     ...(observed
       ? { formatEngagement: { format: observed.format, avgEngagement: observed.avgEngagement, posts: observed.posts } }
       : {}),
@@ -195,6 +263,9 @@ export interface AssembleDraftParams {
   /** The client's configured recurring series, resolved against their plan history
    *  (resolveRecurringSeries). Each claims slots that already exist; none creates one. */
   series?: readonly ResolvedSeries[];
+  /** Every usable catalogue product with its caption recency (observeProductCoverage), stalest
+   *  first. The assembler decides which are stale enough for THIS month and how many fit. */
+  productCoverage?: readonly ProductCoverage[];
   staleTrawlWarning?: string | undefined;
 }
 
@@ -205,7 +276,8 @@ export interface AssembleDraftParams {
 export function assembleDraft(params: AssembleDraftParams): DraftPlan {
   const {
     clientId, cycleId, channel, month, posts, pillars, candidates, temperature,
-    hasCatalogue, hasBriefedLaunch, configPostsPerWeek, floorSlots, series, staleTrawlWarning,
+    hasCatalogue, hasBriefedLaunch, configPostsPerWeek, floorSlots, series, productCoverage,
+    staleTrawlWarning,
   } = params;
 
   const history = observeHistory(posts);
@@ -220,27 +292,34 @@ export function assembleDraft(params: AssembleDraftParams): DraftPlan {
   // A slot a recurring series claimed already has a subject; experiments go among the rest.
   const claimed = new Set(skeleton.slots.flatMap((s, i) => (s.series ? [i] : [])));
   const allocation = allocateSlots(skeleton.slots.length, temperature, candidates, claimed);
-  const assumptions = detectAssumptions({ history, hasCatalogue, hasBriefedLaunch, skeleton });
+  const coverageBySlot = assignCoverage(skeleton, allocation, productCoverage ?? [], month);
+  const assumptions = detectAssumptions({
+    history, hasCatalogue, hasBriefedLaunch, skeleton, productBeats: coverageBySlot.size,
+  });
   const shareByPillar = new Map(weights.weights.map((w) => [w.name, w.share]));
 
   const beats: DraftBeat[] = skeleton.slots.map((slot, i) => {
     const alloc = allocation[i] ?? { index: i, slotType: 'proven' as const };
+    const coverage = coverageBySlot.get(i);
     const beatMeta: BeatMeta = {
       slotType: alloc.slotType,
-      rationaleEvidence: evidenceFor(alloc, skeleton, shareByPillar.get(slot.pillar)),
+      rationaleEvidence: evidenceFor(alloc, skeleton, shareByPillar.get(slot.pillar), coverage),
       ...(alloc.candidate ? { sourceRef: alloc.candidate.id } : {}),
       ...(assumptions.length > 0 ? { assumptions } : {}),
     };
-    // SUBJECT PRECEDENCE: a standing commitment, then the client's own words, then the pillar.
-    // The series leads because it is a slot the client has already decided the shape of — and
-    // because allocateSlots was given the claimed indices, the second branch cannot collide
-    // with the first. The pillar is what is left when a beat has no subject of its own, which
-    // is the honest description of it rather than a failure to find one.
-    const title = slot.series
-      ? recurringTitle(slot.series.name, slot.format)
-      : alloc.candidate
-        ? experimentTitle(alloc.candidate.content, slot.format)
-        : deterministicTitle(slot.pillar, slot.format);
+    // SUBJECT PRECEDENCE: her own words, then a standing commitment (with its product, if it
+    // was given one), then a product, then the pillar. An experiment slot is hers and nothing
+    // overwrites it — allocateSlots was given the claimed indices and assignCoverage skips
+    // experiment slots, so the branches below cannot collide. The pillar is what is left when
+    // a beat has no subject of its own, which is the honest description of it rather than a
+    // failure to find one.
+    const title = alloc.candidate
+      ? experimentTitle(alloc.candidate.content, slot.format)
+      : coverage
+        ? coverageTitle(coverage.product, slot.format, slot.series?.name)
+        : slot.series
+          ? recurringTitle(slot.series.name, slot.format)
+          : deterministicTitle(slot.pillar, slot.format);
 
     // The lossless columns the old planner wrote and the assembler dropped. Only what the
     // beat has: a slot with no series has no whoPosts and is given none.

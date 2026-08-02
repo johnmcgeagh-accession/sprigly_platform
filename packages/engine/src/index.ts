@@ -113,7 +113,12 @@ export { resolveRecurringSeries, observeSeriesHistory, recurringFormatWord, seri
 export type { ResolvedSeries, SeriesObservation, PlannedPostRef } from './draft-recurring.js';
 export { allocateSlots, rankCandidates, DRAFT_DEFAULT_TEMPERATURE, REFUSED_LIFECYCLES } from './draft-allocator.js';
 export type { ExperimentCandidate, AllocatedSlot } from './draft-allocator.js';
-export { assembleDraft, detectAssumptions, deterministicTitle, experimentTitle, recurringTitle, STALE_TRAWL_DAYS } from './draft-assembly.js';
+export { assembleDraft, detectAssumptions, deterministicTitle, experimentTitle, recurringTitle, coverageTitle, STALE_TRAWL_DAYS } from './draft-assembly.js';
+export {
+  observeProductCoverage, catalogueProductNames, staleProducts, productBeatCap,
+  PRODUCT_STALE_DAYS, PRODUCT_COVERAGE_SHARE,
+} from './draft-coverage.js';
+export type { ProductCoverage, ExcludedName, CoverageResult } from './draft-coverage.js';
 export type { DraftBeat, DraftPlan, AssembleDraftParams } from './draft-assembly.js';
 export { phraseDraftTitles, applyPhrasing, parsePhrasing, validatePhrasing, isTitleFixed, PHRASING_SYSTEM } from './draft-phrasing.js';
 export type { PhrasingModel, PhrasingResult, PhrasingVocabulary } from './draft-phrasing.js';

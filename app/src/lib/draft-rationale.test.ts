@@ -285,3 +285,62 @@ describe('rationaleFor — a recurring series is a standing commitment, and lead
       .toBe('We don’t have enough of your posting history yet, so this is a starting shape rather than a pattern we’ve seen work.');
   });
 });
+
+describe('rationaleFor — a product gap is the one claim they can check in ten seconds', () => {
+  const jules: BeatEvidence = {
+    basis: 'observed',
+    productCoverage: { product: 'Jules', lastFeatured: '2026-02-03', mentions: 5 },
+    formatEngagement: { format: 'reel', avgEngagement: 42.1, posts: 183 },
+  };
+
+  it('names the product and the date they last posted about it', () => {
+    expect(rationaleFor(jules, 'Stable Foundations'))
+      .toContain('You haven’t posted about Jules since 3 February');
+  });
+
+  it('carries the sample the date came from', () => {
+    expect(rationaleFor(jules, 'Stable Foundations')).toContain('(5 captions in the history we have)');
+  });
+
+  it('says NEVER FEATURED as its own claim, not as a missing date', () => {
+    const bea: BeatEvidence = {
+      basis: 'observed',
+      productCoverage: { product: 'Bea', lastFeatured: null, mentions: 0 },
+    };
+    const out = rationaleFor(bea, 'Stable Foundations');
+    expect(out).toContain('Bea hasn’t appeared in any of your captions');
+    expect(out).not.toMatch(/since|1970|0 captions|Invalid/);
+  });
+
+  it('does not repeat a zero mention count after "hasn’t appeared"', () => {
+    const bea: BeatEvidence = { basis: 'observed', productCoverage: { product: 'Bea', lastFeatured: null, mentions: 0 } };
+    expect(rationaleFor(bea, 'x')).not.toContain('0 caption');
+  });
+
+  it('degrades to a shorter sentence, never "Invalid Date", on a malformed date', () => {
+    const bad: BeatEvidence = { basis: 'observed', productCoverage: { product: 'Jules', lastFeatured: 'nope', mentions: 2 } };
+    expect(rationaleFor(bad, 'x')).toContain('Jules hasn’t appeared in your captions for a while');
+  });
+
+  it('reads the series and the product together on a "Sunday Style: Bea" beat', () => {
+    const both: BeatEvidence = {
+      basis: 'observed',
+      seriesDue: { name: 'Sunday Style', dayOfWeek: 'Sunday', lastPlanned: '2026-07-26', monthsObserved: 2 },
+      productCoverage: { product: 'Bea', lastFeatured: null, mentions: 0 },
+    };
+    const out = rationaleFor(both, 'Simplify Your Morning');
+    expect(out.startsWith('Sunday Style runs on Sundays')).toBe(true);
+    expect(out).toContain('Bea hasn’t appeared in any of your captions');
+  });
+
+  it('still says its piece on the THIN-HISTORY path — a caption date is not an inference', () => {
+    const thin: BeatEvidence = {
+      basis: 'template',
+      reason: 'insufficient history: 9 posts, floor is 15',
+      productCoverage: { product: 'Jules', lastFeatured: '2026-02-03', mentions: 5 },
+    };
+    const out = rationaleFor(thin, 'x');
+    expect(out).toContain('You haven’t posted about Jules since 3 February');
+    expect(out).toContain('don’t have enough of your posting history');
+  });
+});

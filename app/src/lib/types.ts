@@ -141,6 +141,9 @@ export interface BeatEvidence {
   /** The configured recurring series this beat is an instance of. `lastPlanned` is null when
    *  the series has never been planned — an absence, never a zero. */
   seriesDue?:        { name: string; dayOfWeek: string; lastPlanned: string | null; monthsObserved: number };
+  /** The catalogue product this beat is about. `lastFeatured` is null when no caption has
+   *  ever named it — "never featured", which is a stronger claim than any date. */
+  productCoverage?:  { product: string; lastFeatured: string | null; mentions: number };
 }
 
 export interface DraftBeatView {
