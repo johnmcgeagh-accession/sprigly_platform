@@ -107,13 +107,15 @@ export type { DiffBeat, BeatDelta, DraftDiff } from './draft-diff.js';
 // ── Draft-plan assembly (Build A) ────────────────────────────────────────────
 export { observeHistory, observeCadence, observeFormats } from './draft-history.js';
 export type { HistoryPost, HistoryObservation, CadenceObservation, FormatObservation } from './draft-history.js';
-export { buildSkeleton, spreadDates, spreadFormats, slotCountFor, cadenceFloorSlots, DRAFT_MIN_POSTS } from './draft-skeleton.js';
+export { buildSkeleton, spreadDates, spreadFormats, slotCountFor, cadenceFloorSlots, claimSeriesSlots, DRAFT_MIN_POSTS } from './draft-skeleton.js';
 export type { Skeleton, SkeletonSlot, BuildSkeletonParams } from './draft-skeleton.js';
+export { resolveRecurringSeries, observeSeriesHistory, recurringFormatWord, seriesMatchTerms, mentionsTerm } from './draft-recurring.js';
+export type { ResolvedSeries, SeriesObservation, PlannedPostRef } from './draft-recurring.js';
 export { allocateSlots, rankCandidates, DRAFT_DEFAULT_TEMPERATURE, REFUSED_LIFECYCLES } from './draft-allocator.js';
 export type { ExperimentCandidate, AllocatedSlot } from './draft-allocator.js';
-export { assembleDraft, detectAssumptions, deterministicTitle, experimentTitle, STALE_TRAWL_DAYS } from './draft-assembly.js';
+export { assembleDraft, detectAssumptions, deterministicTitle, experimentTitle, recurringTitle, STALE_TRAWL_DAYS } from './draft-assembly.js';
 export type { DraftBeat, DraftPlan, AssembleDraftParams } from './draft-assembly.js';
-export { phraseDraftTitles, applyPhrasing, parsePhrasing, validatePhrasing, isTitleFixed, seriesMatchTerms, PHRASING_SYSTEM } from './draft-phrasing.js';
+export { phraseDraftTitles, applyPhrasing, parsePhrasing, validatePhrasing, isTitleFixed, PHRASING_SYSTEM } from './draft-phrasing.js';
 export type { PhrasingModel, PhrasingResult, PhrasingVocabulary } from './draft-phrasing.js';
 export { AUTO_RUN_MIN_WINDOW, deriveTouchSchedule, dueTouchForDay } from './touch-schedule.js';
 export type { Touch, TouchSchedule } from './touch-schedule.js';

@@ -133,6 +133,15 @@ export function allocateSlots(
   slotCount:   number,
   temperature: number | null | undefined,
   candidates:  ExperimentCandidate[],
+  /**
+   * Slot indices that already have a subject — today, the ones a configured recurring series
+   * claimed. Experiments are placed among what is LEFT rather than over the top: a beat cannot
+   * be both "Sunday Style" and "the idea she sent us in June", and quietly making it one while
+   * recording the other is exactly the kind of untraceable claim the evidence contract exists
+   * to prevent. The experiment COUNT is still computed from the full slot count, so temperature
+   * keeps meaning what it meant; only where they land changes.
+   */
+  reservedIndices: ReadonlySet<number> = new Set(),
 ): AllocatedSlot[] {
   const slots: AllocatedSlot[] = Array.from({ length: Math.max(0, slotCount) }, (_, index) => ({
     index, slotType: 'proven' as const,
@@ -144,14 +153,15 @@ export function allocateSlots(
 
   const ranked = rankCandidates(candidates);
   const wanted = Math.round(Math.min(Math.max(temp, 0), 1) * slots.length);
+  const free   = slots.map((s) => s.index).filter((i) => !reservedIndices.has(i));
   // Unfilled experimental slots revert to proven, so never claim more than we can fill.
-  const count  = Math.min(wanted, ranked.length, slots.length);
+  const count  = Math.min(wanted, ranked.length, free.length);
   if (count === 0) return slots;
 
-  // Evenly spaced positions: for count=2 of 10 → indices 2 and 7, not 0 and 1.
-  const step = slots.length / count;
+  // Evenly spaced positions among the free slots: for count=2 of 10 → indices 2 and 7.
+  const step = free.length / count;
   for (let i = 0; i < count; i++) {
-    const at = Math.min(slots.length - 1, Math.floor(i * step + step / 2));
+    const at = free[Math.min(free.length - 1, Math.floor(i * step + step / 2))]!;
     const candidate = ranked[i]!;
     slots[at] = { index: at, slotType: 'experiment', candidate, rank: i + 1, of: ranked.length };
   }

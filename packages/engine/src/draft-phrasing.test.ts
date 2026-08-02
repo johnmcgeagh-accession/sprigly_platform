@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   phraseDraftTitles, applyPhrasing, parsePhrasing, validatePhrasing, isTitleFixed,
-  seriesMatchTerms, PHRASING_SYSTEM, type PhrasingModel, type PhrasingVocabulary,
+  PHRASING_SYSTEM, type PhrasingModel, type PhrasingVocabulary,
 } from './draft-phrasing.js';
+import { seriesMatchTerms } from './draft-recurring.js';
 import type { DraftBeat } from './draft-assembly.js';
 import type { BeatRationaleEvidence } from '@sprigly/db';
 

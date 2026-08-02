@@ -137,7 +137,10 @@ export interface BeatEvidence {
   formatEngagement?: { format: string; avgEngagement: number; posts: number };
   pillarShare?:      number;
   cadenceBasis?:     { postsPerWeek: number; source: 'observed' | 'config'; months: number };
-  candidateRank?:    { rank: number; of: number; origin: 'client' | 'competitor' };
+  candidateRank?:    { rank: number; of: number; origin: 'client' | 'competitor'; lifecycle?: string };
+  /** The configured recurring series this beat is an instance of. `lastPlanned` is null when
+   *  the series has never been planned — an absence, never a zero. */
+  seriesDue?:        { name: string; dayOfWeek: string; lastPlanned: string | null; monthsObserved: number };
 }
 
 export interface DraftBeatView {

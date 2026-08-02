@@ -211,3 +211,77 @@ describe('assumptionPrompt', () => {
     expect(assumptionPrompt(odd)).toBe(odd);
   });
 });
+
+describe('rationaleFor — a recurring series is a standing commitment, and leads', () => {
+  const sundayStyle: BeatEvidence = {
+    basis: 'observed',
+    seriesDue: { name: 'Sunday Style', dayOfWeek: 'Sunday', lastPlanned: '2026-07-26', monthsObserved: 2 },
+    formatEngagement: { format: 'carousel', avgEngagement: 31.9, posts: 86 },
+    pillarShare: 0.14,
+  };
+
+  it('names the series, its day, and when it last ran', () => {
+    expect(rationaleFor(sundayStyle, 'Simplify Your Morning'))
+      .toContain('Sunday Style runs on Sundays; it last ran on 26 July');
+  });
+
+  it('states the sample behind the date', () => {
+    expect(rationaleFor(sundayStyle, 'Simplify Your Morning'))
+      .toContain('we’ve planned it in 2 of your recent months');
+  });
+
+  it('LEADS with the commitment, not with the feed metrics', () => {
+    // A slot that exists because of a standing feature should open with the feature.
+    expect(rationaleFor(sundayStyle, 'Simplify Your Morning').startsWith('Sunday Style')).toBe(true);
+  });
+
+  it('keeps the other clauses — the series does not displace them', () => {
+    const out = rationaleFor(sundayStyle, 'Simplify Your Morning');
+    expect(out).toContain('carousels average 32 likes and comments across your last 86 posts');
+    expect(out).toContain('Simplify Your Morning is about 14% of what you post');
+  });
+
+  it('says a monthly series runs monthly rather than "on monthlys"', () => {
+    const monthly: BeatEvidence = {
+      basis: 'observed',
+      seriesDue: { name: 'Notes from the Founder', dayOfWeek: 'monthly', lastPlanned: '2026-07-23', monthsObserved: 2 },
+    };
+    expect(rationaleFor(monthly, 'Born From Real Need')).toContain('Notes from the Founder runs monthly');
+  });
+
+  it('says a never-run series has NOT run, rather than reaching for a date', () => {
+    const fresh: BeatEvidence = {
+      basis: 'observed',
+      seriesDue: { name: 'What our customers see', dayOfWeek: 'monthly', lastPlanned: null, monthsObserved: 0 },
+    };
+    const out = rationaleFor(fresh, 'Personal Relationships');
+    expect(out).toContain('hasn’t run yet');
+    expect(out).not.toMatch(/1970|Invalid|NaN|last ran/);
+  });
+
+  it('produces a shorter sentence, never "Invalid Date", on a malformed date', () => {
+    const bad: BeatEvidence = {
+      basis: 'observed',
+      seriesDue: { name: 'Sunday Style', dayOfWeek: 'Sunday', lastPlanned: 'not-a-date', monthsObserved: 1 },
+    };
+    const out = rationaleFor(bad, 'x');
+    expect(out).not.toContain('Invalid Date');
+    expect(out).toContain('hasn’t run yet');
+  });
+
+  it('still says its piece on the THIN-HISTORY path — a commitment is not an inference', () => {
+    const thin: BeatEvidence = {
+      basis: 'template',
+      reason: 'insufficient history: 9 posts, floor is 15',
+      seriesDue: { name: 'Sunday Style', dayOfWeek: 'Sunday', lastPlanned: '2026-07-26', monthsObserved: 2 },
+    };
+    const out = rationaleFor(thin, 'x');
+    expect(out).toContain('Sunday Style runs on Sundays');
+    expect(out).toContain('don’t have enough of your posting history');
+  });
+
+  it('a template beat with no series is unchanged', () => {
+    expect(rationaleFor({ basis: 'template' }, 'x'))
+      .toBe('We don’t have enough of your posting history yet, so this is a starting shape rather than a pattern we’ve seen work.');
+  });
+});

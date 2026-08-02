@@ -44,6 +44,7 @@
  * its product), so a fallback month is a concrete month, not a pillar month.
  */
 import type { DraftBeat } from './draft-assembly.js';
+import { seriesMatchTerms, mentionsTerm } from './draft-recurring.js';
 
 export interface PhrasingModel {
   complete(params: {
@@ -146,38 +147,13 @@ export function parsePhrasing(text: string): Map<number, string> {
   return out;
 }
 
-const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 /**
- * Does `term` occur in `text` as a standalone name?
- *
- * Boundaries are alphanumeric lookarounds rather than `\b`, because a series name can begin
- * or end with punctuation ("WSG (Weekend Style Guide)") and `\b` is defined against word
- * characters — it would anchor in the wrong place or not at all. Case-insensitive: a model
- * writing "connie" has still named Connie.
+ * Naming a thing — the boundary rule and the series-name expansion — belongs to
+ * draft-recurring.ts, which is where a series name is defined. Both are used here so that
+ * "the title named this series" means exactly what it means when the history matcher decides
+ * "this past post WAS this series".
  */
-function mentions(text: string, term: string): boolean {
-  return new RegExp(`(?<![A-Za-z0-9])${escapeRe(term)}(?![A-Za-z0-9])`, 'i').test(text);
-}
-
-/**
- * The strings that count as naming a series.
- *
- * A configured name carries its own expansion — ivy-t's is literally
- * "WSG (Weekend Style Guide)" — and a title will use one side or the other, never the
- * parenthesised whole. So the full name, the part before the bracket, and the part inside it
- * are all the same series. Longest first, so a match reports the most specific form.
- */
-export function seriesMatchTerms(name: string): string[] {
-  const full = name.trim();
-  const terms = new Set<string>([full]);
-  const m = /^(.*?)\s*\(([^)]+)\)\s*$/.exec(full);
-  if (m) {
-    if (m[1]?.trim()) terms.add(m[1].trim());
-    if (m[2]?.trim()) terms.add(m[2].trim());
-  }
-  return [...terms].filter((t) => t.length > 0).sort((a, b) => b.length - a.length || a.localeCompare(b));
-}
+const mentions = mentionsTerm;
 
 /** term (as written) → the canonical configured name it stands for. */
 function seriesTermIndex(names: readonly string[]): Array<{ term: string; name: string }> {

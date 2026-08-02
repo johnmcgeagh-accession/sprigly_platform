@@ -20,6 +20,7 @@ import { observeHistory, type HistoryPost, type HistoryObservation } from './dra
 import { resolvePillarWeights } from './pillar-weights.js';
 import { buildSkeleton, DRAFT_MIN_POSTS, type Skeleton } from './draft-skeleton.js';
 import { allocateSlots, type ExperimentCandidate, type AllocatedSlot } from './draft-allocator.js';
+import type { ResolvedSeries } from './draft-recurring.js';
 import type { Pillar } from './types.js';
 
 /** A single assembled beat, ready to persist as a status='draft' post row. */
@@ -31,6 +32,14 @@ export interface DraftBeat {
   /** Deterministic title. The phrasing pass may replace it; it is never left empty. */
   title:         string;
   beatMeta:      BeatMeta;
+  /**
+   * The lossless per-post columns the workbook pipeline carries, for content_cycle_posts
+   * .source_meta. The old planner wrote category / whoPosts / postingTime on every recurring
+   * beat and the assembler wrote none of them, so a Sunday Style draft beat lost the three
+   * facts that say who posts it and when (docs/reports/beat-grounding.md §1.5). Only ever the
+   * fields a beat actually HAS — a beat with no series has no whoPosts, and gets none.
+   */
+  sourceMeta?: { category?: string; whoPosts?: string; postingTime?: string };
 }
 
 export interface DraftPlan {
@@ -56,6 +65,19 @@ export const STALE_TRAWL_DAYS = 14;
 export function deterministicTitle(pillar: string, format: string): string {
   const f = format.charAt(0).toUpperCase() + format.slice(1);
   return `${pillar} — ${f}`;
+}
+
+/**
+ * Title for a recurring-series slot: the series' own name.
+ *
+ * The subject of a Sunday Style beat is Sunday Style. That the deterministic title says so —
+ * rather than the phrasing pass being trusted to — is the point: phrasing may fail, and a
+ * fallback month must still be a concrete month. It is the same reasoning experimentTitle
+ * already applies to the client's own words.
+ */
+export function recurringTitle(seriesName: string, format: string): string {
+  const f = format.charAt(0).toUpperCase() + format.slice(1);
+  return `${seriesName} — ${f}`;
 }
 
 /** Title for an experiment slot: the client's own idea, trimmed to a title's length.
@@ -93,22 +115,51 @@ export function detectAssumptions(params: {
   if (skeleton.pillarBasis === 'equal') {
     out.push('No pillar weights are on record, so the month splits evenly across pillars.');
   }
+  for (const s of skeleton.unplacedSeries) {
+    // A configured series with nowhere to sit is a real gap, and the client is the only one who
+    // can close it — by adding a posting day or standing the series down. Silence here would
+    // read as "we decided not to run it this month".
+    out.push(`"${s.name}" runs on ${s.dayOfWeek === 'monthly' ? 'a monthly slot' : `${s.dayOfWeek}s`}, but this month has no slot there — it isn't in the draft.`);
+  }
   return out;
 }
 
 /** Build the structured evidence for one slot. Never prose, never invented. */
 function evidenceFor(slot: AllocatedSlot, skeleton: Skeleton, pillarShare: number | undefined): BeatRationaleEvidence {
   if (skeleton.basis === 'template') {
+    // A configured series survives the template path. It is a fact about the client's
+    // STANDING COMMITMENTS, not an inference from history, so thin history is no reason to
+    // withhold it — and a Sunday Style beat that could not say it was Sunday Style would be
+    // the assembler hiding the one thing about that slot it actually knows.
+    const templateSeries = skeleton.slots[slot.index]?.series;
     return {
       basis: 'template',
       ...(skeleton.reason ? { reason: skeleton.reason } : {}),
+      ...(templateSeries
+        ? { seriesDue: {
+            name: templateSeries.name,
+            dayOfWeek: templateSeries.dayOfWeek,
+            lastPlanned: templateSeries.lastPlanned,
+            monthsObserved: templateSeries.monthsObserved,
+          } }
+        : {}),
       cadenceBasis: skeleton.cadenceBasis,
     };
   }
-  const format = skeleton.slots[slot.index]?.format;
+  const skelSlot = skeleton.slots[slot.index];
+  const format = skelSlot?.format;
   const observed = skeleton.formats.find((f) => f.format === format);
+  const series = skelSlot?.series;
   return {
     basis: 'observed',
+    ...(series
+      ? { seriesDue: {
+          name: series.name,
+          dayOfWeek: series.dayOfWeek,
+          lastPlanned: series.lastPlanned,
+          monthsObserved: series.monthsObserved,
+        } }
+      : {}),
     ...(observed
       ? { formatEngagement: { format: observed.format, avgEngagement: observed.avgEngagement, posts: observed.posts } }
       : {}),
@@ -141,6 +192,9 @@ export interface AssembleDraftParams {
   /** A client-stated cadence floor (kind:'cadence'), as a month slot count. Raises the slot
    *  count when the client asked for more than history would produce; never lowers it. */
   floorSlots?: number | null;
+  /** The client's configured recurring series, resolved against their plan history
+   *  (resolveRecurringSeries). Each claims slots that already exist; none creates one. */
+  series?: readonly ResolvedSeries[];
   staleTrawlWarning?: string | undefined;
 }
 
@@ -151,7 +205,7 @@ export interface AssembleDraftParams {
 export function assembleDraft(params: AssembleDraftParams): DraftPlan {
   const {
     clientId, cycleId, channel, month, posts, pillars, candidates, temperature,
-    hasCatalogue, hasBriefedLaunch, configPostsPerWeek, floorSlots, staleTrawlWarning,
+    hasCatalogue, hasBriefedLaunch, configPostsPerWeek, floorSlots, series, staleTrawlWarning,
   } = params;
 
   const history = observeHistory(posts);
@@ -160,9 +214,12 @@ export function assembleDraft(params: AssembleDraftParams): DraftPlan {
     month, history, pillars: weights,
     ...(configPostsPerWeek !== undefined ? { configPostsPerWeek } : {}),
     ...(floorSlots !== undefined ? { floorSlots } : {}),
+    ...(series !== undefined ? { series } : {}),
   });
 
-  const allocation = allocateSlots(skeleton.slots.length, temperature, candidates);
+  // A slot a recurring series claimed already has a subject; experiments go among the rest.
+  const claimed = new Set(skeleton.slots.flatMap((s, i) => (s.series ? [i] : [])));
+  const allocation = allocateSlots(skeleton.slots.length, temperature, candidates, claimed);
   const assumptions = detectAssumptions({ history, hasCatalogue, hasBriefedLaunch, skeleton });
   const shareByPillar = new Map(weights.weights.map((w) => [w.name, w.share]));
 
@@ -174,15 +231,35 @@ export function assembleDraft(params: AssembleDraftParams): DraftPlan {
       ...(alloc.candidate ? { sourceRef: alloc.candidate.id } : {}),
       ...(assumptions.length > 0 ? { assumptions } : {}),
     };
+    // SUBJECT PRECEDENCE: a standing commitment, then the client's own words, then the pillar.
+    // The series leads because it is a slot the client has already decided the shape of — and
+    // because allocateSlots was given the claimed indices, the second branch cannot collide
+    // with the first. The pillar is what is left when a beat has no subject of its own, which
+    // is the honest description of it rather than a failure to find one.
+    const title = slot.series
+      ? recurringTitle(slot.series.name, slot.format)
+      : alloc.candidate
+        ? experimentTitle(alloc.candidate.content, slot.format)
+        : deterministicTitle(slot.pillar, slot.format);
+
+    // The lossless columns the old planner wrote and the assembler dropped. Only what the
+    // beat has: a slot with no series has no whoPosts and is given none.
+    const sourceMeta = slot.series
+      ? {
+          ...(slot.series.category ? { category: slot.series.category } : {}),
+          ...(slot.series.whoPosts ? { whoPosts: slot.series.whoPosts } : {}),
+          ...(slot.series.time ? { postingTime: slot.series.time } : {}),
+        }
+      : undefined;
+
     return {
       scheduledDate: slot.date,
       format:        slot.format,
       pillar:        slot.pillar,
       position:      i,
-      title:         alloc.candidate
-        ? experimentTitle(alloc.candidate.content, slot.format)
-        : deterministicTitle(slot.pillar, slot.format),
+      title,
       beatMeta,
+      ...(sourceMeta && Object.keys(sourceMeta).length > 0 ? { sourceMeta } : {}),
     };
   });
 
