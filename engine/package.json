@@ -14,6 +14,7 @@
     "backfill-ig-posts": "sh -c 'set -a && . ../.env.local && set +a && tsx src/content-cycles/backfill-ig-posts-cli.ts \"$@\"' --",
     "trigger-plan": "sh -c 'set -a && . ../.env.local && set +a && tsx src/content-cycles/trigger-plan-cli.ts \"$@\"' --",
     "onboard-client": "sh -c 'set -a && . ../.env.local && set +a && tsx src/onboarding/onboard-client-cli.ts \"$@\"' --",
+    "deep-trawl": "sh -c 'set -a && . ../.env.local && set +a && tsx src/deep-trawl-cli.ts \"$@\"' --",
     "setup-gmail": "tsx --env-file ../.env.local src/setup-gmail-oauth.ts",
     "setup-drive": "tsx --env-file ../.env.local src/setup-drive-oauth.ts",
     "verify-drive": "sh -c 'set -a && . ../.env.local && set +a && tsx src/verify-drive-token.ts \"$@\"' --",

@@ -1002,8 +1002,36 @@ export interface BeatRationaleEvidence {
    *  fabricated {postsPerWeek: 0} would be exactly the invention this contract exists to
    *  prevent. */
   cadenceBasis?:     { postsPerWeek: number; source: 'observed' | 'config'; months: number };
-  /** For an experiment slot: how the candidate ranked, and against what. */
-  candidateRank?:    { rank: number; of: number; origin: 'client' | 'competitor' };
+  /** For an experiment slot: how the candidate ranked, and against what. `lifecycle` is the
+   *  backlog item's MATURITY at the moment it was drawn ('candidate' = she asked for it and
+   *  it has not run yet), so the rationale can say which of those two things happened rather
+   *  than the vaguer "this came from an idea you sent us". Absent on a candidate that came
+   *  from anywhere but plan_inputs. */
+  candidateRank?:    { rank: number; of: number; origin: 'client' | 'competitor'; lifecycle?: string };
+  /**
+   * The catalogue product this beat is about, and the coverage gap that chose it.
+   *
+   * `lastFeatured` is the date of the most recent ig_posts caption naming this product, or
+   * NULL when no caption has ever named it. NULL means "never featured" and is a stronger
+   * claim than any date — it must never be rendered, compared, or stored as a zero or an
+   * epoch. `mentions` is the caption count behind it, so the client can judge the sample the
+   * same way `formatEngagement.posts` lets them judge that one.
+   *
+   * Its presence is ALSO the phrasing pass's licence: a title may name this product and no
+   * other (validatePhrasing, draft-phrasing.ts).
+   */
+  productCoverage?:  { product: string; lastFeatured: string | null; mentions: number };
+  /**
+   * The configured recurring series this beat is an instance of.
+   *
+   * `lastPlanned` is the most recent scheduled_date on which a non-draft content_cycle_posts
+   * row carried this series' category, or NULL when the series has never been planned. Read
+   * through excludeDraftPosts() — a draft proposing the series is not evidence the series ran.
+   * `monthsObserved` is the count of distinct months it appeared in, i.e. the sample.
+   *
+   * Its presence is the phrasing pass's licence to name the series.
+   */
+  seriesDue?:        { name: string; dayOfWeek: string; lastPlanned: string | null; monthsObserved: number };
 }
 
 export interface BeatMeta {

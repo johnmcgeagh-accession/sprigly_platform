@@ -366,3 +366,85 @@ describe('coverage visibility', () => {
     expect(coverageLog![0]['resultsLimit']).toBe(50);
   });
 });
+
+// ── Media type: mapped, and loud when it is not ───────────────────────────────
+//
+// The payload shapes below are the real ones. A 300-deep probe of ivy_thebrand
+// (2026-07-31) returned exactly three `type` values across 278 owned items — Video 184,
+// Sidecar 87, Image 7 — and every one mapped. The unmapped cases are therefore
+// constructed, not observed: the point of the warn is that the FIRST time Apify sends
+// something new, it is on the record instead of being absorbed as a missing key.
+
+describe('media type mapping', () => {
+  it('writes the mediaType for every live Apify type, and warns about none', async () => {
+    mockFetch([
+      makeApifyPost({ type: 'Video',   timestamp: '2026-05-02T12:00:00.000Z', productType: 'clips' }),
+      makeApifyPost({ type: 'Sidecar', timestamp: '2026-05-03T12:00:00.000Z' }),
+      makeApifyPost({ type: 'Image',   timestamp: '2026-05-04T12:00:00.000Z' }),
+    ]);
+    const { db, captured } = makeDb();
+    const logger = makeLogger();
+
+    await trawlInstagramPosts({ ...BASE_PARAMS, db, apifyApiKey: 'key', logger });
+
+    expect(captured.values!.posts.map((p) => p['mediaType'])).toEqual(['reel', 'carousel', 'image']);
+    const warns = (logger.warn as ReturnType<typeof vi.fn>).mock.calls as Array<[Record<string, unknown>, string]>;
+    expect(warns.find(([ctx]) => typeof ctx === 'object' && 'unmappedTypes' in ctx)).toBeUndefined();
+  });
+
+  it('warns with the raw value and count when a type does not map, and still stores the post', async () => {
+    mockFetch([
+      makeApifyPost({ type: 'Video', timestamp: '2026-05-02T12:00:00.000Z' }),
+      makeApifyPost({ type: 'Story', timestamp: '2026-05-03T12:00:00.000Z' }),
+      makeApifyPost({ type: 'Story', timestamp: '2026-05-04T12:00:00.000Z' }),
+      makeApifyPost({ timestamp: '2026-05-05T12:00:00.000Z' }),   // no `type` at all
+    ]);
+    const { db, captured } = makeDb();
+    const logger = makeLogger();
+
+    await trawlInstagramPosts({ ...BASE_PARAMS, db, apifyApiKey: 'key', logger });
+
+    const warns = (logger.warn as ReturnType<typeof vi.fn>).mock.calls as Array<[Record<string, unknown>, string]>;
+    const unmappedWarn = warns.find(([ctx]) => typeof ctx === 'object' && 'unmappedTypes' in ctx);
+    expect(unmappedWarn).toBeDefined();
+    expect(unmappedWarn![0]['unmappedTypes']).toEqual({ Story: 2, '(absent)': 1 });
+    expect(unmappedWarn![0]['unmappedCount']).toBe(3);
+    expect(unmappedWarn![0]['ofPosts']).toBe(4);
+
+    // The post is NOT dropped — only its media type is unknown.
+    expect(captured.values!.posts).toHaveLength(4);
+    expect(captured.values!.posts.filter((p) => p['mediaType'] === undefined)).toHaveLength(3);
+  });
+
+  it('maps a lowercase type rather than losing it', async () => {
+    mockFetch([makeApifyPost({ type: 'video', timestamp: '2026-05-02T12:00:00.000Z' })]);
+    const { db, captured } = makeDb();
+    const logger = makeLogger();
+
+    await trawlInstagramPosts({ ...BASE_PARAMS, db, apifyApiKey: 'key', logger });
+
+    expect(captured.values!.posts[0]!['mediaType']).toBe('reel');
+  });
+});
+
+// ── Depth is a parameter ──────────────────────────────────────────────────────
+
+describe('resultsLimit', () => {
+  it('defaults to 50 and is sent to Apify', async () => {
+    mockFetch([makeApifyPost()]);
+    const { db } = makeDb();
+    await trawlInstagramPosts({ ...BASE_PARAMS, db, apifyApiKey: 'key', logger: makeLogger() });
+
+    const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]![1].body as string) as Record<string, unknown>;
+    expect(body['resultsLimit']).toBe(50);
+  });
+
+  it('sends an operator-specified depth when one is given', async () => {
+    mockFetch([makeApifyPost()]);
+    const { db } = makeDb();
+    await trawlInstagramPosts({ ...BASE_PARAMS, db, apifyApiKey: 'key', logger: makeLogger(), resultsLimit: 300 });
+
+    const body = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]![1].body as string) as Record<string, unknown>;
+    expect(body['resultsLimit']).toBe(300);
+  });
+});

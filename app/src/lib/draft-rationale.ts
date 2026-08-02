@@ -26,6 +26,36 @@ const formatWord = (f: string): string => FORMAT_WORD[f] ?? `${f} posts`;
 /** "3 posts" / "1 post" — the sample size, stated so the client can judge it themselves. */
 const posts = (n: number): string => `${n} post${n === 1 ? '' : 's'}`;
 
+/** '2026-07-26' → '26 July'. Returns null for anything that is not an ISO date, so a
+ *  malformed value produces a shorter sentence rather than "Invalid Date". */
+function shortDate(iso: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getUTCDate()} ${d.toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' })}`;
+}
+
+/**
+ * The reason a recurring-series beat is here: their own standing feature, and when it last ran.
+ *
+ * Leads every other clause on a series beat. "Sunday Style runs on Sundays" is a fact about a
+ * commitment they made; "carousels average 32 likes" is a fact about their feed. On a slot that
+ * exists because of the first, opening with the second buries it.
+ *
+ * A series that has never been planned says so. It is a weaker claim than a date, and pretending
+ * otherwise — by omitting the clause, or by reaching for a date we do not have — is exactly the
+ * failure the evidence contract exists to prevent.
+ */
+function seriesClause(s: NonNullable<BeatEvidence['seriesDue']>): string {
+  const when = s.lastPlanned ? shortDate(s.lastPlanned) : null;
+  const cadence = s.dayOfWeek === 'monthly' ? 'runs monthly' : `runs on ${s.dayOfWeek}s`;
+  if (!when) return `${s.name} ${cadence}, and hasn’t run yet`;
+  const over = s.monthsObserved > 0
+    ? ` — we’ve planned it in ${s.monthsObserved} of your recent month${s.monthsObserved === 1 ? '' : 's'}`
+    : '';
+  return `${s.name} ${cadence}; it last ran on ${when}${over}`;
+}
+
 /**
  * How much of the client's own sentence a card quotes back.
  *
@@ -43,6 +73,26 @@ function trimQuote(text: string): string {
   const cut = t.slice(0, QUOTE_MAX);
   const lastSpace = cut.lastIndexOf(' ');
   return `${(lastSpace > QUOTE_MAX * 0.6 ? cut.slice(0, lastSpace) : cut).replace(/[,;:.\s]+$/, '')}…`;
+}
+
+/**
+ * The reason a coverage beat is here: their own product, and how long since they last posted
+ * about it.
+ *
+ * This is the strongest sentence the assembler can write, because it is checkable in one
+ * scroll of their own feed. "Jules — not featured since 3 February" is a claim they can
+ * falsify in ten seconds, which is exactly why it is worth making.
+ *
+ * NEVER FEATURED is its own clause, not a date-shaped hole. `lastFeatured: null` says the
+ * product has no captions at all, and the mention count is not repeated after it — "0
+ * mentions" adds nothing to "hasn't appeared".
+ */
+function productClause(p: NonNullable<BeatEvidence['productCoverage']>): string {
+  if (p.lastFeatured === null) return `${p.product} hasn’t appeared in any of your captions`;
+  const when = shortDate(p.lastFeatured);
+  if (!when) return `${p.product} hasn’t appeared in your captions for a while`;
+  const sample = ` (${p.mentions} caption${p.mentions === 1 ? '' : 's'} in the history we have)`;
+  return `you haven’t posted about ${p.product} since ${when}${sample}`;
 }
 
 /**
@@ -86,12 +136,33 @@ export function rationaleFor(evidence: BeatEvidence, pillar: string): string {
         : 'You asked us to lean the month this way.';
 
     case 'template':
-      // Deliberately names the gap. The client should know when we are working from a
-      // starting shape rather than from their own numbers.
-      return 'We don’t have enough of your posting history yet, so this is a starting shape rather than a pattern we’ve seen work.';
+      // A configured series survives the thin-history path — it is a standing commitment, not
+      // an inference — so it still gets its sentence. Saying only "we don't have enough
+      // history" on a Sunday Style beat would withhold the one thing we do know about it.
+      {
+        // A series and a caption date are both FACTS, not inferences from posting patterns.
+        // Thin history is no reason to withhold either — saying only "we don't have enough
+        // history" would drop the one checkable thing this beat knows about itself.
+        const kept = [
+          ...(evidence.seriesDue ? [seriesClause(evidence.seriesDue)] : []),
+          ...(evidence.productCoverage ? [productClause(evidence.productCoverage)] : []),
+        ];
+        if (kept.length === 0) {
+          return 'We don’t have enough of your posting history yet, so this is a starting shape rather than a pattern we’ve seen work.';
+        }
+        const [first, ...rest] = kept;
+        const sentence = [first!.charAt(0).toUpperCase() + first!.slice(1), ...rest].join('; ');
+        return `${sentence}. We don’t have enough of your posting history yet to say more.`;
+      }
 
     case 'observed': {
       const parts: string[] = [];
+
+      // A standing commitment leads. See seriesClause.
+      if (evidence.seriesDue) parts.push(seriesClause(evidence.seriesDue));
+
+      // Then the product gap — the one claim on the card they can check against their own feed.
+      if (evidence.productCoverage) parts.push(productClause(evidence.productCoverage));
 
       const fe = evidence.formatEngagement;
       if (fe && fe.posts > 0) {

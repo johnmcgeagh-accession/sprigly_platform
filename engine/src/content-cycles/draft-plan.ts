@@ -15,16 +15,20 @@
  */
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import {
-  clientChannels, clientConfigs, clientPlanningConfig, clientProductCatalogue, contentCycles,
-  contentCyclePosts, igPosts, voiceSnapshots, POST_STATUS_DRAFT, PRE_PLANNING_STATUSES,
+  clients, clientChannels, clientConfigs, clientPlanningConfig, clientProductCatalogue,
+  contentCycles, contentCyclePosts, igPosts, voiceSnapshots, excludeDraftPosts,
+  POST_STATUS_DRAFT, PRE_PLANNING_STATUSES,
   type NewContentCyclePostRow,
 } from '@sprigly/db';
 import {
   assembleDraft, applyPhrasing, phraseDraftTitles, loadDurableInputs, readDraftFlowFlag,
-  approveDraftCore, cadenceFloorSlots, STALE_TRAWL_DAYS,
-  type DraftPlan, type ExperimentCandidate, type HistoryPost,
+  approveDraftCore, cadenceFloorSlots, resolveRecurringSeries, observeProductCoverage,
+  catalogueProductNames, STALE_TRAWL_DAYS, DRAFT_DEFAULT_TEMPERATURE,
+  type DraftPlan, type ExperimentCandidate, type HistoryPost, type PlannedPostRef,
+  type ResolvedSeries, type ProductCoverage,
 } from '@sprigly/engine';
-import type { Pillar } from '@sprigly/engine';
+import type { Pillar, RecurringSeries } from '@sprigly/engine';
+import { deriveBrandTokens } from '../catalogue/validate-catalogue.js';
 import type { Queue } from 'bullmq';
 import type { PlanningDeps } from './planning.js';
 import { GENERATION_JOB_OPTIONS } from './job-options.js';
@@ -84,6 +88,47 @@ async function staleTrawlWarning(deps: PlanningDeps, clientId: string, channel: 
   return ageDays > STALE_TRAWL_DAYS
     ? `IG history last refreshed ${ageDays} days ago (threshold ${STALE_TRAWL_DAYS}) — the draft is built on data that may be out of date.`
     : null;
+}
+
+/**
+ * The client's own plan history, for dating their recurring series.
+ *
+ * THROUGH THE DRAFT FENCE. `excludeDraftPosts()` is the whole reason this read is safe: a
+ * draft is a proposal the client has not accepted, so a draft beat proposing Sunday Style is
+ * not evidence that Sunday Style ran. Without the predicate the assembler would read its OWN
+ * previous proposal back as history and date every series to the month it just invented —
+ * and it re-runs on every Ask touch, so the error would compound rather than show. Soft-
+ * deleted rows are excluded for the same reason: a removed beat did not happen.
+ *
+ * Every month, not a window: a monthly feature needs several months to date at all, and the
+ * payload is small (ivy-t: 92 rows, ~12 kB for these three columns).
+ *
+ * Never throws — a history read that fails costs the series their dates, not the month.
+ */
+async function loadSeriesHistory(
+  deps: PlanningDeps, clientId: string, channel: string,
+): Promise<PlannedPostRef[]> {
+  const rows = await deps.db
+    .select({
+      date:       contentCyclePosts.scheduledDate,
+      sourceMeta: contentCyclePosts.sourceMeta,
+    })
+    .from(contentCyclePosts)
+    .where(and(
+      eq(contentCyclePosts.clientId, clientId),
+      eq(contentCyclePosts.channel, channel),
+      excludeDraftPosts(),
+      isNull(contentCyclePosts.deletedAt),
+    ));
+
+  return rows.map((r) => {
+    const meta = (r.sourceMeta ?? {}) as Record<string, unknown>;
+    return {
+      date:     r.date,
+      category: typeof meta['category'] === 'string' ? meta['category'] : null,
+      title:    typeof meta['title'] === 'string' ? meta['title'] : null,
+    };
+  });
 }
 
 /**
@@ -168,17 +213,39 @@ export async function assembleAndPersistDraft(
   const month = nextMonth(cycle.cycleMonth);          // the cycle plans the month AFTER its own
   const logCtx = { cycleId: cycle.id, clientId, channel, month };
 
+  // recurringSeries and categories ride the query that already ran for `pillars`. The four
+  // standing features on this row (Sunday Style, WSG, and two monthlies) were configured
+  // before the draft arc existed and scheduled by the old planner; the assembler selected
+  // `pillars` and nothing else, so September came out with none of them.
   const [planConfig] = await db
-    .select({ pillars: clientPlanningConfig.pillars })
+    .select({
+      pillars:         clientPlanningConfig.pillars,
+      recurringSeries: clientPlanningConfig.recurringSeries,
+      categories:      clientPlanningConfig.categories,
+    })
     .from(clientPlanningConfig)
     .where(and(eq(clientPlanningConfig.clientId, clientId), eq(clientPlanningConfig.channel, channel)))
     .limit(1);
 
+  // The catalogue BODY, not an existence probe. This select used to read `id` and nothing
+  // else, so a 49-family blob was queried on every assembly to answer one boolean — and the
+  // assumption built on that boolean then told the client, by omission, that their products
+  // had been considered (docs/reports/beat-grounding.md §1.6, §2.1).
   const [catalogue] = await db
-    .select({ id: clientProductCatalogue.id })
+    .select({ id: clientProductCatalogue.id, catalogue: clientProductCatalogue.catalogue })
     .from(clientProductCatalogue)
     .where(and(eq(clientProductCatalogue.clientId, clientId), eq(clientProductCatalogue.channel, channel)))
     .limit(1);
+
+  // The client's own brand words, so the catalogue matcher does not read "Ivy" in 84 captions
+  // as the Ivy product family. deriveBrandTokens is the SAME function the caption validator
+  // and the planner already use for this — one definition of "that word is the brand".
+  const [clientRow] = await db
+    .select({ name: clients.name })
+    .from(clients)
+    .where(eq(clients.id, clientId))
+    .limit(1);
+  const brandTokens = deriveBrandTokens(clientRow?.name ?? '');
 
   const [chan] = await db
     .select({ postsPerWeek: clientChannels.postsPerWeek })
@@ -190,21 +257,28 @@ export async function assembleAndPersistDraft(
   const stale = await staleTrawlWarning(deps, clientId, channel, now);
   if (stale) logger.warn({ ...logCtx, stale }, 'draft-plan: stale IG history — assembling anyway (D2)');
 
-  // Experiment candidates: the ideas backlog. Returns [] for every client today (all live
-  // plan_inputs rows are type='note', which loadDurableInputs filters out). Expected.
+  // Experiment candidates: the ideas backlog.
+  //
+  // This used to synthesise `id: 'idea-0'` from the array index, because loadDurableInputs
+  // did not select the primary key — so beat_meta.sourceRef, documented as a plan_inputs.id
+  // (schema.ts), was an array position and a beat could not be traced back to the sentence it
+  // came from. It selects `id` now, and `lifecycle` with it, so an idea she has never seen run
+  // outranks one that has (rankCandidates).
   let candidates: ExperimentCandidate[] = [];
   try {
     const durable = await loadDurableInputs(db, clientId, month);
     candidates = durable
       .filter((d) => d.type === 'idea')
-      .map((d, i) => ({ id: `${d.type}-${i}`, content: d.content, origin: 'client' as const }));
+      .map((d) => ({ id: d.id, content: d.content, origin: 'client' as const, lifecycle: d.lifecycle }));
   } catch (err) {
     logger.warn({ ...logCtx, err: String(err) }, 'draft-plan: could not load idea backlog — proceeding with none');
   }
 
-  // Temperature: no per-client dial exists yet (D4 — the allocator interface lands in this
-  // build, the dial does not). null resolves to an all-proven month.
-  const temperature: number | null = null;
+  // Temperature: still no per-client dial (D4's dial has not landed), but `null` is not the
+  // honest stand-in for "unset" — it is an instruction to ignore the backlog entirely, and it
+  // was being followed. The default is a ceiling, clamped by allocateSlots to the candidates
+  // that actually exist, so a client with no backlog still gets an all-proven month.
+  const temperature: number = DRAFT_DEFAULT_TEMPERATURE;
 
   const briefSchedule = (cycle.structuredBrief as { schedule?: unknown[]; products?: unknown[] } | null);
   const hasBriefedLaunch = Array.isArray(briefSchedule?.products) && briefSchedule.products.length > 0;
@@ -216,6 +290,44 @@ export async function assembleAndPersistDraft(
   const cadenceFloor = ((cycle.intakeJson ?? {}) as { cadenceFloor?: { postsPerWeek?: number | null; postsPerMonth?: number | null } }).cadenceFloor;
   const floorSlots = cadenceFloor ? cadenceFloorSlots(month, cadenceFloor) : 0;
 
+  // Recurring series, dated from the client's own plan history. Best-effort: a failed history
+  // read costs the series their dates, never the month — resolveRecurringSeries with an empty
+  // history still places them, it just reports lastPlanned: null, which is honest.
+  let series: ResolvedSeries[] = [];
+  try {
+    const configured = (planConfig?.recurringSeries ?? []) as unknown as RecurringSeries[];
+    if (configured.length > 0) {
+      let history: PlannedPostRef[] = [];
+      try {
+        history = await loadSeriesHistory(deps, clientId, channel);
+      } catch (err) {
+        logger.warn({ ...logCtx, err: String(err) }, 'draft-plan: could not read plan history — series will carry no dates');
+      }
+      series = resolveRecurringSeries(configured, (planConfig?.categories ?? []) as string[], history);
+    }
+  } catch (err) {
+    logger.warn({ ...logCtx, err: String(err) }, 'draft-plan: could not resolve recurring series — proceeding without them');
+  }
+
+  // Product coverage: the cached catalogue against the captions ALREADY in memory (loadHistory
+  // maps them and the history observation never reads them), so this costs no extra I/O at all.
+  // Names excluded as brand words, ordinary words she writes, or parser artefacts are logged
+  // rather than dropped in silence — a product missing from the month for a reason nobody can
+  // see is how a coverage claim stops being checkable.
+  let coverage: ProductCoverage[] = [];
+  try {
+    const names = catalogueProductNames(catalogue?.catalogue);
+    if (names.length > 0) {
+      const result = observeProductCoverage({ names, posts, brandTokens });
+      coverage = result.coverage;
+      if (result.excluded.length > 0) {
+        logger.info({ ...logCtx, excluded: result.excluded }, 'draft-plan: catalogue names kept out of the beat vocabulary');
+      }
+    }
+  } catch (err) {
+    logger.warn({ ...logCtx, err: String(err) }, 'draft-plan: could not observe product coverage — no beat will name a product');
+  }
+
   const draft = assembleDraft({
     clientId, cycleId: cycle.id, channel, month, posts,
     pillars: (planConfig?.pillars ?? []) as unknown as Pillar[],
@@ -224,6 +336,8 @@ export async function assembleAndPersistDraft(
     hasBriefedLaunch,
     configPostsPerWeek: chan?.postsPerWeek ?? null,
     ...(floorSlots > 0 ? { floorSlots } : {}),
+    ...(series.length > 0 ? { series } : {}),
+    ...(coverage.length > 0 ? { productCoverage: coverage } : {}),
     ...(stale ? { staleTrawlWarning: stale } : {}),
   });
 
@@ -243,6 +357,11 @@ export async function assembleAndPersistDraft(
 
   const phrasing = await phraseDraftTitles({
     beats: draft.beats, voiceSummary, model: deps.model,
+    // The names the model may be POLICED on: naming one of these on a beat whose own evidence
+    // does not carry it fails the whole batch. The product list is the FILTERED one — brand
+    // words, ordinary words and parser artefacts are already out — because a name in this list
+    // that she also uses as an English word would reject honest titles, not catch fabrications.
+    vocab: { seriesNames: series.map((s) => s.name), productNames: coverage.map((c) => c.product) },
     onWarn: (message) => logger.warn(logCtx, `draft-plan: ${message}`),
   });
   draft.beats = applyPhrasing(draft.beats, phrasing);
@@ -258,7 +377,10 @@ export async function assembleAndPersistDraft(
     status:        POST_STATUS_DRAFT,
     position:      b.position,
     beatMeta:      b.beatMeta,
-    sourceMeta:    { title: b.title },
+    // category / whoPosts / postingTime come from the beat's recurring series when it has
+    // one — the columns the old planner wrote and the assembler used to drop, so a Sunday
+    // Style beat again says who posts it and at what time. `title` last so it always wins.
+    sourceMeta:    { ...(b.sourceMeta ?? {}), title: b.title },
   }));
 
   await db.transaction(async (tx) => {

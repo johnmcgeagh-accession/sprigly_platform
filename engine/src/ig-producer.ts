@@ -19,15 +19,21 @@ import { eq, and } from 'drizzle-orm';
 import { db as _db, clientChannels, contentCycles, igPosts } from '@sprigly/db';
 import { type EncryptionProvider } from '@sprigly/oauth-tokens';
 import type { Logger } from 'pino';
-import { igPostSchema, mapApifyMediaType } from './lean-line.js';
+import { igPostSchema, mapApifyMediaType, tallyUnmappedMediaTypes } from './lean-line.js';
 import { fetchApifyPostsForHandle, classifyApifyError } from './apify-ig-fetch.js';
 
 type Db = typeof _db;
 
-// Results limit — must exceed the number of posts the account publishes per month.
-// At 50, an account posting > 50 times per month will miss posts near the start of
-// the window. Raise if the coverage check shows oldestTimestamp > monthStart.
-const APIFY_RESULTS_LIMIT = 50;
+// DEFAULT results limit — must exceed the number of posts the account publishes per month.
+// At 50, an account posting > 50 times per month will miss posts near the start of the
+// window. Note this is the count of the account's most recent posts, so a mid-month run
+// spends part of the window on the CURRENT month and reaches proportionally less far back:
+// ivy-t's prod 2026-06 row holds 16 posts against the 28 she actually published, because a
+// 21 July trawl at 50 only reached back to early June.
+//
+// Now a parameter (`resultsLimit` on IgProducerParams) rather than a ceiling. Every existing
+// caller omits it and gets 50; the deep-trawl CLI passes its own.
+export const DEFAULT_RESULTS_LIMIT = 50;
 
 const igPostsArraySchema = z.array(igPostSchema);
 
@@ -39,6 +45,8 @@ export interface IgProducerParams {
   db:            Db;                   // posts are upserted into ig_posts (no Drive)
   apifyApiKey:   string | undefined;
   logger:        Logger;
+  resultsLimit?: number;               // how deep to reach; omit for DEFAULT_RESULTS_LIMIT
+  timeoutMs?:    number;               // rides with depth — the actor is slower the deeper it goes
 }
 
 // ── London-timezone month filter ──────────────────────────────────────────────
@@ -74,7 +82,7 @@ export type IgTrawlStatus =
 export interface IgTrawlOutcome { status: IgTrawlStatus; detail?: string; postCount?: number }
 
 export async function trawlInstagramPosts(params: IgProducerParams): Promise<IgTrawlOutcome> {
-  const { clientId, channel, month, handle, db, apifyApiKey, logger } = params;
+  const { clientId, channel, month, handle, db, apifyApiKey, logger, resultsLimit = DEFAULT_RESULTS_LIMIT, timeoutMs } = params;
   const logCtx = { clientId, channel, month };
 
   // ── Missing API key ───────────────────────────────────────────────────────
@@ -90,7 +98,7 @@ export async function trawlInstagramPosts(params: IgProducerParams): Promise<IgT
   }
 
   // ── Fetch from Apify (shared helper) ─────────────────────────────────────
-  logger.info({ ...logCtx, handle, resultsLimit: APIFY_RESULTS_LIMIT }, 'ig-trawl: calling Apify');
+  logger.info({ ...logCtx, handle, resultsLimit }, 'ig-trawl: calling Apify');
 
   const {
     rawCount,
@@ -99,7 +107,7 @@ export async function trawlInstagramPosts(params: IgProducerParams): Promise<IgT
     droppedForeignCount,
     skippedHiddenCount,
     distinctOtherOwners,
-  } = await fetchApifyPostsForHandle(handle, APIFY_RESULTS_LIMIT, apifyApiKey, logger, logCtx);
+  } = await fetchApifyPostsForHandle(handle, resultsLimit, apifyApiKey, logger, logCtx, timeoutMs === undefined ? {} : { timeoutMs });
 
   // ── Account guard ─────────────────────────────────────────────────────────
   // The actor returns a mix: the account's own posts plus posts that tag/mention
@@ -130,8 +138,8 @@ export async function trawlInstagramPosts(params: IgProducerParams): Promise<IgT
     ownedCount:      ownedPosts.length,
     oldestTimestamp: sortedTs[0] ?? '(none)',
     monthStart:      `${month}-01`,
-    resultsLimit:    APIFY_RESULTS_LIMIT,
-  }, 'ig-trawl: coverage check — if oldestTimestamp > monthStart, raise APIFY_RESULTS_LIMIT');
+    resultsLimit,
+  }, 'ig-trawl: coverage check — if oldestTimestamp > monthStart, raise resultsLimit');
 
   // ── Log hidden skips (done in helper; log here for ig-trawl context) ─────
   if (skippedHiddenCount > 0) {
@@ -159,6 +167,19 @@ export async function trawlInstagramPosts(params: IgProducerParams): Promise<IgT
       ...(mt ? { mediaType: mt } : {}),
     };
   });
+
+  // ── An unmapped type is LOUD ──────────────────────────────────────────────
+  // Omitting the key is the only thing we can do with a value we do not understand, but
+  // doing it quietly is how the gap survived: an absent mediaType reads downstream as a
+  // pre-mediaType row, so format derivation silently narrows to a subset and reports full
+  // confidence. The raw value and its count go on the record here, at the moment of loss.
+  const unmapped = tallyUnmappedMediaTypes(monthPosts.map((p) => p.type));
+  const unmappedCount = Object.values(unmapped).reduce((s, n) => s + n, 0);
+  if (unmappedCount > 0) {
+    logger.warn({ ...logCtx, handle, unmappedTypes: unmapped, unmappedCount, ofPosts: monthPosts.length },
+      'ig-trawl: UNMAPPED Apify media type — these posts are stored without a mediaType and are ' +
+      'invisible to format derivation; add the raw value to mapApifyMediaType');
+  }
 
   // ── Validate against shared schema ────────────────────────────────────────
   // Rejects floats, negatives, and missing fields that slipped past count filter.

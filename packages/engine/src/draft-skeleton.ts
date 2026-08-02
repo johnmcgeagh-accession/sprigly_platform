@@ -14,6 +14,7 @@
 import type { HistoryObservation, FormatObservation } from './draft-history.js';
 import type { PillarWeights } from './pillar-weights.js';
 import { spreadPillars } from './pillar-weights.js';
+import type { ResolvedSeries } from './draft-recurring.js';
 
 /**
  * Minimum classified posts for the observed path. Mirrors THIN_CAPTION_FLOOR = 15
@@ -40,6 +41,8 @@ export interface SkeletonSlot {
   date:   string;
   format: string;
   pillar: string;
+  /** The configured recurring series that claimed this slot, if any. */
+  series?: ResolvedSeries;
 }
 
 export interface Skeleton {
@@ -52,6 +55,8 @@ export interface Skeleton {
   pillarBasis:  'derived' | 'equal';
   /** Per-format engagement actually observed, for rationaleEvidence. Empty on template. */
   formats: FormatObservation[];
+  /** Configured series that found no slot to sit on — becomes an assumption, never a silence. */
+  unplacedSeries: Array<{ name: string; dayOfWeek: string }>;
 }
 
 /** Days in a 'YYYY-MM' month. */
@@ -153,6 +158,56 @@ export function cadenceFloorSlots(
   return Math.min(cap, Math.max(fromWeek, fromMonth));
 }
 
+/**
+ * Give each configured recurring series the slots it is entitled to.
+ *
+ * THE RULE: a series OCCUPIES slots, it never adds them. The dates were chosen from observed
+ * cadence before this function sees them and are not touched — a series claims a slot that
+ * already exists on its own weekday, or it claims nothing and says so. Relocating a slot to
+ * satisfy a series would move a date the client's own posting rhythm chose, which is a cadence
+ * decision wearing a scheduling costume; it is deliberately not made here.
+ *
+ * WEEKLY series take every unclaimed slot falling on their weekday. MONTHLY series take one
+ * slot each, evenly spaced through what remains — the same placement idiom allocateSlots uses
+ * for experiments, and for the same reason: a standing monthly feature clustered at one end of
+ * the month is not a monthly feature.
+ *
+ * Weekly runs before monthly so a fixed day always beats a floating one, and both iterate in
+ * name order, so a contested day resolves the same way every time rather than by config array
+ * position (which is a database row order).
+ *
+ * Returns the claims by slot index plus the names of any series that found nowhere to sit.
+ */
+export function claimSeriesSlots(
+  dates: readonly string[], series: readonly ResolvedSeries[],
+): { claims: Map<number, ResolvedSeries>; unplaced: Array<{ name: string; dayOfWeek: string }> } {
+  const claims = new Map<number, ResolvedSeries>();
+  const unplaced: Array<{ name: string; dayOfWeek: string }> = [];
+  const byName = [...series].sort((a, b) => a.name.localeCompare(b.name));
+
+  for (const s of byName.filter((x) => x.weekday !== null)) {
+    const mine = dates
+      .map((d, i) => ({ i, d }))
+      .filter(({ i, d }) => !claims.has(i) && weekdayOf(d) === s.weekday);
+    if (mine.length === 0) { unplaced.push({ name: s.name, dayOfWeek: s.dayOfWeek }); continue; }
+    for (const { i } of mine) claims.set(i, s);
+  }
+
+  const monthly = byName.filter((x) => x.weekday === null);
+  if (monthly.length > 0) {
+    const free = dates.map((_, i) => i).filter((i) => !claims.has(i));
+    // Evenly spaced across what is left, mirroring allocateSlots: for 2 of 22 → 5 and 16.
+    const step = free.length / monthly.length;
+    monthly.forEach((s, n) => {
+      const at = free[Math.min(free.length - 1, Math.floor(n * step + step / 2))];
+      if (at === undefined || claims.has(at)) { unplaced.push({ name: s.name, dayOfWeek: s.dayOfWeek }); return; }
+      claims.set(at, s);
+    });
+  }
+
+  return { claims, unplaced: unplaced.sort((a, b) => a.name.localeCompare(b.name)) };
+}
+
 export interface BuildSkeletonParams {
   month:       string;              // 'YYYY-MM' being planned
   history:     HistoryObservation;
@@ -166,6 +221,11 @@ export interface BuildSkeletonParams {
    * a floor, not a target. Clamped to the month's day-count downstream, same as any cadence.
    */
   floorSlots?: number | null;
+  /**
+   * The client's configured recurring series, resolved against their plan history.
+   * Each claims slots that ALREADY EXIST; none creates one. See claimSeriesSlots.
+   */
+  series?: readonly ResolvedSeries[];
 }
 
 /**
@@ -177,7 +237,7 @@ export interface BuildSkeletonParams {
  * as an observed one.
  */
 export function buildSkeleton(params: BuildSkeletonParams): Skeleton {
-  const { month, history, pillars, configPostsPerWeek, floorSlots } = params;
+  const { month, history, pillars, configPostsPerWeek, floorSlots, series } = params;
 
   const thin = history.totalPosts < DRAFT_MIN_POSTS;
   const noPillars = pillars.weights.length === 0;
@@ -211,11 +271,25 @@ export function buildSkeleton(params: BuildSkeletonParams): Skeleton {
     ? Array.from({ length: slotCount }, () => 'General')
     : spreadPillars(pillars.weights, slotCount);
 
-  const slots: SkeletonSlot[] = dates.map((date, i) => ({
-    date,
-    format: formats[i] ?? 'single',
-    pillar: pillarNames[i] ?? 'General',
-  }));
+  // Recurring series claim slots that already exist. The date list above is UNTOUCHED by
+  // this — slot count, cadence and posting days are settled before a series is consulted.
+  const { claims, unplaced } = series && series.length > 0
+    ? claimSeriesSlots(dates, series)
+    : { claims: new Map<number, ResolvedSeries>(), unplaced: [] as Array<{ name: string; dayOfWeek: string }> };
+
+  const slots: SkeletonSlot[] = dates.map((date, i) => {
+    const claimed = claims.get(i);
+    return {
+      date,
+      // A claimed slot takes the series' declared format; where the config declines to fix one
+      // ('Reel or Carousel', or null), the observed spread keeps its choice. Unclaimed slots
+      // are untouched, so the format the history chose for them does not move because a series
+      // was placed somewhere else in the month.
+      format: claimed?.format ?? formats[i] ?? 'single',
+      pillar: pillarNames[i] ?? 'General',
+      ...(claimed ? { series: claimed } : {}),
+    };
+  });
 
   return {
     slots,
@@ -224,5 +298,6 @@ export function buildSkeleton(params: BuildSkeletonParams): Skeleton {
     cadenceBasis,
     pillarBasis: pillars.basis,
     formats: reason ? [] : history.formats,
+    unplacedSeries: unplaced,
   };
 }

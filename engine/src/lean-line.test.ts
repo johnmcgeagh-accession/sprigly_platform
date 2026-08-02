@@ -4,6 +4,8 @@ import {
   parseIgPostsJson,
   buildLeanLine,
   mapApifyMediaType,
+  tallyUnmappedMediaTypes,
+  ABSENT_MEDIA_TYPE,
   igPostSchema,
   LEAN_LINE_WORKFLOW,
   LEAN_LINE_STEP,
@@ -107,6 +109,40 @@ describe('mapApifyMediaType', () => {
     expect(mapApifyMediaType('Story')).toBeUndefined();
     expect(mapApifyMediaType(undefined)).toBeUndefined();
     expect(mapApifyMediaType('')).toBeUndefined();
+  });
+
+  // The three values below are the ONLY `type` strings the actor returned across 278 live
+  // owned items for ivy_thebrand (300-deep probe, 2026-07-31): Video 184, Sidecar 87,
+  // Image 7 — every one of them mapped. Casing tolerance is defensive, not a fix for an
+  // observed miss; it exists so the mapper and competitor-gather's normalizeType (which
+  // has always lowercased) cannot disagree about the same field.
+  it('is case- and whitespace-insensitive', () => {
+    expect(mapApifyMediaType('video')).toBe('reel');
+    expect(mapApifyMediaType('VIDEO')).toBe('reel');
+    expect(mapApifyMediaType(' Sidecar ')).toBe('carousel');
+    expect(mapApifyMediaType('image')).toBe('image');
+  });
+});
+
+describe('tallyUnmappedMediaTypes', () => {
+  it('is empty for the real live payload mix (Video/Sidecar/Image)', () => {
+    // Proportions as measured on ivy_thebrand's 278 owned items, scaled down.
+    const live = ['Video', 'Video', 'Sidecar', 'Image', 'Video', 'Sidecar'];
+    expect(tallyUnmappedMediaTypes(live)).toEqual({});
+  });
+
+  it('counts each unmapped raw value under its own key', () => {
+    expect(tallyUnmappedMediaTypes(['Video', 'Story', 'Story', 'GraphVideo', 'Sidecar']))
+      .toEqual({ Story: 2, GraphVideo: 1 });
+  });
+
+  it('separates an absent type from an unrecognised one — they have different fixes', () => {
+    expect(tallyUnmappedMediaTypes([undefined, '', '   ', 'Story']))
+      .toEqual({ [ABSENT_MEDIA_TYPE]: 3, Story: 1 });
+  });
+
+  it('does not tally a value the mapper handles only by casing', () => {
+    expect(tallyUnmappedMediaTypes(['video', 'SIDECAR'])).toEqual({});
   });
 });
 
