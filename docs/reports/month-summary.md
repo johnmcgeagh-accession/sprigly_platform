@@ -8,6 +8,7 @@
 |---|---|
 | `74e2b91` | S1 — the month reads itself: one derivation, shared with the beat sheet |
 | `3a2ac23` | S2 — the summary heads the day: two lines closed, the evidence behind one tap |
+| `889f9d5` | fence — the terminology grep covers the lib that writes the copy, and it found two (§8) |
 
 S3 is not a commit. It is the reason S1 is one function in the module that already writes the
 beat sheet's lines rather than a second reading of the same rows — §4.
@@ -233,13 +234,9 @@ client reads as carelessness, on the one panel built to be checked.
 
 **Three observations, none blocking, none acted on this session:**
 
-1. **The terminology fence does not reach `app/src/lib`.** Its `ROOTS` are the plan components,
-   and a growing amount of client-facing copy is now generated in `draft-rationale.ts` —
-   `groundingLines` since last session, `monthSummary` now. The grep would not catch "beat" typed
-   into either. Left alone rather than widened, so `git diff HEAD` on the fence files stays empty
-   (§7); the rule is pinned instead over every string `monthSummary` produces and over the
-   rendered document with the panel open. Widening `ROOTS` is a one-line change worth making in a
-   session that is allowed to move a fence.
+1. **The terminology fence did not reach `app/src/lib`** — ***fixed, see §8***. Its `ROOTS` were
+   the plan components, and a growing amount of client-facing copy is now generated in the lib.
+   The grep would not have caught "beat" typed into `monthSummary`.
 
 2. **`groundingLines` treats a malformed `lastFeatured` as "never appeared".** `rationaleFor`
    distinguishes the two ("hasn't appeared in your captions for a while"); the sheet's list form
@@ -279,17 +276,17 @@ records. Its own redesign is a later session.
 | `pnpm --filter @sprigly/worker... build` | **exit 0** — the command Railway runs |
 | worker unit (`engine`) | **301 passed**, 38 skipped — unchanged |
 | `tsc --noEmit` (app) | clean, after every commit |
-| app unit / interaction (**Node 22**) | **1257 passed**, 14 skipped (was 1212) — **+45** |
+| app unit / interaction (**Node 22**) | **1259 passed**, 14 skipped (was 1212) — **+47** (+45 here, +2 from §8) |
 | ↳ `draft-rationale.test.ts` | 96 (was 69) — +27 on `monthSummary` and the shared facts |
 | ↳ `draft-surface.interaction.test.tsx` | 95 (was 83) — +12 driving the panel |
 | ↳ `narrow.interaction.test.tsx` | 28 (was 22) — +6 at 375 and 320 |
 | tokens fence | 10 passed |
-| terminology fence | 6 passed |
+| terminology fence | 6 passed through `3a2ac23`; **8 passed** after §8 widened it |
 | draft invisibility | 5 passed |
 | detector (3 changed/added components) | **0 findings, exit 0** |
 
-`git diff HEAD` on `*terminology.fence.test.ts`, `*tokens.fence.test.ts`,
-`*draft-invisibility.test.ts` is **empty**.
+`git diff` on `*tokens.fence.test.ts` and `*draft-invisibility.test.ts` is **empty**. The
+terminology fence is the one that moved, in `889f9d5`, and it moved **outward** — §8.
 
 **The two pre-existing app failures are unchanged:** `edit-scope.test.ts` and
 `post-generation.test.ts` fail to *collect* because they import a module that parses
@@ -309,6 +306,66 @@ Node 22 (`/opt/homebrew/opt/node@22/bin`).
 | Contrast | No coral, so the ink rule's filled-control boundary is not in play. No alpha on any ink utility; the only `/30` is on a border. Verified by the tokens fence rather than by eye. |
 | Responsive | Nothing fixed-width. Every fact row is `flex` with `min-w-0 flex-1 break-words` on the text and `flex-none` on the count; the headline and stage line are `break-words`. Driven at 390 / 375 / 320. |
 | Integrity | One new component in the surface directory that already owns this shell's pieces, one new prop on `DraftDayPanel`, one new derivation in the lib that already owns evidence-to-words. No new route, no new query, no new evidence field. |
+
+---
+
+## 8. The fence, widened — and the two live violations it found
+
+**Commit `889f9d5`.** Follow-on to §5's first observation, which this supersedes.
+
+`ROOTS` now covers **`src/lib`**, not just the plan components. The reasoning is the same one
+that produced the observation: the sentences a client reads are increasingly composed in the lib
+and never appear in a component — `draft-rationale.ts` (the beat sheet's grounding lines and
+every row of this summary), `draft-mutations.ts` (the messages flashed when a write refuses),
+`plan.ts` (the last-resort card heading).
+
+**It found two live violations immediately, and a third the app can never see:**
+
+| site | was | now | how it reached a client |
+|---|---|---|---|
+| `app/src/lib/draft-mutations.ts` | `We couldn’t find that beat.` | `We couldn’t find that planned post.` | returned as `message` from `/api/plan/draft`, flashed by `useDraftMonth` |
+| `app/src/lib/plan.ts` | `Untitled beat` | `Planned post` | the card and sheet heading when a row has no title and no pillar |
+| `packages/engine/src/draft-transforms.ts` | `Untitled beat` | `Untitled post` | `deriveTitle('')` writes it into `source_meta.title` — **outside any app-side fence**, which is precisely why the word survived here after it was removed everywhere else |
+
+The engine's pinned test (`draft-title.test.ts`) moves with it. Nothing else asserted any of the
+three strings.
+
+**Four files are exempt, each with a justification rather than an exemption** — the shape the
+tokens fence's `whitespace-nowrap` list already uses:
+
+- `queue.ts`, `agent/proposals.ts`, `agent/types.ts` — bare `'failed'` is a BullMQ job state and
+  a discriminant on a result union. Neither is ever rendered, and renaming them would rename a
+  real concept to satisfy a copy rule. They fire only because `BANNED_BARE` deliberately refuses
+  to excuse a bare banned word as an identifier — correct for a JSX text node, wrong for a lib.
+- `e2e-fake.ts` — hard-gated behind `SPRIGLY_E2E_FAKE=1` **and** non-production, so it cannot
+  reach a client at all; and its `"BEAT 1 (0–5s)"` is a video script's own vocabulary — a shot —
+  not our word for a slot.
+
+Whole files rather than values, so the list is auditable in one read; a value list would grow
+into a way of keeping a banned word by naming it. **A new test fails if any entry stops naming a
+file the scan reaches**, so a stale path cannot sit there exempting nothing while reading as
+though it does.
+
+**Verified by planting, not by inspection.** A violation was planted in each newly covered file
+and the fence caught all three:
+
+```
+src/lib/draft-rationale.ts:  "One beat, no evidence."          → caught
+src/lib/draft-mutations.ts:  "That beat could not be moved."   → caught
+src/lib/plan.ts:             "Generation failed — retry?"      → caught
+```
+
+**Gates after the widening:** terminology fence **8 passed** (was 6 — +2: one asserting the lib
+files are really in the scan, one asserting every exemption is). App **1259 passed**, 14 skipped.
+Engine **517 passed** with the re-pinned title test. Worker unit 301 passed, 38 skipped. Worker
+build exit 0. `tsc --noEmit` clean. Tokens fence and draft-invisibility unchanged and passing.
+
+**This is the one fence that moved this session, and it moved outward.** `git diff` on
+`*tokens.fence.test.ts` and `*draft-invisibility.test.ts` is still empty; the terminology fence's
+diff is additive — a wider root, an exemption list with reasons, and two new tests. No rule was
+relaxed, and the three strings it caught are fixed rather than exempted.
+
+---
 
 **No acceptance run wrote to UAT.** Unlike the two previous sessions, nothing here re-assembles a
 draft: the summary is a read of rows that already existed. The September rows were read once, as
