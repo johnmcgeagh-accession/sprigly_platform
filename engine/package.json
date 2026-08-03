@@ -35,6 +35,7 @@
     "cycle-reset": "sh -c 'set -a && . ../.env.local && set +a && tsx src/content-cycles/cycle-reset-cli.ts \"$@\"' --",
     "draft-assemble": "sh -c 'set -a && . ../.env.local && set +a && tsx src/content-cycles/draft-assemble-cli.ts \"$@\"' --",
     "classify-check": "sh -c 'set -a && . ../.env.local && set +a && tsx src/content-cycles/classify-check-cli.ts \"$@\"' --",
+    "client-health-measure": "sh -c 'set -a && . ../.env.local && set +a && tsx src/client-health-measure-cli.ts \"$@\"' --",
     "extract-voice-cycle": "sh -c 'set -a && . ../.env.local && set +a && tsx src/extract-voice-cycle.ts \"$@\"' --",
     "approve-voice-cycle": "sh -c 'set -a && . ../.env.local && set +a && tsx src/approve-voice-cycle.ts \"$@\"' --",
     "backfill-emails": "tsx --env-file ../.env.local src/backfill-connection-emails.ts",
