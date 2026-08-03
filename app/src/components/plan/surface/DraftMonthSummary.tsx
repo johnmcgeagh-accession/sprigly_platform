@@ -108,8 +108,12 @@ export function DraftMonthSummary({
               <h3 className="text-[11px] font-bold uppercase tracking-[.1em] text-coral-800">{s.heading}</h3>
               {/* A real list, because that is what it is. The count sits in its own column rather
                   than inside the sentence, so seven pillars read as a comparison and not as seven
-                  sentences that happen to end in a number. */}
-              <ul className="mt-1.5 space-y-1">
+                  sentences that happen to end in a number.
+                  `list-none pl-0` is LOAD-BEARING, not tidying: Tailwind preflight is disabled on
+                  this surface (globals.css), so a bare `ul` keeps the browser's disc marker and
+                  its 40px indent. The 390px render showed the cost — the indent pushed the
+                  longest pillar onto two lines and left its count stranded beside the first. */}
+              <ul className="mt-1.5 list-none space-y-1 pl-0">
                 {s.facts.map((f, i) => (
                   <li key={`${s.key}-${i}`} data-testid="draft-summary-fact" data-answerable={f.answerable ? 'true' : undefined}>
                     {f.answerable
