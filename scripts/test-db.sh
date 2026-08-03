@@ -83,6 +83,13 @@ NEW=(
   0088_plan_ready_auto
   0089_plan_ready_sent
   0090_actor_attribution
+  # A NUMBER COLLISION, not a duplicate: two independent migrations were both authored as
+  # 0090. `_actor_attribution` widens the ledger's attribution; `_plan_activity_post_fk` drops
+  # the ON DELETE SET NULL that 0068's append-only trigger blocks, so a post the ledger points
+  # at can be deleted at all. Both must apply, and they touch different constraints, so the
+  # order between them is free — this is directory order. The manifest guard was right to
+  # refuse: it is the second file, not a second name for the first.
+  0090_plan_activity_post_fk
   0091_cost_pence_subpenny
 )
 
