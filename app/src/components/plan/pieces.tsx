@@ -52,7 +52,8 @@ export function WeatherHeaderBadge({ day }: { day: WeatherDay | undefined }) {
   const icon = bucketWeatherIcon(day.weatherCode);
   const { glyph, tone, tempCls, iconCls } = weatherTreatment(day);
   return (
-    <span data-testid="weather-badge" data-tone={tone} role="img" aria-label={`Weather: ${weatherTooltip(day)}`}
+    <span data-testid="weather-badge" data-weather={icon} data-tone={tone} data-glyph={glyph}
+      role="img" aria-label={`Weather: ${weatherTooltip(day)}`}
       className="ml-auto flex items-center gap-1">
       <WeatherGlyph icon={glyph} className={`h-[15px] w-[15px] ${iconCls}`} />
       <span aria-hidden="true" className={`text-[12.5px] font-semibold tabular-nums ${tempCls}`}>{Math.round(day.tempMaxC)}°</span>

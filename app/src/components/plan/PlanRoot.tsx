@@ -49,7 +49,7 @@ export function PlanRoot(props: PlanDataInit) {
   const [desktop, setDesktop] = useState<boolean | null>(null);
 
   useEffect(() => {
-    const mq = window.matchMedia('(min-width: 1080px)');
+    const mq = window.matchMedia('(min-width: 1024px)');
     const sync = () => setDesktop(mq.matches);
     sync();
     mq.addEventListener('change', sync);

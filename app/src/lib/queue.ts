@@ -6,7 +6,7 @@
  */
 import { Queue } from 'bullmq';
 import type { PlanActor } from '@sprigly/db';
-import { e2eFakeEnabled, E2E_SHAPED_CAPTION, E2E_HOOK_CANDIDATES, E2E_SCRIPT_TEXT, E2E_REFINED_HOOK, E2E_REFINED_SCRIPT } from '@/lib/e2e-fake';
+import { e2eFakeEnabled, E2E_SHAPED_CAPTION, E2E_HOOK_CANDIDATES, E2E_SCRIPT_TEXT, E2E_PAIR_HOOK, E2E_REFINED_HOOK, E2E_REFINED_SCRIPT } from '@/lib/e2e-fake';
 
 export interface ShapePayload {
   type:         'shape';
@@ -199,8 +199,11 @@ export async function enqueueScriptJob(payload: ScriptPayload): Promise<EnqueueR
   if (e2eFakeEnabled()) {
     const { db, contentCyclePosts } = await import('@sprigly/db');
     const { and, eq } = await import('drizzle-orm');
+    // BOTH FIELDS. The real job writes the pair (C4) — a hook and a script that say the same
+    // thing — and a fake that wrote only half of it modelled a behaviour that no longer exists.
+    // That gap is what left the reel's combined act unobservable in e2e.
     await db.update(contentCyclePosts)
-      .set({ script: E2E_SCRIPT_TEXT, scriptLengthSeconds: payload.lengthSeconds })
+      .set({ hook: E2E_PAIR_HOOK, script: E2E_SCRIPT_TEXT, scriptLengthSeconds: payload.lengthSeconds })
       .where(and(eq(contentCyclePosts.id, payload.targetPostId), eq(contentCyclePosts.clientId, payload.clientId)));
     return { jobId: scriptJobId(payload.cycleId, payload.targetPostId) };
   }

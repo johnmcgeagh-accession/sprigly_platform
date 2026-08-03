@@ -168,6 +168,18 @@ function between(s: string, delim: string): string {
 export const E2E_SHAPED_CAPTION =
   'We’ve been quietly working on this one and it’s finally ready to share. Come and see it — link in bio.';
 
+/**
+ * The hook a faked SCRIPT job writes alongside its script.
+ *
+ * A reel's hook and script are ONE act (C4): the real job writes a coherent pair and the script
+ * grounds on the chosen hook verbatim. The fake wrote only the script, so the combined path
+ * could not be observed end to end — the hook tab stayed empty after a generate, and three of
+ * the standing desktop e2e failures were that and nothing else.
+ *
+ * It is the script's own opening line, which is what "grounds on the hook verbatim" means.
+ */
+export const E2E_PAIR_HOOK = 'The real reason this top sold out twice — and it isn’t the fabric.';
+
 /** The 3 hook candidates a faked hook job returns — deterministic for e2e. */
 export const E2E_HOOK_CANDIDATES = [
   'The real reason this top sold out twice — and it isn’t the fabric.',

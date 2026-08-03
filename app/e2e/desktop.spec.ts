@@ -1,5 +1,25 @@
+/**
+ * desktop.spec.ts — the desktop SHELL, at 1440×900.
+ *
+ * ── What this file became, and why ───────────────────────────────────────────────────
+ *
+ * It used to drive `PlanDesktop`: a right-hand dark rail, a Timeline, a Notes view, an
+ * Approvals queue, a "Talk to your plan" FAB that opened a one-shot dialog, and `PostEditor` in
+ * a drawer. The desktop redesign retired every one of those, so twenty-two tests were pointed at
+ * a surface that no longer exists — which is a different thing from twenty-two failures.
+ *
+ * What is left here is the half that is genuinely ABOUT DESKTOP: that the four regions are
+ * there, that the month and the day are on screen together, that opening a post takes the day
+ * column's slot and leaves the conversation standing, that the rings appear beside the sentence
+ * that caused them, and that the whole thing holds at the narrow band too.
+ *
+ * The per-post machinery — hooks, scripts, format changes, shape, the checklist — moved to the
+ * MOBILE project (playwright.config.ts). It drives `DetailSheet` and `VoiceSheet`, which both
+ * shells now share, so exercising it twice through two frames doubles the maintenance for one
+ * signal. Where it runs is a choice about cost, not about coverage.
+ */
 import { test, expect } from '@playwright/test';
-import { SEED, activityFor, expectActivity, reseed } from './helpers';
+import { SEED, expectActivity, reseed } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   reseed();
@@ -7,362 +27,209 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByTestId('plan-desktop')).toBeVisible();
 });
 
-test('month renders: post count, rail counts', async ({ page }) => {
-  await expect(page.getByTestId('post-chip')).toHaveCount(SEED.postCount);
-  await expect(page.getByTestId('nav-calendar')).toContainText('12');
-  await expect(page.getByTestId('nav-tasks')).toContainText('late');
-  await expect(page.getByTestId('nav-notes')).toContainText('3');
-  // The `month-summary` card was REMOVED from the desktop surface in 057f13f ("leading
-  // off-calendar week renders as pure canvas (summary card removed)"). This assertion, and
-  // the test's old name, outlived it by however long — the suite had never been run.
+/** The seed's editable posts. P1 (2 Jul) and P2 (6 Jul) are BEFORE the frozen today and are
+ *  deliberately left alone except where the read-only branch is the subject. */
+const EDITABLE_DATE = '2026-07-16';   // P7 — single, caption-bearing, today-onward
+
+/* ── D1 · the four regions ───────────────────────────────────────────────────────── */
+
+test('the shell has four regions and a rail of two', async ({ page }) => {
+  await expect(page.getByTestId('plan-rail')).toBeVisible();
+  await expect(page.getByTestId('month-col')).toBeVisible();
+  await expect(page.getByTestId('day-col')).toBeVisible();
+  await expect(page.getByTestId('conversation-dock')).toBeVisible();
+
+  await expect(page.getByTestId('rail-plan')).toBeVisible();
+  await expect(page.getByTestId('rail-tasks')).toBeVisible();
+  // Insights is not drawn until there is something behind it.
+  await expect(page.getByTestId('rail-insights')).toHaveCount(0);
 });
 
-test('rings: editor shows correct done/total for a fully-done checklist', async ({ page }) => {
-  await page.locator(`[data-post-id="${SEED.post(1)}"]`).click();
-  await expect(page.getByTestId('post-editor')).toBeVisible();
-  await expect(page.getByText('2/2 done')).toBeVisible();
+test('the retired controls are gone, and their successors are present', async ({ page }) => {
+  for (const gone of ['brief-month-btn', 'agent-fab', 'agent-sheet', 'nav-timeline', 'nav-notes', 'nav-approvals', 'post-editor']) {
+    await expect(page.getByTestId(gone), gone).toHaveCount(0);
+  }
+  await expect(page.getByTestId('add-slot')).toBeVisible();
+  await expect(page.getByTestId('conversation-dock')).toBeVisible();
 });
 
-test('drag-reschedule persists across reload and ledgers origin=user', async ({ page }) => {
-  const id = SEED.post(1); // starts on 2026-07-02
-  const chip = page.locator(`[data-post-id="${id}"]`).first();
-  const target = page.locator('[data-testid="calendar-cell"][data-date="2026-07-15"]');
-  await chip.dispatchEvent('dragstart');
-  await page.waitForTimeout(120);               // let React commit setDragId
-  await target.dispatchEvent('dragover');
-  await target.dispatchEvent('drop');
-
-  await expect(target.locator(`[data-post-id="${id}"]`)).toBeVisible();
-  await expectActivity(page, id, (r) => r.action === 'rescheduled' && r.origin === 'user', 'reschedule ledgered');
-
-  await page.reload();
-  await expect(page.getByTestId('plan-desktop')).toBeVisible();
-  await expect(page.locator(`[data-testid="calendar-cell"][data-date="2026-07-15"] [data-post-id="${id}"]`)).toBeVisible();
+test('the mobile shell is not mounted underneath it', async ({ page }) => {
+  await expect(page.getByTestId('plan-shell')).toHaveCount(0);
+  await expect(page.getByTestId('nav-pill')).toHaveCount(0);
+  await expect(page.getByTestId('week-strip')).toHaveCount(0);
 });
 
-test('caption save → EDITED → revert restores original; both ledgered', async ({ page }) => {
-  const id = SEED.post(1);
-  await page.locator(`[data-post-id="${id}"]`).click();
-  const cap = page.getByTestId('editor-caption');
-  await expect(cap).toHaveValue(/original caption/);
+/* ── D2 · month and day, side by side ────────────────────────────────────────────── */
 
-  // Autosave on blur (no Save button) → EDITED + one caption_saved ledger row.
-  await expect(page.getByTestId('editor-save')).toHaveCount(0);
-  await cap.fill('A brand new caption for the e2e test.');
-  await cap.blur();
-  await expect(page.getByTestId('post-editor').getByText('EDITED', { exact: true })).toBeVisible();
-  await expectActivity(page, id, (r) => r.action === 'caption_saved' && r.origin === 'user', 'caption_saved ledgered');
-  await expect
-    .poll(async () => (await activityFor(page, id)).filter((r) => r.action === 'caption_saved').length)
-    .toBe(1);
-
-  // Revert restores the original even from an autosaved state.
-  await page.getByTestId('editor-revert').click();
-  await expect(cap).toHaveValue(/original caption/);
-  await expectActivity(page, id, (r) => r.action === 'post_reverted' && r.origin === 'user', 'post_reverted ledgered');
+test('the month grid and the selected day are on screen together', async ({ page }) => {
+  await expect(page.getByTestId('month-col').getByTestId('month-grid')).toBeVisible();
+  await expect(page.getByTestId('day-col').getByTestId('day-panel')).toBeVisible();
+  await expect(page.getByTestId('day-panel')).toHaveAttribute('data-date', SEED.today);
 });
 
-test('checklist: generate empty post, 409 on repeat, tick updates ring + ledgers', async ({ page }) => {
-  const id = SEED.post(4); // single, no steps
-  await page.locator(`[data-post-id="${id}"]`).click();
-  await expect(page.getByTestId('editor-generate')).toBeVisible();
-  await page.getByTestId('editor-generate').click();
-  await expect(page.getByTestId('checklist-item')).toHaveCount(2);
-  await expect(page.getByText('0/2 done')).toBeVisible();
-
-  const repeat = await page.request.post(`/api/posts/${id}/checklist/generate`);
-  expect(repeat.status()).toBe(409);
-
-  await page.getByTestId('checklist-item').first().getByTestId('step-toggle').click();
-  await expect(page.getByText('1/2 done')).toBeVisible();
-  await expectActivity(page, id, (r) => r.action === 'step_completed' && r.origin === 'user', 'step tick ledgered');
+test('picking a day moves the day column and leaves the grid standing', async ({ page }) => {
+  await page.locator(`[data-testid="grid-cell"][data-date="${EDITABLE_DATE}"]`).click();
+  await expect(page.getByTestId('day-panel')).toHaveAttribute('data-date', EDITABLE_DATE);
+  // No switcher, nothing replaced: this is the whole of E2.
+  await expect(page.getByTestId('month-grid')).toBeVisible();
+  await expect(page.getByTestId('conversation-dock')).toBeVisible();
 });
 
-test('checklist: generate is hidden for an email post', async ({ page }) => {
-  await page.locator(`[data-post-id="${SEED.post(5)}"]`).click(); // email
-  await expect(page.getByTestId('post-editor')).toBeVisible();
-  await expect(page.getByTestId('editor-generate')).toHaveCount(0);
-  await expect(page.getByText('No checklist for this format.')).toBeVisible();
-});
-
-test('tasks: ticking a task removes it from the board and ledgers', async ({ page }) => {
-  await page.getByTestId('nav-tasks').click();
-  const rows = page.getByTestId('task-row');
-  const before = await rows.count();
-  expect(before).toBeGreaterThan(0);
-  await rows.first().getByTestId('task-check').click();
-  await expect(rows).toHaveCount(before - 1);
-  const acts = await activityFor(page);
-  expect(acts.some((r) => r.action === 'step_completed' && r.origin === 'user')).toBeTruthy();
-});
-
-test('agent ask (stubbed) → ExtractionSummary → proposal in Approvals → discard', async ({ page }) => {
-  await page.getByTestId('agent-fab').click();
-  await page.getByTestId('agent-input').fill('please move a post to later this month');
-  await page.getByTestId('agent-send').click();
-  await expect(page.getByTestId('extraction-summary')).toBeVisible();
-  await expect(page.getByTestId('extraction-row')).toHaveCount(1);          // one move proposal
-  await expect(page.getByTestId('extraction-approve').first()).toBeVisible(); // inline actions, not "→ Approvals"
-  await expect(page.getByTestId('extraction-summary')).not.toContainText('•'); // clean prose, no orphan bullet
-
-  await page.getByTestId('dialog-close').click();
-  await page.getByTestId('nav-approvals').click();
-  await expect(page.getByTestId('proposal-card')).toHaveCount(2); // seeded + new
-  await page.getByTestId('proposal-card').first().getByTestId('proposal-discard').click();
-  await expect(page.getByTestId('proposal-card')).toHaveCount(1);
-});
-
-test('approve a proposal mutates the plan and ledgers origin=agent + ref_proposal_id', async ({ page }) => {
-  await page.getByTestId('nav-approvals').click();
-  await expect(page.getByTestId('proposal-card')).toHaveCount(1);
-  await page.getByTestId('proposal-approve').first().click();
-  await expect(page.getByTestId('proposal-card')).toHaveCount(0);
-
-  const id = SEED.post(7); // move P7 → 2026-07-27
-  await page.getByTestId('nav-calendar').click();
-  await expect(page.locator(`[data-testid="calendar-cell"][data-date="2026-07-27"] [data-post-id="${id}"]`)).toBeVisible();
-  await expectActivity(page, id, (r) => r.origin === 'agent' && r.action === 'rescheduled' && r.refProposalId === SEED.proposalId, 'agent move ledgered');
-});
-
-test('approvals empty state after clearing the queue', async ({ page }) => {
-  await page.getByTestId('nav-approvals').click();
-  await page.getByTestId('proposal-discard').first().click();
-  await expect(page.getByTestId('approvals-empty')).toBeVisible();
-});
-
-test('shape pending → disabled + pending copy → caption swaps on completion', async ({ page }) => {
-  await page.locator(`[data-post-id="${SEED.post(1)}"]`).click();
-  const cap = page.getByTestId('editor-caption');
-  const before = await cap.inputValue();
-
-  await page.getByTestId('shape-input').fill('make it warmer');
-  await page.getByTestId('shape-go').click();
-  await expect(page.getByTestId('shape-note')).toContainText('rewriting');
-  await expect(page.getByTestId('shape-input')).toBeDisabled();
-
-  await expect(cap).not.toHaveValue(before, { timeout: 8000 });
-  await expect(cap).toHaveValue(/quietly working/);
-});
-
-test('month nav: round-trips to the adjacent August cycle and disables at boundaries', async ({ page }) => {
-  // July is the landed (today = 2026-07-08) cycle and the earliest — prev disabled, next available.
-  await expect(page.getByText('July 2026')).toBeVisible();
+test('the month arrows round-trip to the adjacent cycle and disable at the edge', async ({ page }) => {
+  await expect(page.getByTestId('month-title')).toContainText('July');
   await expect(page.getByTestId('prev-month')).toBeDisabled();
-  await expect(page.getByTestId('next-month')).toBeEnabled();
 
-  // Forward to August: a sibling cycle with its own posts. Editability is date-based, not
-  // whole-cycle — every August day is future (>= today), so the month is fully editable and
-  // EVERY day offers the add affordance, occupied or not. (It used to be "its empty days":
-  // a one-post-per-day cap that lived only in the grid, which nothing server-side agreed
-  // with and which made the button vanish from most of the month once a plan had run.)
   await page.getByTestId('next-month').click();
-  await expect(page.getByText('August 2026')).toBeVisible();
-  await expect(page.getByTestId('post-chip')).toHaveCount(3);
-  await expect(page.getByTestId('add-on-day').first()).toBeVisible();
-
-  // Every future day in the grid offers add — so the count matches the day cells, not the
-  // empty ones. August is wholly future, so that is every rendered day of the month.
-  const augDays = await page.getByTestId('calendar-cell').count();
-  await expect(page.getByTestId('add-on-day')).toHaveCount(augDays);
-
-  // And an OCCUPIED day shows its post AND offers add, side by side — the case the old
-  // expectation could not express.
-  const occupied = page.getByTestId('calendar-cell').filter({ has: page.getByTestId('post-chip') }).first();
-  await expect(occupied.getByTestId('post-chip').first()).toBeVisible();
-  await expect(occupied.getByTestId('add-on-day')).toBeVisible();
-  // August is the far boundary — next disabled, prev available.
+  await expect(page.getByTestId('month-title')).toContainText('August');
   await expect(page.getByTestId('next-month')).toBeDisabled();
-  await expect(page.getByTestId('prev-month')).toBeEnabled();
 
-  // Back to July (today-onward posts editable; the two pre-8th posts are read-only).
   await page.getByTestId('prev-month').click();
-  await expect(page.getByText('July 2026')).toBeVisible();
-  await expect(page.getByTestId('post-chip')).toHaveCount(12);
-  await expect(page.getByTestId('add-on-day').first()).toBeVisible();
+  await expect(page.getByTestId('month-title')).toContainText('July');
 });
 
-test('caption autosave: rapid typing settles to a single ledger row', async ({ page }) => {
-  const id = SEED.post(1);
-  await page.locator(`[data-post-id="${id}"]`).click();
-  const cap = page.getByTestId('editor-caption');
-  await cap.click();
-  await cap.fill('');
-  // Type character-by-character quickly (under the ~1.5s debounce), then blur to settle.
-  await cap.pressSequentially('rapid typing under the debounce window', { delay: 20 });
-  await cap.blur();
-  await expectActivity(page, id, (r) => r.action === 'caption_saved' && r.origin === 'user', 'one caption_saved');
-  // Exactly one row for the single settled edit — never one-per-keystroke.
-  await expect
-    .poll(async () => (await activityFor(page, id)).filter((r) => r.action === 'caption_saved').length)
-    .toBe(1);
+/* ── D3 · the detail panel takes the DAY column's slot ───────────────────────────── */
+
+test('opening a post fills the day column, and the month and the conversation do not move', async ({ page }) => {
+  await page.locator(`[data-testid="grid-cell"][data-date="${EDITABLE_DATE}"]`).click();
+  await page.getByTestId('post-card').first().click();
+
+  const detail = page.getByTestId('detail-sheet');
+  await expect(detail).toBeVisible();
+  await expect(detail).toHaveAttribute('data-chrome', 'panel');
+  await expect(page.getByTestId('day-col').getByTestId('detail-sheet')).toBeVisible();
+
+  // The day list gave up its slot. Nothing else did.
+  await expect(page.getByTestId('day-panel')).toHaveCount(0);
+  await expect(page.getByTestId('month-grid')).toBeVisible();
+  await expect(page.getByTestId('conversation-dock')).toBeVisible();
+  await expect(page.getByTestId('voice-sheet')).toBeVisible();
 });
 
-test('delete: bottom button needs a confirm; cancel keeps the post, confirm removes it', async ({ page }) => {
-  const id = SEED.post(2);
-  await page.locator(`[data-post-id="${id}"]`).click();
-  await expect(page.getByTestId('post-editor')).toBeVisible();
+test('the detail panel is a region, not a modal — and the whole sheet is in it', async ({ page }) => {
+  // The REEL, because only a format with more than one field renders a tab row at all — a
+  // single image has a caption and nothing else, so tabs there would be a control of one.
+  await page.getByTestId('post-card').first().click();
 
-  // No mid-panel remove; the delete button is at the bottom.
-  await expect(page.getByTestId('editor-remove')).toHaveCount(0);
-  await expect(page.getByTestId('editor-delete')).toBeVisible();
+  await expect(page.getByTestId('detail-sheet-scrim')).toHaveCount(0);
+  await expect(page.getByTestId('detail-sheet-grabber')).toHaveCount(0);
 
-  // First tap only asks — nothing is destroyed.
-  await page.getByTestId('editor-delete').click();
-  await expect(page.getByTestId('delete-confirm')).toBeVisible();
-  await page.getByTestId('delete-cancel').click();
-  await expect(page.getByTestId('delete-confirm')).toHaveCount(0);
-  await expect(page.locator(`[data-post-id="${id}"]`)).toBeVisible();
-
-  // Confirm → post removed (drawer closes, chip gone) + post_deleted ledger.
-  await page.getByTestId('editor-delete').click();
-  await page.getByTestId('delete-confirm-yes').click();
-  await expect(page.getByTestId('post-editor')).toHaveCount(0);
-  await expect(page.locator(`[data-post-id="${id}"]`)).toHaveCount(0);
-  await expectActivity(page, id, (r) => r.action === 'post_deleted', 'post_deleted ledgered');
+  const detail = page.getByTestId('detail-sheet');
+  await expect(detail.getByTestId('tab-caption')).toBeVisible();
+  await expect(detail.getByTestId('copy-field')).toBeVisible();
+  await expect(detail.getByTestId('act-move')).toBeVisible();
+  await expect(detail.getByTestId('act-delete')).toBeVisible();
 });
 
-test('date picker: branded popover reschedules + ledgers; not a native input', async ({ page }) => {
-  const id = SEED.post(1); // starts on 2026-07-02
-  await page.locator(`[data-post-id="${id}"]`).click();
-  await expect(page.getByTestId('post-editor')).toBeVisible();
+test('the way back names the day, and it returns the day list to its column', async ({ page }) => {
+  await page.locator(`[data-testid="grid-cell"][data-date="${EDITABLE_DATE}"]`).click();
+  await page.getByTestId('post-card').first().click();
+  await expect(page.getByTestId('detail-back')).toContainText('16 July');
 
-  // The field is a button that opens a branded popover (no OS-native date input).
-  await page.getByTestId('editor-date').click();
-  await expect(page.getByTestId('date-popover')).toBeVisible();
-  await page.locator('[data-testid="date-popover"] [data-date="2026-07-19"]').click();
-  await expect(page.getByTestId('date-popover')).toHaveCount(0); // closes on select
-
-  await expectActivity(page, id, (r) => r.action === 'rescheduled' && r.origin === 'user', 'date-picker reschedule ledgered');
-  await expect(page.locator(`[data-testid="calendar-cell"][data-date="2026-07-19"] [data-post-id="${id}"]`)).toBeVisible();
+  await page.getByTestId('detail-back').click();
+  await expect(page.getByTestId('detail-sheet')).toHaveCount(0);
+  await expect(page.getByTestId('day-panel')).toHaveAttribute('data-date', EDITABLE_DATE);
 });
 
-test('editor: media section removed, shape pills gone (free-text shape stands alone)', async ({ page }) => {
-  await page.locator(`[data-post-id="${SEED.post(3)}"]`).click();
-  await expect(page.getByTestId('post-editor')).toBeVisible();
-  await expect(page.getByTestId('media-placeholder')).toHaveCount(0);
-  await expect(page.getByTestId('shape-input')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Make it softer' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Make it shorter' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Warmer tone' })).toHaveCount(0);
+/* ── D4 · the docked conversation ────────────────────────────────────────────────── */
+
+test('the conversation is present with no gesture, and has no way to close', async ({ page }) => {
+  const dock = page.getByTestId('conversation-dock');
+  await expect(dock.getByTestId('voice-sheet')).toBeVisible();
+  await expect(dock.getByTestId('voice-input')).toBeVisible();
+  await expect(dock.getByTestId('voice-mic')).toBeVisible();
+  await expect(page.getByTestId('voice-close')).toHaveCount(0);
+  await expect(page.getByTestId('voice-sheet-scrim')).toHaveCount(0);
 });
 
-test('regression: typing in the agent input keeps focus and accumulates (no focus-steal)', async ({ page }) => {
-  await page.getByTestId('agent-fab').click();
-  const input = page.getByTestId('agent-input');
-  await input.click();
-  // REAL key events — this class of bug (focus jumps to ✕ per keystroke) is invisible to fill().
-  await page.keyboard.type('move the tuesday post to friday please', { delay: 12 });
-  await expect(input).toBeFocused();
-  await expect(input).toHaveValue('move the tuesday post to friday please');
+test('it does not steal focus on load — nobody opened it', async ({ page }) => {
+  const focused = await page.evaluate(() => document.activeElement?.getAttribute('data-testid') ?? null);
+  expect(focused).not.toBe('voice-input');
 });
 
-test('regression: typing a caption keeps focus through the autosave re-render (no focus-steal)', async ({ page }) => {
-  await page.locator(`[data-post-id="${SEED.post(1)}"]`).click();
-  const cap = page.getByTestId('editor-caption');
-  await cap.click();
-  await cap.press('End');
-  await page.keyboard.type('ABCDE', { delay: 12 });
-  await page.waitForTimeout(1800); // past the ~1.5s autosave debounce, which re-renders the drawer
-  await page.keyboard.type('FGHIJ', { delay: 12 });
-  await expect(cap).toBeFocused();
-  await expect(cap).toHaveValue(/ABCDEFGHIJ$/);
+/* ── D5 · the ringed days ────────────────────────────────────────────────────────── */
+
+test('an open turn rings the days it names, and Apply clears them and moves the month', async ({ page }) => {
+  // The compound phrasing is the one the fake pins to a known post; a bare UUID is resolved
+  // out of the whole templated message, whose first id belongs to another post.
+  await page.getByTestId('voice-input').fill(`move the reel ${SEED.post(3)} later and make it a carousel`);
+  await page.getByTestId('voice-submit').click();
+
+  await expect(page.getByTestId('interpretation')).toBeVisible({ timeout: 20_000 });
+  const ringed = page.locator('[data-testid="grid-cell"][data-ringed="true"]');
+  // Both ends of the move: the day losing the post and the day gaining it.
+  await expect(ringed).toHaveCount(2);
+  await expect(page.locator('[data-testid="grid-cell"][data-date="2026-07-08"]')).toHaveAttribute('data-ringed', 'true');
+  await expect(page.locator('[data-testid="grid-cell"][data-date="2026-07-24"]')).toHaveAttribute('data-ringed', 'true');
+
+  await page.getByTestId('interp-apply').click();
+
+  // The turn resolved, so the rings go with it — and the post is where it was asked to be.
+  await expect(ringed).toHaveCount(0);
+  await expectActivity(page, SEED.post(3), (r) => r.action === 'rescheduled' && r.origin === 'agent', 'agent move ledgered');
 });
 
-test('regression: editing mid-caption keeps the caret across an autosave (no jump-to-end) + saved hint', async ({ page }) => {
-  const id = SEED.post(7);   // 2026-07-16 single — editable (today-onward), caption-only
-  await page.locator(`[data-post-id="${id}"]`).click();
-  const cap = page.getByTestId('editor-caption');
-  const hint = page.getByTestId('caption-save-hint');
+test('Discard clears the rings and changes nothing', async ({ page }) => {
+  await page.getByTestId('voice-input').fill(`move the reel ${SEED.post(3)} later and make it a carousel`);
+  await page.getByTestId('voice-submit').click();
+  await expect(page.getByTestId('interpretation')).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('[data-testid="grid-cell"][data-ringed="true"]')).toHaveCount(2);
 
-  // Known content with a clear middle. Settle a baseline save first so the edit under test is
-  // the one whose autosave must NOT disturb the caret; the quiet hint confirms it landed.
-  await cap.click();
-  await cap.fill('HEADMIDTAIL');
-  await cap.blur();
-  await expect(hint).toHaveText('Saved');
-
-  // Put the caret right after "HEAD" (index 4), type — cross the ~1.5s debounce so an autosave
-  // fires and re-renders the drawer mid-edit — then type again. The second key must land at the
-  // caret, not at the end: proof the save no longer re-seeds the field under the cursor.
-  await cap.focus();
-  await cap.evaluate((el: HTMLTextAreaElement) => el.setSelectionRange(4, 4));
-  await page.keyboard.type('X', { delay: 10 });   // HEADXMIDTAIL, caret after the X
-  await page.waitForTimeout(1800);                 // autosave settles while the field is focused
-  await page.keyboard.type('Y', { delay: 10 });    // inserts at the caret (→ ...XY...), not the end
-
-  await expect(cap).toBeFocused();
-  await expect(cap).toHaveValue('HEADXYMIDTAIL');  // caret held its mid-field position across the save
-  await expect(hint).toHaveText('Saved');
+  await page.getByTestId('interp-discard').click();
+  await expect(page.locator('[data-testid="grid-cell"][data-ringed="true"]')).toHaveCount(0);
+  await expect(page.getByTestId('interpretation')).toHaveAttribute('data-status', 'discarded');
 });
 
-test('regression: an external caption rewrite never clobbers an in-progress edit', async ({ page }) => {
-  const id = SEED.post(7);   // 2026-07-16 single — editable, shapeable (caption target)
-  await page.locator(`[data-post-id="${id}"]`).click();
-  const cap = page.getByTestId('editor-caption');
+/* ── the rail ────────────────────────────────────────────────────────────────────── */
 
-  // Kick off an async Shape that rewrites the caption server-side; it lands (poll → refresh) a
-  // second or so later, pushing a fresh `post.caption` into the still-open editor.
-  await page.getByTestId('shape-input').fill('make it warmer');
-  await page.getByTestId('shape-go').click();
-  await expect(page.getByTestId('shape-note')).toContainText('rewriting');
+test('Tasks replaces the plan region and the conversation stays', async ({ page }) => {
+  await page.getByTestId('rail-tasks').click();
+  await expect(page.getByTestId('tasks-panel')).toBeVisible();
+  await expect(page.getByTestId('task-row').first()).toBeVisible();
+  await expect(page.getByTestId('month-grid')).toHaveCount(0);
+  await expect(page.getByTestId('conversation-dock')).toBeVisible();
 
-  // Meanwhile the client keeps editing the caption (focused, unsaved edits).
-  await cap.click();
-  await cap.fill('MY OWN WORDS, MID-EDIT');
-
-  // Let the shape job complete and refresh the plan (the external "quietly working" caption
-  // arrives while the field is focused + dirty).
-  await page.waitForTimeout(4000);
-
-  // The client's in-progress edit wins — the guard refuses to adopt an external value into a
-  // focused/dirty field, so the shaped text never replaces what they were typing.
-  await expect(cap).toBeFocused();
-  await expect(cap).toHaveValue('MY OWN WORDS, MID-EDIT');
-  await expect(cap).not.toHaveValue(/quietly working/i);
+  await page.getByTestId('rail-plan').click();
+  await expect(page.getByTestId('month-grid')).toBeVisible();
 });
 
-test('checklist: add a step then rename it — autosaves on blur, ledgers step_renamed, persists', async ({ page }) => {
-  const id = SEED.post(3); // reel with steps
-  await page.locator(`[data-post-id="${id}"]`).click();
-  const before = await page.getByTestId('step-label').count();
-  await page.getByTestId('editor-add-step').click();
-  await expect(page.getByTestId('step-label')).toHaveCount(before + 1);
+/* ── the narrow band ─────────────────────────────────────────────────────────────── */
 
-  const last = page.getByTestId('step-label').last();
-  await last.click();
-  await last.fill('Book the studio');
-  await last.blur();
-  await expectActivity(page, id, (r) => r.action === 'step_renamed' && r.origin === 'user', 'step_renamed ledgered');
+test('at 1024 the plan region stacks and the conversation does NOT collapse', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 820 });
 
-  await page.reload();
-  await expect(page.getByTestId('plan-desktop')).toBeVisible();
-  await page.locator(`[data-post-id="${id}"]`).click();
-  await expect(page.getByTestId('step-label').last()).toHaveValue('Book the studio');
+  await expect(page.getByTestId('month-grid')).toBeVisible();
+  await expect(page.getByTestId('day-panel')).toBeVisible();
+  // The one region whose promise is that it is always there.
+  await expect(page.getByTestId('conversation-dock')).toBeVisible();
+  await expect(page.getByTestId('voice-input')).toBeVisible();
+
+  // The rail collapses to icons; the label survives for a screen reader, not on screen.
+  await expect(page.getByTestId('rail-plan')).toBeVisible();
+  const railWidth = await page.getByTestId('plan-rail').evaluate((el) => el.getBoundingClientRect().width);
+  expect(railWidth).toBeLessThan(100);
 });
 
-test('agent compound ask → two independently-approvable rows; inline approve mutates + ledgers + updates counts', async ({ page }) => {
-  await page.getByTestId('agent-fab').click();
-  await page.getByTestId('agent-input').fill('move the tuesday post to friday and make it a carousel');
-  await page.getByTestId('agent-send').click();
+test('nothing overflows sideways at 1440 or 1024', async ({ page }) => {
+  for (const width of [1440, 1024]) {
+    await page.setViewportSize({ width, height: 820 });
+    await expect(page.getByTestId('month-grid')).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow, `horizontal overflow at ${width}px`).toBeLessThanOrEqual(0);
+  }
+});
 
-  await expect(page.getByTestId('extraction-summary')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId('agent-thinking')).toHaveCount(0);         // indicator resolved
-  await expect(page.getByTestId('extraction-row')).toHaveCount(2);         // move + change_format
-  await expect(page.getByTestId('nav-approvals')).toContainText('3');      // 2 new + 1 seeded
+/* ── the per-post date policy, which this suite used to fight ────────────────────── */
 
-  const rows = page.getByTestId('extraction-row');
-  const formatRow = rows.filter({ hasText: 'carousel' });
-  const moveRow = rows.filter({ hasText: 'Move' });
+test('a PAST post opens read-only; a future one is editable', async ({ page }) => {
+  // P1 is 2 Jul, before the frozen today of 8 Jul. The policy is per POST, by date — it is not
+  // a whole-cycle flag, and that is what ten of the old fixtures were pinned to.
+  await page.locator('[data-testid="grid-cell"][data-date="2026-07-02"]').click();
+  await page.getByTestId('post-card').first().click();
+  await expect(page.getByTestId('detail-sheet')).toBeVisible();
+  await expect(page.getByTestId('act-delete')).toHaveCount(0);
 
-  // Inline-approve the format row → Applied; the move row stays independently approvable.
-  await formatRow.getByTestId('extraction-approve').click();
-  await expect(formatRow.getByTestId('extraction-applied')).toBeVisible({ timeout: 12_000 });
-  await expect(moveRow.getByTestId('extraction-approve')).toBeVisible();
-  await expect(page.getByTestId('nav-approvals')).toContainText('2');      // one applied → count drops
-
-  // Same ledger/mutation as the Approvals view: format_changed, origin agent, on the reel post.
-  await expectActivity(page, SEED.post(3), (r) => r.action === 'format_changed' && r.origin === 'agent', 'agent format_changed ledgered');
-  await page.getByTestId('dialog-close').click();
-  await page.locator(`[data-post-id="${SEED.post(3)}"]`).click();
-  await expect(page.getByTestId('format-select')).toContainText('Carousel');
+  await page.getByTestId('detail-back').click();
+  await page.locator(`[data-testid="grid-cell"][data-date="${EDITABLE_DATE}"]`).click();
+  await page.getByTestId('post-card').first().click();
+  await expect(page.getByTestId('act-delete')).toBeVisible();
 });

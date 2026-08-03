@@ -33,7 +33,7 @@ describe('the days an open turn names', () => {
 
   it('drops anything that is not a real ISO date rather than ringing a cell that cannot exist', () => {
     expect(ringedDays([change({ fromDate: 'next Tuesday', toDate: '' })])).toEqual([]);
-    expect(ringedDays([change({ fromDate: null, toDate: undefined })])).toEqual([]);
+    expect(ringedDays([{ kind: 'change', proposalId: 'pr-9', action: 'rewrite', title: 'x' }])).toEqual([]);
   });
 
   it('an empty turn rings nothing — which is how the marks clear', () => {

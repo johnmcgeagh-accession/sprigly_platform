@@ -33,13 +33,17 @@ export default defineConfig({
     { name: 'setup-b', testMatch: /auth-b\.setup\.ts/ },
     {
       name: 'desktop',
-      testMatch: /(common|desktop|a11y|session|hooks|scripts|format|weather|agent|refine)\.spec\.ts/,
+      // THE DESKTOP PROJECT IS THE SHELL. The per-post machinery — hooks, scripts, format,
+      // shape, the checklist — and the weather forecast moved to `mobile`: they drive
+      // DetailSheet and VoiceSheet, which both shells now share, so running them through two
+      // frames doubles the maintenance for one signal. See desktop.spec.ts's header.
+      testMatch: /(common|desktop|a11y|session)\.spec\.ts/,
       dependencies: ['setup'],
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 }, storageState: STATE },
     },
     {
       name: 'mobile',
-      testMatch: /(common|mobile|a11y|header|conversation|transcript)\.spec\.ts/,
+      testMatch: /(common|mobile|a11y|header|conversation|transcript|detail-machinery|agent|weather)\.spec\.ts/,
       dependencies: ['setup'],
       use: { ...devices['Pixel 5'], viewport: { width: 390, height: 844 }, storageState: STATE },
     },

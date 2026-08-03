@@ -27,6 +27,9 @@ import { SEED, reseed } from './helpers';
 const CONTRAST_DEVIATION: { design: string; selector: string }[] = [
   { design: '.navpill button[aria-selected]', selector: '[data-testid="nav-pill"] [role="tab"][aria-selected="true"]' },
   { design: '.navmic',                        selector: '[data-testid="nav-mic"]' },
+  // The desktop rail's selected item — the ninth control, added by name rather than by a
+  // pattern, so a tenth cannot be covered silently (desktop-plan-surface.md §3.1, D1).
+  { design: '.railbtn[aria-current]',          selector: '[data-testid="rail-plan"][aria-current="page"], [data-testid="rail-tasks"][aria-current="page"]' },
   { design: '.readypill',                     selector: '[data-testid="ready-pill"]' },
   { design: '.wday .num',                     selector: '[data-testid="week-day"][aria-pressed="true"], [data-testid="grid-cell"][aria-current="true"]' },
   { design: '.badge',                         selector: '[data-testid="draft-badge"], [data-testid="changed-badge"]' },
@@ -112,43 +115,35 @@ test('no serious/critical axe violations across the primary surfaces', async ({ 
   // 1. Calendar (desktop) / agenda feed (mobile)
   expect(await seriousViolations(page), 'calendar/feed').toEqual([]);
 
-  // 2. Editor drawer (desktop) / detail sheet (mobile). Different components, same promise.
-  if (desktop) {
-    await page.locator(`[data-post-id="${SEED.post(1)}"]`).click();
-    await expect(page.getByTestId('post-editor')).toBeVisible();
-  } else {
-    await page.getByTestId('post-card').first().click();
-    await expect(page.getByTestId('detail-sheet')).toBeVisible();
-  }
-  expect(await seriousViolations(page), 'editor').toEqual([]);
+  // 2. THE DETAIL VIEW. One component, two frames now (Panel.tsx) — a modal sheet on the
+  //    phone, a region in the day column on desktop — so the walk is the same on both.
+  await page.getByTestId('post-card').first().click();
+  await expect(page.getByTestId('detail-sheet')).toBeVisible();
+  expect(await seriousViolations(page), 'detail').toEqual([]);
 
-  // 2b. Mobile only: the move sheet, which is a second dialog over the first.
-  if (!desktop) {
-    await page.getByTestId('act-move').click();
-    await expect(page.getByTestId('move-sheet')).toBeVisible();
-    expect(await seriousViolations(page), 'move sheet').toEqual([]);
-    await page.getByTestId('move-close').click();
+  // 2b. The move sheet, which is a real dialog over the surface on BOTH form factors.
+  await page.getByTestId('act-move').click();
+  await expect(page.getByTestId('move-sheet')).toBeVisible();
+  expect(await seriousViolations(page), 'move sheet').toEqual([]);
+  await page.getByTestId('move-close').click();
 
-    // 2c. The empty-field state (round 6, P3) — a tab that explains and offers rather than
-    // greying itself out. Its Generate button is a filled control, so it exercises the
-    // deviation's boundary as well as the state.
-    await page.getByTestId('tab-script').click();
-    await expect(page.getByTestId('empty-field')).toBeVisible();
-    expect(await seriousViolations(page), 'empty field').toEqual([]);
-    await page.getByTestId('detail-sheet-grabber').click();
+  // 2c. The empty-field state (round 6, P3) — a tab that explains and offers rather than
+  //     greying itself out. Its Generate button is a filled control, so it exercises the
+  //     deviation's boundary as well as the state.
+  await page.getByTestId('tab-script').click();
+  await expect(page.getByTestId('empty-field')).toBeVisible();
+  expect(await seriousViolations(page), 'empty field').toEqual([]);
+  await (desktop ? page.getByTestId('detail-back') : page.getByTestId('detail-sheet-grabber')).click();
 
-    // 2d. The add sheet (round 6, P1): a segmented control, a free field and a primary.
-    await page.getByTestId('add-slot').click();
-    await expect(page.getByTestId('add-sheet')).toBeVisible();
-    expect(await seriousViolations(page), 'add sheet').toEqual([]);
-    await page.getByTestId('add-sheet-grabber').click();
-  }
+  // 2d. The add sheet (round 6, P1): a segmented control, a free field and a primary.
+  await page.getByTestId('add-slot').click();
+  await expect(page.getByTestId('add-sheet')).toBeVisible();
+  expect(await seriousViolations(page), 'add sheet').toEqual([]);
+  await page.getByTestId('add-sheet-grabber').click();
 
-  // 3. Agent sheet (desktop only — the mobile mic's own sheet is Session B)
-  if (desktop) {
-    await page.getByTestId('drawer-close').click();
-    await page.getByTestId('agent-fab').click();
-    await expect(page.getByTestId('agent-sheet')).toBeVisible();
-    expect(await seriousViolations(page), 'agent sheet').toEqual([]);
-  }
+  // 3. THE CONVERSATION. Docked on desktop (already on screen, nothing to open) and a sheet
+  //    the mic summons on the phone. Same thread, same composer, same axe walk.
+  if (!desktop) await page.getByTestId('nav-mic').click();
+  await expect(page.getByTestId('voice-sheet')).toBeVisible();
+  expect(await seriousViolations(page), 'conversation').toEqual([]);
 });

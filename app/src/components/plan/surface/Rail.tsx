@@ -94,9 +94,12 @@ function RailBtn({
       // 3.40:1 deviation DESIGN.md scopes by name, and this control is the ninth entry on that
       // list (spec §3.1, D1). The label and the count ride the same fill.
       className={[
-        'relative flex min-h-[44px] w-full items-center gap-[11px] rounded-[14px] px-3 text-left text-[15px] font-semibold tracking-[-.01em] transition-colors duration-100',
+        'relative flex min-h-[44px] w-full items-center gap-[11px] rounded-[14px] px-3 text-left text-[15px] tracking-[-.01em] transition-colors duration-100',
         'justify-center xl:justify-start',
-        on ? 'bg-coral-650 font-bold text-white' : 'text-chrome hover:bg-line-soft',
+        // 700 when selected, and the weight is NOT competing with a base `font-semibold` in
+        // the same class list — the recorded white-on-650 deviation is justified on the label
+        // being short AND bold, and axe read it at 3.93 with a normal weight winning.
+        on ? 'bg-coral-650 font-bold text-white' : 'font-semibold text-chrome hover:bg-line-soft',
       ].join(' ')}
     >
       <Glyph className={`h-5 w-5 flex-none ${on ? 'text-white' : 'text-muted'}`} />

@@ -36,6 +36,7 @@ import { dayTitle } from './dates';
 import { isPostOnTheWay, isBanked, ON_THE_WAY_LABEL, ON_THE_WAY_BODY, BANKED_LABEL, BANKED_TEASER } from '@/lib/generation-state';
 import { Sheet } from './Sheet';
 import { Panel, type Chrome } from './Panel';
+import { ChevronL } from './icons';
 import { FormatControl } from './FormatControl';
 import { Skeleton } from './Skeleton';
 import { TaskList } from './TaskList';
@@ -200,6 +201,21 @@ export function DetailSheet({
   return (
     <Frame open label={heading} testid="detail-sheet" onClose={onClose}>
       <>
+        {/* THE WAY BACK, and it only exists in panel chrome. A SHEET has the grabber and the
+            scrim; a panel replaces the day column outright, so without this the client opens a
+            post and the day's other posts are simply gone with no control that says otherwise.
+            It names the DAY rather than saying "Back": a direction tells you which way, a day
+            tells you where you land — and it is the same string the day header carries. */}
+        {chrome === 'panel' && (
+          <button
+            type="button" data-testid="detail-back" onClick={onClose}
+            className="flex min-h-[44px] flex-none items-center gap-1.5 border-b border-line/30 px-3 text-left text-[13.5px] font-semibold text-muted transition-colors duration-100 hover:text-chrome"
+          >
+            <ChevronL className="h-[15px] w-[15px]" />
+            {dayTitle(post.date)}
+          </button>
+        )}
+
         <div className="flex-none border-b border-line/30 px-[18px] pb-3.5 pt-1.5">
           <div className="flex items-start gap-3">
             <FormatTile format={post.format} large />

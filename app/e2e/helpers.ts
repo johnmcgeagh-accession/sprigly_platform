@@ -44,5 +44,43 @@ export async function expectActivity(page: Page, postId: string, match: (r: Acti
 /** Reload and wait for the plan surface to be interactive again. */
 export async function reload(page: Page, layout: 'desktop' | 'mobile') {
   await page.reload();
-  await expect(page.getByTestId(layout === 'desktop' ? 'plan-desktop' : 'plan-mobile')).toBeVisible();
+  await expect(page.getByTestId(layout === 'desktop' ? 'plan-desktop' : 'plan-shell')).toBeVisible();
+}
+
+/**
+ * Open one post's detail view, on either shell, by the day it sits on.
+ *
+ * Both shells reach it the same way now — select the day, then the card — but they select the
+ * day differently: the desktop grid is beside the day column, and the phone's is a peer view you
+ * step into. The route through the month grid works on both and does not depend on the post
+ * being in the current week, which the week strip would.
+ *
+ * The DETAIL VIEW is the same component either way (`detail-sheet`), which is the whole reason
+ * these specs can live in one project rather than two.
+ */
+export async function openPostOn(page: Page, iso: string, postId?: string) {
+  const mobile = await page.getByTestId('nav-month').count() > 0;
+  if (mobile) {
+    await page.getByTestId('nav-month').click();
+    await page.locator(`[data-testid="grid-cell"][data-date="${iso}"]`).click();
+    const row = postId
+      ? page.locator(`[data-testid="month-summary"] [data-post-id="${postId}"]`)
+      : page.locator('[data-testid="month-summary"] [data-post-id]').first();
+    await row.click();
+  } else {
+    await page.locator(`[data-testid="grid-cell"][data-date="${iso}"]`).click();
+    const card = postId
+      ? page.locator(`[data-testid="post-card"][data-post-id="${postId}"]`)
+      : page.getByTestId('post-card').first();
+    await card.click();
+  }
+  await expect(page.getByTestId('detail-sheet')).toBeVisible();
+}
+
+/** Close the detail view, whichever frame it is in. */
+export async function closeDetail(page: Page) {
+  const back = page.getByTestId('detail-back');
+  if (await back.count()) await back.click();
+  else await page.getByTestId('detail-sheet-grabber').click();
+  await expect(page.getByTestId('detail-sheet')).toHaveCount(0);
 }
