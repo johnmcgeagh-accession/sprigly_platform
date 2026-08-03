@@ -52,7 +52,8 @@ import { AddSheet } from './AddSheet';
 import { VoiceSheet } from './VoiceSheet';
 import { ApprovalSheet, ApprovalPill, useApproval } from './ApprovalSheet';
 import { TasksPanel } from './TasksPanel';
-import { firstAnswerable, assumptionPrompt } from '@/lib/draft-rationale';
+import { firstAnswerable, assumptionPrompt, monthSummary } from '@/lib/draft-rationale';
+import { DraftMonthSummary } from './DraftMonthSummary';
 import { Feedback } from './Feedback';
 import { SummaryChip } from './SummaryChip';
 import { ReceiptPanel } from './ReceiptPanel';
@@ -172,6 +173,28 @@ export function DraftSurface({ data }: { data: PlanData }) {
     for (const b of m.beats) for (const a of b.assumptions) seen.add(a);
     return firstAnswerable([...seen]);
   }, [m.beats]);
+
+  /**
+   * THE MONTH'S ACCOUNT OF ITSELF, at the head of the day (S1).
+   *
+   * Computed from the beats' own evidence by the module that already turns that evidence into
+   * words for the beat sheet — one derivation, two renderings, so the panel and the sheet cannot
+   * state the same fact two ways (S3). Nothing here is narrated and nothing is padded: a section
+   * with no evidence behind it is not built at all.
+   *
+   * The assumption the day already asks about is passed IN and dropped, not repeated. Where the
+   * nudge is absent — a month that can no longer be edited has no question worth asking — every
+   * assumption falls to the panel instead, which is the only place left that can carry them.
+   */
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const summary = useMemo(
+    () => monthSummary(monthBeats, {
+      monthName,
+      editable,
+      assumptionShown: editable ? assumption : null,
+    }),
+    [monthBeats, monthName, editable, assumption],
+  );
 
   /**
    * The chip's line, derived from the receipt's OWN diff lines — never narrated, and never a
@@ -337,6 +360,7 @@ export function DraftSurface({ data }: { data: PlanData }) {
           changedIds={m.changedIds}
           onOpen={setOpenId}
           onAdd={() => setAddFor(selected)}
+          summary={<DraftMonthSummary summary={summary} expanded={summaryOpen} onToggle={() => setSummaryOpen((v) => !v)} />}
           nudge={editable && assumption ? {
             question: assumptionPrompt(assumption),
             onAnswer: () => setVoiceFor(assumptionPrompt(assumption)),

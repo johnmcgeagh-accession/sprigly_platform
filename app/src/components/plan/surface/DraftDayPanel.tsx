@@ -35,7 +35,7 @@ import { rationaleFor, slotLabel } from '@/lib/draft-rationale';
 import { CompactRows, ROWS_BEFORE_MORE, densityOf } from './rows';
 
 export function DraftDayPanel({
-  date, today, beats, editable, changedIds, onOpen, onAdd, nudge, footer,
+  date, today, beats, editable, changedIds, onOpen, onAdd, summary, nudge, footer,
 }: {
   date: string;
   today: string;
@@ -45,6 +45,13 @@ export function DraftDayPanel({
   changedIds: readonly string[];
   onOpen: (beatId: string) => void;
   onAdd: () => void;
+  /** The month's account of itself, at the HEAD of the day.
+   *
+   *  It belongs to the month, not to the day, and it is here rather than above the scroll region
+   *  for exactly that reason: a fixed panel would cost its height on every day of the month,
+   *  where this one is read once and then scrolls away. The day's own content starts immediately
+   *  under it and is never displaced by more than the closed two lines (S2). */
+  summary?: React.ReactNode | undefined;
   /** The month's one answerable assumption, re-voiced. Absent when there is nothing to ask. */
   nudge?: { question: string; onAnswer: () => void } | undefined;
   /** The thin-month line, when the month is thin. Rendered at the FOOT of the day, after the
@@ -57,6 +64,8 @@ export function DraftDayPanel({
 
   return (
     <div data-testid="day-panel" data-date={date} data-surface="draft" className="flex-1 overflow-y-auto px-5 pb-[104px] pt-2.5 [scrollbar-width:none]">
+      {summary}
+
       <div className="mb-3 flex items-baseline gap-2.5">
         <h2 data-testid="day-title" className="text-[22px] font-bold tracking-[-.02em] text-chrome">{heading}</h2>
         <span className="flex-1" />

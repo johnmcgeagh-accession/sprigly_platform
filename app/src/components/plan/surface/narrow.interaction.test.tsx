@@ -252,5 +252,42 @@ for (const width of WIDTHS) {
       }
     });
 
+    /**
+     * THE MONTH SUMMARY, at the two widths where its cost is highest.
+     *
+     * The thing that would break here is the panel earning its space at 390 and taking the day
+     * off the screen at 320. jsdom measures nothing, so what is asserted is the half it can
+     * prove: closed by default, the day's own content still rendered beside it, and nothing in
+     * the panel declaring a width the viewport cannot hold.
+     */
+    it('THE MONTH SUMMARY is closed, and the day is still there beside it', () => {
+      render(<DraftSurface data={draftData()} />);
+      expect(screen.getByTestId('draft-summary-toggle').getAttribute('aria-expanded')).toBe('false');
+      expect(screen.queryByTestId('draft-summary-detail')).toBeNull();
+      // The two lines a client reads without tapping, and the day underneath them.
+      expect(screen.getByTestId('draft-summary-headline').textContent).toContain('planned post');
+      expect(screen.getByTestId('draft-summary-stage').textContent).toContain('once you’re happy');
+      expect(screen.getByTestId('day-title')).toBeTruthy();
+      expect(screen.getByTestId('draft-card')).toBeTruthy();
+    });
+
+    it('THE MONTH SUMMARY opens onto its facts, and nothing in it is a fixed width', () => {
+      render(<DraftSurface data={draftData()} />);
+      fireEvent.click(screen.getByTestId('draft-summary-toggle'));
+
+      const facts = screen.getAllByTestId('draft-summary-fact');
+      expect(facts.length).toBeGreaterThan(0);
+      for (const el of [screen.getByTestId('draft-summary'), ...facts]) {
+        expect(el.className).not.toMatch(/\bw-\[\d+px\]|\bmin-w-\[\d{3,}px\]/);
+      }
+      // A long unbroken product name cannot widen the panel past the viewport.
+      for (const el of facts) expect(el.querySelector('.break-words')).toBeTruthy();
+    });
+
+    it('A COMMITTED MONTH is unchanged — it has captions to read and needs no account of itself', () => {
+      render(<CommittedSurface data={committedData()} />);
+      expect(screen.queryByTestId('draft-summary')).toBeNull();
+    });
+
   });
 }
