@@ -448,39 +448,57 @@ describe('the microphone, and what it does HERE', () => {
   });
 });
 
-describe('the assumption, re-voiced as a nudge', () => {
+/**
+ * THE ASSUMPTION, re-voiced — now inside the expanded month summary (M4).
+ *
+ * The strip on the day is gone. What must NOT have gone with it is the ability to answer, so
+ * every behaviour the strip was pinned for is re-pinned here in its new home: the same one
+ * question, the same wording, the same sheet, the same request body. The only difference the
+ * client sees is where they tap it.
+ */
+describe('the assumption, re-voiced — inside the summary', () => {
   const withAssumptions = (assumptions: string[]) => fakeData({}, [beat({ assumptions })]);
+  const open = () => fireEvent.click(screen.getByTestId('draft-summary-toggle'));
+
+  it('is GONE from the day itself — the day now holds only the day', () => {
+    render(<DraftSurface data={withAssumptions(['no launches or restocks are on record for this month'])} />);
+    // Closed, the panel says nothing about assumptions and neither does the day.
+    expect(screen.queryByTestId('assumption-nudge')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/anything coming up\?/);
+  });
 
   it('shows the ONE the client can act on, as a question, once', () => {
     render(<DraftSurface data={withAssumptions([
       'no launches or restocks are on record for this month',
       'the format mix is based on posts whose format we could not read',
     ])} />);
+    open();
 
-    const nudge = screen.getByTestId('assumption-nudge');
-    expect(nudge.textContent).toContain('anything coming up?');
-    // The second is a fact about OUR data, not a question for them.
-    expect(document.body.textContent).not.toContain('format we could not read');
+    expect(screen.getByTestId('assumption-nudge').textContent).toContain('anything coming up?');
     expect(screen.getAllByTestId('assumption-nudge')).toHaveLength(1);
+    // The second is a fact about OUR data. It is STATED — the panel is where the month's
+    // assumptions live now — but it is never dressed as a question the client can answer.
+    const ours = [...screen.getAllByTestId('draft-summary-fact')]
+      .find((f) => f.textContent?.includes('format we could not read'))!;
+    expect(ours).toBeTruthy();
+    expect(ours.getAttribute('data-answerable')).toBeNull();
   });
 
-  it('is an invitation, not an amber warning box', () => {
+  it('is a tappable row on the tint, carried by fill and edge rather than by colour alone', () => {
     render(<DraftSurface data={withAssumptions(['no launches or restocks are on record for this month'])} />);
-    expect(document.body.textContent).not.toMatch(/what we assumed/i);
-    expect(screen.getByTestId('assumption-nudge').className).toContain('bg-coral-100');
-  });
-
-  it('sits AFTER the day’s content — a banner must not push the month off the fold', () => {
-    render(<DraftSurface data={withAssumptions(['no launches or restocks are on record for this month'])} />);
-    const panel = screen.getByTestId('day-panel');
-    const kids = [...panel.children];
-    expect(kids.indexOf(screen.getByTestId('assumption-nudge')))
-      .toBeGreaterThan(kids.indexOf(screen.getByTestId('draft-card')));
+    open();
+    const nudge = screen.getByTestId('assumption-nudge');
+    expect(nudge.tagName).toBe('BUTTON');
+    // coral-100 was the strip's fill; inside a coral-100 panel it would be invisible.
+    expect(nudge.className).not.toContain('bg-coral-100');
+    expect(nudge.className).toContain('bg-surface');
+    expect(nudge.className).toContain('border-coral-600/35');
   });
 
   it('opens the sheet with the question as an agent TURN, and sends only the client’s answer', async () => {
     const calls = stubFetch({ beats: [beat()] });
     render(<DraftSurface data={withAssumptions(['no launches or restocks are on record for this month'])} />);
+    open();
     fireEvent.click(screen.getByTestId('assumption-nudge'));
 
     const agents = await screen.findAllByTestId('turn-agent');
@@ -489,21 +507,80 @@ describe('the assumption, re-voiced as a nudge', () => {
     fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'The candle, on the 24th' } });
     await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
 
-    // Our question is context for the person, never part of the text a card quotes back.
+    // THE ANSWERING PATH IS UNCHANGED (M4): the same route, the same op, the same body as when
+    // the strip owned this. Our question is context for the person, never part of what is sent.
     const apply = calls.find((c) => c.url === '/api/plan/draft/apply')!;
     expect(apply.body).toEqual({ op: 'text', text: 'The candle, on the 24th', source: 'web' });
   });
 
-  it('says nothing when every assumption is about our own bookkeeping', () => {
+  it('asks nothing when every assumption is about our own bookkeeping', () => {
     render(<DraftSurface data={withAssumptions(['the format mix is based on posts whose format we could not read'])} />);
+    open();
     expect(screen.queryByTestId('assumption-nudge')).toBeNull();
+    expect(document.querySelector('[data-section="assumptions"]')!.textContent)
+      .toContain('format we could not read');
   });
 
-  it('and nothing at all past the cutoff', () => {
+  it('and asks nothing at all past the cutoff, while still stating what we assumed', () => {
     const data = withAssumptions(['no launches or restocks are on record for this month']);
     (data.draft as { editable: boolean }).editable = false;
     render(<DraftSurface data={data} />);
+    open();
     expect(screen.queryByTestId('assumption-nudge')).toBeNull();
+    expect(document.querySelector('[data-section="assumptions"]')!.textContent)
+      .toContain('no launches or restocks are on record');
+  });
+});
+
+/**
+ * THE TWO CTAs (M2, M3) — one closed, one at the foot of the open panel.
+ */
+describe('the summary’s invitations', () => {
+  const data = () => fakeData({}, [beat({ assumptions: ['no launches or restocks are on record for this month'] })]);
+
+  it('closed, the panel says the count and ONE invitation — nothing else', () => {
+    render(<DraftSurface data={data()} />);
+    expect(screen.getByTestId('draft-summary-cta').textContent).toBe('Tap to see why these posts are here');
+    // The stage sentence used to close the panel. It is inside now, and it is the answer to
+    // "why these" rather than a caption on the count.
+    expect(screen.queryByTestId('draft-summary-stage')).toBeNull();
+    expect(screen.queryByTestId('summary-shape')).toBeNull();
+  });
+
+  it('opened, the stage sentence is the FIRST thing under the header', () => {
+    render(<DraftSurface data={data()} />);
+    fireEvent.click(screen.getByTestId('draft-summary-toggle'));
+    const detail = screen.getByTestId('draft-summary-detail');
+    expect(detail.firstElementChild).toBe(screen.getByTestId('draft-summary-stage'));
+    expect(screen.getByTestId('draft-summary-stage').textContent)
+      .toBe('This is the shape of October — once you’re happy, we’ll write every post.');
+  });
+
+  it('ends with the shaping prompt — the moment the client has just formed an opinion', () => {
+    render(<DraftSurface data={data()} />);
+    fireEvent.click(screen.getByTestId('draft-summary-toggle'));
+    const detail = screen.getByTestId('draft-summary-detail');
+    expect(detail.lastElementChild!.contains(screen.getByTestId('summary-shape'))).toBe(true);
+    expect(screen.getByTestId('summary-shape').textContent).toBe('Not right? Tell us what to change');
+  });
+
+  it('the shaping prompt opens THE SAME sheet the mic opens — no second interface', () => {
+    render(<DraftSurface data={data()} />);
+    fireEvent.click(screen.getByTestId('draft-summary-toggle'));
+    fireEvent.click(screen.getByTestId('summary-shape'));
+
+    expect(screen.getByTestId('voice-sheet')).toBeTruthy();
+    expect(screen.getByTestId('voice-mic')).toBeTruthy();
+    // Opened EMPTY: the shaping prompt is an invitation to say anything, not a question to answer.
+    expect(screen.queryAllByTestId('turn-agent').every((t) => !t.textContent?.includes('anything coming up?'))).toBe(true);
+  });
+
+  it('offers no shaping prompt on a month that can no longer be changed', () => {
+    const d = data();
+    (d.draft as { editable: boolean }).editable = false;
+    render(<DraftSurface data={d} />);
+    fireEvent.click(screen.getByTestId('draft-summary-toggle'));
+    expect(screen.queryByTestId('summary-shape')).toBeNull();
   });
 });
 
@@ -1051,12 +1128,23 @@ describe('the month summary', () => {
     expect(panel.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('says the stage WITHOUT a tap — a panel that only explains itself once opened has lost', () => {
+  it('closed, is the count and one invitation — ONE tap target, one meaning (M2)', () => {
     render(<DraftSurface data={fakeData({}, month)} />);
     expect(screen.getByTestId('draft-summary-headline').textContent).toBe('3 planned posts across 2 weeks');
-    expect(screen.getByTestId('draft-summary-stage').textContent)
-      .toBe('This is the shape of October — once you’re happy, we’ll write every post.');
+    expect(screen.getByTestId('draft-summary-cta').textContent).toBe('Tap to see why these posts are here');
     expect(screen.queryByTestId('draft-summary-detail')).toBeNull();
+    // The whole closed panel is one control, and the chevron is a state indicator on it.
+    expect(screen.getByTestId('draft-summary').querySelectorAll('button')).toHaveLength(1);
+  });
+
+  it('takes the tint the day’s strip used to hold, through tokens (M1)', () => {
+    render(<DraftSurface data={fakeData({}, month)} />);
+    const panel = screen.getByTestId('draft-summary');
+    expect(panel.className).toContain('bg-coral-100');
+    expect(screen.getByTestId('draft-summary-headline').className).toContain('text-coral-800');
+    // The title's PROMINENCE is unchanged — same size, same weight, only the ink follows the tint.
+    expect(screen.getByTestId('draft-summary-headline').className).toContain('text-[15px]');
+    expect(screen.getByTestId('draft-summary-headline').className).toContain('font-semibold');
   });
 
   it('leaves the day content on screen when it is closed', () => {
@@ -1095,13 +1183,16 @@ describe('the month summary', () => {
     expect(screen.getByTestId('insights').textContent).toContain('Lydia — last in a caption on 22 February (8 captions)');
   });
 
-  it('the day asks about one assumption and the panel carries the OTHER — never both twice', () => {
+  it('carries the whole assumption set in ONE place — statements, then the one question (M4)', () => {
     render(<DraftSurface data={fakeData({}, month)} />);
     fireEvent.click(screen.getByTestId('draft-summary-toggle'));
-    const assumptions = document.querySelector('[data-section="assumptions"]')!;
-    expect(assumptions.textContent).toContain('No pillar weights are on record');
-    expect(assumptions.textContent).not.toContain('No launches or restocks');
-    expect(screen.getByTestId('assumption-nudge').textContent).toContain('anything coming up?');
+    const rows = [...document.querySelectorAll('[data-section="assumptions"] [data-testid="draft-summary-fact"]')];
+    expect(rows.map((r) => r.textContent)).toEqual([
+      'No pillar weights are on record, so the month splits evenly across pillars.',
+      'We’ve assumed nothing’s launching this month — anything coming up?',
+    ]);
+    // Neither of them is anywhere else on the screen.
+    expect(document.querySelectorAll('[data-testid="assumption-nudge"]')).toHaveLength(1);
   });
 
   it('never says the internal word for a slot, open or closed', () => {
@@ -1128,8 +1219,9 @@ describe('the month summary', () => {
     const data = fakeData({}, month);
     (data.draft as { editable: boolean }).editable = false;
     render(<DraftSurface data={data} />);
-    expect(screen.queryByTestId('draft-summary-stage')).toBeNull();
     expect(screen.getByTestId('draft-summary-headline').textContent).toBe('3 planned posts across 2 weeks');
+    fireEvent.click(screen.getByTestId('draft-summary-toggle'));
+    expect(screen.queryByTestId('draft-summary-stage')).toBeNull();
   });
 
   it('is a MONTH statement, so the day it happens to be showing never changes it', () => {

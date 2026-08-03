@@ -52,7 +52,7 @@ import { AddSheet } from './AddSheet';
 import { VoiceSheet } from './VoiceSheet';
 import { ApprovalSheet, ApprovalPill, useApproval } from './ApprovalSheet';
 import { TasksPanel } from './TasksPanel';
-import { firstAnswerable, assumptionPrompt, monthSummary } from '@/lib/draft-rationale';
+import { monthSummary } from '@/lib/draft-rationale';
 import { DraftMonthSummary } from './DraftMonthSummary';
 import { Feedback } from './Feedback';
 import { SummaryChip } from './SummaryChip';
@@ -158,23 +158,6 @@ export function DraftSurface({ data }: { data: PlanData }) {
     : `${monthBeats.length} planned post${monthBeats.length === 1 ? '' : 's'} across ${monthName}. Tap a day to see it.`;
 
   /**
-   * The one assumption worth surfacing, re-voiced as a nudge.
-   *
-   * The assembler attaches the SAME list to every planned post, so it belongs to the month and
-   * is shown once — never repeated on ten cards. `firstAnswerable` drops the ones that state a
-   * fact about our data rather than a gap in what we know about their month.
-   *
-   * Never a caveat. Round 1 headed this an amber "What we assumed" warning box; the same
-   * information phrased as an invitation reads as confidence, and phrased as a warning reads as
-   * an excuse.
-   */
-  const assumption = useMemo(() => {
-    const seen = new Set<string>();
-    for (const b of m.beats) for (const a of b.assumptions) seen.add(a);
-    return firstAnswerable([...seen]);
-  }, [m.beats]);
-
-  /**
    * THE MONTH'S ACCOUNT OF ITSELF, at the head of the day (S1).
    *
    * Computed from the beats' own evidence by the module that already turns that evidence into
@@ -182,18 +165,15 @@ export function DraftSurface({ data }: { data: PlanData }) {
    * state the same fact two ways (S3). Nothing here is narrated and nothing is padded: a section
    * with no evidence behind it is not built at all.
    *
-   * The assumption the day already asks about is passed IN and dropped, not repeated. Where the
-   * nudge is absent — a month that can no longer be edited has no question worth asking — every
-   * assumption falls to the panel instead, which is the only place left that can carry them.
+   * THE ASSUMPTIONS LIVE HERE NOW (M4). The day's strip is gone, and `monthSummary` carries the
+   * whole set — including the one `firstAnswerable` ranks highest, re-voiced as its question and
+   * marked answerable. The surface no longer picks that assumption itself; picking it in two
+   * places was how the panel and the strip could have come to disagree about which gap mattered.
    */
   const [summaryOpen, setSummaryOpen] = useState(false);
   const summary = useMemo(
-    () => monthSummary(monthBeats, {
-      monthName,
-      editable,
-      assumptionShown: editable ? assumption : null,
-    }),
-    [monthBeats, monthName, editable, assumption],
+    () => monthSummary(monthBeats, { monthName, editable }),
+    [monthBeats, monthName, editable],
   );
 
   /**
@@ -360,11 +340,17 @@ export function DraftSurface({ data }: { data: PlanData }) {
           changedIds={m.changedIds}
           onOpen={setOpenId}
           onAdd={() => setAddFor(selected)}
-          summary={<DraftMonthSummary summary={summary} expanded={summaryOpen} onToggle={() => setSummaryOpen((v) => !v)} />}
-          nudge={editable && assumption ? {
-            question: assumptionPrompt(assumption),
-            onAnswer: () => setVoiceFor(assumptionPrompt(assumption)),
-          } : undefined}
+          summary={
+            <DraftMonthSummary
+              summary={summary} expanded={summaryOpen} onToggle={() => setSummaryOpen((v) => !v)}
+              // BOTH PROMPTS OPEN THE SAME SHEET the mic opens, and that is the point of putting
+              // them here: the client has just read the reasoning, and the one place to say
+              // something about it is the one place they already know. Answering an assumption
+              // opens it ON that question; the shaping prompt opens it empty.
+              onAnswer={(question) => setVoiceFor(question)}
+              {...(editable ? { onShape: () => setVoiceFor('') } : {})}
+            />
+          }
           footer={thinNote}
         />
       )}

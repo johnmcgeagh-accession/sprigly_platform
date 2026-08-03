@@ -190,8 +190,11 @@ for (const width of WIDTHS) {
       expect(screen.queryByTestId('summary-chip')).toBeNull();
     });
 
-    it('THE ASSUMPTION NUDGE is reachable and opens the sheet on its question — as an agent turn', async () => {
+    it('THE ASSUMPTION NUDGE is reachable inside the summary and opens the sheet on its question', async () => {
       render(<DraftSurface data={draftData()} />);
+      // It moved into the panel (M4). At 320px that is one extra tap, and both targets clear the
+      // 44px floor — which is the thing this width could actually break.
+      fireEvent.click(screen.getByTestId('draft-summary-toggle'));
       fireEvent.click(screen.getByTestId('assumption-nudge'));
       const agents = await screen.findAllByTestId('turn-agent');
       expect(agents[agents.length - 1]!.textContent).toContain('anything coming up?');
@@ -266,7 +269,7 @@ for (const width of WIDTHS) {
       expect(screen.queryByTestId('draft-summary-detail')).toBeNull();
       // The two lines a client reads without tapping, and the day underneath them.
       expect(screen.getByTestId('draft-summary-headline').textContent).toContain('planned post');
-      expect(screen.getByTestId('draft-summary-stage').textContent).toContain('once you’re happy');
+      expect(screen.getByTestId('draft-summary-cta').textContent).toBe('Tap to see why these posts are here');
       expect(screen.getByTestId('day-title')).toBeTruthy();
       expect(screen.getByTestId('draft-card')).toBeTruthy();
     });
@@ -282,6 +285,32 @@ for (const width of WIDTHS) {
       }
       // A long unbroken product name cannot widen the panel past the viewport.
       for (const el of facts) expect(el.querySelector('.break-words')).toBeTruthy();
+    });
+
+    it('BOTH PROMPTS inside the panel are full-width rows that clear the touch floor', () => {
+      render(<DraftSurface data={draftData()} />);
+      fireEvent.click(screen.getByTestId('draft-summary-toggle'));
+
+      for (const id of ['assumption-nudge', 'summary-shape']) {
+        const el = screen.getByTestId(id);
+        expect(el.className, id).toContain('w-full');
+        expect(el.className, id).toContain('min-h-[48px]');
+        expect(el.className, id).not.toMatch(/\bw-\[\d+px\]|\bmin-w-\[\d{3,}px\]/);
+        // The label wraps rather than clipping — "Not right? Tell us what to change" beside a
+        // chevron at 320px is where a nowrap would show.
+        expect(el.querySelector('.break-words'), id).toBeTruthy();
+      }
+    });
+
+    it('THE DAY carries no assumption strip of its own any more (M4)', () => {
+      render(<DraftSurface data={draftData()} />);
+      const day = screen.getByTestId('day-panel');
+      // Closed panel: no prompt anywhere. The day is the day.
+      expect(day.querySelector('[data-testid="assumption-nudge"]')).toBeNull();
+      fireEvent.click(screen.getByTestId('draft-summary-toggle'));
+      // Opened: exactly one, and it is inside the summary rather than under the cards.
+      expect(document.querySelectorAll('[data-testid="assumption-nudge"]')).toHaveLength(1);
+      expect(screen.getByTestId('draft-summary').contains(screen.getByTestId('assumption-nudge'))).toBe(true);
     });
 
     it('A COMMITTED MONTH is unchanged — it has captions to read and needs no account of itself', () => {
