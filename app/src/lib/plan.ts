@@ -297,7 +297,9 @@ function toDraftBeat(r: ContentCyclePostRow): DraftBeatView {
   const meta = (r.beatMeta ?? {}) as Partial<BeatMeta>;
   const evidence = (meta.rationaleEvidence ?? { basis: 'template' }) as BeatEvidence;
   const sm = (r.sourceMeta ?? {}) as Record<string, unknown>;
-  const title = typeof sm['title'] === 'string' && sm['title'].trim() ? sm['title'] : (r.pillar ?? 'Untitled beat');
+  // The last-resort heading, and it is CLIENT-FACING — it renders as the card's title and the
+  // sheet's. "planned post", never "beat" (spec §7).
+  const title = typeof sm['title'] === 'string' && sm['title'].trim() ? sm['title'] : (r.pillar ?? 'Planned post');
 
   return {
     id:       r.id,
