@@ -15,6 +15,8 @@ import { CycleConfig } from './CycleConfig';
 import { CycleInputs } from './CycleInputs';
 import { IntakePanel } from './IntakePanel';
 import { CycleCard } from './CycleCard';
+import { ClientHealthPanel } from './ClientHealthPanel';
+import { getClientHealth, panelMonths } from '@/lib/client-health';
 import { questionsForChannel, isAutoRunEnabled, AUTO_RUN_ENABLED_ENV, hasPlannableInput } from '@sprigly/engine';
 import type { IntakeJson } from '@sprigly/engine';
 
@@ -429,6 +431,15 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
     })),
   );
 
+  // ADOPTION / DIVERGENCE — computed on read (admin/src/lib/client-health.ts explains why, and
+  // what it costs). Keyed on the CURRENT calendar month rather than the cohort month: the
+  // question is "what is she publishing now", which is a fact about the calendar and not about
+  // which cycle we happen to be running.
+  const healthByChannel = new Map(
+    await Promise.all(channels.map(async (ch): Promise<[string, Awaited<ReturnType<typeof getClientHealth>>]> =>
+      [ch.channel, await getClientHealth(params.id, ch.channel)])),
+  );
+
   return (
     <div className="space-y-8">
       <div>
@@ -482,6 +493,30 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
                   postsSync={{ status: c?.postsSyncStatus ?? null, syncedAt: c?.postsSyncedAt ?? null }}
                 />
               </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Adoption & divergence — one per channel, directly under the cycle card. It sits high
+          because it is the standing answer to "is any of this landing?", and low-value channels
+          (email) simply report that nothing has been trawled. ── */}
+      {channels.length > 0 && (
+        <div className="space-y-6">
+          {channels.map((ch) => {
+            const health = healthByChannel.get(ch.channel)!;
+            const { current, latestMeasured } = panelMonths(health, currentMonth);
+            return (
+              <ClientHealthPanel
+                key={ch.channel}
+                clientId={params.id}
+                channel={ch.channel}
+                showChannel={channels.length > 1}
+                current={current}
+                latestMeasured={latestMeasured}
+                poolSize={health.poolSize}
+                poolWithoutSpriglyText={health.poolWithoutSpriglyText}
+              />
             );
           })}
         </div>
