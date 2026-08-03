@@ -71,15 +71,31 @@ export function MonthGrid({
   frame?: SurfaceFrame;
 }) {
   const cells = monthGrid(month);
+  /**
+   * ── THE GRID FILLS ITS COLUMN ON DESKTOP ──────────────────────────────────────────
+   *
+   * On a phone the cells are `aspect-square`, and that is load-bearing: 350 ÷ 7 = 50px keeps
+   * them over the 44px touch target, and 304 ÷ 7 = 43px keeps them over the 40px floor at
+   * 320px. Width drives height, and the grid is as tall as it needs to be.
+   *
+   * On a wide monitor that same rule leaves the month column two-fifths full: at 680px the
+   * cells are 97px square, six rows is 580px, and the rest of an 800px column is canvas. The
+   * operator's word for it was that the build "doesn't scale up", and this is most of what
+   * they were looking at.
+   *
+   * So on desktop the ROWS share the height instead, with a floor so a short month cannot
+   * make them ridiculous. Nothing about the mobile geometry moves.
+   */
+  const desktop = frame === 'desktop';
 
   return (
-    <div data-testid="month-grid" className={`flex-1 overflow-y-auto px-[22px] pt-[18px] [scrollbar-width:none] ${scrollPad(frame)}`}>
-      <div className="grid grid-cols-7 gap-0.5 pb-1.5" aria-hidden="true">
+    <div data-testid="month-grid" className={`flex min-h-0 flex-1 flex-col overflow-y-auto px-[22px] pt-[18px] [scrollbar-width:none] ${scrollPad(frame)}`}>
+      <div className="grid flex-none grid-cols-7 gap-0.5 pb-1.5" aria-hidden="true">
         {DOW_INITIAL.map((d, i) => (
           <span key={i} className="text-center text-[10.5px] font-semibold uppercase tracking-[.1em] text-muted">{d}</span>
         ))}
       </div>
-      <div className="grid grid-cols-7 gap-0.5">
+      <div className={`grid grid-cols-7 gap-0.5 ${desktop ? 'min-h-0 flex-1 [grid-auto-rows:minmax(64px,1fr)]' : ''}`}>
         {cells.map(({ iso, day, inMonth }) => {
           const marks = marksFor(iso);
           const isSelected = iso === selected;
@@ -99,9 +115,10 @@ export function MonthGrid({
               disabled={inert}
               onClick={() => { if (!inert) onPick(iso); }}
               // aspect-square keeps the cell above 44px at 390px (350px ÷ 7 = 50px) and above
-              // the 40px floor down to 320px (304 ÷ 7 = 43px).
+              // the 40px floor down to 320px (304 ÷ 7 = 43px). Desktop takes its height from
+              // the row instead — see the note at the top.
               {...(ringed ? { 'data-ringed': 'true' } : {})}
-              className={`flex aspect-square flex-col items-center justify-center gap-[5px] rounded-[14px] ${
+              className={`flex ${desktop ? '' : 'aspect-square'} flex-col items-center justify-center gap-[5px] rounded-[14px] ${
                 // accent-600 is NON-TEXT identity, which is precisely what this is: a 2px inset
                 // and its own tint, with no ink on top of it.
                 ringed ? 'bg-coral-100 shadow-[inset_0_0_0_2px_rgb(var(--t-accent-600,232_112_95))]' : ''
@@ -141,7 +158,7 @@ export function MonthGrid({
           );
         })}
       </div>
-      <p data-testid="month-foot" className="px-1 pt-[18px] text-[13.5px] leading-normal text-muted">{footer}</p>
+      <p data-testid="month-foot" className="flex-none px-1 pt-[18px] text-[13.5px] leading-normal text-muted">{footer}</p>
       {summary}
     </div>
   );

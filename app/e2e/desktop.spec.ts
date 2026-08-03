@@ -194,28 +194,109 @@ test('Tasks replaces the plan region and the conversation stays', async ({ page 
 
 /* ── the narrow band ─────────────────────────────────────────────────────────────── */
 
-test('at 1024 the plan region stacks and the conversation does NOT collapse', async ({ page }) => {
-  await page.setViewportSize({ width: 1024, height: 820 });
+/**
+ * ── THE WIDTH STRATEGY (spec §2.6) ──────────────────────────────────────────────────
+ *
+ * The build was laid out at exactly 1440, where 196 + 24 + 512 + 20 + 320 + 24 + 344 fits to
+ * the pixel — and nowhere else. Below it the day column was clipped; above it the surplus
+ * became one void between the day column and the dock. Four widths now, and the rule at each.
+ */
+const WIDTHS = [1024, 1440, 1920, 2560] as const;
 
-  await expect(page.getByTestId('month-grid')).toBeVisible();
-  await expect(page.getByTestId('day-panel')).toBeVisible();
-  // The one region whose promise is that it is always there.
-  await expect(page.getByTestId('conversation-dock')).toBeVisible();
-  await expect(page.getByTestId('voice-input')).toBeVisible();
+async function metrics(page: import('@playwright/test').Page) {
+  return page.evaluate(() => {
+    const box = (s: string) => {
+      const el = document.querySelector(s);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: Math.round(r.x), w: Math.round(r.width) };
+    };
+    return {
+      shell: box('[data-testid="plan-desktop"]')!,
+      rail: box('[data-testid="plan-rail"]')!,
+      month: box('[data-testid="month-col"]')!,
+      day: box('[data-testid="day-col"]')!,
+      dock: box('[data-testid="conversation-dock"]')!,
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      viewport: window.innerWidth,
+    };
+  });
+}
 
-  // The rail collapses to icons; the label survives for a screen reader, not on screen.
-  await expect(page.getByTestId('rail-plan')).toBeVisible();
-  const railWidth = await page.getByTestId('plan-rail').evaluate((el) => el.getBoundingClientRect().width);
-  expect(railWidth).toBeLessThan(100);
+test('nothing overflows sideways at any tested width', async ({ page }) => {
+  for (const width of WIDTHS) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(page.getByTestId('month-grid')).toBeVisible();
+    const m = await metrics(page);
+    expect(m.overflow, `horizontal overflow at ${width}px`).toBeLessThanOrEqual(0);
+  }
 });
 
-test('nothing overflows sideways at 1440 or 1024', async ({ page }) => {
-  for (const width of [1440, 1024]) {
-    await page.setViewportSize({ width, height: 820 });
-    await expect(page.getByTestId('month-grid')).toBeVisible();
-    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-    expect(overflow, `horizontal overflow at ${width}px`).toBeLessThanOrEqual(0);
-  }
+test('below 1440 the plan region STACKS; at 1440 and up it is side by side', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await expect(page.getByTestId('month-grid')).toBeVisible();
+  let m = await metrics(page);
+  // Stacked: the two columns share an x and a width.
+  expect(m.month.x).toBe(m.day.x);
+  expect(m.month.w).toBe(m.day.w);
+  // The conversation does NOT collapse — the one region whose promise is that it is there.
+  await expect(page.getByTestId('voice-input')).toBeVisible();
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.getByTestId('month-grid')).toBeVisible();
+  m = await metrics(page);
+  expect(m.day.x).toBeGreaterThan(m.month.x + m.month.w - 1);   // day sits after month
+  // The reviewed layout, within a rounding pixel or two of 512 / 320 / 344.
+  expect(Math.abs(m.month.w - 512)).toBeLessThanOrEqual(4);
+  expect(Math.abs(m.day.w - 320)).toBeLessThanOrEqual(4);
+});
+
+test('the columns grow to their ceilings and then the shell centres', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await expect(page.getByTestId('month-grid')).toBeVisible();
+  let m = await metrics(page);
+  expect(m.month.w).toBe(680);          // the stated ceilings
+  expect(m.day.w).toBe(420);
+  expect(m.dock.w).toBe(400);
+  expect(m.shell.w).toBe(1764);
+  // Balanced: the margin on the left equals the margin on the right.
+  expect(m.shell.x).toBe(Math.round((m.viewport - m.shell.w) / 2));
+
+  await page.setViewportSize({ width: 2560, height: 900 });
+  await expect(page.getByTestId('month-grid')).toBeVisible();
+  m = await metrics(page);
+  // Past the ceiling nothing grows — the MARGINS do, and they stay equal.
+  expect(m.month.w).toBe(680);
+  expect(m.day.w).toBe(420);
+  expect(m.dock.w).toBe(400);
+  expect(m.shell.w).toBe(1764);
+  expect(m.shell.x).toBe(Math.round((m.viewport - m.shell.w) / 2));
+  // The failure this replaces: columns left-anchored with the whole surplus on the right.
+  const rightMargin = m.viewport - (m.shell.x + m.shell.w);
+  expect(Math.abs(rightMargin - m.shell.x)).toBeLessThanOrEqual(1);
+});
+
+test('the rail collapses to icons below 1280 and carries its labels above', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await expect(page.getByTestId('rail-plan')).toBeVisible();
+  expect((await metrics(page)).rail.w).toBeLessThan(100);
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  expect((await metrics(page)).rail.w).toBe(196);
+});
+
+test('the month grid fills its column rather than leaving canvas under it', async ({ page }) => {
+  await page.setViewportSize({ width: 2560, height: 900 });
+  await expect(page.getByTestId('month-grid')).toBeVisible();
+  const fill = await page.evaluate(() => {
+    const col = document.querySelector('[data-testid="month-col"]')!.getBoundingClientRect();
+    const foot = document.querySelector('[data-testid="month-foot"]')!.getBoundingClientRect();
+    return (foot.bottom - col.top) / col.height;
+  });
+  // On a phone the cells are aspect-square and the grid is as tall as it needs to be. On a
+  // wide monitor that left the column two-fifths full, which is most of what "doesn't scale
+  // up" looked like.
+  expect(fill).toBeGreaterThan(0.9);
 });
 
 /* ── the per-post date policy, which this suite used to fight ────────────────────── */

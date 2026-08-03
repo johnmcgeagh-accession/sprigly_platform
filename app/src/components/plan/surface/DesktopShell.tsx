@@ -86,7 +86,10 @@ export function DesktopShell({
   overlays?: React.ReactNode | undefined;
 }) {
   return (
-    <div data-testid="plan-desktop" className="relative flex h-[100dvh] overflow-hidden bg-bg text-chrome">
+    // THE SHELL HAS A CEILING AND CENTRES INSIDE IT (spec §2.6). Past `max-w-shell` the
+    // surplus becomes balanced margin on both sides rather than one void between the day
+    // column and the dock, which is what a fixed-width layout does with a wide monitor.
+    <div data-testid="plan-desktop" className="relative mx-auto flex h-[100dvh] w-full max-w-shell overflow-hidden bg-bg text-chrome">
       <Rail
         clientName={clientName} subtitle={subtitle}
         view={view} onView={onView} tasksCount={tasksCount} tasksLate={tasksLate}
@@ -125,14 +128,26 @@ export function DesktopShell({
           rather than growing the page — without it a long month pushes the whole shell taller
           than the viewport and the dock's composer walks off the bottom.
         */}
+        {/*
+          SIDE BY SIDE FROM 1440, STACKED BELOW IT.
+
+          The switch used to be at `xl` (1280), where the two columns did not actually fit:
+          512 + 20 + 320 needs 852px of content box and 1280 gives 692, so the day column was
+          clipped at every width from 1280 to 1439 and nobody had looked. 1440 is the width
+          the layout was reviewed at and the first at which it fits, so that is where it
+          starts.
+
+          Above it the columns are PROPORTIONS (flex-month / flex-day), so they grow together
+          to their ceilings instead of leaving the surplus in the gap.
+        */}
         <div
           data-testid="plan-cols"
-          className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 pb-5 xl:flex-row xl:gap-5 xl:overflow-hidden xl:pb-6"
+          className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 pb-5 wide:flex-row wide:gap-5 wide:overflow-hidden wide:pb-6"
         >
-          <div data-testid="month-col" className="flex min-h-0 w-full flex-none flex-col xl:w-month xl:overflow-y-auto">
+          <div data-testid="month-col" className="flex min-h-0 w-full flex-none flex-col wide:w-auto wide:flex-month wide:overflow-y-auto">
             {month}
           </div>
-          <div data-testid="day-col" className="flex min-h-0 w-full flex-none flex-col xl:w-day">
+          <div data-testid="day-col" className="flex min-h-0 w-full flex-none flex-col wide:w-auto wide:flex-day">
             {day}
           </div>
         </div>
@@ -143,7 +158,7 @@ export function DesktopShell({
       {dock && (
         <aside
           data-testid="conversation-dock"
-          className="flex w-dock-tight flex-none flex-col border-l border-line/30 bg-surface xl:w-dock"
+          className="flex w-dock flex-none flex-col border-l border-line/30 bg-surface"
         >
           {dock}
         </aside>

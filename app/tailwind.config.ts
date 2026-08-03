@@ -20,6 +20,9 @@ const config: Config = {
   corePlugins: { preflight: false },
   theme: {
     extend: {
+      /** 1440 is where month and day stop stacking and sit side by side. Tailwind's own
+       *  scale jumps 1280 to 1536 and neither is the width this surface was reviewed at. */
+      screens: { wide: '1440px' },
       /**
        * THE DESKTOP COLUMN ARITHMETIC (docs/design/desktop-plan-surface.md §2.1).
        *
@@ -30,13 +33,38 @@ const config: Config = {
        * place, and the surface's own fence is built on the principle that a component NAMES a
        * value rather than declaring one. `rail-tight` and `dock-tight` are the 1080–1279 band.
        */
+      /**
+       * ── ABOVE 1440 THE COLUMNS GROW, THEN THE SHELL CENTRES (spec §2.6) ──────────
+       *
+       * The build was laid out at exactly 1440 and the numbers were exact THERE and
+       * nowhere else: 196 + 24 + 512 + 20 + 320 + 24 + 344 fits 1440 to the pixel, so
+       * every width below it clipped the day column and every width above it left the
+       * surplus as one void between the day and the dock.
+       *
+       * So the fixed month/day widths are gone. They are PROPORTIONS now (680 : 420,
+       * which is the reviewed 512 : 320 ratio), the dock is a clamp, and the shell has a
+       * ceiling it centres inside:
+       *
+       *   rail 196 + 24 + month 680 + 20 + day 420 + 24 + dock 400 = 1764
+       *
+       * At 1440 that resolves to 513 / 317 / 346 — the reviewed layout, within 3px. At
+       * 1764 and beyond every column is at its ceiling and the surplus becomes balanced
+       * margin rather than a hole in the middle.
+       */
       width: {
         rail: '196px',
         'rail-tight': '68px',
-        month: '512px',
-        day: '320px',
-        dock: '344px',
-        'dock-tight': '320px',
+        /** 320 at the narrow end, 400 at the ceiling, proportional between. */
+        dock: 'clamp(320px, 24vw, 400px)',
+      },
+      maxWidth: {
+        /** The shell's ceiling. Past this the margins grow, not the columns. */
+        shell: '1764px',
+      },
+      flex: {
+        /** The month : day ratio, as grow factors. 680 : 420 is 512 : 320. */
+        month: '680 1 0%',
+        day: '420 1 0%',
       },
       // PLATFORM THEMING: every design token resolves to a CSS variable injected at the layout
       // root from the ACTIVE theme (admin-managed, global). RGB-channel form + <alpha-value> so
