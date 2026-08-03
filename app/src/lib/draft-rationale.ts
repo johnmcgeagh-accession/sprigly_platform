@@ -261,9 +261,17 @@ export function groundingLines(evidence: BeatEvidence, pillar: string): Groundin
 // the derivation — `productCoverageFact` and `fromClient` above are read by both — so the panel
 // and the sheet cannot show a client two different versions of the same fact.
 
-/** One row of the summary. `count` is set only where the fact IS a count (a pillar's share of
- *  the month), so the number can sit in its own column instead of inside the sentence. */
-export interface SummaryFact { text: string; count?: string }
+/**
+ * One row of the summary.
+ *
+ * `count` is set only where the fact IS a count (a pillar's share of the month), so the number
+ * can sit in its own column instead of inside the sentence.
+ *
+ * `answerable` marks the one row the client can DO something about. Its `text` is already the
+ * question form (`assumptionPrompt`), because that is what the day's strip showed before this
+ * panel absorbed it — the affordance moved, the wording did not.
+ */
+export interface SummaryFact { text: string; count?: string; answerable?: boolean }
 
 export type SummaryKey = 'mix' | 'series' | 'products' | 'client' | 'assumptions';
 
@@ -313,13 +321,13 @@ function tally(values: readonly string[]): { name: string; n: number }[] {
  * Returns null for a month with nothing in it: an empty month has no argument to state, and a
  * panel saying "0 planned posts across 0 weeks" spends the top of the screen to say nothing.
  *
- * `assumptionShown` is the one the surface already puts at the foot of the day. It is passed in
- * and removed rather than repeated — the same assumption stated twice on one screen reads as two
- * gaps (S1f). The rest are folded in here, where they belong to the month.
+ * THE ASSUMPTIONS ARE ALL HERE NOW. They used to be split: one re-voiced as a tappable question
+ * at the foot of the day, the rest stated in this panel. The day's strip is gone (M4), so the
+ * panel carries the whole set and the question travels with them — see the assumptions block.
  */
 export function monthSummary(
   beats: readonly DraftBeatView[],
-  opts: { monthName: string; editable: boolean; assumptionShown?: string | null },
+  opts: { monthName: string; editable: boolean },
 ): MonthSummary | null {
   if (beats.length === 0) return null;
 
@@ -413,17 +421,37 @@ export function monthSummary(
   }
 
   // ── What we assumed ────────────────────────────────────────────────────────────────
-  // Verbatim, in the assembler's own words, minus the one the day already asks about. These are
-  // the same strings the nudge is voiced from; stating one of them twice on a single screen
-  // would read as two separate gaps in what we know.
-  const shown = opts.assumptionShown?.trim();
+  //
+  // The WHOLE set now, in the assembler's own words, because the day's strip that used to carry
+  // one of them is gone (M4). The affordance came with them rather than being dropped: the one
+  // assumption `firstAnswerable` ranks highest is re-voiced as its question and marked
+  // `answerable`, which is exactly what the strip did — same predicate, same ranking, same
+  // wording, a different place on the screen.
+  //
+  // ONE QUESTION, not one per assumption. The strip had a single slot and that forced a ranking;
+  // the panel has room and could ask them all. It deliberately does not. Asking a client three
+  // things at once is a different act from asking them one, and widening it is a decision about
+  // how much to demand of them — not a consequence of moving a control.
+  //
+  // The question sorts LAST so the two tappable rows in the panel — this and the shaping prompt
+  // under it — sit together, and the statements read as statements above them.
   const seen: string[] = [];
   for (const b of beats) for (const a of b.assumptions) {
     const t = a.trim();
-    if (t && t !== shown && !seen.includes(t)) seen.push(t);
+    if (t && !seen.includes(t)) seen.push(t);
   }
   if (seen.length > 0) {
-    sections.push({ key: 'assumptions', heading: 'What we assumed', facts: seen.map((text) => ({ text })) });
+    // Only on a month that can still be changed: a question the client cannot act on is a dead
+    // prompt, and the strip was never rendered on a closed month either.
+    const askable = opts.editable ? firstAnswerable(seen) : null;
+    sections.push({
+      key: 'assumptions',
+      heading: 'What we assumed',
+      facts: [
+        ...seen.filter((t) => t !== askable).map((text) => ({ text })),
+        ...(askable ? [{ text: assumptionPrompt(askable), answerable: true }] : []),
+      ],
+    });
   }
 
   return {

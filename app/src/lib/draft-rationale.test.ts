@@ -651,14 +651,48 @@ describe('monthSummary — absence is a value', () => {
     expect(texts(thin, 'client')).toEqual(['1 idea you gave us in July']);
   });
 
-  it('folds the assumptions in VERBATIM, minus the one the day already asks about', () => {
-    const shown = 'No launches or restocks are on record for this month — the draft assumes a business-as-usual month.';
-    expect(texts(monthSummary(SEPT, { ...OPTS, assumptionShown: shown }), 'assumptions'))
-      .toEqual(['No pillar weights are on record, so the month splits evenly across pillars.']);
+  /**
+   * M4 — the day's assumption strip is gone, and the panel absorbed BOTH halves of it: the
+   * statements it used to carry, and the one question the strip used to ask.
+   */
+  it('carries every assumption, and re-voices the answerable one as its question', () => {
+    expect(section(monthSummary(SEPT, OPTS), 'assumptions')!.facts).toEqual([
+      { text: 'No pillar weights are on record, so the month splits evenly across pillars.' },
+      { text: 'We’ve assumed nothing’s launching this month — anything coming up?', answerable: true },
+    ]);
   });
 
-  it('every assumption falls to the panel when the day is asking about none of them', () => {
-    expect(texts(monthSummary(SEPT, OPTS), 'assumptions')).toHaveLength(2);
+  it('asks the same one the strip asked — same predicate, same ranking, same wording', () => {
+    const all = [...new Set(SEPT.flatMap((b) => b.assumptions))];
+    const ranked = firstAnswerable(all)!;
+    const asked = section(monthSummary(SEPT, OPTS), 'assumptions')!.facts.find((f) => f.answerable)!;
+    expect(asked.text).toBe(assumptionPrompt(ranked));
+  });
+
+  it('asks ONE question, not one per assumption — the panel has room and still does not', () => {
+    expect(section(monthSummary(SEPT, OPTS), 'assumptions')!.facts.filter((f) => f.answerable)).toHaveLength(1);
+  });
+
+  it('the question sorts LAST, so the panel’s tappable rows sit together', () => {
+    const facts = section(monthSummary(SEPT, OPTS), 'assumptions')!.facts;
+    expect(facts[facts.length - 1]!.answerable).toBe(true);
+    expect(facts.slice(0, -1).every((f) => !f.answerable)).toBe(true);
+  });
+
+  it('asks NOTHING on a month that can no longer be changed — never a dead prompt', () => {
+    const facts = section(monthSummary(SEPT, { ...OPTS, editable: false }), 'assumptions')!.facts;
+    expect(facts.some((f) => f.answerable)).toBe(false);
+    // Still stated, though. A closed month kept its assumptions before and keeps them now.
+    expect(facts.map((f) => f.text)).toEqual([
+      'No launches or restocks are on record for this month — the draft assumes a business-as-usual month.',
+      'No pillar weights are on record, so the month splits evenly across pillars.',
+    ]);
+  });
+
+  it('an assumption that is only a fact about OUR data is never dressed as a question', () => {
+    const ours = 'the format mix is based on posts whose format we could not read';
+    const beats = SEPT.map((b) => ({ ...b, assumptions: [ours] }));
+    expect(section(monthSummary(beats, OPTS), 'assumptions')!.facts).toEqual([{ text: ours }]);
   });
 
   it('an assumption stated on ten beats is stated once', () => {
