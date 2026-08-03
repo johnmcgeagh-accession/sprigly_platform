@@ -38,8 +38,9 @@
  * listening / lost / refused / unsupported) — those are facts about the capture, not about the
  * agent, and they live beside the control they describe.
  */
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Sheet } from './Sheet';
+import { Panel, type Chrome } from './Panel';
 import { MicGlyph, SendGlyph, CloseGlyph } from './icons';
 import { AgentSays } from './AgentVoice';
 import { capAnnouncement } from '@sprigly/engine/ai-change-cap';
@@ -111,6 +112,7 @@ const nextKey = () => `local-${++localKey}`;
 export function VoiceSheet({
   open, monthName, busy, question, context = 'draft', cycleId, entry = 'mic',
   onClose, onSubmit, onApply, onDiscard, onWantMore, isPending,
+  chrome = 'sheet', onOpenChanges,
 }: {
   open: boolean;
   monthName: string;
@@ -152,6 +154,21 @@ export function VoiceSheet({
   /** Is this proposal still pending? A reopened interpretation turn is actionable only while
    *  its proposals are — the pending list is the caller's (usePlanData) to know. */
   isPending?: ((proposalId: string) => boolean) | undefined;
+  /** `panel` docks this in the desktop shell's right edge instead of summoning it over the
+   *  surface. The thread, the composer and the whole apply lifecycle are unchanged — only the
+   *  frame differs, and the ✕ goes with it: a region that is always there has nothing to close.
+   *  See Panel.tsx. */
+  chrome?: Chrome;
+  /**
+   * The change items of every interpretation turn currently OPEN, whenever that set changes —
+   * including to empty when one resolves, is discarded or is superseded.
+   *
+   * It exists for one caller: the desktop month grid rings the days an open turn NAMES, so the
+   * consequence of a sentence is visible in the same glance as the sentence (spec §5.3, D5).
+   * The items are reported raw and the ring derivation lives with the grid, because the thread
+   * has no opinion about calendars — it just knows what is still awaiting consent.
+   */
+  onOpenChanges?: ((items: readonly InterpretedItem[]) => void) | undefined;
 }) {
   const [text, setText] = useState('');
   const [turns, setTurns] = useState<ThreadTurn[]>([]);
@@ -316,6 +333,28 @@ export function VoiceSheet({
     threadEnd.current?.scrollIntoView?.({ behavior: reduced ? 'auto' : 'smooth', block: 'end' });
   }, [open, turnCount]);
 
+  /**
+   * D5 — WHAT IS STILL AWAITING CONSENT, reported upward.
+   *
+   * Derived from `turns` rather than tracked alongside it, so it cannot fall out of step with
+   * what is on screen: every path that changes a turn's status — apply, discard, per-item drop,
+   * supersede by a later utterance — flows through `setTurns`, and this recomputes from the
+   * result. There is no second source and nothing to remember to clear.
+   *
+   * `JSON.stringify` as the dependency, not the array: the flat map allocates a new array on
+   * every render, and an effect keyed on identity would fire the callback forever.
+   */
+  const openItems = useMemo(
+    () => turns.flatMap((t) => (t.kind === 'interpretation' && t.status === 'open' ? t.items : [])),
+    [turns],
+  );
+  const openKey = JSON.stringify(openItems);
+  useEffect(() => {
+    onOpenChanges?.(openItems);
+    // `openItems` is covered by `openKey`, which is its value rather than its identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openKey, onOpenChanges]);
+
   if (!open) return null;
 
   const append = (...t: ThreadTurn[]) => setTurns((cur) => [...cur, ...t]);
@@ -446,17 +485,23 @@ export function VoiceSheet({
 
   const lastAgentIdx = turns.reduce((acc, t, i) => (t.kind !== 'user' ? i : acc), -1);
 
+  const Frame = chrome === 'panel' ? Panel : Sheet;
+
   return (
-    <Sheet open={open} label={framing.title} testid="voice-sheet" onClose={onClose} hasOwnClose>
+    <Frame open={open} label={framing.title} testid="voice-sheet" onClose={onClose} hasOwnClose>
       <>
         <div className="flex flex-none items-center gap-3 px-[18px] pb-2 pt-1">
           <h2 data-testid="voice-heading" className="min-w-0 flex-1 truncate text-[17px] font-bold tracking-[-.02em] text-chrome">
             {framing.title}
           </h2>
-          <button type="button" data-testid="voice-close" aria-label="Close" onClick={onClose}
-            className="flex h-11 w-11 flex-none items-center justify-center rounded-full bg-line-soft text-chrome">
-            <CloseGlyph className="h-[17px] w-[17px]" />
-          </button>
+          {/* A docked panel has nothing to close — the ✕ belongs to the sheet that covers
+              the month, not to a region that is part of it. */}
+          {chrome === 'sheet' && (
+            <button type="button" data-testid="voice-close" aria-label="Close" onClick={onClose}
+              className="flex h-11 w-11 flex-none items-center justify-center rounded-full bg-line-soft text-chrome">
+              <CloseGlyph className="h-[17px] w-[17px]" />
+            </button>
+          )}
         </div>
 
         {/* ── THE THREAD ──────────────────────────────────────────────────────────────── */}
@@ -584,6 +629,6 @@ export function VoiceSheet({
         {/* Renders nothing unless the operator armed `?mic=trace` for this tab. */}
         <MicTracePanel />
       </>
-    </Sheet>
+    </Frame>
   );
 }

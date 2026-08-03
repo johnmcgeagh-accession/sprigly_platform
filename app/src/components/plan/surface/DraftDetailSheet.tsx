@@ -37,13 +37,14 @@
 import React, { useState } from 'react';
 import type { DraftBeatView, PostFormat } from '@/lib/types';
 import { Sheet } from './Sheet';
+import { Panel, type Chrome } from './Panel';
 import { FormatControl } from './FormatControl';
 import { FormatTile, InfoGlyph, CalGlyph, BinGlyph } from './icons';
 import { dayTitle } from './dates';
 import { groundingLines, slotLabel } from '@/lib/draft-rationale';
 
 export function DraftDetailSheet({
-  beat, editable, busy, onClose, onMove, onDelete, onFormat,
+  beat, editable, busy, onClose, onMove, onDelete, onFormat, chrome = 'sheet',
 }: {
   beat: DraftBeatView | null;
   editable: boolean;
@@ -52,6 +53,8 @@ export function DraftDetailSheet({
   onMove: () => void;
   onDelete: () => void;
   onFormat: (f: PostFormat) => void;
+  /** `panel` places this inline in the desktop day column. See Panel.tsx. */
+  chrome?: Chrome;
 }) {
   const [insights, setInsights] = useState(false);
 
@@ -67,8 +70,10 @@ export function DraftDetailSheet({
   const grounding = groundingLines(beat.evidence, beat.pillar);
   const experiment = slotLabel(beat.slotType);
 
+  const Frame = chrome === 'panel' ? Panel : Sheet;
+
   return (
-    <Sheet open label={beat.title} testid="detail-sheet" onClose={onClose}>
+    <Frame open label={beat.title} testid="detail-sheet" onClose={onClose}>
       <>
         <div className="flex-none border-b border-line/30 px-[18px] pb-3.5 pt-1.5">
           <div className="flex items-start gap-3">
@@ -157,7 +162,7 @@ export function DraftDetailSheet({
           </div>
         )}
       </>
-    </Sheet>
+    </Frame>
   );
 }
 
