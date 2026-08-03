@@ -50,12 +50,22 @@ import { isPostOnTheWay } from '@/lib/generation-state';
 import { orphanPosts } from '@/lib/cycle-nav';
 import { lateCount } from '../derive';
 import { cardText } from './card-text';
+import { DesktopShell } from './DesktopShell';
+import type { RailView } from './Rail';
+import { ringedPredicate } from './ringed-days';
+import { type SurfaceFrame } from './frame';
 
-export function CommittedSurface({ data }: { data: PlanData }) {
+export function CommittedSurface({ data, frame = 'mobile' }: { data: PlanData; frame?: SurfaceFrame }) {
+  const desktop = frame === 'desktop';
   const viewedCycle = data.cycles.find((c) => c.cycleId === data.viewedCycleId);
   const month = viewedCycle?.displayMonth ?? monthOf(data.today);
 
   const [view, setView] = useState<PlanView>('day');
+  /** The DESKTOP rail's position. A separate piece of state from `view` on purpose: the two
+   *  navigate different things (Day/Month/Tasks against Plan/Tasks), and collapsing them into
+   *  one enum would mean a client switching form factor mid-session lands somewhere the other
+   *  shell has no word for. */
+  const [railView, setRailView] = useState<RailView>('plan');
   /**
    * THE SELECTION RULE (F2): `selected` changes on a GESTURE, or on a restore of where a
    * gesture last put it. Nothing else. The initialiser prefers the tab's stored position
@@ -100,6 +110,14 @@ export function CommittedSurface({ data }: { data: PlanData }) {
    * calendar is what shows it.
    */
   const [changedIds, setChangedIds] = useState<readonly string[]>([]);
+
+  /**
+   * D5 — the days an OPEN interpretation turn names, reported up by the thread and read here.
+   * Empty on every other state, so the rings appear with the turn and leave with it; there is
+   * nothing to clear on apply, discard or supersede because the thread recomputes the set.
+   */
+  const [openChangeItems, setOpenChangeItems] = useState<readonly InterpretedItem[]>([]);
+  const ringed = useMemo(() => ringedPredicate(openChangeItems), [openChangeItems]);
 
   /**
    * ── WHAT-CHANGED VISIBILITY ──────────────────────────────────────────────────────────
@@ -329,6 +347,161 @@ export function CommittedSurface({ data }: { data: PlanData }) {
     [data.posts, data.cycles],
   );
 
+  /**
+   * THE OVERLAYS, once. Both shells render the same set — the detail view, the conversation and
+   * the two pickers — because they ARE the same components; only the frame around the first two
+   * differs (Panel.tsx). Naming them here rather than inlining them twice is what stops the two
+   * form factors drifting apart one prop at a time.
+   *
+   * On DESKTOP the detail and the conversation are lifted OUT of this set and placed in the
+   * shell's own regions — the detail into the day column, the conversation into the dock — so
+   * what is left here is genuinely still a sheet on both: move and add.
+   */
+  const voiceNode = (
+    <VoiceSheet
+      // DOCKED on desktop: always open, panel chrome, and it reports the days an open turn
+      // names so the grid can ring them. On a phone it is a sheet the mic summons.
+      {...(desktop
+        ? { open: true, chrome: 'panel' as const, entry: 'docked' as const, onOpenChanges: setOpenChangeItems }
+        : { open: voiceOpen })} context="committed" monthName={monthTitle(month).split(' ')[0] ?? ''}
+      cycleId={data.viewedCycleId}
+      busy={data.agentBusy}
+      onClose={() => setVoiceOpen(false)}
+      // The reply renders as thread turns — `silent` keeps the out-of-sheet copies
+      // (agentFlash, the Approvals flash) from doubling it over the thread. A pure query's
+      // answer rides back as `message` and becomes an agent turn: the dead-end is gone.
+      onSubmit={async (text, source, conversationId, pendingProposalIds) => {
+        const reply = await data.ask(text, null, source, { silent: true, conversationId, pendingProposalIds });
+        if (!reply) return { ok: false as const };   // refused or errored — the composer keeps the words
+        return {
+          ok: true as const, items: reply.items,
+          ...(reply.message ? { message: reply.message } : {}),
+          ...(reply.conversationId ? { conversationId: reply.conversationId } : {}),
+          ...(reply.supersededProposalIds ? { supersededProposalIds: reply.supersededProposalIds } : {}),
+          // X2a: the allowance would not cover this. It becomes its own turn in the thread.
+          ...(reply.capNotice ? { capNotice: reply.capNotice } : {}),
+        };
+      }}
+      /**
+       * X2d — THE UPSELL, and the whole of it.
+       *
+       * The moment the agent says "you've none left this month" is the moment the client
+       * most wants more, so the offer sits on that turn and nowhere else. It records the
+       * interest and says a person will be in touch. There is deliberately no price, no
+       * plan change and no payment flow: shipping those would mean shipping a number
+       * nobody has set, and the fact worth capturing — that this client wanted N more
+       * changes on this date — is available today.
+       */
+      onWantMore={async (notice) => {
+        try {
+          const r = await fetch('/api/plan/upsell-interest', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cycleId: data.viewedCycleId, changesWanted: notice.needed }),
+          });
+          return r.ok;
+        } catch { return false; }   // nothing was filed, so nothing claims it was
+      }}
+      // F4, threaded: the apply runs in the background and the settled report becomes the
+      // confirmation turn; chip + highlights land outside the sheet either way.
+      onApply={runApply}
+      onDiscard={(ids) => void data.discardChanges(ids)}
+      isPending={(id) => data.proposals.some((p) => p.id === id)}
+    />
+  );
+
+  const detailNode = (
+    <DetailSheet
+      post={openPost} data={data} rationale={openPost?.rationale ?? ''}
+      chrome={desktop ? 'panel' : 'sheet'}
+      onClose={() => setOpenId(null)}
+      onMove={() => { if (openPost) setMoveId(openPost.id); }}
+      onDelete={() => { if (openPost) doDelete(openPost); }}
+    />
+  );
+
+  const pickerNodes = (
+    <>
+      {addFor && (
+        <AddSheet
+          open date={addFor} pillars={null} busy={data.busy}
+          onClose={() => setAddFor(null)}
+          onSubmit={({ format, subject }) => data.addShapedPost(addFor, format, subject)}
+        />
+      )}
+      {movePost && (
+        <MoveSheet
+          open onClose={() => setMoveId(null)}
+          postDate={movePost.date} postTime={movePost.postingTime ?? null}
+          postHeading={cardText(movePost).heading}
+          knownTimes={knownTimes}
+          canMoveTo={data.canEdit}
+          onMove={(d, t) => doMove(movePost, d, t)}
+        />
+      )}
+    </>
+  );
+
+  const overlayNodes = <>{detailNode}{voiceNode}{pickerNodes}</>;
+
+  /**
+   * ── DESKTOP ──────────────────────────────────────────────────────────────────────────
+   *
+   * The same month, the same state, the same components — a different frame. Three things are
+   * genuinely different, and each is the spec's:
+   *
+   *   THE DETAIL PANEL TAKES THE DAY COLUMN'S SLOT. It is a drill-down of the day, not a third
+   *   column, so opening a post reflows nothing and the conversation never yields its edge.
+   *   THE CONVERSATION IS DOCKED, always open, `entry="docked"` so it does not take focus from
+   *   a page nobody asked it to interrupt.
+   *   THE GRID RINGS what an open turn names (D5).
+   */
+  if (desktop) {
+    return (
+      <DesktopShell
+        clientName={data.clientName}
+        subtitle={monthPosts.length === 1 ? '1 post this month' : `${monthPosts.length} posts this month`}
+        view={railView} onView={setRailView}
+        tasksCount={lateCount(data.posts, data.today)} tasksLate={lateCount(data.posts, data.today) > 0}
+        monthLabel={monthTitle(month)}
+        onPrevMonth={prev ? () => { navTrace('cycle user:prev-month', prev.cycleId); void data.switchCycle(prev.cycleId); } : undefined}
+        onNextMonth={next ? () => { navTrace('cycle user:next-month', next.cycleId); void data.switchCycle(next.cycleId); } : undefined}
+        onToday={goToday} todayEnabled={todayEnabled}
+        topSlot={<Feedback
+          undo={undo} onDismiss={() => setUndo(null)} message={data.toast}
+          agent={null} agentWorking={false}
+        />}
+        month={railView === 'tasks' ? null : (
+          <MonthGrid
+            month={month} selected={selected} today={data.today} frame="desktop"
+            marksFor={marksFor} changedFor={dayChanged} ringedFor={ringed}
+            onPick={pickFromGrid} footer={monthFooter} lockToMonth
+          />
+        )}
+        day={railView === 'tasks'
+          ? <TasksPanel data={data} onOpen={setOpenId} frame="desktop" />
+          : openPost
+            ? detailNode
+            : (
+              <DayPanel
+                date={selected} today={data.today} frame="desktop"
+                posts={postsOn(selected)}
+                beats={data.beatsOn(selected)}
+                canAdd={data.canEdit(selected)}
+                changedIds={changedIds}
+                onOpen={setOpenId}
+                onAdd={() => setAddFor(selected)}
+                onBeat={data.flash}
+                outside={outside}
+                timeOf={timeOf}
+                weather={data.weather.get(selected)}
+              />
+            )}
+        dock={data.readOnly ? undefined : voiceNode}
+        overlays={pickerNodes}
+      />
+    );
+  }
+
   return (
     <PlanShell
       monthLabel={monthTitle(month)}
@@ -376,79 +549,7 @@ export function CommittedSurface({ data }: { data: PlanData }) {
       // No `chip` and no `badge`. Both header surfaces that reported changes are gone by ruling
       // (G6 took the "What changed" row; X5b takes the applied chip and its panel), so a
       // committed month's chrome is the month, the strip and the day.
-      overlays={<>
-        <DetailSheet
-          post={openPost} data={data} rationale={openPost?.rationale ?? ''}
-          onClose={() => setOpenId(null)}
-          onMove={() => { if (openPost) setMoveId(openPost.id); }}
-          onDelete={() => { if (openPost) doDelete(openPost); }}
-        />
-        {/* ROUND 6, P1 — the add slot opens this instead of creating an empty post. A committed
-            month needs no pillar: `addGeneratingPost` files a new idea under "New idea" rather
-            than asking the client to categorise something they have not written yet. */}
-        <VoiceSheet
-          open={voiceOpen} context="committed" monthName={monthTitle(month).split(' ')[0] ?? ''}
-          cycleId={data.viewedCycleId}
-          busy={data.agentBusy}
-          onClose={() => setVoiceOpen(false)}
-          // The reply renders as thread turns — `silent` keeps the out-of-sheet copies
-          // (agentFlash, the Approvals flash) from doubling it over the thread. A pure query's
-          // answer rides back as `message` and becomes an agent turn: the dead-end is gone.
-          onSubmit={async (text, source, conversationId, pendingProposalIds) => {
-            const reply = await data.ask(text, null, source, { silent: true, conversationId, pendingProposalIds });
-            if (!reply) return { ok: false as const };   // refused or errored — the composer keeps the words
-            return {
-              ok: true as const, items: reply.items,
-              ...(reply.message ? { message: reply.message } : {}),
-              ...(reply.conversationId ? { conversationId: reply.conversationId } : {}),
-              ...(reply.supersededProposalIds ? { supersededProposalIds: reply.supersededProposalIds } : {}),
-              // X2a: the allowance would not cover this. It becomes its own turn in the thread.
-              ...(reply.capNotice ? { capNotice: reply.capNotice } : {}),
-            };
-          }}
-          /**
-           * X2d — THE UPSELL, and the whole of it.
-           *
-           * The moment the agent says "you've none left this month" is the moment the client
-           * most wants more, so the offer sits on that turn and nowhere else. It records the
-           * interest and says a person will be in touch. There is deliberately no price, no
-           * plan change and no payment flow: shipping those would mean shipping a number
-           * nobody has set, and the fact worth capturing — that this client wanted N more
-           * changes on this date — is available today.
-           */
-          onWantMore={async (notice) => {
-            try {
-              const r = await fetch('/api/plan/upsell-interest', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cycleId: data.viewedCycleId, changesWanted: notice.needed }),
-              });
-              return r.ok;
-            } catch { return false; }   // nothing was filed, so nothing claims it was
-          }}
-          // F4, threaded: the apply runs in the background and the settled report becomes the
-          // confirmation turn; chip + highlights land outside the sheet either way.
-          onApply={runApply}
-          onDiscard={(ids) => void data.discardChanges(ids)}
-          isPending={(id) => data.proposals.some((p) => p.id === id)}
-        />
-        {addFor && (
-          <AddSheet
-            open date={addFor} pillars={null} busy={data.busy}
-            onClose={() => setAddFor(null)}
-            onSubmit={({ format, subject }) => data.addShapedPost(addFor, format, subject)}
-          />
-        )}
-        {movePost && (
-          <MoveSheet
-            open onClose={() => setMoveId(null)}
-            postDate={movePost.date} postTime={movePost.postingTime ?? null}
-            postHeading={cardText(movePost).heading}
-            knownTimes={knownTimes}
-            canMoveTo={data.canEdit}
-            onMove={(d, t) => doMove(movePost, d, t)}
-          />
-        )}
-      </>}
+      overlays={overlayNodes}
       strip={view === 'day' ? (
         <WeekStrip
           selected={selected} today={data.today} month={month}

@@ -26,10 +26,12 @@
  */
 import React from 'react';
 import { DOW_INITIAL, monthGrid, fromIso, MONTHS_FULL } from './dates';
+import { scrollPad, type SurfaceFrame } from './frame';
 import type { DayMark } from './WeekStrip';
 
 export function MonthGrid({
-  month, selected, today, marksFor, changedFor, onPick, footer, summary, lockToMonth,
+  month, selected, today, marksFor, changedFor, ringedFor, onPick, footer, summary, lockToMonth,
+  frame = 'mobile',
 }: {
   month: string;
   selected: string;
@@ -38,6 +40,15 @@ export function MonthGrid({
   marksFor: (iso: string) => DayMark[];
   /** RECENTLY CHANGED: an extra accent dot beside the day's marks (what-changed visibility). */
   changedFor?: ((iso: string) => boolean) | undefined;
+  /**
+   * D5 — a day an OPEN interpretation turn names, on the desktop shell.
+   *
+   * A RING ON THE CELL, not a dot beside the numeral, and the distinction is the point: the dots
+   * say what a day HOLDS, and this says what a sentence WOULD DO to it. Two different facts have
+   * to look different or the client reads a proposal as a post. Nothing is applied while it is
+   * up, and it leaves when the turn does.
+   */
+  ringedFor?: ((iso: string) => boolean) | undefined;
   onPick: (iso: string) => void;
   /**
    * ROUND 4 (the jump): the padding cells are INERT — another month's day cannot be selected
@@ -55,11 +66,14 @@ export function MonthGrid({
   /** What the selected day holds (round 6, P6). Rendered under the footer; the move picker
    *  passes nothing, because a picker's job ends at the date. */
   summary?: React.ReactNode | undefined;
+  /** Which shell this is rendering inside — see frame.ts. The desktop shell has no floating
+   *  nav to reserve room for. */
+  frame?: SurfaceFrame;
 }) {
   const cells = monthGrid(month);
 
   return (
-    <div data-testid="month-grid" className="flex-1 overflow-y-auto px-[22px] pb-[104px] pt-[18px] [scrollbar-width:none]">
+    <div data-testid="month-grid" className={`flex-1 overflow-y-auto px-[22px] pt-[18px] [scrollbar-width:none] ${scrollPad(frame)}`}>
       <div className="grid grid-cols-7 gap-0.5 pb-1.5" aria-hidden="true">
         {DOW_INITIAL.map((d, i) => (
           <span key={i} className="text-center text-[10.5px] font-semibold uppercase tracking-[.1em] text-muted">{d}</span>
@@ -71,19 +85,27 @@ export function MonthGrid({
           const isSelected = iso === selected;
           const d = fromIso(iso);
           const inert = !!lockToMonth && !inMonth;
+          const ringed = !inert && !!ringedFor?.(iso);
           return (
             <button
               key={iso} type="button" data-testid="grid-cell" data-date={iso}
               aria-current={isSelected ? 'true' : undefined}
               // Disabled, never hidden — the same grammar the week strip's month edge uses.
+              // The ring is announced, not just drawn: a change awaiting consent is exactly the
+              // kind of state that must not be carried by colour alone.
               aria-label={inert
                 ? `${day} ${MONTHS_FULL[d.getMonth()]} — in ${MONTHS_FULL[d.getMonth()]}, use the month arrows to open it`
-                : `${day} ${MONTHS_FULL[d.getMonth()]}${marks.length ? `, ${marks.length} post${marks.length === 1 ? '' : 's'}` : ', nothing planned'}${iso === today ? ', today' : ''}`}
+                : `${day} ${MONTHS_FULL[d.getMonth()]}${marks.length ? `, ${marks.length} post${marks.length === 1 ? '' : 's'}` : ', nothing planned'}${iso === today ? ', today' : ''}${ringed ? ', in the change you are being asked about' : ''}`}
               disabled={inert}
               onClick={() => { if (!inert) onPick(iso); }}
               // aspect-square keeps the cell above 44px at 390px (350px ÷ 7 = 50px) and above
               // the 40px floor down to 320px (304 ÷ 7 = 43px).
-              className="flex aspect-square flex-col items-center justify-center gap-[5px] rounded-[14px]"
+              {...(ringed ? { 'data-ringed': 'true' } : {})}
+              className={`flex aspect-square flex-col items-center justify-center gap-[5px] rounded-[14px] ${
+                // accent-600 is NON-TEXT identity, which is precisely what this is: a 2px inset
+                // and its own tint, with no ink on top of it.
+                ringed ? 'bg-coral-100 shadow-[inset_0_0_0_2px_rgb(var(--t-accent-600,232_112_95))]' : ''
+              }`}
             >
               <span
                 className={[

@@ -20,6 +20,24 @@ const config: Config = {
   corePlugins: { preflight: false },
   theme: {
     extend: {
+      /**
+       * THE DESKTOP COLUMN ARITHMETIC (docs/design/desktop-plan-surface.md §2.1).
+       *
+       *   rail 196 + 24 + month 512 + 20 + day 320 + 24 + dock 344 = 1440
+       *
+       * Named here rather than written into the shell as arbitrary values, for the same reason
+       * colours are: a layout constant that four components have to agree on belongs in one
+       * place, and the surface's own fence is built on the principle that a component NAMES a
+       * value rather than declaring one. `rail-tight` and `dock-tight` are the 1080–1279 band.
+       */
+      width: {
+        rail: '196px',
+        'rail-tight': '68px',
+        month: '512px',
+        day: '320px',
+        dock: '344px',
+        'dock-tight': '320px',
+      },
       // PLATFORM THEMING: every design token resolves to a CSS variable injected at the layout
       // root from the ACTIVE theme (admin-managed, global). RGB-channel form + <alpha-value> so
       // Tailwind opacity modifiers (`bg-line/40`, `text-coral-800/85`) keep working. Each var has

@@ -31,11 +31,13 @@ import React from 'react';
 import type { DraftBeatView } from '@/lib/types';
 import { FormatTile, PlusGlyph, BulbGlyph } from './icons';
 import { dayTitle } from './dates';
+import { scrollPad, type SurfaceFrame } from './frame';
 import { rationaleFor, slotLabel } from '@/lib/draft-rationale';
 import { CompactRows, ROWS_BEFORE_MORE, densityOf } from './rows';
 
 export function DraftDayPanel({
   date, today, beats, editable, changedIds, onOpen, onAdd, summary, footer,
+  frame = 'mobile',
 }: {
   date: string;
   today: string;
@@ -55,13 +57,16 @@ export function DraftDayPanel({
   /** The thin-month line, when the month is thin. Rendered at the FOOT of the day, after the
    *  client has read what there is (spec §9.2) — never above it as a caveat. */
   footer?: React.ReactNode | undefined;
+  /** Which shell this is rendering inside — see frame.ts. The desktop shell has no floating
+   *  nav to reserve room for. */
+  frame?: SurfaceFrame;
 }) {
   const heading = date === today ? `Today · ${dayTitle(date)}` : dayTitle(date);
   const count = beats.length;
   const density = densityOf(count);
 
   return (
-    <div data-testid="day-panel" data-date={date} data-surface="draft" className="flex-1 overflow-y-auto px-5 pb-[104px] pt-2.5 [scrollbar-width:none]">
+    <div data-testid="day-panel" data-date={date} data-surface="draft" className={`flex-1 overflow-y-auto px-5 pt-2.5 [scrollbar-width:none] ${scrollPad(frame)}`}>
       {summary}
 
       <div className="mb-3 flex items-baseline gap-2.5">

@@ -32,6 +32,7 @@ import React from 'react';
 import type { PlanPost, PlanBeat } from '@/lib/types';
 import { FormatTile, PlusGlyph } from './icons';
 import { dayTitle } from './dates';
+import { scrollPad, type SurfaceFrame } from './frame';
 import { isPostOnTheWay, isBanked, ON_THE_WAY_LABEL, ON_THE_WAY_TEASER, ON_THE_WAY_ARIA, BANKED_LABEL, BANKED_TEASER, BANKED_ARIA } from '@/lib/generation-state';
 import { cardText } from './card-text';
 import { WeatherHeaderBadge } from '../pieces';
@@ -41,6 +42,7 @@ import { CompactRows, ROWS_BEFORE_MORE, densityOf, rowsFromPosts } from './rows'
 
 export function DayPanel({
   date, today, posts, beats, canAdd, changedIds, onOpen, onAdd, onBeat, outside, timeOf, weather,
+  frame = 'mobile',
 }: {
   date: string;
   today: string;
@@ -62,6 +64,9 @@ export function DayPanel({
    *  weather overlay — the redesign never asked for it to go, and the day header is where it
    *  already lived. Absent on any failure, and the header renders identically without it. */
   weather?: WeatherDay | undefined;
+  /** Which shell this is rendering inside — see frame.ts. The desktop shell has no floating
+   *  nav to reserve room for. */
+  frame?: SurfaceFrame;
 }) {
   const heading = date === today ? `Today · ${dayTitle(date)}` : dayTitle(date);
   const count = posts.length;
@@ -71,7 +76,7 @@ export function DayPanel({
     // pt-3 / mb-3, not pt-4 / mb-3.5: the phone check found the day's content starting a third
     // of the way down the screen, and this is the last of the four paddings that caused it
     // (round 6, P4). The rest are in PlanShell.
-    <div data-testid="day-panel" data-date={date} className="flex-1 overflow-y-auto px-5 pb-[104px] pt-2.5 [scrollbar-width:none]">
+    <div data-testid="day-panel" data-date={date} className={`flex-1 overflow-y-auto px-5 pt-2.5 [scrollbar-width:none] ${scrollPad(frame)}`}>
       <div className="mb-3 flex items-baseline gap-2.5">
         <h2 data-testid="day-title" className="text-[22px] font-bold tracking-[-.02em] text-chrome">{heading}</h2>
         <span className="flex-1" />

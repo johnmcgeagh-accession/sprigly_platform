@@ -122,8 +122,11 @@ export function VoiceSheet({
   /** The month on screen — the thread is per-cycle, and this names which. */
   cycleId: string;
   /** How the sheet was opened. The mic entry starts listening on the gesture's own task; the
-   *  typed entry focuses the composer instead. Same sheet, same thread either way. */
-  entry?: 'mic' | 'type';
+   *  typed entry focuses the composer instead. `docked` is the desktop's: the conversation is a
+   *  REGION that mounts with the page, so nobody opened it and it must not take focus — a panel
+   *  that grabs the caret on load puts the client's first keystroke somewhere they did not
+   *  choose. Same sheet, same thread in all three. */
+  entry?: 'mic' | 'type' | 'docked';
   /** The assumption being answered, when opened from the nudge. It arrives as the agent's next
    *  turn — a question in the thread, answered through the composer like any other. */
   question?: string | undefined;
@@ -308,10 +311,11 @@ export function VoiceSheet({
     if (!open) stopSpeech();
   }, [open, stopSpeech]);
 
-  // Focus the composer on open — both entry points, because both open a chat.
+  // Focus the composer on open — both GESTURE entry points, because both open a chat. Never
+  // when docked: nothing was opened, so there is no gesture whose intent this would be serving.
   useEffect(() => {
-    if (open) field.current?.focus({ preventScroll: true });
-  }, [open]);
+    if (open && entry !== 'docked') field.current?.focus({ preventScroll: true });
+  }, [open, entry]);
 
   // Honest capture state, held behind the grace (unchanged from the one-pipeline fix).
   const [audioOk, setAudioOk] = useState<boolean | null>(null);

@@ -20,6 +20,7 @@
  * The grouping, the buckets and the late rule are `planTasks` and `postAtRisk`, untouched.
  */
 import React from 'react';
+import { scrollPad, type SurfaceFrame } from './frame';
 import type { PlanData } from '../usePlanData';
 import { planTasks } from '../derive';
 import { postTitle } from '../pieces';
@@ -27,7 +28,7 @@ import { FormatTile } from './icons';
 import { TaskRow, CompletedSection } from './TaskList';
 import { dueDate } from '@/lib/checklist';
 
-export function TasksPanel({ data, onOpen }: { data: PlanData; onOpen: (postId: string) => void }) {
+export function TasksPanel({ data, onOpen, frame = 'mobile' }: { data: PlanData; onOpen: (postId: string) => void; frame?: SurfaceFrame }) {
   const groups = planTasks(data.posts, data.today);
   const total = groups.overdue.length + groups.next7.length + groups.later.length;
   const sections: [string, string, typeof groups.overdue][] = [
@@ -43,7 +44,7 @@ export function TasksPanel({ data, onOpen }: { data: PlanData; onOpen: (postId: 
     .sort((a, b) => (b.step.doneAt ?? '').localeCompare(a.step.doneAt ?? ''));
 
   return (
-    <div data-testid="tasks-panel" className="flex-1 overflow-y-auto px-5 pb-[104px] pt-3 [scrollbar-width:none]">
+    <div data-testid="tasks-panel" className={`flex-1 overflow-y-auto px-5 pt-3 [scrollbar-width:none] ${scrollPad(frame)}`}>
       {total === 0 && (
         <div className="mx-6 my-10 text-center">
           <span className="mb-2 block text-[22px] font-bold tracking-[-.02em] text-chrome">

@@ -180,7 +180,7 @@ export function PlanShell({
  * the reach of a client's patience. Nothing visible changes until it fires, so the wordmark is
  * still just the wordmark; the panel that appears names itself in its first line.
  */
-function Wordmark() {
+export function Wordmark({ className = 'flex flex-none items-center gap-[7px] px-5 pt-1.5' }: { className?: string }) {
   const taps = React.useRef<{ n: number; at: number }>({ n: 0, at: 0 });
   const onTap = () => {
     const now = performance.now();
@@ -190,7 +190,7 @@ function Wordmark() {
   };
   return (
     <div
-      className="flex flex-none items-center gap-[7px] px-5 pt-1.5"
+      className={className}
       onClick={onTap}
       // Not a button: it is the identity, and announcing "toggle the navigation trace" to every
       // client who lands here would make a diagnostic into a feature. The gesture is deliberately

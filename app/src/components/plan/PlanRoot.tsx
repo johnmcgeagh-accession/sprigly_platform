@@ -4,12 +4,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { usePlanData, type PlanDataInit } from './usePlanData';
 import { readNavState, urlNamesCycle } from './nav-state';
 import { navTrace } from './nav-trace';
-import { DraftPlan } from '../DraftPlan';
-import { PlanDesktop } from './PlanDesktop';
 import { CommittedSurface } from './surface/CommittedSurface';
 import { DraftSurface } from './surface/DraftSurface';
 import { IntakeCapture } from './IntakeCapture';
-import { Toast } from './primitives';
 import { prevMonth } from '@/lib/cycle-nav';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -107,44 +104,25 @@ export function PlanRoot(props: PlanDataInit) {
    * was the point of inverting the fork: reconciling the two shells is what spec §1.3 named as
    * the single largest piece of work the redesign implies, and this is it.
    *
-   * On DESKTOP it is still `DraftPlan`, deliberately. `PlanDesktop`'s own redesign is a later
-   * session and the shell must not break it in the meantime; what crosses over when that session
-   * runs is everything width-agnostic — the detail sheet as a right-hand panel, the summary chip,
-   * the approval sheet — plus the month control and its arrows.
+   * On DESKTOP it is now the SAME COMPONENT in a different frame. `DraftPlan` — 654 lines of
+   * standalone page with its own header, month pills and hard-coded colour object — is no longer
+   * reachable at any width, and `PlanDesktop` with it. Everything width-agnostic crossed over by
+   * being reused rather than reimplemented: the detail view, the conversation, the summary panel,
+   * the approval consequence, the month control and its arrows.
    *
    * `key` remounts the surface on a month switch, so a client returning to a draft month cannot
-   * see the month they left: `DraftSurface` holds the selected day and the highlight marks in
-   * local state, and both belong to one month.
+   * see the month they left: the surface holds the selected day and the highlight marks in local
+   * state, and both belong to one month. The frame is in the key too — the two shells hold
+   * different view enums, and carrying one across a resize would restore a position the other
+   * has no word for.
    */
   if (isDraft && data.draft) {
-    return desktop ? (
-      <DraftPlan
-        beats={data.draft.beats}
-        monthLabel={viewedMonthLabel}
-        clientName={data.clientName}
-        pillars={data.draft.pillars}
-        editable={data.draft.editable}
-        receipts={data.draft.receipts}
-        cycles={data.cycles}
-        viewedCycleId={data.viewedCycleId}
-        cycleId={data.viewedCycleId}
-        onSwitchCycle={data.switchCycle}
-        switching={data.switching}
-      />
-    ) : (
-      <DraftSurface key={data.viewedCycleId} data={data} />
-    );
+    return <DraftSurface key={`${data.viewedCycleId}:${desktop ? 'd' : 'm'}`} data={data} frame={desktop ? 'desktop' : 'mobile'} />;
   }
 
   return (
     <>
-      {desktop ? <PlanDesktop data={data} /> : <CommittedSurface data={data} />}
-      {/* ROUND 6, P10 — ONE feedback channel on the phone, and it is the shell's TOP slot.
-          This bottom toast was the second one: a confirmation landed at the top, and the
-          confirmation of the very next act landed here, over the nav pill. Desktop keeps it,
-          because `PlanDesktop` has no top slot to move it into and its own redesign is a later
-          session; the shell must not break it in the meantime. */}
-      {desktop && <Toast message={data.toast} />}
+      <CommittedSurface key={desktop ? 'd' : 'm'} data={data} frame={desktop ? 'desktop' : 'mobile'} />
       {data.intakeOpen && (
         <IntakeCapture
           questions={data.questions}

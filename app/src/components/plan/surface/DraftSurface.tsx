@@ -61,6 +61,9 @@ import { chipLabel } from './receipt-summary';
 import { MonthDaySummary } from './rows';
 import { useDraftMonth } from './useDraftMonth';
 import { defaultDayFor, monthOf, monthTitle, monthGrid } from './dates';
+import { DesktopShell } from './DesktopShell';
+import type { RailView } from './Rail';
+import { type SurfaceFrame } from './frame';
 
 /**
  * Under this, a month is THIN and says so at the foot of the day (spec §9.2).
@@ -72,7 +75,8 @@ import { defaultDayFor, monthOf, monthTitle, monthGrid } from './dates';
  */
 const THIN_MONTH_MAX = 4;
 
-export function DraftSurface({ data }: { data: PlanData }) {
+export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame?: SurfaceFrame }) {
+  const desktop = frame === 'desktop';
   const draft = data.draft;
   const viewedCycle = data.cycles.find((c) => c.cycleId === data.viewedCycleId);
   const month = viewedCycle?.displayMonth ?? monthOf(data.today);
@@ -82,6 +86,9 @@ export function DraftSurface({ data }: { data: PlanData }) {
   const editable = !!draft?.editable;
 
   const [view, setView] = useState<PlanView>('day');
+  /** The desktop rail's position — a separate enum, because Plan/Tasks and Day/Month/Tasks
+   *  navigate different things. */
+  const [railView, setRailView] = useState<RailView>('plan');
   // The selection rule (F2) — same as CommittedSurface: a gesture, or a restore of where a
   // gesture last put it. This surface is remounted per cycle (`key={viewedCycleId}`), so a
   // reload restores through the initialiser and the re-anchor covers in-place month moves.
@@ -170,7 +177,24 @@ export function DraftSurface({ data }: { data: PlanData }) {
    * marked answerable. The surface no longer picks that assumption itself; picking it in two
    * places was how the panel and the strip could have come to disagree about which gap mattered.
    */
-  const [summaryOpen, setSummaryOpen] = useState(false);
+  const thin = editable && monthBeats.length > 0 && monthBeats.length <= THIN_MONTH_MAX;
+
+  /**
+   * ── D6: A THIN MONTH OPENS ITS OWN ARGUMENT, on desktop only ────────────────────────
+   *
+   * Two posts on a 1440px screen is the one case where the month column has nothing to say
+   * once the calendar has run out of rows, and the panel is where the month's reasoning lives:
+   * the mix, what came from her, what we assumed. Opening it fills that column with FACTS
+   * rather than with padding, which is the whole of the spec's answer to a thin month.
+   *
+   * On a full month it opens closed, because thirty posts are their own argument and two are
+   * not. On the PHONE it opens closed either way — there the panel heads the day, and starting
+   * it expanded would push the day's content down the screen, which is the exact regression
+   * §S2 measured and fixed.
+   *
+   * An initialiser, not an effect: the client can close it and it stays closed.
+   */
+  const [summaryOpen, setSummaryOpen] = useState(() => desktop && thin);
   const summary = useMemo(
     () => monthSummary(monthBeats, { monthName, editable }),
     [monthBeats, monthName, editable],
@@ -194,7 +218,6 @@ export function DraftSurface({ data }: { data: PlanData }) {
    * an excuse. There is no second approval button here — the mic and the Generate pill are both
    * already on screen.
    */
-  const thin = editable && monthBeats.length > 0 && monthBeats.length <= THIN_MONTH_MAX;
   const thinNote = thin ? (
     <p data-testid="thin-month" className="mt-4 px-1 text-[13.5px] leading-normal text-muted">
       {monthBeats.length === 1 ? 'One post so far' : `${monthBeats.length} posts so far`}. Tell us what’s coming up and
@@ -212,6 +235,143 @@ export function DraftSurface({ data }: { data: PlanData }) {
     setOpenId(null);
     void m.drop(beat);
   };
+
+  /**
+   * ── DESKTOP ──────────────────────────────────────────────────────────────────────────
+   *
+   * The same month and the same state in a different frame. What the draft month brings with it
+   * is its whole provisional skin — the dashed cards, the Draft badge, the Generate pill, the
+   * grounded beats and the month summary — because every one of those is CONTENT, and content
+   * does not change with the shell.
+   *
+   * The receipt panel keeps its rule too: it REPLACES the view rather than stacking over it.
+   * Here the view it replaces is the month column, which is the region the receipt is about.
+   */
+  const draftDetailNode = (
+    <DraftDetailSheet
+      beat={openBeat} editable={editable} busy={m.busy}
+      chrome={desktop ? 'panel' : 'sheet'}
+      onClose={() => setOpenId(null)}
+      onMove={() => { if (openBeat) setMoveId(openBeat.id); }}
+      onDelete={() => { if (openBeat) doDelete(openBeat); }}
+      onFormat={(f: PostFormat) => { if (openBeat) void m.changeFormat(openBeat, f); }}
+    />
+  );
+
+  const summaryNode = (
+    <DraftMonthSummary
+      summary={summary} expanded={summaryOpen} onToggle={() => setSummaryOpen((v) => !v)}
+      onAnswer={(question) => setVoiceFor(question)}
+      {...(editable ? { onShape: () => setVoiceFor('') } : {})}
+    />
+  );
+
+  if (desktop) {
+    return (
+      <DesktopShell
+        clientName={data.clientName}
+        subtitle={monthBeats.length === 1 ? '1 planned post' : `${monthBeats.length} planned posts`}
+        view={railView} onView={setRailView}
+        tasksCount={0} tasksLate={false}
+        monthLabel={monthTitle(month)}
+        onPrevMonth={prev ? () => { navTrace('cycle user:prev-month', prev.cycleId); void data.switchCycle(prev.cycleId); } : undefined}
+        onNextMonth={next ? () => { navTrace('cycle user:next-month', next.cycleId); void data.switchCycle(next.cycleId); } : undefined}
+        onToday={goToday} todayEnabled={todayEnabled}
+        badge={
+          <span className="flex min-w-0 items-center gap-2">
+            <span data-testid="draft-badge" className="flex-none rounded-full bg-coral-650 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[.1em] text-white">
+              Draft
+            </span>
+            <span data-testid="draft-framing" className="min-w-0 truncate text-[13.5px] font-medium text-chrome">
+              This is your {monthName} draft
+            </span>
+          </span>
+        }
+        headerRight={editable && m.beats.length > 0
+          ? <ApprovalPill busy={approval.busy} onClick={() => approval.setOpen(true)} />
+          : undefined}
+        topSlot={<Feedback
+          undo={m.undo} onDismiss={() => m.setUndo(null)} message={data.toast}
+          agent={null} agentWorking={m.shaping}
+        />}
+        month={railView === 'tasks' ? null : showingReceipt && m.receipt ? (
+          <ReceiptPanel
+            receipt={m.receipt} monthName={monthName} editable={editable} rescuing={m.busy}
+            onRescue={(id) => void m.addToMonth(id, m.rescueDate())}
+            onClear={() => { setReceiptOpen(false); m.setReceipt(null); }}
+          />
+        ) : (
+          <>
+            <SummaryChip label={label} expanded={receiptOpen} onToggle={() => setReceiptOpen((v) => !v)} />
+            <MonthGrid
+              month={month} selected={selected} today={data.today} frame="desktop"
+              marksFor={marksFor} onPick={(iso) => setSelected(iso, 'user:grid')}
+              footer={monthFooter} lockToMonth
+            />
+            <div className="flex-none px-[22px] pb-5">{summaryNode}</div>
+          </>
+        )}
+        day={railView === 'tasks'
+          ? <TasksPanel data={data} onOpen={() => {}} frame="desktop" />
+          : openBeat
+            ? draftDetailNode
+            : (
+              <DraftDayPanel
+                date={selected} today={data.today} frame="desktop"
+                beats={beatsOn(selected)}
+                editable={editable && data.canEdit(selected)}
+                changedIds={m.changedIds}
+                onOpen={setOpenId}
+                onAdd={() => setAddFor(selected)}
+                footer={thinNote}
+              />
+            )}
+        dock={editable ? (
+          <VoiceSheet
+            open context="draft" monthName={monthName} busy={m.busy}
+            cycleId={data.viewedCycleId} chrome="panel" entry="docked"
+            {...(voiceFor ? { question: voiceFor } : {})}
+            onClose={() => setVoiceFor(null)}
+            onSubmit={async (text, source) => {
+              const r = await m.say(text, source);
+              if (!r.ok) return { ok: false as const };
+              const lines = r.application?.lines ?? [];
+              return {
+                ok: true as const,
+                message: lines.length ? lines.join('\n')
+                  : r.application?.scope === 'evergreen' ? 'Saved to your ideas — nothing on the month changed.'
+                  : 'Done — the month view shows what changed.',
+              };
+            }}
+          />
+        ) : undefined}
+        overlays={<>
+          {moveBeat && (
+            <MoveSheet
+              open onClose={() => setMoveId(null)}
+              postDate={moveBeat.date} postTime={null} postHeading={moveBeat.title}
+              knownTimes={[]} timeEditable={false}
+              canMoveTo={data.canEdit}
+              onMove={(d) => doMove(moveBeat, d)}
+            />
+          )}
+          <ApprovalSheet
+            open={approval.open} monthLabel={monthTitle(month)} beats={m.beats}
+            busy={approval.busy} error={approval.error}
+            onClose={() => approval.setOpen(false)}
+            onApprove={() => void approval.approve()}
+          />
+          {addFor && (
+            <AddSheet
+              open date={addFor} pillars={draft?.pillars ?? []} busy={m.busy}
+              onClose={() => setAddFor(null)}
+              onSubmit={async ({ format, subject, pillar }) => (await m.add(addFor, format, pillar ?? '', subject)).ok}
+            />
+          )}
+        </>}
+      />
+    );
+  }
 
   return (
     <PlanShell
@@ -255,13 +415,7 @@ export function DraftSurface({ data }: { data: PlanData }) {
       />}
       chip={<SummaryChip label={label} expanded={receiptOpen} onToggle={() => setReceiptOpen((v) => !v)} />}
       overlays={<>
-        <DraftDetailSheet
-          beat={openBeat} editable={editable} busy={m.busy}
-          onClose={() => setOpenId(null)}
-          onMove={() => { if (openBeat) setMoveId(openBeat.id); }}
-          onDelete={() => { if (openBeat) doDelete(openBeat); }}
-          onFormat={(f: PostFormat) => { if (openBeat) void m.changeFormat(openBeat, f); }}
-        />
+        {draftDetailNode}
         {moveBeat && (
           <MoveSheet
             open onClose={() => setMoveId(null)}
@@ -340,17 +494,10 @@ export function DraftSurface({ data }: { data: PlanData }) {
           changedIds={m.changedIds}
           onOpen={setOpenId}
           onAdd={() => setAddFor(selected)}
-          summary={
-            <DraftMonthSummary
-              summary={summary} expanded={summaryOpen} onToggle={() => setSummaryOpen((v) => !v)}
-              // BOTH PROMPTS OPEN THE SAME SHEET the mic opens, and that is the point of putting
-              // them here: the client has just read the reasoning, and the one place to say
-              // something about it is the one place they already know. Answering an assumption
-              // opens it ON that question; the shaping prompt opens it empty.
-              onAnswer={(question) => setVoiceFor(question)}
-              {...(editable ? { onShape: () => setVoiceFor('') } : {})}
-            />
-          }
+          // BOTH PROMPTS OPEN THE SAME SHEET the mic opens, and that is the point of
+          // putting them here: the client has just read the reasoning, and the one place to say
+          // something about it is the one place they already know.
+          summary={summaryNode}
           footer={thinNote}
         />
       )}
