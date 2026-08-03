@@ -99,8 +99,14 @@ export function DraftDetailSheet({
               <h3 className="text-[11px] font-bold uppercase tracking-[.1em] text-coral-800">Why this one is here</h3>
               {/* One fact per row, each separately checkable, rather than one run-on sentence.
                   A `ul` because that is what this is; the marker is drawn as a dot so the list
-                  reads as evidence rather than as instructions. */}
-              <ul className="mt-2 space-y-2">
+                  reads as evidence rather than as instructions.
+                  `list-none pl-0` is LOAD-BEARING. Tailwind preflight is disabled on this surface
+                  (globals.css), so a bare `ul` keeps the browser's disc marker AND its 40px
+                  padding-inline-start — which meant this list drew the browser's dot beside the
+                  one it draws itself, and paid 40px of a ~310px measure for the privilege. The
+                  grounding lines are long ("WSG (Weekend Style Guide) — weekly; last ran 28
+                  August") and every pixel of measure is a word that does not wrap. */}
+              <ul className="mt-2 list-none space-y-2 pl-0">
                 {grounding.map((line, i) => (
                   <li key={`${line.kind}-${i}`} data-testid="grounding-line" data-kind={line.kind} className="flex gap-2">
                     <span aria-hidden className="mt-[7px] h-[3px] w-[3px] flex-none rounded-full bg-coral-800/55" />
