@@ -235,7 +235,10 @@ const TITLE_MAX = 60;
  */
 export function deriveTitle(subject: string): string {
   const cleaned = subject.replace(/\s+/g, ' ').trim();
-  if (!cleaned) return 'Untitled beat';
+  // CLIENT-FACING: this lands in source_meta.title and is what the card and the sheet show.
+  // "planned post", never "beat" (spec §7) — the app's terminology fence cannot see this file,
+  // which is exactly why the word survived here after it was removed everywhere else.
+  if (!cleaned) return 'Untitled post';
 
   // Split on hard separators that end a thought. Sentence-enders and list separators only —
   // a comma is too aggressive ("Lily tee and Sophie short co-ord set, navy" is one product,

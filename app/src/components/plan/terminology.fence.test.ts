@@ -26,12 +26,44 @@ import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
-/** Every component a client can reach: the plan surfaces, plus the draft shell above them. */
+/**
+ * Every component a client can reach: the plan surfaces, plus the draft shell above them —
+ * and the LIB THAT WRITES THEIR WORDS.
+ *
+ * Scanning components alone left a growing share of this surface's sentences outside the grep.
+ * `draft-rationale.ts` composes the beat sheet's grounding lines and every row of the month
+ * summary; `draft-mutations.ts` owns the messages the client is flashed when a write refuses;
+ * `plan.ts` supplies the last-resort card heading. None of that is copy in a component, and all
+ * of it is copy on a screen. Widening the root found two live violations that had survived every
+ * previous run precisely because they were out of reach.
+ */
 const ROOTS = [
   join(process.cwd(), 'src', 'components', 'plan'),
   join(process.cwd(), 'src', 'components', 'DraftPlan.tsx'),
   join(process.cwd(), 'src', 'components', 'PlanApp.tsx'),
+  join(process.cwd(), 'src', 'lib'),
 ];
+
+/**
+ * Files inside the roots that carry the VOCABULARY but never the COPY. Each entry is a
+ * justification, not an exemption — the same rule the tokens fence's nowrap list follows.
+ *
+ *   queue.ts / agent/*   'failed' is a BullMQ job state and a discriminant on a result union.
+ *                        Neither is ever rendered; both are the words the platform itself uses,
+ *                        and renaming them would rename a real concept to satisfy a copy rule.
+ *   e2e-fake.ts          A fixture, hard-gated behind SPRIGLY_E2E_FAKE=1 AND non-production, so
+ *                        it cannot reach a client at all. Its "BEAT 1 (0–5s)" is a video
+ *                        script's own vocabulary — a shot — and not our word for a slot.
+ *
+ * Scoped to whole files deliberately. A path list is auditable in one read; a value list would
+ * quietly grow into a way of keeping a banned word by naming it.
+ */
+const NOT_COPY = new Set([
+  'src/lib/queue.ts',
+  'src/lib/agent/proposals.ts',
+  'src/lib/agent/types.ts',
+  'src/lib/e2e-fake.ts',
+]);
 
 function sources(target: string, out: string[] = []): string[] {
   if (statSync(target).isFile()) { out.push(target); return out; }
@@ -90,6 +122,7 @@ function clientStrings(src: string): string[] {
 function offenders(pattern: RegExp): string[] {
   const hits: string[] = [];
   for (const f of FILES) {
+    if (NOT_COPY.has(relative(process.cwd(), f))) continue;
     for (const s of clientStrings(readFileSync(f, 'utf8'))) {
       if (pattern.test(s)) hits.push(`${relative(process.cwd(), f)}: "${s.slice(0, 90)}"`);
     }
@@ -100,6 +133,20 @@ function offenders(pattern: RegExp): string[] {
 describe('the terminology fence', () => {
   it('reads a real set of client components', () => {
     expect(FILES.length).toBeGreaterThanOrEqual(12);
+  });
+
+  it('reaches the lib that writes the copy, not just the components that render it', () => {
+    for (const rel of ['src/lib/draft-rationale.ts', 'src/lib/draft-mutations.ts', 'src/lib/plan.ts']) {
+      expect(FILES.some((f) => relative(process.cwd(), f) === rel), rel).toBe(true);
+    }
+  });
+
+  it('every justified exemption names a file that is really in the scan', () => {
+    // A stale path exempts nothing and reads as though it does. If one of these moves, this
+    // fails and someone has to decide again whether the justification still holds.
+    for (const rel of NOT_COPY) {
+      expect(FILES.some((f) => relative(process.cwd(), f) === rel), rel).toBe(true);
+    }
   });
 
   it('extracts copy and not identifiers (the fence has to be able to tell them apart)', () => {

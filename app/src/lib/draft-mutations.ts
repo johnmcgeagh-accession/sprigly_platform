@@ -65,7 +65,9 @@ export interface DroppedBeat {
 }
 
 const MESSAGES: Record<DraftMutationError, string> = {
-  not_found:       'We couldn’t find that beat.',
+  // "planned post", never "beat" (spec §7). This string is returned as `message` from
+  // /api/plan/draft and flashed straight onto the client's screen by useDraftMonth.
+  not_found:       'We couldn’t find that planned post.',
   not_a_draft:     'That post is already part of your plan, so it can’t be edited as a draft.',
   cutoff_passed:   'This month’s draft is closed for changes.',
   read_only_date:  'That date has already passed.',

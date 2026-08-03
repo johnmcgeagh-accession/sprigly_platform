@@ -89,8 +89,8 @@ describe('short subjects pass through untouched', () => {
   });
 
   it('never returns an empty title', () => {
-    expect(deriveTitle('')).toBe('Untitled beat');
-    expect(deriveTitle('   ')).toBe('Untitled beat');
+    expect(deriveTitle('')).toBe('Untitled post');
+    expect(deriveTitle('   ')).toBe('Untitled post');
     expect(deriveTitle('...')).toBe('...');
   });
 

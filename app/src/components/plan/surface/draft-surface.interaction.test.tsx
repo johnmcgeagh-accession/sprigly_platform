@@ -1012,3 +1012,136 @@ describe('cards wrap, compact rows do not — the density rule holds', () => {
     }
   });
 });
+
+/**
+ * THE MONTH SUMMARY (S1/S2) — the month's argument, before the day content.
+ *
+ * The failure it exists to prevent is a misreading: thirty title-only rows read as unfinished
+ * work. So the assertions that matter are about what a client sees WITHOUT tapping, and about the
+ * day content still being there when they have seen it.
+ */
+describe('the month summary', () => {
+  const septBeat = (over: Partial<DraftBeatView> = {}): DraftBeatView => beat({
+    evidence: { basis: 'observed' },
+    assumptions: [
+      'No launches or restocks are on record for this month — the draft assumes a business-as-usual month.',
+      'No pillar weights are on record, so the month splits evenly across pillars.',
+    ],
+    ...over,
+  });
+
+  const month = [
+    septBeat({ id: 'm1', date: '2026-10-01' }),
+    septBeat({ id: 'm2', date: '2026-10-02', format: 'carousel', pillar: 'Everyday Ritual' }),
+    septBeat({
+      id: 'm3', date: '2026-10-10', format: 'carousel', pillar: 'Everyday Ritual',
+      evidence: {
+        basis: 'observed',
+        seriesDue: { name: 'WSG (Weekend Style Guide)', dayOfWeek: 'Saturday', lastPlanned: '2026-08-28', monthsObserved: 3 },
+        productCoverage: { product: 'Lydia', lastFeatured: '2026-02-22', mentions: 8 },
+      },
+    }),
+  ];
+
+  it('is the FIRST thing in the day, above the day’s own heading', () => {
+    render(<DraftSurface data={fakeData({}, month)} />);
+    const panel = screen.getByTestId('draft-summary');
+    const title = screen.getByTestId('day-title');
+    expect(screen.getByTestId('day-panel').firstElementChild).toBe(panel);
+    expect(panel.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('says the stage WITHOUT a tap — a panel that only explains itself once opened has lost', () => {
+    render(<DraftSurface data={fakeData({}, month)} />);
+    expect(screen.getByTestId('draft-summary-headline').textContent).toBe('3 planned posts across 2 weeks');
+    expect(screen.getByTestId('draft-summary-stage').textContent)
+      .toBe('This is the shape of October — once you’re happy, we’ll write every post.');
+    expect(screen.queryByTestId('draft-summary-detail')).toBeNull();
+  });
+
+  it('leaves the day content on screen when it is closed', () => {
+    render(<DraftSurface data={fakeData({}, month)} />);
+    expect(screen.getByTestId('day-title')).toBeTruthy();
+    expect(screen.getByTestId('day-count').textContent).toBe('1 planned post');
+    expect(screen.getByTestId('draft-card')).toBeTruthy();
+  });
+
+  it('opens on a tap onto the derivation, and closes again on the next one', () => {
+    render(<DraftSurface data={fakeData({}, month)} />);
+    const toggle = screen.getByTestId('draft-summary-toggle');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect([...document.querySelectorAll('[data-testid="draft-summary-section"]')]
+      .map((s) => s.getAttribute('data-section')))
+      .toEqual(['mix', 'series', 'products', 'assumptions']);
+
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId('draft-summary-detail')).toBeNull();
+  });
+
+  it('states each product and WHY, in the same words the beat’s own sheet uses', () => {
+    // The series beat sits on the OPEN day here, so the same fact can be read in both places in
+    // one pass: the panel above the day, and the sheet the card opens.
+    render(<DraftSurface data={fakeData({}, [{ ...month[2]!, date: TODAY }])} />);
+    fireEvent.click(screen.getByTestId('draft-summary-toggle'));
+    const products = document.querySelector('[data-section="products"]')!;
+    expect(products.textContent).toContain('Lydia — last in a caption on 22 February');
+
+    // The same fact on the sheet, with the sample size the panel leaves off.
+    fireEvent.click(document.querySelector('[data-testid="draft-card"]')!);
+    fireEvent.click(screen.getByTestId('insights-toggle'));
+    expect(screen.getByTestId('insights').textContent).toContain('Lydia — last in a caption on 22 February (8 captions)');
+  });
+
+  it('the day asks about one assumption and the panel carries the OTHER — never both twice', () => {
+    render(<DraftSurface data={fakeData({}, month)} />);
+    fireEvent.click(screen.getByTestId('draft-summary-toggle'));
+    const assumptions = document.querySelector('[data-section="assumptions"]')!;
+    expect(assumptions.textContent).toContain('No pillar weights are on record');
+    expect(assumptions.textContent).not.toContain('No launches or restocks');
+    expect(screen.getByTestId('assumption-nudge').textContent).toContain('anything coming up?');
+  });
+
+  it('never says the internal word for a slot, open or closed', () => {
+    render(<DraftSurface data={fakeData({}, month)} />);
+    fireEvent.click(screen.getByTestId('draft-summary-toggle'));
+    expect(document.body.textContent).not.toMatch(/\bbeats?\b/i);
+  });
+
+  it('a THIN month says less rather than padding to the same shape', () => {
+    render(<DraftSurface data={fakeData({}, [month[0]!, month[1]!])} />);
+    expect(screen.getByTestId('draft-summary-headline').textContent).toBe('2 planned posts across 1 week');
+    fireEvent.click(screen.getByTestId('draft-summary-toggle'));
+    expect([...document.querySelectorAll('[data-testid="draft-summary-section"]')]
+      .map((s) => s.getAttribute('data-section')))
+      .toEqual(['mix', 'assumptions']);
+  });
+
+  it('an EMPTY month renders no panel at all — there is nothing to account for', () => {
+    render(<DraftSurface data={fakeData({}, [])} />);
+    expect(screen.queryByTestId('draft-summary')).toBeNull();
+  });
+
+  it('promises nothing on a month that can no longer be worked on', () => {
+    const data = fakeData({}, month);
+    (data.draft as { editable: boolean }).editable = false;
+    render(<DraftSurface data={data} />);
+    expect(screen.queryByTestId('draft-summary-stage')).toBeNull();
+    expect(screen.getByTestId('draft-summary-headline').textContent).toBe('3 planned posts across 2 weeks');
+  });
+
+  it('is a MONTH statement, so the day it happens to be showing never changes it', () => {
+    render(<DraftSurface data={fakeData({}, month)} />);
+    const before = screen.getByTestId('draft-summary').textContent;
+    fireEvent.click(document.querySelector('[data-testid="week-day"][data-date="2026-10-02"]')!);
+    expect(screen.getByTestId('draft-summary').textContent).toBe(before);
+  });
+
+  it('is not on the month grid or the tasks view — it heads the DAY', () => {
+    render(<DraftSurface data={fakeData({}, month)} />);
+    fireEvent.click(screen.getByTestId('nav-month'));
+    expect(screen.queryByTestId('draft-summary')).toBeNull();
+  });
+});

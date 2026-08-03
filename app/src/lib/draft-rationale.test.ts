@@ -7,8 +7,8 @@
  * cost the client's trust in every other rationale on the page.
  */
 import { describe, it, expect } from 'vitest';
-import { rationaleFor, groundingLines, slotLabel, assumptionPrompt, isAnswerable, firstAnswerable } from '@/lib/draft-rationale';
-import type { BeatEvidence } from '@/lib/types';
+import { rationaleFor, groundingLines, monthSummary, slotLabel, assumptionPrompt, isAnswerable, firstAnswerable } from '@/lib/draft-rationale';
+import type { BeatEvidence, DraftBeatView } from '@/lib/types';
 
 describe('rationaleFor — observed evidence', () => {
   // The real shape from Build A's Earl of East sample.
@@ -472,5 +472,249 @@ describe('groundingLines', () => {
 
   it('a client_input beat with no recorded text says nothing rather than inventing one', () => {
     expect(groundingLines({ basis: 'client_input' }, 'x')).toEqual([]);
+  });
+});
+
+/**
+ * monthSummary — the month's account of itself, computed from the same evidence.
+ *
+ * The fixture is ivy-t's REAL September draft on UAT (cycle 0b9677e5), reduced to the fields the
+ * summary reads. Every date, product, series and count below came out of `beat_meta`; nothing is
+ * invented, so a change to the derivation shows up here as a changed real fact.
+ */
+const SEPT: DraftBeatView[] = [
+  // Four pillar-only beats and the shape of the month around them.
+  ['2026-09-01', 'carousel', 'A Supportive Friend, Always By Your Side'],
+  ['2026-09-03', 'carousel', 'Ethical Without Compromise'],
+  ['2026-09-07', 'carousel', 'Understands Real Women'],
+  ['2026-09-30', 'reel',     'Born From Real Need'],
+].map(([date, format, pillar], i) => ({
+  id: `p${i}`, cycleId: 'c', date: date!, format: format as DraftBeatView['format'], pillar: pillar!,
+  title: 't', position: i, slotType: 'proven' as const,
+  evidence: { basis: 'observed' } as BeatEvidence,
+  assumptions: [
+    'No launches or restocks are on record for this month — the draft assumes a business-as-usual month.',
+    'No pillar weights are on record, so the month splits evenly across pillars.',
+  ],
+}));
+
+/** Her real series beats: WSG on four Saturdays, Sunday Style on four Sundays, two monthlies. */
+const seriesBeat = (
+  date: string, name: string, dayOfWeek: string, product: string, lastFeatured: string | null, mentions: number,
+): DraftBeatView => ({
+  id: `s-${date}`, cycleId: 'c', date, format: 'carousel', pillar: 'Simplify Your Morning',
+  title: 't', position: 0, slotType: 'proven',
+  evidence: {
+    basis: 'observed',
+    seriesDue: { name, dayOfWeek, lastPlanned: '2026-08-28', monthsObserved: 3 },
+    productCoverage: { product, lastFeatured, mentions },
+  },
+  assumptions: [],
+});
+
+const SERIES: DraftBeatView[] = [
+  seriesBeat('2026-09-05', 'WSG (Weekend Style Guide)', 'Saturday', 'Bea',    null,         0),
+  seriesBeat('2026-09-12', 'WSG (Weekend Style Guide)', 'Saturday', 'Layla',  null,         0),
+  seriesBeat('2026-09-19', 'WSG (Weekend Style Guide)', 'Saturday', 'Thia',   '2025-12-22', 1),
+  seriesBeat('2026-09-26', 'WSG (Weekend Style Guide)', 'Saturday', 'Lydia',  '2026-02-22', 8),
+  seriesBeat('2026-09-06', 'Sunday Style',              'Sunday',   'Fiona',  null,         0),
+  seriesBeat('2026-09-13', 'Sunday Style',              'Sunday',   'Heather', '2025-12-17', 3),
+  seriesBeat('2026-09-08', 'Notes from the Founder',    'monthly',  'Jane',   null,         0),
+  seriesBeat('2026-09-23', 'What our customers see',    'monthly',  'Jen',    '2026-02-22', 2),
+];
+
+/** Two of her six real backlog beats, with the date she actually sent them. */
+const HERS: DraftBeatView[] = ['2026-09-02', '2026-09-17'].map((date, i) => ({
+  id: `h${i}`, cycleId: 'c', date, format: 'reel', pillar: 'Born From Real Need',
+  title: 't', position: 0, slotType: 'experiment' as const,
+  evidence: {
+    basis: 'observed',
+    backlogIdea: { text: 'Why never to wear polyester or synthetics, especially in summer.', givenAt: '2026-07-21' },
+  } as BeatEvidence,
+  assumptions: [],
+}));
+
+const OPTS = { monthName: 'September', editable: true };
+const section = (s: ReturnType<typeof monthSummary>, key: string) =>
+  s?.sections.find((x) => x.key === key) ?? null;
+const texts = (s: ReturnType<typeof monthSummary>, key: string) =>
+  section(s, key)?.facts.map((f) => f.text) ?? [];
+
+describe('monthSummary — the shape, from the dates themselves', () => {
+  it('counts the posts and the weeks they span, in the client’s word for them', () => {
+    expect(monthSummary([...SEPT, ...SERIES, ...HERS], OPTS)!.headline)
+      .toBe('14 planned posts across 5 weeks');
+  });
+
+  it('says what a draft IS and what happens next — the line the misreading needs', () => {
+    expect(monthSummary(SEPT, OPTS)!.stage)
+      .toBe('This is the shape of September — once you’re happy, we’ll write every post.');
+  });
+
+  it('promises nothing on a month that can no longer be worked on', () => {
+    expect(monthSummary(SEPT, { ...OPTS, editable: false })!.stage).toBeNull();
+  });
+
+  it('an EMPTY month has no argument to state, so there is no panel at all', () => {
+    expect(monthSummary([], OPTS)).toBeNull();
+  });
+
+  it('one post in one week reads as one post in one week', () => {
+    const s = monthSummary([SEPT[0]!], OPTS)!;
+    expect(s.headline).toBe('1 planned post across 1 week');
+  });
+
+  it('a week is a week, not seven days: the 1st and the 3rd are the same one', () => {
+    expect(monthSummary([SEPT[0]!, SEPT[1]!], OPTS)!.headline).toBe('2 planned posts across 1 week');
+  });
+
+  it('a malformed date is left out of the week count rather than inventing a week', () => {
+    const bad = { ...SEPT[0]!, id: 'bad', date: 'soon' };
+    expect(monthSummary([bad], OPTS)!.headline).toBe('1 planned post');
+  });
+
+  it('states the format mix and every pillar with its own count', () => {
+    const s = monthSummary([...SEPT, ...SERIES, ...HERS], OPTS);
+    expect(texts(s, 'mix')[0]).toBe('11 carousels · 3 reels');
+    expect(section(s, 'mix')!.facts.slice(1)).toEqual([
+      { text: 'Simplify Your Morning', count: '8' },
+      { text: 'Born From Real Need', count: '3' },
+      { text: 'A Supportive Friend, Always By Your Side', count: '1' },
+      { text: 'Ethical Without Compromise', count: '1' },
+      { text: 'Understands Real Women', count: '1' },
+    ]);
+  });
+});
+
+describe('monthSummary — the standing commitments and the products', () => {
+  const s = monthSummary([...SEPT, ...SERIES, ...HERS], OPTS);
+
+  it('names each series and how many instances the month holds, on its own weekday', () => {
+    expect(texts(s, 'series')).toEqual([
+      'WSG (Weekend Style Guide) — 4 Saturdays',
+      'Sunday Style — 2 Sundays',
+      'Notes from the Founder — once this month',
+      'What our customers see — once this month',
+    ]);
+  });
+
+  it('a monthly series says "this month" — it has no weekday to name', () => {
+    const monthly = monthSummary([seriesBeat('2026-09-08', 'Notes from the Founder', 'monthly', 'Jane', null, 0),
+      seriesBeat('2026-09-22', 'Notes from the Founder', 'monthly', 'Jane', null, 0)], OPTS);
+    expect(texts(monthly, 'series')).toEqual(['Notes from the Founder — 2 times this month']);
+  });
+
+  it('names every product and WHY it is here — never-featured first, then the oldest gap', () => {
+    expect(texts(s, 'products')).toEqual([
+      'Bea — never appeared in a caption',
+      'Fiona — never appeared in a caption',
+      'Jane — never appeared in a caption',
+      'Layla — never appeared in a caption',
+      'Heather — last in a caption on 17 December',
+      'Thia — last in a caption on 22 December',
+      'Jen — last in a caption on 22 February',
+      'Lydia — last in a caption on 22 February',
+    ]);
+  });
+
+  it('NEVER FEATURED carries no count — "0 captions" adds nothing to "never appeared"', () => {
+    expect(texts(s, 'products')[0]).not.toMatch(/caption[s]?\)/);
+  });
+
+  it('counts her own ideas, and the months she sent them in', () => {
+    expect(texts(s, 'client')).toEqual(['2 ideas you gave us in July']);
+  });
+
+  it('names each month once and in order, however many ideas came from it', () => {
+    const spread = HERS.map((b, i) => ({
+      ...b, id: `x${i}`,
+      evidence: { ...b.evidence, backlogIdea: { text: 'idea', givenAt: i === 0 ? '2026-07-21' : '2026-06-03' } },
+    }));
+    expect(texts(monthSummary([...spread, ...HERS], OPTS), 'client')).toEqual(['4 ideas you gave us in June and July']);
+  });
+
+  it('an idea with no date shortens the line rather than guessing when it arrived', () => {
+    const undated = { ...HERS[0]!, evidence: { basis: 'observed', backlogIdea: { text: 'idea', givenAt: null } } as BeatEvidence };
+    expect(texts(monthSummary([undated], OPTS), 'client')).toEqual(['1 idea you gave us']);
+  });
+});
+
+describe('monthSummary — absence is a value', () => {
+  it('a month with no series, no products and no ideas builds none of those sections', () => {
+    expect(monthSummary(SEPT, OPTS)!.sections.map((x) => x.key)).toEqual(['mix', 'assumptions']);
+  });
+
+  it('a THIN month says less — it never pads to the same shape as a full one', () => {
+    const thin = monthSummary([SEPT[0]!, HERS[0]!], OPTS)!;
+    expect(thin.headline).toBe('2 planned posts across 1 week');
+    expect(thin.sections.map((x) => x.key)).toEqual(['mix', 'client', 'assumptions']);
+    expect(texts(thin, 'client')).toEqual(['1 idea you gave us in July']);
+  });
+
+  it('folds the assumptions in VERBATIM, minus the one the day already asks about', () => {
+    const shown = 'No launches or restocks are on record for this month — the draft assumes a business-as-usual month.';
+    expect(texts(monthSummary(SEPT, { ...OPTS, assumptionShown: shown }), 'assumptions'))
+      .toEqual(['No pillar weights are on record, so the month splits evenly across pillars.']);
+  });
+
+  it('every assumption falls to the panel when the day is asking about none of them', () => {
+    expect(texts(monthSummary(SEPT, OPTS), 'assumptions')).toHaveLength(2);
+  });
+
+  it('an assumption stated on ten beats is stated once', () => {
+    expect(texts(monthSummary([...SEPT], OPTS), 'assumptions')).toHaveLength(2);
+  });
+
+  it('never says the internal word for a slot', () => {
+    const s = monthSummary([...SEPT, ...SERIES, ...HERS], OPTS)!;
+    const all = [s.headline, s.stage ?? '', ...s.sections.flatMap((x) => [x.heading, ...x.facts.map((f) => f.text)])];
+    expect(all.join(' ')).not.toMatch(/\bbeats?\b/i);
+  });
+
+  it('is deterministic: the same month renders identically whatever order the beats arrive in', () => {
+    const forward = monthSummary([...SEPT, ...SERIES, ...HERS], OPTS);
+    const back = monthSummary([...SERIES, ...HERS, ...SEPT].reverse(), OPTS);
+    expect(JSON.stringify(back)).toBe(JSON.stringify(forward));
+  });
+});
+
+/**
+ * S3 — the two readings share one derivation, so they cannot disagree.
+ *
+ * The summary's product line is the sheet's line with the caption count removed, and it is a
+ * literal PREFIX of it. That is the checkable form of "they must never disagree": there is no
+ * way to change one date without changing the other.
+ */
+describe('the summary and the beat sheet read the same evidence', () => {
+  it('every product line in the panel is a prefix of that beat’s line on the sheet', () => {
+    for (const b of SERIES) {
+      const onSheet = groundingLines(b.evidence, b.pillar).find((l) => l.kind === 'product')!.text;
+      const inPanel = texts(monthSummary([b], OPTS), 'products')[0]!;
+      expect(onSheet.startsWith(inPanel), `${inPanel} ⊄ ${onSheet}`).toBe(true);
+    }
+  });
+
+  it('the panel counts exactly the beats whose sheet shows her own words', () => {
+    const all = [...SEPT, ...SERIES, ...HERS];
+    const withHerWords = all.filter((b) => groundingLines(b.evidence, b.pillar).some((l) => l.kind === 'backlog'));
+    expect(texts(monthSummary(all, OPTS), 'client')[0]).toBe(`${withHerWords.length} ideas you gave us in July`);
+  });
+
+  it('names a series the way the SHEET names it — the full form, not the title’s shorthand', () => {
+    const b = SERIES[0]!;
+    expect(groundingLines(b.evidence, b.pillar)[0]!.text).toContain('WSG (Weekend Style Guide)');
+    expect(texts(monthSummary([b], OPTS), 'series')[0]).toContain('WSG (Weekend Style Guide)');
+  });
+});
+
+describe('monthSummary — the format mix counts in the client’s own words', () => {
+  it('one of a kind is ONE of that kind — the acceptance run said "1 carousels"', () => {
+    const one = [{ ...SEPT[0]!, format: 'carousel' as const }, { ...SEPT[1]!, id: 'r', format: 'reel' as const }];
+    expect(texts(monthSummary(one, OPTS), 'mix')[0]).toBe('1 carousel · 1 reel');
+  });
+
+  it('an unknown format is still counted, in the only word we have for it', () => {
+    const odd = [{ ...SEPT[0]!, format: 'story' as unknown as DraftBeatView['format'] }];
+    expect(texts(monthSummary(odd, OPTS), 'mix')[0]).toBe('1 story post');
   });
 });

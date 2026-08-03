@@ -13,7 +13,7 @@
  *
  * Pure. Directly testable. No React.
  */
-import type { BeatEvidence } from '@/lib/types';
+import type { BeatEvidence, DraftBeatView } from '@/lib/types';
 
 const FORMAT_WORD: Record<string, string> = {
   reel:     'reels',
@@ -22,6 +22,18 @@ const FORMAT_WORD: Record<string, string> = {
 };
 
 const formatWord = (f: string): string => FORMAT_WORD[f] ?? `${f} posts`;
+
+/** The singular of the same word. The summary counts formats, and a month holding one of a kind
+ *  must say "1 carousel" — the acceptance run said "1 carousels", which is the sort of seam a
+ *  client reads as carelessness on the one panel built to be checked. */
+const FORMAT_ONE: Record<string, string> = {
+  reel:     'reel',
+  carousel: 'carousel',
+  single:   'single post',
+};
+
+const formatCount = (f: string, n: number): string =>
+  `${n} ${n === 1 ? (FORMAT_ONE[f] ?? `${f} post`) : formatWord(f)}`;
 
 /** "3 posts" / "1 post" — the sample size, stated so the client can judge it themselves. */
 const posts = (n: number): string => `${n} post${n === 1 ? '' : 's'}`;
@@ -103,6 +115,38 @@ function monthName(iso: string): string | null {
   return d.toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' });
 }
 
+/**
+ * A product's coverage gap, split into the CLAIM and its SAMPLE SIZE.
+ *
+ * Two readings need this fact at two lengths — the sheet, studying one beat, wants the caption
+ * count with it; the month summary, listing ten products at once, does not. Splitting it here
+ * rather than writing it twice makes the summary's line a literal PREFIX of the sheet's, so a
+ * client who reads both reads the same sentence and can never be shown two different dates for
+ * the same product (S3). It is pinned that way in the tests.
+ *
+ * NEVER FEATURED is its own claim and carries no sample: "0 captions" adds nothing to "never
+ * appeared", and a date-shaped hole would be worse than either.
+ */
+function productCoverageFact(p: NonNullable<BeatEvidence['productCoverage']>): { claim: string; sample: string } {
+  const when = p.lastFeatured ? shortDate(p.lastFeatured) : null;
+  return when
+    ? { claim: `${p.product} — last in a caption on ${when}`, sample: ` (${p.mentions} caption${p.mentions === 1 ? '' : 's'})` }
+    : { claim: `${p.product} — never appeared in a caption`, sample: '' };
+}
+
+/**
+ * Did this beat come from something the client sent us?
+ *
+ * The summary counts exactly the beats whose SHEET shows her own words, which is why this is a
+ * predicate rather than a second reading of the evidence: `groundingLines` and the count cannot
+ * drift apart if they ask the same question. A beat carrying both a backlog idea and a reason
+ * renders two lines on the sheet and counts once here — the count is of beats, not of lines.
+ */
+function fromClient(e: BeatEvidence): boolean {
+  if (e.backlogIdea?.text?.trim()) return true;
+  return (e.basis === 'client_input' || e.basis === 'emphasis_reweight') && !!e.reason?.trim();
+}
+
 /** One fact behind a beat. `kind` keys the list and tells the sheet what to draw. */
 export interface GroundingLine {
   kind: 'series' | 'product' | 'backlog' | 'format' | 'cadence' | 'pillar' | 'thin' | 'added';
@@ -154,13 +198,8 @@ export function groundingLines(evidence: BeatEvidence, pillar: string): Groundin
 
   const p = evidence.productCoverage;
   if (p) {
-    const when = p.lastFeatured ? shortDate(p.lastFeatured) : null;
-    out.push({
-      kind: 'product',
-      text: when
-        ? `${p.product} — last in a caption on ${when} (${p.mentions} caption${p.mentions === 1 ? '' : 's'})`
-        : `${p.product} — never appeared in a caption`,
-    });
+    const { claim, sample } = productCoverageFact(p);
+    out.push({ kind: 'product', text: `${claim}${sample}` });
   }
 
   // Her backlog sentence, and when she sent it. `sourceRef` points at the plan_inputs row and
@@ -207,6 +246,194 @@ export function groundingLines(evidence: BeatEvidence, pillar: string): Groundin
   }
 
   return out;
+}
+
+// ── The month's own account of itself ────────────────────────────────────────────────
+//
+// A client landing on a draft month sees thirty title-only rows and can read it as unfinished
+// work. It is not: a draft is a DIRECTION OF TRAVEL, and the captions, hooks and scripts are
+// written after it is agreed. The summary says that in one place, and states the month's
+// argument where the reasoning is not otherwise reachable except per-beat behind an icon.
+//
+// SAME RULE AS `groundingLines`, and the same module on purpose (S3): every line is computed
+// from the beats' own evidence, there is no model prose on this path, and a fact that is not in
+// the evidence produces NO LINE. A thin month says less; it never pads. The two renderings share
+// the derivation — `productCoverageFact` and `fromClient` above are read by both — so the panel
+// and the sheet cannot show a client two different versions of the same fact.
+
+/** One row of the summary. `count` is set only where the fact IS a count (a pillar's share of
+ *  the month), so the number can sit in its own column instead of inside the sentence. */
+export interface SummaryFact { text: string; count?: string }
+
+export type SummaryKey = 'mix' | 'series' | 'products' | 'client' | 'assumptions';
+
+/** A group of rows under one heading. A section with no facts is never built. */
+export interface SummarySection { key: SummaryKey; heading: string; facts: SummaryFact[] }
+
+export interface MonthSummary {
+  /** The two-line collapsed form's first line: how much, over how long. */
+  headline: string;
+  /** What a draft IS and what happens when it is agreed. Null on a month that can no longer be
+   *  worked on, where the promise would not be true. */
+  stage: string | null;
+  sections: SummarySection[];
+}
+
+const DAY_MS = 86_400_000;
+
+/** The Monday that starts this date's week. Null for anything that is not an ISO date, so a
+ *  malformed row is left out of the week count rather than inventing a week. */
+function weekStartOf(iso: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  const back = (d.getUTCDay() + 6) % 7;           // Monday = 0
+  return new Date(d.getTime() - back * DAY_MS).toISOString().slice(0, 10);
+}
+
+/** 'June and July' / 'June, July and August'. Never an Oxford comma — this is her register. */
+function andList(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+/** Count occurrences, then order by count descending and name ascending — a total order, so the
+ *  same month always renders the same way. */
+function tally(values: readonly string[]): { name: string; n: number }[] {
+  const counts = new Map<string, number>();
+  for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
+  return [...counts.entries()]
+    .map(([name, n]) => ({ name, n }))
+    .sort((a, b) => b.n - a.n || a.name.localeCompare(b.name));
+}
+
+/**
+ * The month, read out of its own beats.
+ *
+ * Returns null for a month with nothing in it: an empty month has no argument to state, and a
+ * panel saying "0 planned posts across 0 weeks" spends the top of the screen to say nothing.
+ *
+ * `assumptionShown` is the one the surface already puts at the foot of the day. It is passed in
+ * and removed rather than repeated — the same assumption stated twice on one screen reads as two
+ * gaps (S1f). The rest are folded in here, where they belong to the month.
+ */
+export function monthSummary(
+  beats: readonly DraftBeatView[],
+  opts: { monthName: string; editable: boolean; assumptionShown?: string | null },
+): MonthSummary | null {
+  if (beats.length === 0) return null;
+
+  const weeks = new Set(beats.map((b) => weekStartOf(b.date)).filter((w): w is string => w !== null)).size;
+  const n = beats.length;
+  const headline = weeks > 0
+    ? `${n} planned post${n === 1 ? '' : 's'} across ${weeks} week${weeks === 1 ? '' : 's'}`
+    : `${n} planned post${n === 1 ? '' : 's'}`;
+
+  const sections: SummarySection[] = [];
+
+  // ── The mix ────────────────────────────────────────────────────────────────────────
+  // Format first (one line, two or three words) and the pillars under it, each with its count
+  // in its own column. The counts are the client's own categories, so they are stated as
+  // counts and not as percentages: 5 of 30 is checkable, 16.7% is arithmetic.
+  const mix: SummaryFact[] = [];
+  const formats = tally(beats.map((b) => b.format).filter(Boolean));
+  if (formats.length > 0) mix.push({ text: formats.map((f) => formatCount(f.name, f.n)).join(' · ') });
+  for (const p of tally(beats.map((b) => b.pillar).filter(Boolean))) mix.push({ text: p.name, count: String(p.n) });
+  if (mix.length > 0) sections.push({ key: 'mix', heading: 'The mix', facts: mix });
+
+  // ── The standing commitments ───────────────────────────────────────────────────────
+  // What the client already runs every week, and how many instances this month holds. The full
+  // configured name, matching the sheet's grounding line rather than the title's shorthand —
+  // this is a fact panel, and it is the right place to spell the name out.
+  const series = new Map<string, { day: string; n: number }>();
+  for (const b of beats) {
+    const s = b.evidence.seriesDue;
+    if (!s?.name) continue;
+    const prev = series.get(s.name);
+    series.set(s.name, { day: prev?.day ?? s.dayOfWeek, n: (prev?.n ?? 0) + 1 });
+  }
+  if (series.size > 0) {
+    sections.push({
+      key: 'series',
+      heading: 'The ones that always run',
+      facts: [...series.entries()]
+        .sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0]))
+        .map(([name, { day, n }]) => ({
+          text: day && day !== 'monthly'
+            ? `${name} — ${n} ${day}${n === 1 ? '' : 's'}`
+            : `${name} — ${n === 1 ? 'once' : `${n} times`} this month`,
+        })),
+    });
+  }
+
+  // ── The products, and why each one ─────────────────────────────────────────────────
+  // The strongest claim in the panel, because every line is falsifiable in one scroll of her own
+  // feed. Ordered the way the assembler orders them — never-featured first, then oldest gap
+  // first, then by name — so the panel's reading and the engine's cannot disagree either.
+  const products = new Map<string, NonNullable<BeatEvidence['productCoverage']>>();
+  for (const b of beats) {
+    const p = b.evidence.productCoverage;
+    if (p?.product && !products.has(p.product)) products.set(p.product, p);
+  }
+  if (products.size > 0) {
+    const ordered = [...products.values()].sort((a, b) =>
+      (a.lastFeatured === null ? 0 : 1) - (b.lastFeatured === null ? 0 : 1)
+      || (a.lastFeatured ?? '').localeCompare(b.lastFeatured ?? '')
+      || a.product.localeCompare(b.product));
+    sections.push({
+      key: 'products',
+      heading: 'What we’re featuring, and why',
+      // The CLAIM only. The caption count stays on the sheet, where one beat is being studied;
+      // ten of them here would be ten numbers nobody is comparing.
+      facts: ordered.map((p) => ({ text: productCoverageFact(p).claim })),
+    });
+  }
+
+  // ── Her own ideas ──────────────────────────────────────────────────────────────────
+  // Counted by the same predicate the sheet uses, so this number is exactly "how many beats show
+  // your words when you open them". The months come from the ideas that carry a date; where none
+  // does, the line simply stops — it never guesses when she sent them.
+  const hers = beats.filter((b) => fromClient(b.evidence));
+  if (hers.length > 0) {
+    const dated = hers
+      .map((b) => b.evidence.backlogIdea?.givenAt)
+      .filter((g): g is string => typeof g === 'string' && !!monthName(g))
+      .sort();
+    const months: string[] = [];
+    for (const g of dated) {
+      const name = monthName(g)!;
+      if (!months.includes(name)) months.push(name);
+    }
+    const when = months.length > 0 ? ` in ${andList(months)}` : '';
+    sections.push({
+      key: 'client',
+      heading: 'From you',
+      facts: [{ text: `${hers.length} idea${hers.length === 1 ? '' : 's'} you gave us${when}` }],
+    });
+  }
+
+  // ── What we assumed ────────────────────────────────────────────────────────────────
+  // Verbatim, in the assembler's own words, minus the one the day already asks about. These are
+  // the same strings the nudge is voiced from; stating one of them twice on a single screen
+  // would read as two separate gaps in what we know.
+  const shown = opts.assumptionShown?.trim();
+  const seen: string[] = [];
+  for (const b of beats) for (const a of b.assumptions) {
+    const t = a.trim();
+    if (t && t !== shown && !seen.includes(t)) seen.push(t);
+  }
+  if (seen.length > 0) {
+    sections.push({ key: 'assumptions', heading: 'What we assumed', facts: seen.map((text) => ({ text })) });
+  }
+
+  return {
+    headline,
+    // Only where it is true. A draft past its cutoff cannot be turned into captions by agreeing
+    // to it, and promising that it can would be the one dishonest line in a panel built to be
+    // checkable.
+    stage: opts.editable ? `This is the shape of ${opts.monthName} — once you’re happy, we’ll write every post.` : null,
+    sections,
+  };
 }
 
 /**
