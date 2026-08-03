@@ -271,7 +271,16 @@ export function groundingLines(evidence: BeatEvidence, pillar: string): Groundin
  * question form (`assumptionPrompt`), because that is what the day's strip showed before this
  * panel absorbed it — the affordance moved, the wording did not.
  */
-export interface SummaryFact { text: string; count?: string; answerable?: boolean }
+export interface SummaryFact {
+  text: string;
+  count?: string;
+  answerable?: boolean;
+  /** This row is a pointer, not a statement: it names durable inputs the client can go and read.
+   *  The Ideas view is where they live, so the surface renders this one as a tap-through — see
+   *  IdeasPanel. Marked here rather than matched on the wording downstream, because a string
+   *  comparison against a sentence that changes with the count would fail the month it hit 1. */
+  opensIdeas?: boolean;
+}
 
 export type SummaryKey = 'mix' | 'series' | 'products' | 'client' | 'assumptions';
 
@@ -416,7 +425,7 @@ export function monthSummary(
     sections.push({
       key: 'client',
       heading: 'From you',
-      facts: [{ text: `${hers.length} idea${hers.length === 1 ? '' : 's'} you gave us${when}` }],
+      facts: [{ text: `${hers.length} idea${hers.length === 1 ? '' : 's'} you gave us${when}`, opensIdeas: true }],
     });
   }
 

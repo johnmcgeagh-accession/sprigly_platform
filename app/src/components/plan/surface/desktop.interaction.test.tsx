@@ -66,6 +66,7 @@ function base(over: Partial<PlanData> = {}): PlanData {
     changeFormat: vi.fn(async () => {}), regenerateChecklist: vi.fn(async () => {}),
     generateHooks: vi.fn(async () => {}), generateScript: vi.fn(async () => {}),
     saveHook: vi.fn(async () => {}), clearHookCandidates: vi.fn(),
+    ideas: [], ideasError: false,
     proposals: [], agentBusy: false, agentToast: null,
     ask: vi.fn(async () => null), applyChanges: vi.fn(async () => ({ applied: [], failures: [], changedPostIds: [] })),
     discardChanges: vi.fn(),
@@ -96,7 +97,7 @@ for (const width of WIDTHS) {
 
     // ── D1 · the shell ───────────────────────────────────────────────────────────────
 
-    it('has four regions and a rail of two, and the mobile shell is nowhere near it', () => {
+    it('has four regions and a rail of three, and the mobile shell is nowhere near it', () => {
       render(<CommittedSurface data={committedData()} frame="desktop" />);
 
       expect(screen.getByTestId('plan-desktop')).toBeTruthy();
@@ -105,10 +106,12 @@ for (const width of WIDTHS) {
       expect(screen.getByTestId('day-col')).toBeTruthy();
       expect(screen.getByTestId('conversation-dock')).toBeTruthy();
 
-      // Two rail items. Insights is deliberately NOT drawn — a control that does nothing is
-      // worse than an absent one, and a vertical list takes a third with no layout change.
+      // Three rail items since W6. Insights is STILL deliberately not drawn — a control that
+      // does nothing is worse than an absent one, and the prediction that a vertical list would
+      // take a third item with no layout change is what Ideas went on to prove.
       expect(screen.getByTestId('rail-plan')).toBeTruthy();
       expect(screen.getByTestId('rail-tasks')).toBeTruthy();
+      expect(screen.getByTestId('rail-ideas')).toBeTruthy();
       expect(screen.queryByTestId('rail-insights')).toBeNull();
 
       // The mobile shell and its furniture are absent, not hidden.
@@ -368,6 +371,21 @@ for (const width of WIDTHS) {
       expect(screen.queryByTestId('month-col')).toBeNull();
       // …and its sections flow into columns rather than one mobile-width stack.
       expect(screen.getByTestId('tasks-panel').className).toContain('wide:columns-2');
+    });
+
+    it('opening a task’s post RETURNS to the plan, where the detail panel can be seen', () => {
+      // W4 shipped this half-done and W6 found it: the detail renders into the DAY column, and
+      // `region` replaces both columns — so setting the id while Tasks still owned the region
+      // changed the state and nothing on the screen. A control that visibly does nothing.
+      const withStep = post({ steps: [{ id: 's1', label: 'Shoot the reel', leadDays: 2, done: false, doneAt: null }] } as Partial<PlanPost>);
+      render(<CommittedSurface data={committedData({ posts: [withStep], calendarPosts: [withStep] })} frame="desktop" />);
+      fireEvent.click(screen.getByTestId('rail-tasks'));
+
+      const panel = screen.getByTestId('tasks-panel');
+      fireEvent.click(within(panel).getAllByText('Wilderness is back.')[0]!);
+
+      expect(screen.queryByTestId('tasks-panel')).toBeNull();
+      expect(within(screen.getByTestId('day-col')).getByTestId('detail-sheet')).toBeTruthy();
     });
 
     // ── D6 · the thin month ──────────────────────────────────────────────────────────

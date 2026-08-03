@@ -159,6 +159,14 @@ export const NavMonthGlyph = stroked(<>
 </>);
 export const NavTasksGlyph = stroked(<path d="M4 7.5l2 2 3.5-3.5M4 16.5l2 2 3.5-3.5M13 8h7M13 17h7" />);
 
+/** Ideas — a speech bubble with two lines in it, not a lightbulb. The lightbulb is the cliché
+ *  AND it is wrong about the mechanism: nothing here was invented at a desk, it was SAID, and
+ *  saying it is still the only way to add one. The glyph names the add path. */
+export const NavIdeasGlyph = stroked(<>
+  <path d="M20 6.5a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3v7a3 3 0 0 0 3 3v4l4.7-4H17a3 3 0 0 0 3-3Z" />
+  <path d="M8 8.5h8M8 12h5" />
+</>);
+
 // ── Actions ──────────────────────────────────────────────────────────────────────────
 
 export const PlusGlyph = stroked(<path d="M12 5.5v13M5.5 12h13" />);

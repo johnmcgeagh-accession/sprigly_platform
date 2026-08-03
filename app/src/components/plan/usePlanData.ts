@@ -21,6 +21,7 @@ import type { PlanPost, PlanBeat, PlanIntake, DurableItemView, CycleSummary, Pos
 import type { CapNotice, InterpretedItem, ProposalView } from '@/lib/agent/types';
 import { PROPOSAL_REFUSED } from '@/lib/agent/types';
 import type { NoteView } from '@/lib/agent/notes';
+import type { IdeaView } from '@/lib/ideas';
 import { indexForecast, type WeatherDay, type WeatherWireDay } from '@/lib/weather';
 import { resolveDayCycleId } from '@/lib/cycle-nav';
 import { planMoveGuard, shouldReconcile } from '@/lib/plan-move';
@@ -100,6 +101,8 @@ export function usePlanData(init: PlanDataInit) {
   const [cycles, setCycles] = useState<CycleSummary[]>(init.cycles);
   const [proposals, setProposals] = useState<ProposalView[]>([]);
   const [notes, setNotes] = useState<NoteView[]>([]);
+  const [ideas, setIdeas] = useState<IdeaView[]>([]);
+  const [ideasError, setIdeasError] = useState(false);
   const [viewedCycleId, setViewedCycleId] = useState(init.initialViewedCycleId ?? init.homeCycleId);
   // The surface the SERVER chose for the viewed cycle, and the draft data when it chose
   // draft. Both are stored, never derived — resolveSurfaceKind runs server-side only.
@@ -207,6 +210,22 @@ export function usePlanData(init: PlanDataInit) {
       setLoadError((e) => (e === 'notes' ? null : e));
     } catch { setLoadError('notes'); }
   }, []);
+  /**
+   * The Ideas view's rows. Read on the same beat as notes and refreshed on the same events,
+   * because they come from the same table and an agent turn is exactly what changes them: the
+   * one way to add an idea is to say it, so the list must be right the moment the turn lands.
+   *
+   * A failure here is silent. Ideas is a read-only record; if it cannot load, the panel says so
+   * in its own words rather than raising a plan-wide load error over a view nobody may open.
+   */
+  const refreshIdeas = useCallback(async () => {
+    try {
+      const r = await fetch('/api/plan/ideas');
+      if (!r.ok) throw new Error(String(r.status));
+      setIdeas(((await r.json()) as { ideas: IdeaView[] }).ideas);
+      setIdeasError(false);
+    } catch { setIdeasError(true); }
+  }, []);
   // Re-fetch the CURRENT view (viewed cycle) and refresh BOTH sets, so a write that moves a
   // post across the month boundary (or edits a cross-cycle post) is reflected in the grid.
   const refreshPlan = useCallback(async () => {
@@ -226,7 +245,7 @@ export function usePlanData(init: PlanDataInit) {
     } catch { /* non-fatal */ }
   }, [viewedCycleId, init.homeCycleId]);
 
-  useEffect(() => { void refreshProposals(); void refreshNotes(); }, [refreshProposals, refreshNotes]);
+  useEffect(() => { void refreshProposals(); void refreshNotes(); void refreshIdeas(); }, [refreshProposals, refreshNotes, refreshIdeas]);
 
   // Weather: fetch the forecast in parallel, after mount. A failure, a 401, or an
   // empty forecast (no lat/lon) simply leaves the map empty — the calendar renders
@@ -666,6 +685,7 @@ export function usePlanData(init: PlanDataInit) {
       } else if (r.message && !opts.silent) { agentFlash(r.message); }
       track('agent_ask_submitted', { proposals: created.length, source });
       void refreshNotes();
+      void refreshIdeas();
       return reply;
     } catch {
       setAgentError(controller.signal.aborted
@@ -673,7 +693,7 @@ export function usePlanData(init: PlanDataInit) {
         : 'Network error. Your message is still here, try again.');
       return null;
     } finally { clearTimeout(ceiling); setAgentBusy(false); }
-  }, [readOnly, agentBusy, agentFlash, refreshNotes, track, viewedCycleId]);
+  }, [readOnly, agentBusy, agentFlash, refreshNotes, refreshIdeas, track, viewedCycleId]);
 
   /** Poll an agent-enqueued hook job and surface its candidates in the target post's hook
    *  UI — exactly as a manual "Generate hooks" does (the editor reads hookCandidates). */
@@ -937,7 +957,7 @@ export function usePlanData(init: PlanDataInit) {
 
   return {
     // data
-    posts, crossMonthPosts, calendarPosts, beats, beatsOn, cycles, proposals, notes, today: init.today, clientName: init.clientName, pendingMoves,
+    posts, crossMonthPosts, calendarPosts, beats, beatsOn, cycles, proposals, notes, ideas, ideasError, today: init.today, clientName: init.clientName, pendingMoves,
     questions: init.questions, intake, durable, intakeOpen, intakeBusy, viewedCyclePrePlanning, openIntake, closeIntake, submitIntake,
     homeCycleId: init.homeCycleId, viewedCycleId, readOnly, canEdit, todayCycleId,
     surfaceKind, draft, setDraft,
@@ -949,7 +969,7 @@ export function usePlanData(init: PlanDataInit) {
     // actions
     reschedule, saveCaption, revert, removePost, addPost, addShapedPost,
     generateChecklist, addStep, toggleStep, renameStep, shape, retryShape, ask, decide, applyChanges, discardChanges, switchCycle,
-    refreshProposals, refreshNotes, setAgentReply, setAgentError, flash, track,
+    refreshProposals, refreshNotes, refreshIdeas, setAgentReply, setAgentError, flash, track,
     saveHook, generateHooks, clearHookCandidates,
     saveScript, generateScript,
     changeFormat, regenerateChecklist,

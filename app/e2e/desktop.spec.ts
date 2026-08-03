@@ -349,6 +349,76 @@ test('Tasks uses the whole region and flows into columns', async ({ page }) => {
   await expect(page.getByTestId('day-col')).toHaveCount(0);
 });
 
+/* ── W6 · Ideas: the client's own sentences, and what became of each ─────────────── */
+
+test('Ideas lists the client’s durable inputs, each in the state the data knows', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await page.getByTestId('rail-ideas').click();
+  const panel = page.getByTestId('ideas-panel');
+  await expect(panel).toBeVisible();
+
+  // Her words, verbatim and quoted. The seed's four durable inputs plus its three notes.
+  await expect(panel).toContainText('Shoot the provenance story on film, not phone.');
+  await expect(panel).toContainText('Make Fridays feel more personal, more Sally, less product.');
+
+  // The four states, each derived from `status` + `lifecycle` — never stored, never guessed.
+  const states = panel.locator('[data-testid="ideas-group"]');
+  await expect(states).toHaveCount(4);
+  await expect(panel.locator('[data-testid="ideas-group"][data-state="used"]'))
+    .toContainText('Used in July 2026');
+  await expect(panel.locator('[data-testid="ideas-group"][data-state="deferred"]'))
+    .toContainText('Deferred to next month');
+  await expect(panel.locator('[data-testid="ideas-group"][data-state="set-aside"]'))
+    .toContainText('Set aside');
+});
+
+test('the used idea taps through to the post it became, in the day column', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await page.getByTestId('rail-ideas').click();
+
+  const link = page.getByTestId('idea-post');
+  await expect(link).toHaveText(/Why we make less, more carefully\./);
+  await link.click();
+
+  // Opening a post is a PLAN act: Ideas gives the region back and the detail takes the day
+  // column's slot, which is where every other route into a post already lands.
+  await expect(page.getByTestId('ideas-panel')).toHaveCount(0);
+  await expect(page.getByTestId('day-col').getByTestId('detail-sheet')).toBeVisible();
+});
+
+test('Ideas is read-only — no add, no edit, no delete anywhere in the view', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await page.getByTestId('rail-ideas').click();
+  const panel = page.getByTestId('ideas-panel');
+  await expect(panel).toBeVisible();
+
+  // The one control in the whole view is the tap-through. Saying an idea "arrives by telling
+  // the agent" is only true while there is no second way to do it here.
+  const controls = panel.locator('button, input, textarea, [contenteditable="true"]');
+  await expect(controls).toHaveCount(1);
+  await expect(controls.first()).toHaveAttribute('data-testid', 'idea-post');
+});
+
+test('Ideas uses the whole region and flows into columns, like its sibling', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await page.getByTestId('rail-ideas').click();
+  await expect(page.getByTestId('ideas-panel')).toBeVisible();
+
+  const m = await page.evaluate(() => {
+    const region = document.querySelector('[data-testid="plan-region"]')!.getBoundingClientRect();
+    const panel = document.querySelector('[data-testid="ideas-panel"]')!;
+    return {
+      region: Math.round(region.width),
+      panel: Math.round(panel.getBoundingClientRect().width),
+      columns: getComputedStyle(panel).columnCount,
+    };
+  });
+  expect(m.panel).toBeGreaterThan(1000);
+  expect(m.panel).toBeGreaterThanOrEqual(m.region - 60);
+  expect(m.columns).toBe('2');
+  await expect(page.getByTestId('month-col')).toHaveCount(0);
+});
+
 /* ── the per-post date policy, which this suite used to fight ────────────────────── */
 
 test('a PAST post opens read-only; a future one is editable', async ({ page }) => {

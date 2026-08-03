@@ -5,6 +5,7 @@ import { useAutosave } from './useAutosave';
 import type { PlanPost, PostStepView } from '@/lib/types';
 import type { ProposalView } from '@/lib/agent/types';
 import type { NoteView } from '@/lib/agent/notes';
+import { postHeadline } from '@/lib/ideas';
 import { dueDate, daysBetween, postAtRisk } from '@/lib/checklist';
 import { bucketWeatherIcon, weatherTooltip, tempTone, type WeatherDay, type TempTone } from '@/lib/weather';
 import {
@@ -84,9 +85,7 @@ export function isUntitled(p: PlanPost): boolean {
  *  exists in the backend (recorded delta). Untitled drafts return 'Untitled' (chips
  *  render the fuller "Untitled — tap to draft" affordance themselves). */
 export function postTitle(p: PlanPost): string {
-  const cap = (p.caption || '').trim();
-  if (cap && !cap.startsWith('Draft idea')) return cap.split(/(?<=[.!?])\s/)[0]!.slice(0, 90);
-  return 'Untitled';
+  return postHeadline(p.caption) ?? 'Untitled';
 }
 
 /** done/total progress ring; amber when a step is overdue, coral when complete. */

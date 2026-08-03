@@ -7,11 +7,15 @@
  *
  * The phone's pill carries `Day · Month · Tasks`. On desktop the month grid and the selected
  * day are on screen TOGETHER (the spec's E2), so Day and Month stop being destinations the
- * moment they stop being alternatives. What is left is Plan and Tasks.
+ * moment they stop being alternatives. What is left is Plan, Tasks and — since W6 — Ideas.
  *
- * INSIGHTS IS NOT DRAWN. The phone's ruling holds on both form factors — a control that does
- * nothing is worse than an absent one — and a vertical list takes a third item with no layout
- * change at all, which is exactly why it is safe not to draw a placeholder for it now.
+ * IDEAS WAS THE PREDICTED THIRD ITEM, and it arrived the way the note below said it would: a
+ * vertical list took it with no layout change at all. It is a destination and not a panel on the
+ * plan because it is a record of a RELATIONSHIP rather than of a month — the sentences in it
+ * outlive the cycle on screen, and hanging them off one month would say the opposite.
+ *
+ * INSIGHTS IS STILL NOT DRAWN. The phone's ruling holds on both form factors: a control that
+ * does nothing is worse than an absent one.
  *
  * ── The identity is the phone's component, not a copy of its styling ─────────────────
  *
@@ -30,12 +34,12 @@
  */
 import React from 'react';
 import { Wordmark } from './PlanShell';
-import { NavMonthGlyph, NavTasksGlyph } from './icons';
+import { NavMonthGlyph, NavTasksGlyph, NavIdeasGlyph } from './icons';
 
-export type RailView = 'plan' | 'tasks';
+export type RailView = 'plan' | 'tasks' | 'ideas';
 
 export function Rail({
-  clientName, subtitle, view, onView, tasksCount, tasksLate,
+  clientName, subtitle, view, onView, tasksCount, tasksLate, ideasCount,
 }: {
   clientName: string;
   subtitle: string;
@@ -45,6 +49,9 @@ export function Rail({
   /** Something is late. Carried as a colour AND a word ("late") at full width, and as a dot
    *  when the rail is collapsed — never by hue alone. */
   tasksLate: boolean;
+  /** How many durable inputs this client has given us, ever. Not a to-do — it is a record, and
+   *  the count is here because "is any of what I said in there?" is answerable at a glance. */
+  ideasCount: number;
 }) {
   return (
     <nav
@@ -64,6 +71,10 @@ export function Rail({
         <RailBtn
           view="tasks" label="Tasks" current={view} onView={onView} Glyph={NavTasksGlyph}
           count={tasksCount} late={tasksLate}
+        />
+        <RailBtn
+          view="ideas" label="Ideas" current={view} onView={onView} Glyph={NavIdeasGlyph}
+          count={ideasCount}
         />
       </div>
 

@@ -51,7 +51,7 @@ import { Rail } from './Rail';
 import type { RailView } from './Rail';
 
 export function DesktopShell({
-  clientName, subtitle, view, onView, tasksCount, tasksLate,
+  clientName, subtitle, view, onView, tasksCount, tasksLate, ideasCount,
   monthLabel, onPrevMonth, onNextMonth, onToday, todayEnabled,
   badge, headerRight, topSlot, month, day, dock, region, overlays,
 }: {
@@ -61,6 +61,7 @@ export function DesktopShell({
   view: RailView;
   onView: (v: RailView) => void;
   tasksCount: number;
+  ideasCount: number;
   tasksLate: boolean;
   monthLabel: string;
   onPrevMonth?: (() => void) | undefined;
@@ -102,7 +103,7 @@ export function DesktopShell({
     <div data-testid="plan-desktop" className="relative mx-auto flex h-[100dvh] w-full max-w-shell overflow-hidden bg-bg text-chrome">
       <Rail
         clientName={clientName} subtitle={subtitle}
-        view={view} onView={onView} tasksCount={tasksCount} tasksLate={tasksLate}
+        view={view} onView={onView} tasksCount={tasksCount} tasksLate={tasksLate} ideasCount={ideasCount}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">

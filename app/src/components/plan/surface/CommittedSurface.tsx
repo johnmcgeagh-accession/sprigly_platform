@@ -39,6 +39,7 @@ import { WeekStrip, type DayMark } from './WeekStrip';
 import { MonthGrid } from './MonthGrid';
 import { DayPanel } from './DayPanel';
 import { TasksPanel } from './TasksPanel';
+import { IdeasPanel } from './IdeasPanel';
 import { DetailSheet } from './DetailSheet';
 import { MoveSheet } from './MoveSheet';
 import { AddSheet } from './AddSheet';
@@ -84,6 +85,22 @@ export function CommittedSurface({ data, frame = 'mobile' }: { data: PlanData; f
     setSelectedRaw(iso);
   }, []);
   const [openId, setOpenId] = useState<string | null>(null);
+  /**
+   * Open a post from a view that owns the WHOLE plan region — Tasks, Ideas.
+   *
+   * It has to return to the plan as well as set the id, and that is not a nicety. The detail
+   * panel renders into the DAY column, and `region` replaces both columns; without the second
+   * half of this, tapping a post from Tasks set the state and changed nothing on the screen —
+   * a control that visibly does nothing. Ideas' tap-through found it (W6), and Tasks had shipped
+   * with it in W4.
+   *
+   * Returning to the plan is also the right answer rather than the convenient one: opening a
+   * post is a PLAN act, and this is where every other route into a post already lands.
+   */
+  const openFromRegion = useCallback((postId: string) => {
+    setOpenId(postId);
+    setRailView('plan');
+  }, []);
   const [moveId, setMoveId] = useState<string | null>(null);
   const [undo, setUndo] = useState<UndoState | null>(null);
   /** The day the add sheet is open for, or null. Held as a DATE rather than a boolean so the
@@ -462,6 +479,7 @@ export function CommittedSurface({ data, frame = 'mobile' }: { data: PlanData; f
         subtitle={monthPosts.length === 1 ? '1 post this month' : `${monthPosts.length} posts this month`}
         view={railView} onView={setRailView}
         tasksCount={lateCount(data.posts, data.today)} tasksLate={lateCount(data.posts, data.today) > 0}
+        ideasCount={data.ideas.length}
         monthLabel={monthTitle(month)}
         onPrevMonth={prev ? () => { navTrace('cycle user:prev-month', prev.cycleId); void data.switchCycle(prev.cycleId); } : undefined}
         onNextMonth={next ? () => { navTrace('cycle user:next-month', next.cycleId); void data.switchCycle(next.cycleId); } : undefined}
@@ -470,10 +488,13 @@ export function CommittedSurface({ data, frame = 'mobile' }: { data: PlanData; f
           undo={undo} onDismiss={() => setUndo(null)} message={data.toast}
           agent={null} agentWorking={false}
         />}
-        {...(railView === 'tasks'
-          ? { region: <TasksPanel data={data} onOpen={setOpenId} frame="desktop" /> }
+        {...(railView === 'ideas'
+          ? { region: <IdeasPanel data={data} onOpen={openFromRegion} frame="desktop" /> }
           : {})}
-        month={railView === 'tasks' ? null : (
+        {...(railView === 'tasks'
+          ? { region: <TasksPanel data={data} onOpen={openFromRegion} frame="desktop" /> }
+          : {})}
+        month={railView !== 'plan' ? null : (
           <MonthGrid
             month={month} selected={selected} today={data.today} frame="desktop"
             marksFor={marksFor} changedFor={dayChanged} ringedFor={ringed}

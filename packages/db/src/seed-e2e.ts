@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path';
 // Lives in packages/db/src and imports the schema/client relatively (like migrate.ts),
 // so it runs under `pnpm --filter @sprigly/db exec tsx src/seed-e2e.ts` with the clean
 // db-package tsconfig — no root-tsconfig path-mapping quirks.
+import { eq } from 'drizzle-orm';
 import { db, sql } from './client.js';
 import {
   clients, clientConfigs, contentCycles, contentCyclePosts, postSteps,
@@ -145,6 +146,54 @@ async function main() {
   ]) {
     await db.insert(planInputs).values({ clientId: CLIENT, cycleId: CYCLE, type: 'note', content, status: 'active', source: 'voice' });
   }
+
+  // ── Durable inputs in every state the Ideas view can draw (W6) ────────────────────
+  //
+  // The three notes above are all `active`/`candidate`, so before this the seed could only
+  // ever produce one column — "waiting" — and the states that carry the actual claim of the
+  // view (that we can tell a client what became of what they said) were untestable end to end.
+  // These four are the four states, and the used one is wired to a real post so the
+  // tap-through has somewhere to go.
+  const USED_IDEA = '33333333-3333-4333-8333-333333333331';
+  await db.insert(planInputs).values([
+    {
+      id: USED_IDEA, clientId: CLIENT, type: 'idea', source: 'voice',
+      content: 'Shoot the provenance story on film, not phone.',
+      // status stays 'active' — the pairing that breaks a reader trusting either column alone.
+      status: 'active', lifecycle: 'used', usedInCycleId: CYCLE,
+    },
+    {
+      clientId: CLIENT, type: 'next_cycle', source: 'voice',
+      content: 'Save the winter fabric piece for the month after this one.',
+      status: 'active', lifecycle: 'candidate',
+    },
+    {
+      clientId: CLIENT, type: 'idea', source: 'web',
+      content: 'A giveaway with the tote bags.',
+      status: 'active', lifecycle: 'declined',
+    },
+    {
+      clientId: CLIENT, type: 'idea', source: 'voice',
+      content: 'More behind-the-scenes from the studio.',
+      status: 'active', lifecycle: 'candidate',
+    },
+  ]);
+  // The beat that idea became. `sourceRef` is what the draft assembler writes when an
+  // allocation carries a candidate (draft-assembly.ts), and it is the ONLY link from an
+  // input to a specific post — used_in_cycle_id names the month, not the beat. The shape is
+  // the assembler's own: an experiment slot, carrying her sentence so a surface can quote it.
+  await db.update(contentCyclePosts)
+    .set({
+      beatMeta: {
+        slotType: 'experiment',
+        rationaleEvidence: {
+          basis: 'client_input',
+          backlogIdea: { text: 'Shoot the provenance story on film, not phone.', givenAt: '2026-06-14' },
+        },
+        sourceRef: USED_IDEA,
+      },
+    })
+    .where(eq(contentCyclePosts.id, P(8)));
 
   // Magic-link token → session for the Playwright auth setup.
   await db.insert(appMagicLinkTokens).values({

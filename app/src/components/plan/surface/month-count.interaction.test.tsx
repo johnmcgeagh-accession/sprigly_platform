@@ -58,6 +58,7 @@ function data(posts: PlanPost[], crossMonthPosts: PlanPost[] = []): PlanData {
     changeFormat: vi.fn(async () => {}), regenerateChecklist: vi.fn(async () => {}),
     generateHooks: vi.fn(async () => {}), generateScript: vi.fn(async () => {}),
     saveHook: vi.fn(async () => {}), clearHookCandidates: vi.fn(),
+    ideas: [], ideasError: false,
     proposals: [], agentBusy: false, agentToast: null,
     ask: vi.fn(async () => null), applyChanges: vi.fn(async () => ({ applied: [], failures: [], changedPostIds: [] })),
     discardChanges: vi.fn(),

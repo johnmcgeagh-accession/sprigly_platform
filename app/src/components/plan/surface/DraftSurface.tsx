@@ -52,6 +52,7 @@ import { AddSheet } from './AddSheet';
 import { VoiceSheet } from './VoiceSheet';
 import { ApprovalSheet, ApprovalPill, useApproval } from './ApprovalSheet';
 import { TasksPanel } from './TasksPanel';
+import { IdeasPanel } from './IdeasPanel';
 import { monthSummary } from '@/lib/draft-rationale';
 import { DraftMonthSummary } from './DraftMonthSummary';
 import { Feedback } from './Feedback';
@@ -258,11 +259,14 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
     />
   );
 
+  // `onIdeas` turns the "6 ideas you gave us in July" line into a way to go and read them.
+  // Desktop only: Ideas is a rail destination and the phone has no rail to send anyone to.
   const summaryNode = (
     <DraftMonthSummary
       summary={summary} expanded={summaryOpen} onToggle={() => setSummaryOpen((v) => !v)}
       onAnswer={(question) => setVoiceFor(question)}
       {...(editable ? { onShape: () => setVoiceFor('') } : {})}
+      {...(desktop ? { onIdeas: () => setRailView('ideas') } : {})}
     />
   );
 
@@ -273,6 +277,7 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
         subtitle={monthBeats.length === 1 ? '1 planned post' : `${monthBeats.length} planned posts`}
         view={railView} onView={setRailView}
         tasksCount={0} tasksLate={false}
+        ideasCount={data.ideas.length}
         monthLabel={monthTitle(month)}
         onPrevMonth={prev ? () => { navTrace('cycle user:prev-month', prev.cycleId); void data.switchCycle(prev.cycleId); } : undefined}
         onNextMonth={next ? () => { navTrace('cycle user:next-month', next.cycleId); void data.switchCycle(next.cycleId); } : undefined}
@@ -294,10 +299,13 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
           undo={m.undo} onDismiss={() => m.setUndo(null)} message={data.toast}
           agent={null} agentWorking={m.shaping}
         />}
+        {...(railView === 'ideas'
+          ? { region: <IdeasPanel data={data} onOpen={() => {}} frame="desktop" /> }
+          : {})}
         {...(railView === 'tasks'
           ? { region: <TasksPanel data={data} onOpen={() => {}} frame="desktop" /> }
           : {})}
-        month={railView === 'tasks' ? null : showingReceipt && m.receipt ? (
+        month={railView !== 'plan' ? null : showingReceipt && m.receipt ? (
           <ReceiptPanel
             receipt={m.receipt} monthName={monthName} editable={editable} rescuing={m.busy}
             onRescue={(id) => void m.addToMonth(id, m.rescueDate())}

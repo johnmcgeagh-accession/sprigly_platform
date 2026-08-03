@@ -54,7 +54,7 @@ const OPEN_CTA = 'Tap to see why these posts are here';
 const SHAPE_CTA = 'Not right? Tell us what to change';
 
 export function DraftMonthSummary({
-  summary, expanded, onToggle, onAnswer, onShape,
+  summary, expanded, onToggle, onAnswer, onShape, onIdeas,
 }: {
   /** Already derived. Null renders nothing at all — see monthSummary on the empty month. */
   summary: MonthSummary | null;
@@ -66,6 +66,12 @@ export function DraftMonthSummary({
   /** Reshape the month. Absent on a month that can no longer be changed, in which case the
    *  closing row is not rendered — a prompt that can only refuse is worse than no prompt. */
   onShape?: (() => void) | undefined;
+  /**
+   * Go and read the ideas the "From you" line counts. Desktop only — Ideas is a rail
+   * destination and the phone has no rail, so on mobile the line stays a statement. That is a
+   * deliberate degrade, not an oversight: a link is worse than no link when it goes nowhere.
+   */
+  onIdeas?: (() => void) | undefined;
 }) {
   if (!summary || summary.sections.length === 0) return null;
   const detailId = 'draft-summary-detail';
@@ -118,6 +124,8 @@ export function DraftMonthSummary({
                   <li key={`${s.key}-${i}`} data-testid="draft-summary-fact" data-answerable={f.answerable ? 'true' : undefined}>
                     {f.answerable
                       ? <PromptRow testid="assumption-nudge" label={f.text} onClick={() => onAnswer(f.text)} />
+                      : f.opensIdeas && onIdeas
+                      ? <PromptRow testid="summary-ideas" label={f.text} onClick={onIdeas} />
                       : (
                         <span className="flex gap-3 text-[13.5px] leading-normal text-coral-800">
                           <span className="min-w-0 flex-1 break-words">{f.text}</span>
