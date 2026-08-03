@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>9 — Narrow desktop · Sprigly desktop plan surface</title>
+<link rel="stylesheet" href="sprigly-desktop.css">
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+<symbol id="i-reel" viewBox="0 0 24 24"><path style="fill:currentColor;stroke:none" d="M4.6 4.2h14.8a2 2 0 0 1 2 2v3.1H2.6V6.2a2 2 0 0 1 2-2Z"/><path style="fill:var(--t-accent-100);stroke:none" d="M8.2 4.2l-2.4 5.1h1.9l2.4-5.1zM14.4 4.2L12 9.3h1.9l2.4-5.1z"/><path d="M2.6 9.3h18.8V18a2 2 0 0 1-2 2H4.6a2 2 0 0 1-2-2V9.3Z"/></symbol>
+<symbol id="i-carousel" viewBox="0 0 24 24"><rect x="3.5" y="6.5" width="13" height="14" rx="2.5"/><path d="M7.2 3.5h9.3a3.5 3.5 0 0 1 3.5 3.5v9.6"/></symbol>
+<symbol id="i-single" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><circle cx="8.8" cy="9.2" r="1.5"/><path d="M4.3 17.3l4.5-4.8a1.7 1.7 0 0 1 2.5 0l5.2 5.5"/></symbol>
+<symbol id="i-chev-l" viewBox="0 0 24 24"><path d="M14.5 5.5l-7 6.5 7 6.5"/></symbol>
+<symbol id="i-chev-r" viewBox="0 0 24 24"><path d="M9.5 5.5l7 6.5-7 6.5"/></symbol>
+<symbol id="i-chev-u" viewBox="0 0 24 24"><path d="M6 14.5l6-6 6 6"/></symbol>
+<symbol id="i-chev-d" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></symbol>
+<symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></symbol>
+<symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 17a6 6 0 1 1 6 0v1.6H9V17Z"/><path d="M10 21.5h4"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 10.8v5.7M12 7.7v.3"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.5"/><path d="M15.5 5.5v-.5a2 2 0 0 0-2-2H6a2.5 2.5 0 0 0-2.5 2.5v7.5a2 2 0 0 0 2 2h.5"/></symbol>
+<symbol id="i-cal" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/></symbol>
+<symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z"/></symbol>
+<symbol id="i-bin" viewBox="0 0 24 24"><path d="M4.5 6.5h15M9.5 6.5V4.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v2M6.5 6.5l1 13a1.5 1.5 0 0 0 1.5 1.4h6a1.5 1.5 0 0 0 1.5-1.4l1-13"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+<symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+<symbol id="i-send" viewBox="0 0 24 24"><path d="M4.5 12h14M12.5 6l6 6-6 6"/></symbol>
+<symbol id="i-nav-plan" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/><path d="M8 13h.01M12 13h.01M16 13h.01M8 16.8h.01M12 16.8h.01"/></symbol>
+<symbol id="i-nav-tasks" viewBox="0 0 24 24"><path d="M4 7.5l2 2 3.5-3.5M4 16.5l2 2 3.5-3.5M13 8h7M13 17h7"/></symbol>
+</defs></svg>
+
+<div class="page-head">
+  <div class="crumbs">Desktop mockup 9 of 9 · <a href="index.html">all states</a></div>
+  <h1>Narrow desktop — 1024, and what the band between 1080 and 1280 does</h1>
+  <p><strong>The rule, stated once.</strong> Below 1080px the surface is the <em>mobile shell</em>, unchanged — the existing <code>PlanRoot</code> breakpoint is not moved, because it is already tested and both e2e projects are pinned either side of it. A tablet in portrait gets the phone surface, which is a reviewed design tested at 375 and 320, rather than a squeezed desktop nobody has looked at.</p>
+  <p>Between <strong>1080 and 1279</strong> the plan region <em>stacks</em>: the month grid above, the day column (or the detail panel) below, scrolling together. The rail collapses to icons and the dock narrows from 344 to 320. At or above <strong>1280</strong> the month and the day sit side by side, which is exception 2 in full.</p>
+  <p><strong>What does not change at any width.</strong> The conversation is docked and present. It never becomes a tab, a rail item, or a button that summons a panel — that is the whole of exception 1, and a region that disappears when the window narrows is not persistent, it is merely usually visible.</p>
+</div>
+<div class="frame-wrap">
+  <p class="frame-label">A — 1024 × 820 · the detail panel open, the conversation still docked</p>
+  <p class="frame-sub">The month is above and the post is below, both at the plan region’s full 588px, and the conversation has not moved. The detail panel is wider here than at 1440 — 588px against 320 — which is a property of stacking, not a second design: the panel takes whatever the region gives it. The rail is icons only, and its late count becomes a dot.</p>
+
+  <div class="desk narrow">
+    <aside class="rail">
+      <div class="raillogo">
+        <svg class="mark" viewBox="0 0 100 110" fill="currentColor" aria-hidden="true">
+            <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+            <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+            <line x1="50" y1="76" x2="50" y2="98" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+        <span class="wordmark">Sprigly</span>
+      </div>
+      <div class="railctx">
+        <div class="who">Earl of East</div>
+        <div class="sub">10 posts in October</div>
+      </div>
+      <nav class="railnav" aria-label="Views">
+        <button class="railbtn" type="button" aria-current="page"><svg class="ic"><use href="#i-nav-plan"/></svg><span class="lbl">Plan</span></button>
+        <button class="railbtn" type="button"><svg class="ic"><use href="#i-nav-tasks"/></svg><span class="lbl">Tasks</span><span class="count late">2 late</span></button>
+      </nav>
+      <div class="railfoot">Opened from your link, no password needed. Edit from today on; past dates are locked.</div>
+    </aside>
+
+    <div class="plan">
+      <div class="planhead">
+        <div class="monthnav">
+          <button class="navbtn" type="button" aria-label="September 2026"><svg class="ic sm"><use href="#i-chev-l"/></svg></button>
+          <span class="monthtitle">October 2026</span>
+          <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
+        </div>
+        <span style="flex:1"></span>
+        <button class="todaybtn" type="button">Today</button>
+      </div>
+
+      <div class="plancols">
+        <div class="monthcol">
+          <div class="mgrid">
+            <div class="gridhead" aria-hidden="true"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+            <div class="gridbody" role="group" aria-label="October 2026">
+              <button class="gcell out" type="button" aria-label="28 September, nothing planned"><span class="gnum">28</span><span class="dots"></span></button>
+              <button class="gcell out" type="button" aria-label="29 September, nothing planned"><span class="gnum">29</span><span class="dots"></span></button>
+              <button class="gcell out" type="button" aria-label="30 September, nothing planned"><span class="gnum">30</span><span class="dots"></span></button>
+              <button class="gcell today" type="button" aria-current="true" aria-label="1 October, 2 posts, today"><span class="gnum">1</span><span class="dots"><i class="committed"></i><i class="committed"></i></span></button>
+              <button class="gcell" type="button" aria-label="2 October, 1 post"><span class="gnum">2</span><span class="dots"><i class="committed"></i></span></button>
+              <button class="gcell" type="button" aria-label="3 October, nothing planned"><span class="gnum">3</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="4 October, 1 post"><span class="gnum">4</span><span class="dots"><i class="onway"></i></span></button>
+              <button class="gcell" type="button" aria-label="5 October, nothing planned"><span class="gnum">5</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="6 October, nothing planned"><span class="gnum">6</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="7 October, nothing planned"><span class="gnum">7</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="8 October, nothing planned"><span class="gnum">8</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="9 October, 1 post"><span class="gnum">9</span><span class="dots"><i class="committed"></i></span></button>
+              <button class="gcell" type="button" aria-label="10 October, nothing planned"><span class="gnum">10</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="11 October, nothing planned"><span class="gnum">11</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="12 October, nothing planned"><span class="gnum">12</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="13 October, nothing planned"><span class="gnum">13</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="14 October, nothing planned"><span class="gnum">14</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="15 October, nothing planned"><span class="gnum">15</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="16 October, 1 post"><span class="gnum">16</span><span class="dots"><i class="committed"></i></span></button>
+              <button class="gcell" type="button" aria-label="17 October, nothing planned"><span class="gnum">17</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="18 October, nothing planned"><span class="gnum">18</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="19 October, nothing planned"><span class="gnum">19</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="20 October, nothing planned"><span class="gnum">20</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="21 October, 1 post"><span class="gnum">21</span><span class="dots"><i class="committed"></i></span></button>
+              <button class="gcell" type="button" aria-label="22 October, 1 post"><span class="gnum">22</span><span class="dots"><i class="committed"></i></span></button>
+              <button class="gcell" type="button" aria-label="23 October, nothing planned"><span class="gnum">23</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="24 October, nothing planned"><span class="gnum">24</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="25 October, nothing planned"><span class="gnum">25</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="26 October, nothing planned"><span class="gnum">26</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="27 October, nothing planned"><span class="gnum">27</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="28 October, 1 post"><span class="gnum">28</span><span class="dots"><i class="committed"></i></span></button>
+              <button class="gcell" type="button" aria-label="29 October, 1 post"><span class="gnum">29</span><span class="dots"><i class="committed"></i></span></button>
+              <button class="gcell" type="button" aria-label="30 October, nothing planned"><span class="gnum">30</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="31 October, nothing planned"><span class="gnum">31</span><span class="dots"></span></button>
+              <button class="gcell out" type="button" aria-label="1 November, nothing planned"><span class="gnum">1</span><span class="dots"></span></button>
+            </div>
+          </div>
+          <p class="monthfoot">10 posts across October. One is still being written.</p>
+        </div>
+        <div class="daycol">
+          <div class="detail">
+            <button class="detailback" type="button"><svg class="ic sm"><use href="#i-chev-l"/></svg> Thursday 1 October</button>
+            <div class="detailhead">
+              <div class="detailtop">
+                <span class="fmt lg" title="Reel"><svg class="ic sm"><use href="#i-reel"/></svg><span class="sr">Reel</span></span>
+                <div class="who">
+                  <h2>Wilderness candle relaunch — Launch</h2>
+                  <p class="meta">Thursday 1 October · 6:00 · Home &amp; Space</p>
+                </div>
+                <button class="iconbtn" type="button" aria-expanded="false" aria-label="Why this post is here"><svg class="ic sm"><use href="#i-info"/></svg></button>
+              </div>
+            </div>
+            <div class="tabs" role="tablist">
+              <button class="tab" type="button" role="tab" aria-selected="true">Caption</button>
+              <button class="tab" type="button" role="tab" aria-selected="false">Hook</button>
+              <button class="tab" type="button" role="tab" aria-selected="false">Script</button>
+            </div>
+            <div class="detailbody">
+              <div class="copyrow">
+                <span class="section-label">Caption</span>
+                <button class="copyb" type="button"><svg class="ic sm"><use href="#i-copy"/></svg>Copy</button>
+              </div>
+              <p class="prose">Wilderness is back.
+
+There is a particular quality to autumn light indoors, the way it sits low and golden across a room, making everything feel a little more considered, a little more still. Wilderness was made for exactly that.
+
+Cedarwood, damp earth, and the cold-clean note of open air brought inside. She fills a room without announcing herself, building quietly over the first hour until the whole space feels grounded and unhurried.
+
+Our Wilderness Soy Wax Candle is live now. Head to the link in bio.</p>
+            </div>
+            <div class="acts">
+              <button class="act" type="button"><svg class="ic sm"><use href="#i-cal"/></svg><span class="actlabel">Move</span></button>
+              <button class="act" type="button"><svg class="ic sm"><use href="#i-sparkle"/></svg><span class="actlabel">Shape</span></button>
+              <button class="act destructive" type="button"><svg class="ic sm"><use href="#i-bin"/></svg><span class="actlabel">Delete</span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="dock" aria-label="Talk to your plan">
+      <div class="dockhead">
+        <div class="h"><h2>Talk to your plan</h2></div>
+        <p class="consequence">October is written. Nothing moves until you say so.</p>
+      </div>
+      <div class="thread">
+        <div class="turn agent">
+          <svg class="mark" viewBox="0 0 100 110" fill="currentColor" aria-hidden="true">
+            <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+            <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+            <line x1="50" y1="76" x2="50" y2="98" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+          <div class="body">October is written. Say what you want different — I’ll show you exactly what I’ll change before anything moves.</div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="field empty">Move the Thursday post to Friday</div>
+        <div class="tools">
+          <button class="speakbtn" type="button" aria-pressed="false"><svg class="ic"><use href="#i-mic"/></svg>Speak</button>
+          <span style="flex:1"></span>
+          <button class="sendbtn" type="button" aria-label="Send this to Sprigly" disabled><svg class="ic"><use href="#i-send"/></svg></button>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+<div class="frame-wrap">
+  <p class="frame-label">B — 1024 × 820 · the reshape moment, the frame this breakpoint has to survive</p>
+  <p class="frame-sub">This is the layout-sensitive one, and it is the reason the dock does not collapse below 1280. The whole point of the docked conversation is that the sentence and its consequence are visible together; a rail-tab that expands over the month would put them back on separate screens, which is the phone’s compromise and not a narrower desktop’s. Both are on screen, which is the claim this breakpoint has to keep. What the stack does cost is the <em>day column beside the grid</em>: the day the change lands on is below the fold here, so the client sees where it goes on the calendar and reads the post itself one scroll later.</p>
+
+  <div class="desk narrow">
+    <aside class="rail">
+      <div class="raillogo">
+        <svg class="mark" viewBox="0 0 100 110" fill="currentColor" aria-hidden="true">
+            <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+            <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+            <line x1="50" y1="76" x2="50" y2="98" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+        <span class="wordmark">Sprigly</span>
+      </div>
+      <div class="railctx">
+        <div class="who">Earl of East</div>
+        <div class="sub">10 posts in October</div>
+      </div>
+      <nav class="railnav" aria-label="Views">
+        <button class="railbtn" type="button" aria-current="page"><svg class="ic"><use href="#i-nav-plan"/></svg><span class="lbl">Plan</span></button>
+        <button class="railbtn" type="button"><svg class="ic"><use href="#i-nav-tasks"/></svg><span class="lbl">Tasks</span><span class="count late">2 late</span></button>
+      </nav>
+      <div class="railfoot">Opened from your link, no password needed. Edit from today on; past dates are locked.</div>
+    </aside>
+
+    <div class="plan">
+      <div class="planhead">
+        <div class="monthnav">
+          <button class="navbtn" type="button" aria-label="September 2026"><svg class="ic sm"><use href="#i-chev-l"/></svg></button>
+          <span class="monthtitle">October 2026</span>
+          <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
+        </div>
+        <span style="flex:1"></span>
+        <button class="todaybtn" type="button">Today</button>
+      </div>
+
+      <div class="plancols">
+        <div class="monthcol">
+          <div class="mgrid">
+            <div class="gridhead" aria-hidden="true"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+            <div class="gridbody" role="group" aria-label="October 2026">
+              <button class="gcell out" type="button" aria-label="28 September, nothing planned"><span class="gnum">28</span><span class="dots"></span></button>
+              <button class="gcell out" type="button" aria-label="29 September, nothing planned"><span class="gnum">29</span><span class="dots"></span></button>
+              <button class="gcell out" type="button" aria-label="30 September, nothing planned"><span class="gnum">30</span><span class="dots"></span></button>
+              <button class="gcell today" type="button" aria-label="1 October, 2 posts, today"><span class="gnum">1</span><span class="dots"><i class="committed"></i><i class="committed"></i></span></button>
+              <button class="gcell" type="button" aria-label="2 October, 1 post"><span class="gnum">2</span><span class="dots"><i class="committed"></i></span></button>
+              <button class="gcell" type="button" aria-label="3 October, nothing planned"><span class="gnum">3</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="4 October, 1 post"><span class="gnum">4</span><span class="dots"><i class="onway"></i></span></button>
+              <button class="gcell" type="button" aria-label="5 October, nothing planned"><span class="gnum">5</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="6 October, nothing planned"><span class="gnum">6</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="7 October, nothing planned"><span class="gnum">7</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="8 October, nothing planned"><span class="gnum">8</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="9 October, 1 post"><span class="gnum">9</span><span class="dots"><i class="committed"></i></span></button>
+              <button class="gcell" type="button" aria-label="10 October, nothing planned"><span class="gnum">10</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="11 October, nothing planned"><span class="gnum">11</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="12 October, nothing planned"><span class="gnum">12</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="13 October, nothing planned"><span class="gnum">13</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="14 October, nothing planned"><span class="gnum">14</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="15 October, nothing planned"><span class="gnum">15</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="16 October, 1 post"><span class="gnum">16</span><span class="dots"><i class="committed"></i></span></button>
+              <button class="gcell" type="button" aria-label="17 October, nothing planned"><span class="gnum">17</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="18 October, nothing planned"><span class="gnum">18</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="19 October, nothing planned"><span class="gnum">19</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="20 October, nothing planned"><span class="gnum">20</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="21 October, 1 post"><span class="gnum">21</span><span class="dots"><i class="committed"></i></span></button>
+              <button class="gcell target" type="button" aria-current="true" aria-label="22 October, 1 post"><span class="gnum">22</span><span class="dots"><i class="committed"></i></span></button>
+              <button class="gcell" type="button" aria-label="23 October, nothing planned"><span class="gnum">23</span><span class="dots"></span></button>
+              <button class="gcell target" type="button" aria-label="24 October, nothing planned"><span class="gnum">24</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="25 October, nothing planned"><span class="gnum">25</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="26 October, nothing planned"><span class="gnum">26</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="27 October, nothing planned"><span class="gnum">27</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="28 October, 1 post"><span class="gnum">28</span><span class="dots"><i class="committed"></i></span></button>
+              <button class="gcell" type="button" aria-label="29 October, 1 post"><span class="gnum">29</span><span class="dots"><i class="committed"></i></span></button>
+              <button class="gcell" type="button" aria-label="30 October, nothing planned"><span class="gnum">30</span><span class="dots"></span></button>
+              <button class="gcell" type="button" aria-label="31 October, nothing planned"><span class="gnum">31</span><span class="dots"></span></button>
+              <button class="gcell out" type="button" aria-label="1 November, nothing planned"><span class="gnum">1</span><span class="dots"></span></button>
+            </div>
+          </div>
+          <p class="monthfoot">10 posts across October. One is still being written.</p>
+        </div>
+        <div class="daycol">
+          <div class="dayhead">
+            <span class="dname">Thursday 22 October</span>
+            <span class="daycount">1 post</span>
+          </div>
+          <div class="daybody">
+            <button class="card" type="button">
+              <div class="cardtop">
+                <span class="fmt" title="Single post"><svg class="ic sm"><use href="#i-single"/></svg><span class="sr">Single post</span></span>
+                <span class="pillar">Home &amp; Space</span>
+                <span class="time">7:00</span>
+              </div>
+              <h4>A room that holds the day</h4>
+              <p class="excerpt">Caption written — 810 characters.</p>
+            </button>
+            <button class="addslot" type="button"><svg class="ic sm"><use href="#i-plus"/></svg> Plan a post for this day</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="dock" aria-label="Talk to your plan">
+      <div class="dockhead">
+        <div class="h"><h2>Talk to your plan</h2></div>
+        <p class="consequence">October is written. Nothing moves until you say so.</p>
+      </div>
+      <div class="thread">
+        <div class="turn agent">
+          <svg class="mark" viewBox="0 0 100 110" fill="currentColor" aria-hidden="true">
+            <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+            <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+            <line x1="50" y1="76" x2="50" y2="98" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+          <div class="body">October is written. Say what you want different — I’ll show you exactly what I’ll change before anything moves.</div>
+        </div>
+        <div class="turn client">Move the post on the 22nd to the 24th and make it a carousel</div>
+        <div class="interp" role="status" aria-label="What we understood">
+          <div class="ihead">
+            <svg class="mark" viewBox="0 0 100 110" fill="currentColor" aria-hidden="true"><path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/><path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/><line x1="50" y1="76" x2="50" y2="98" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+            <span>Here’s what I understood</span>
+          </div>
+          <ul>
+            <li><span class="txt"><b>Move</b> “A room that holds the day” <b>Thu 22 Oct → Sat 24 Oct</b></span><button class="drop" type="button" aria-label="Leave out: Move A room that holds the day">×</button></li>
+            <li><span class="txt"><b>Change</b> “A room that holds the day” <b>to a carousel</b></span><button class="drop" type="button" aria-label="Leave out: Change A room that holds the day">×</button></li>
+          </ul>
+          <div class="ifoot">
+            <button class="discard" type="button">Discard</button>
+            <button class="apply" type="button">Apply these 2 changes</button>
+          </div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="field empty">Move the Thursday post to Friday</div>
+        <div class="tools">
+          <button class="speakbtn" type="button" aria-pressed="false"><svg class="ic"><use href="#i-mic"/></svg>Speak</button>
+          <span style="flex:1"></span>
+          <button class="sendbtn" type="button" aria-label="Send this to Sprigly" disabled><svg class="ic"><use href="#i-send"/></svg></button>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+<div class="notes">
+  <h2>The breakpoints, as a rule the build can implement</h2>
+  <ul>
+    <li><code>&lt; 1080px</code> — the mobile shell (<code>PlanShell</code>), unchanged. The existing <code>matchMedia('(min-width: 1080px)')</code> fork in <code>PlanRoot.tsx</code> stays exactly as it is.</li>
+    <li><code>1080–1279px</code> — desktop shell, plan region stacked, rail collapsed to 68px, dock 320px.</li>
+    <li><code>≥ 1280px</code> — desktop shell, month and day side by side, rail 196px with labels, dock 344px.</li>
+    <li>The rail’s collapse is also a manual control at every width — the existing <code>rail-toggle</code>, carried forward. Above 1280 it is the client’s choice; below it, it is the default.</li>
+  </ul>
+  <h2>Checked at this width</h2>
+  <ul>
+    <li>No horizontal overflow anywhere in either frame — probed with <code>scrollWidth</code> against <code>clientWidth</code> on every element inside the frame, not eyeballed.</li>
+    <li>The month grid’s cells are 84px at 1024 against 69px at 1440, so the day numeral and its pips have more room, not less. The grid is the region that <em>gains</em> from stacking.</li>
+    <li>The detail panel’s caption measure goes from ~288px to ~556px. Longer lines for the same words: acceptable for a caption, and the reason the panel does not fix its own width.</li>
+  </ul>
+</div>
+
+</body>
+</html>

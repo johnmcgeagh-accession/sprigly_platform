@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sprigly — desktop plan surface · all states</title>
+<link rel="stylesheet" href="sprigly-desktop.css">
+<style>
+  /* Review-document chrome only. Nothing here is product UI. */
+  .idx { max-width: 1440px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  .idx a {
+    display: block; text-decoration: none; color: inherit;
+    background: var(--t-surface); border: 1px solid var(--hair); border-radius: var(--r-lg);
+    padding: 16px 18px; box-shadow: var(--shadow-card);
+  }
+  .idx a:hover { border-color: var(--hair2); }
+  .idx .n { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--t-accent-800); }
+  .idx .t { display: block; margin-top: 5px; font-size: 16.5px; font-weight: 600; letter-spacing: -.02em; color: var(--t-chrome); }
+  .idx .d { display: block; margin-top: 5px; font-size: 13.5px; line-height: 1.5; color: var(--t-muted); }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <div class="crumbs">Sprigly · desktop plan surface</div>
+  <h1>Desktop plan surface — the state set</h1>
+  <p>Nine files, fifteen frames, all at real pixels: 1440 × 900 (the <code>[desktop]</code> e2e project’s own viewport) plus two at 1024 × 820. Open any file directly — no build step, no server, no JavaScript.</p>
+  <p>The spec these illustrate is <a href="../desktop-plan-surface.md">docs/design/desktop-plan-surface.md</a>; the mobile surface they translate is <a href="../mobile-plan-surface.md">mobile-plan-surface.md</a> and its own <a href="../mockups/index.html">mockup set</a>. Every colour reads a <code>--t-*</code> token, every type size is one of DESIGN.md’s ten roles, and every figure on every screen is a reported one.</p>
+</div>
+
+<div class="idx">
+  <a href="01-committed.html"><span class="n">1 · committed</span><span class="t">The shell at rest</span><span class="d">Earl of East, October. Rail, month grid, day column and the docked conversation — the whole four-column arithmetic in its resting state.</span></a>
+  <a href="02-draft.html"><span class="n">2 · draft · 3 frames</span><span class="t">The provisional skin and the month summary</span><span class="d">ivy-t, September. Dashed cards, the <code>Draft</code> badge, <code>Generate</code>, and the month summary closed, opened, and scrolled to its foot.</span></a>
+  <a href="03-detail-committed.html"><span class="n">3 · detail · 2 frames</span><span class="t">A committed post, beside the conversation</span><span class="d">Caption/Hook/Script, per-tab copy, insights, the action row — and Shape mode with the format control. The panel takes the day column’s slot; nothing reflows.</span></a>
+  <a href="04-detail-draft.html"><span class="n">4 · detail · draft</span><span class="t">A planned post, and the evidence it is made of</span><span class="d">Five grounding lines from ivy-t’s real <code>beat_meta</code>. No tabs, no Shape, no Copy — because none of the three exists yet.</span></a>
+  <a href="05-reshape.html"><span class="n">5 · reshape · 2 frames</span><span class="t">Say a sentence, watch the month change</span><span class="d">The demo. An interpretation turn with Apply/Discard, the two days it names ringed in the grid, and the month after Apply.</span></a>
+  <a href="06-approval.html"><span class="n">6 · approval</span><span class="t">The one door that spends money</span><span class="d">A centred 480px modal over the month it is about. Three counts, the consequence, and a commit that names what it does.</span></a>
+  <a href="07-tasks.html"><span class="n">7 · tasks</span><span class="t">The checklist, adapted to width</span><span class="d">Overdue, Due today, This week, Completed. The view replaces the whole plan region; the conversation does not move.</span></a>
+  <a href="08-thin-month.html"><span class="n">8 · thin · 2 frames</span><span class="t">Two posts at 1440, solved rather than padded</span><span class="d">The summary opens by default, the conversation speaks first, and twenty-eight empty days stay empty.</span></a>
+  <a href="09-narrow.html"><span class="n">9 · narrow · 2 frames</span><span class="t">1024, and the band between 1080 and 1280</span><span class="d">The plan region stacks, the rail collapses to icons, and the conversation stays docked — because a region that disappears when the window narrows is not persistent.</span></a>
+</div>
+
+<div class="notes">
+  <h2>What this set is, and is not</h2>
+  <ul>
+    <li><strong>It is a translation.</strong> Every hard decision was already made and reviewed across six rounds on the phone: the vocabulary, the tokens, the mint ramp, the native type stack, the grounded beats and their evidence, the month summary and its CTA, the draft/committed distinction. This set carries all of it and changes the information architecture only where the form factor forces it.</li>
+    <li><strong>Two exceptions, both deliberate.</strong> The conversation is <em>docked and persistent</em> rather than summoned, and <em>month and day sit side by side</em> rather than being switched views. The spec argues both and states what each costs.</li>
+    <li><strong>It is a rendering brief.</strong> No data model, no generation path, no cycle rule and no agent behaviour changes. The one thing on any screen here that no API serves is the pair of ringed cells in mockup 5, and it needs none — it is a client-side read of the open turn’s own resolved dates.</li>
+    <li><strong>Nothing is invented.</strong> Every metric, date, title, caption and count is a reported one, and the six places where a figure could not be sourced are labelled on the page that shows them rather than filled in.</li>
+  </ul>
+</div>
+
+</body>
+</html>

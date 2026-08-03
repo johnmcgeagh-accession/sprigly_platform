@@ -1,0 +1,783 @@
+/* ===========================================================================
+   Sprigly — DESKTOP plan surface mockups
+   Shared stylesheet. Static mockups: no build step, no framework, no JS.
+
+   THIS IS A TRANSLATION, NOT A SECOND DESIGN SYSTEM.
+   -------------------------------------------------
+   Every token, every type role, every radius and every colour rule below is
+   the one `docs/design/mockups/sprigly-mobile.css` already carries, and the
+   one DESIGN.md declares. Nothing here invents a value. Where a class does
+   the same job as its mobile counterpart it keeps the mobile NAME, so the
+   two stylesheets can be read side by side and the diff is structure only.
+
+   THE THREE THINGS THAT ARE GENUINELY DESKTOP
+   -------------------------------------------
+   1. A LEFT RAIL replaces the floating bottom pill. It navigates Plan and
+      Tasks — Day and Month stopped being destinations the moment they could
+      both be on screen at once (spec §E2).
+   2. MONTH AND DAY SIT SIDE BY SIDE. The grid is a density map (the mobile
+      dot grammar at a larger size); the day column is what those dots are.
+   3. THE CONVERSATION IS DOCKED, not summoned. It is a region of the shell
+      with its own edge, present on every state in this set.
+
+   THE FIELD HIERARCHY — white / grey / white
+   -----------------------------------------
+   rail `surface` · plan region `canvas` · dock `surface`. The working area
+   is the grey one, flanked by two quiet white edges, and the cards inside it
+   are `surface` — which is exactly the card-on-canvas relationship the phone
+   already has. The pre-redesign desktop rail was `chrome` (dark); it is not
+   inherited, because a dark rail opposite a white conversation dock puts the
+   two loudest values at the two outside edges and leaves the month — the
+   thing the client came for — as the quietest region on the screen.
+
+   THE INK RULE IS UNCHANGED (DESIGN.md, operator-ruled three times).
+       FILLED CONTROLS: accent-650 #43998B + WHITE, 3.40:1.
+       accent-600 IS NON-TEXT IDENTITY (pips, glow, washes).
+       700/800 ARE FOR DENSE-TEXT SURFACES.
+   =========================================================================== */
+
+:root {
+  /* ── THEME BLOCK — the active theme. Identical to the mobile sheet. In the
+     app these are injected as `--t-*: r g b` triples by theme.ts; here they
+     are hexes so the files open with no server. Same names, same meaning. */
+  --t-accent-600: #4DB0A0;   /* THE LOGO TONE. Non-text identity only      */
+  --t-accent-650: #43998B;   /* FILLED CONTROLS + white, 3.40:1            */
+  --t-accent-700: #327267;   /* dense-text surfaces; white on it is 5.62:1 */
+  --t-accent-800: #285C54;   /* accent text: 7.64 on white, 6.67 on tint   */
+  --t-accent-100: #E3F3F0;   /* tint                                       */
+  --t-accent-500: #74C1B5;   /* the mark's lighter leaf — a proposal       */
+  --t-chrome:      #334155;
+  --t-chrome-deep: #1E293B;
+  --t-muted:       #5C6470;
+  --t-line:        #8F9296;
+  --t-line-soft:   #F4F5F6;
+  --t-canvas:      #F2F3F5;
+  --t-surface:     #FFFFFF;
+  --t-danger:      #B23A2E;
+
+  --hair:  rgb(143 146 150 / .30);
+  --hair2: rgb(143 146 150 / .55);
+
+  --shadow-card:  0 1px 2px rgb(51 65 85 / .04), 0 6px 18px rgb(51 65 85 / .06);
+  --shadow-fab:   0 10px 26px -6px rgb(77 176 160 / .58);
+  --shadow-panel: 0 18px 50px -18px rgb(30 41 59 / .28);
+
+  --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, 'Segoe UI', Roboto, sans-serif;
+  /* Wordmark only. Falls back to the native stack — never to a serif. */
+  --logo: 'Plus Jakarta Sans', var(--sans);
+
+  --r-sm: 9px; --r-md: 14px; --r-card: 16px; --r-lg: 20px; --r-sheet: 26px; --r-pill: 999px;
+  --ease: cubic-bezier(.22,.61,.36,1);
+
+  /* THE COLUMN ARITHMETIC, in one place so the spec and the mockups cannot
+     drift. 196 + 24 + 512 + 20 + 320 + 24 + 344 = 1440. */
+  --rail-w:  196px;
+  --month-w: 512px;
+  --day-w:   320px;
+  --dock-w:  344px;
+  --gutter:  24px;
+  --colgap:  20px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0; padding: 40px 40px 80px;
+  background: #DFE1E5;
+  font-family: var(--sans); color: var(--t-chrome);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- review-document chrome (NOT the product surface) --------------------- */
+
+.page-head, .notes { max-width: 1440px; }
+.page-head { margin-bottom: 28px; }
+.page-head h1 { font-size: 30px; font-weight: 700; letter-spacing: -.03em; margin: 0 0 8px; }
+.page-head p { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--t-muted); max-width: 88ch; }
+.page-head p + p { margin-top: 9px; }
+.crumbs { font-size: 12.5px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; color: var(--t-muted); margin-bottom: 10px; }
+.page-head a, .notes a { color: var(--t-accent-800); }
+
+.frame-label { font-size: 12.5px; font-weight: 700; margin: 0 0 4px; }
+.frame-sub { font-size: 12.5px; line-height: 1.5; color: var(--t-muted); margin: 0 0 12px; max-width: 88ch; }
+.frame-wrap + .frame-wrap { margin-top: 46px; }
+
+.notes { margin-top: 40px; background: var(--t-surface); border-radius: var(--r-lg); padding: 20px 22px; box-shadow: var(--shadow-card); }
+.notes h2 { font-size: 13.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--t-muted); margin: 0 0 10px; }
+.notes h2 + h2 { margin-top: 18px; }
+.notes ul { margin: 0; padding-left: 20px; display: grid; gap: 7px; }
+.notes li { font-size: 13.5px; line-height: 1.55; color: var(--t-chrome); }
+.notes code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: var(--t-line-soft); padding: 1px 5px; border-radius: var(--r-sm); }
+
+/* --- the desktop frame ---------------------------------------------------- */
+/* Real pixels, not a scaled preview: 1440×900 is the [desktop] e2e project's
+   own viewport, so what is drawn here is what a screenshot measures. */
+
+.desk {
+  width: 1440px; height: 900px; display: flex;
+  background: var(--t-canvas); border-radius: var(--r-md); overflow: hidden;
+  box-shadow: 0 30px 60px -22px rgb(30 41 59 / .34), 0 0 0 1px rgb(30 41 59 / .07);
+  font-size: 15px; position: relative;
+}
+/* THE NARROW-DESKTOP BAND (1080–1279). Same shell, three rules different: the
+   rail collapses to icons, the dock narrows by 24px, and the plan region stacks
+   the month over the day instead of setting them side by side. The dock does NOT
+   collapse — "persistent" is the whole of exception 1, and the one region whose
+   promise is that it is always there is the one saving this layout may not make. */
+.desk.narrow { width: 1024px; height: 820px; --rail-w: 68px; --dock-w: 320px; }
+.desk.narrow .rail { padding: 18px 10px 16px; align-items: center; }
+.desk.narrow .raillogo { padding: 0 0 18px; justify-content: center; }
+.desk.narrow .wordmark, .desk.narrow .railctx, .desk.narrow .railfoot { display: none; }
+.desk.narrow .railnav { width: 100%; }
+.desk.narrow .railbtn { position: relative; justify-content: center; gap: 0; padding: 0; }
+.desk.narrow .railbtn .lbl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* The count becomes a dot — the collapsed rail's own carried-forward behaviour.
+   Non-text accent, and the number itself is one click away in the view it names. */
+.desk.narrow .railbtn .count { position: absolute; top: 7px; right: 11px; width: 7px; height: 7px; margin: 0; padding: 0; font-size: 0; border-radius: var(--r-pill); background: var(--t-danger); }
+.desk.narrow .mgrid { flex: 1 0 430px; }
+
+/* --- icons ---------------------------------------------------------------- */
+
+.ic { width: 20px; height: 20px; display: block; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.ic.sm { width: 17px; height: 17px; }
+.ic.xs { width: 15px; height: 15px; }
+.ic.lg { width: 26px; height: 26px; }
+
+/* Format icon tile: accent-800 on accent-100 = 6.67:1. */
+.fmt {
+  width: 28px; height: 28px; flex: none; border-radius: var(--r-sm);
+  background: var(--t-accent-100); color: var(--t-accent-800);
+  display: flex; align-items: center; justify-content: center;
+}
+.fmt.lg { width: 34px; height: 34px; border-radius: var(--r-md); }
+
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* --- LEFT RAIL ------------------------------------------------------------ */
+/* The mobile nav pill, unrolled. Two destinations, because Day and Month are
+   both on screen. Insights is NOT drawn — the mobile ruling holds on both
+   form factors: a control that does nothing is worse than an absent one. */
+
+.rail {
+  width: var(--rail-w); flex: none; display: flex; flex-direction: column;
+  background: var(--t-surface); border-right: 1px solid var(--hair);
+  padding: 18px 14px 16px;
+}
+.raillogo { display: flex; align-items: center; gap: 7px; padding: 0 6px 18px; }
+.raillogo svg.mark { width: 20px; height: 20px; display: block; color: var(--t-accent-600); }
+.wordmark { font-family: var(--logo); font-size: 17px; font-weight: 800; letter-spacing: -.02em; color: var(--t-chrome); }
+
+.railctx { padding: 0 6px 16px; border-bottom: 1px solid var(--hair); margin-bottom: 14px; }
+.railctx .who { font-size: 15px; font-weight: 600; letter-spacing: -.01em; color: var(--t-chrome); }
+.railctx .sub { margin-top: 4px; font-size: 12.5px; font-weight: 600; color: var(--t-muted); }
+
+.railnav { display: flex; flex-direction: column; gap: 4px; }
+.railbtn {
+  display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+  min-height: 44px; padding: 0 12px; border: 0; border-radius: var(--r-md); cursor: pointer;
+  background: none; font-family: var(--sans); font-size: 15px; font-weight: 600;
+  letter-spacing: -.01em; color: var(--t-chrome);
+}
+.railbtn .ic { color: var(--t-muted); }
+.railbtn:hover { background: var(--t-line-soft); }
+/* THE INK RULE: a fill carrying a word is accent-650 with white. 3.40:1 —
+   the same recorded deviation, the same eight controls, one more selector. */
+.railbtn[aria-current="page"] { background: var(--t-accent-650); color: #fff; font-weight: 700; }
+.railbtn[aria-current="page"] .ic { color: #fff; }
+.railbtn .count {
+  margin-left: auto; font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--t-muted);
+}
+/* On the SELECTED item the count is white, including the late one: `danger` on an
+   `accent-650` fill is unreadable, and the lateness is still carried by the number
+   and by the word. This is part of the ninth control joining the recorded
+   white-on-650 deviation (spec §3.1, D1). */
+.railbtn .count.late { color: var(--t-danger); }
+.railbtn[aria-current="page"] .count,
+.railbtn[aria-current="page"] .count.late { color: #fff; }
+
+.railfoot {
+  margin-top: auto; padding: 14px 6px 0; border-top: 1px solid var(--hair);
+  font-size: 12.5px; line-height: 1.5; font-weight: 500; color: var(--t-muted);
+}
+
+/* --- PLAN REGION ---------------------------------------------------------- */
+
+.plan { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+.planhead {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 18px var(--gutter) 14px;
+}
+.monthnav { display: flex; align-items: center; gap: 4px; }
+.monthtitle { font-size: 20px; font-weight: 700; letter-spacing: -.025em; color: var(--t-chrome); white-space: nowrap; }
+.navbtn {
+  width: 40px; height: 40px; flex: none; border: 0; background: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; color: var(--t-chrome);
+  border-radius: var(--r-pill);
+}
+.navbtn:hover { background: var(--t-line-soft); }
+.navbtn[disabled] { color: rgb(92 100 112 / .38); cursor: default; }
+.navbtn[disabled]:hover { background: none; }
+
+.badge {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+  padding: 4px 9px; border-radius: var(--r-pill);
+  background: var(--t-accent-650); color: #fff;
+}
+.badge.quiet { background: var(--t-accent-100); color: var(--t-accent-800); }
+
+/* X3: nothing interactive under 40px. These are 40, not the mockups' old 34. */
+.todaybtn {
+  border: 1px solid var(--hair); background: var(--t-surface); cursor: pointer;
+  font-family: var(--sans); font-size: 13.5px; font-weight: 600; color: var(--t-accent-800);
+  min-height: 40px; padding: 0 16px; border-radius: var(--r-pill);
+  box-shadow: var(--shadow-card);
+}
+/* The approval control. Persistent, secondary weight — hairline accent-600
+   border, accent-800 label on surface (7.64:1, the one place accent text is
+   allowed to be). It never competes with the conversation for primacy. */
+.readypill {
+  display: inline-flex; align-items: center; gap: 8px; flex: none;
+  min-height: 40px; padding: 0 16px; border-radius: var(--r-pill); cursor: pointer;
+  border: 1px solid var(--t-accent-600); background: var(--t-surface);
+  font-family: var(--sans); font-size: 13.5px; font-weight: 700; color: var(--t-accent-800);
+}
+.readypill .ic { width: 15px; height: 15px; stroke-width: 2.2; }
+
+/* --- the two plan columns ------------------------------------------------- */
+
+.plancols {
+  flex: 1; min-height: 0; display: flex; gap: var(--colgap);
+  padding: 0 var(--gutter) 22px;
+}
+.monthcol { width: var(--month-w); flex: none; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
+.monthcol::-webkit-scrollbar, .daycol::-webkit-scrollbar, .thread::-webkit-scrollbar { width: 0; }
+.daycol { width: var(--day-w); flex: none; min-height: 0; display: flex; flex-direction: column; }
+
+/* NARROW DESKTOP (1024–1279): the month stacks ABOVE the day, both at the
+   region's full width, and they scroll together. The conversation does not
+   move, because "persistent" is the whole of exception 1 — collapsing the one
+   region whose promise is that it is always there is the one saving this
+   layout may not make. */
+/* STATIC STAND-INS FOR `scrollTop`, not layouts of their own. The month summary
+   is as tall as the month's evidence — 1039px on the phone — so no single frame
+   can hold it open. `scrolled` renders the column part-way down (the grid
+   clipped at the top); `deep` renders it at the foot, where the prompts are.
+   The phone set reported the same panel as two screenshots for the same
+   reason (`summary-cta.md` §1). */
+.monthcol.scrolled .mgrid { flex: none; height: 144px; border-top: 0; border-radius: 0 0 var(--r-lg) var(--r-lg); }
+.monthcol.scrolled .gridhead { display: none; }
+.monthcol.scrolled .gridbody { grid-auto-rows: 80px; margin-top: -16px; }
+.monthcol.deep .mgrid, .monthcol.deep .msumhead { display: none; }
+.monthcol.deep .msum { margin-top: 0; border-top: 0; border-radius: 0 0 var(--r-card) var(--r-card); }
+.monthcol.deep .msumbody { padding-top: 2px; }
+
+.desk.narrow .plancols { flex-direction: column; gap: 18px; overflow-y: auto; }
+.desk.narrow .monthcol,
+.desk.narrow .daycol { width: 100%; flex: none; overflow: visible; }
+
+/* --- the month grid ------------------------------------------------------- */
+
+/* ONE object, not thirty-five. A ruled calendar on `surface` reads as a month at
+   a glance and fills the column's height honestly; thirty-five little cards
+   would be thirty-five things to look at, and DESIGN.md's own rule against
+   wrapping a list of cards in another card is the same instinct. */
+.mgrid {
+  flex: 1 0 430px; min-height: 0; display: flex; flex-direction: column;
+  background: var(--t-surface); border: 1px solid var(--hair); border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card); overflow: hidden;
+}
+.gridhead { flex: none; display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 1px solid var(--hair); }
+.gridhead span { padding: 9px 0; text-align: center; font-size: 10.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--t-muted); }
+/* The negative margins push the last row's and last column's hairlines outside
+   the rounded box, where `overflow: hidden` clips them — so the rule between
+   cells never doubles up as an inner outline. */
+.gridbody { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 1fr; margin: 0 -1px -1px 0; }
+.gcell {
+  border: 0; border-right: 1px solid var(--hair); border-bottom: 1px solid var(--hair);
+  background: none; cursor: pointer; border-radius: 0;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 5px;
+  font-family: var(--sans); padding: 7px 7px 8px;
+}
+.gcell:hover { background: var(--t-line-soft); }
+.gcell .gnum {
+  font-size: 15px; font-weight: 500; color: var(--t-chrome); letter-spacing: -.01em;
+  font-variant-numeric: tabular-nums;
+  width: 30px; height: 30px; border-radius: var(--r-pill);
+  display: flex; align-items: center; justify-content: center;
+}
+/* The shipped MonthGrid uses full `muted` for an out-of-month day, and it is right:
+   at 45% alpha this measured ~2.4:1, which is a numeral nobody can read. `muted` on
+   `surface` is 5.98:1, and the in/out distinction is also carried by weight and by
+   the cell being inert. */
+.gcell.out .gnum { color: var(--t-muted); }
+.gcell.today .gnum { box-shadow: inset 0 0 0 2px var(--t-accent-600); }
+/* The same filled control as everywhere else: accent-650 + white. */
+.gcell[aria-current="true"] .gnum { background: var(--t-accent-650); color: #fff; font-weight: 700; box-shadow: none; }
+.gcell[aria-current="true"]:hover { background: none; }
+
+.dots { display: flex; gap: 3px; height: 6px; align-items: center; }
+.dots i { width: 5px; height: 5px; border-radius: var(--r-pill); display: block; }
+.dots i.draft { background: var(--t-accent-600); }
+.dots i.committed { background: var(--t-chrome); }
+/* In flight: a RING, so the state survives greyscale and a glance. */
+.dots i.onway { background: transparent; box-shadow: inset 0 0 0 1.5px var(--t-chrome); }
+/* Recently changed — the same 5px grammar, a different fact. */
+.dots i.changed { background: var(--t-accent-600); }
+
+/* THE TARGET RING (desktop-only, new UI, no API — spec §4.3). While an
+   interpretation turn is OPEN, the days it names are ringed in the grid. It
+   is derived client-side from the turn's own resolved `items[].date`; nothing
+   is written and nothing is fetched. */
+.gcell.target { box-shadow: inset 0 0 0 2px var(--t-accent-600); background: var(--t-accent-100); }
+.gcell.target:hover { background: var(--t-accent-100); }
+
+.monthfoot { flex: none; padding: 14px 2px 0; font-size: 13.5px; line-height: 1.5; color: var(--t-muted); }
+
+/* --- the month summary panel (draft months) ------------------------------- */
+/* Same component, same copy, same tint as the phone's. On the phone it heads
+   the DAY; here it heads nothing — it sits under the grid, because on this
+   form factor the grid IS the month and the panel is what the month says. */
+
+.msum {
+  flex: none; margin-top: 14px; border: 1px solid rgb(77 176 160 / .45); border-radius: var(--r-card);
+  background: var(--t-accent-100); overflow: hidden;
+}
+.msumhead {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  min-height: 56px; padding: 12px 16px; border: 0; background: none; cursor: pointer;
+  font-family: var(--sans);
+}
+.msumhead .t { flex: 1; min-width: 0; }
+.msumhead .h { display: block; font-size: 15px; font-weight: 600; letter-spacing: -.01em; color: var(--t-accent-800); }
+.msumhead .s { display: block; margin-top: 2px; font-size: 13.5px; font-weight: 400; color: var(--t-accent-800); }
+.msumhead .chev { flex: none; color: var(--t-accent-800); }
+
+.msumbody { padding: 0 16px 16px; }
+.msumstage { font-size: 13.5px; line-height: 1.5; color: var(--t-accent-800); padding-bottom: 4px; }
+.msumsec { margin-top: 14px; border-top: 1px solid rgb(77 176 160 / .25); padding-top: 12px; }
+.msumsec h3 { margin: 0 0 8px; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--t-accent-800); }
+/* `list-none pl-0` is LOAD-BEARING — Tailwind preflight is disabled on this
+   surface, so a bare ul keeps the browser's disc AND a 40px indent. */
+.msumsec ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.msumsec li { display: flex; gap: 12px; font-size: 13.5px; line-height: 1.45; color: var(--t-accent-800); }
+.msumsec li .txt { flex: 1; min-width: 0; }
+.msumsec li .n { flex: none; font-weight: 700; font-variant-numeric: tabular-nums; }
+.msumsec .mix { font-size: 13.5px; color: var(--t-accent-800); margin: 0 0 8px; }
+
+/* The two tappable rows. Inside a tinted panel a tint-filled button would be
+   invisible, so what says "this one does something" is the FILL, the border
+   and the chevron rather than colour alone. */
+.msumask {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  min-height: 48px; margin-top: 8px; padding: 10px 14px; cursor: pointer;
+  border: 1px solid rgb(77 176 160 / .45); border-radius: var(--r-md);
+  background: var(--t-surface); font-family: var(--sans);
+  font-size: 13.5px; font-weight: 500; line-height: 1.4; color: var(--t-chrome);
+}
+.msumask .txt { flex: 1; min-width: 0; }
+.msumask .chev { flex: none; color: var(--t-muted); }
+.msumrule { margin: 12px 0 0; height: 1px; background: rgb(77 176 160 / .25); }
+
+/* --- the day column ------------------------------------------------------- */
+
+/* STACKED, not the phone's one row. "Wednesday 2 September" at 22px is 245px of
+   a 316px measure, so a count beside it wraps the day's own name — and the day's
+   name is the largest thing in the column on purpose. */
+.dayhead { flex: none; padding: 0 2px 12px; }
+.dayhead .dname { display: block; font-size: 22px; font-weight: 700; letter-spacing: -.03em; color: var(--t-chrome); }
+.dayhead .daycount { display: block; margin-top: 3px; font-size: 12.5px; font-weight: 600; color: var(--t-muted); }
+.dayhead .spacer { display: none; }
+
+.daybody { flex: 1; min-height: 0; overflow-y: auto; padding: 0 2px 4px; }
+.daybody::-webkit-scrollbar { width: 0; }
+.desk.narrow .daybody { overflow: visible; }
+
+/* --- cards (identical grammar to the phone) ------------------------------- */
+
+.card {
+  display: block; width: 100%; text-align: left;
+  background: var(--t-surface); border: 1px solid var(--hair); border-radius: var(--r-lg);
+  padding: 13px 14px 14px; margin-bottom: 10px;
+  box-shadow: var(--shadow-card); font-family: var(--sans); color: inherit; cursor: pointer;
+}
+.card:hover { border-color: var(--hair2); }
+/* Provisional things should not look settled: a dashed edge, no shadow. */
+.card.draft { border-style: dashed; border-color: var(--hair2); box-shadow: none; }
+.card.changed {
+  border-style: solid; border-color: var(--t-accent-600);
+  background: linear-gradient(180deg, var(--t-accent-100), var(--t-surface) 70%);
+  box-shadow: 0 6px 20px -8px rgb(77 176 160 / .45);
+}
+.card[aria-current="true"] { border-color: var(--t-accent-600); border-style: solid; }
+
+.cardtop { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; }
+.pillar { font-size: 12.5px; font-weight: 500; color: var(--t-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.time { margin-left: auto; flex: none; font-size: 12.5px; font-weight: 600; color: var(--t-muted); font-variant-numeric: tabular-nums; }
+.card h4 { margin: 0 0 5px; font-size: 16.5px; line-height: 1.3; font-weight: 600; letter-spacing: -.02em; color: var(--t-chrome); }
+.card p.teaser { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--t-muted); }
+.card p.excerpt {
+  margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--t-muted);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.cardfoot { display: flex; align-items: center; gap: 8px; margin-top: 11px; }
+.statusline { font-size: 12.5px; font-weight: 600; color: var(--t-muted); }
+/* Work in flight. Vivid, quiet, no red, nothing asked of the client. */
+.waydots { display: inline-flex; gap: 3px; align-items: center; }
+.waydots i { width: 5px; height: 5px; border-radius: var(--r-pill); background: var(--t-accent-600); display: block; opacity: .3; }
+.waydots i:nth-child(2) { opacity: .6; }
+.waydots i:nth-child(3) { opacity: 1; }
+
+/* §2.1: a banner-style pill on the card, inline with the meta row, so it does
+   not occupy the time slot. Not interactive — the card around it is the
+   target it always was, and the full reason lives behind the insights icon. */
+.expt {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--t-accent-800); background: var(--t-accent-100);
+  padding: 3px 8px 3px 6px; border-radius: var(--r-pill);
+}
+.expt .ic { width: 13px; height: 13px; }
+
+/* Compact rows — the 3+ density rule, unchanged. */
+.rowlist { border: 1px solid var(--hair); border-radius: var(--r-lg); background: var(--t-surface); overflow: hidden; margin-bottom: 10px; box-shadow: var(--shadow-card); }
+.rowlist.draft { border-style: dashed; border-color: var(--hair2); box-shadow: none; background: rgb(255 255 255 / .82); }
+.row {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  background: none; border: 0; cursor: pointer; padding: 12px 13px; min-height: 56px; font-family: var(--sans);
+}
+.row:hover { background: var(--t-line-soft); }
+.row + .row { border-top: 1px solid var(--hair); }
+.row .rtime { font-size: 12.5px; font-weight: 600; color: var(--t-muted); font-variant-numeric: tabular-nums; width: 42px; flex: none; }
+.row .rtitle { flex: 1; min-width: 0; font-size: 15px; font-weight: 500; color: var(--t-chrome); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .rchev { flex: none; color: var(--t-muted); }
+
+.addslot {
+  display: flex; align-items: center; gap: 8px; justify-content: center;
+  width: 100%; min-height: 48px; padding: 12px;
+  border: 1px dashed var(--hair2); border-radius: var(--r-card);
+  background: rgb(255 255 255 / .55); cursor: pointer; font-family: var(--sans);
+  font-size: 13.5px; font-weight: 500; color: var(--t-muted);
+}
+.addslot:hover { border-color: var(--t-accent-600); background: var(--t-accent-100); color: var(--t-accent-800); }
+.addslot .ic { color: var(--t-accent-800); }
+
+.draftlead { display: flex; align-items: center; gap: 9px; margin-bottom: 14px; }
+.draftlead .txt { font-size: 13.5px; font-weight: 600; color: var(--t-chrome); letter-spacing: -.01em; }
+
+.thinnote {
+  margin: 12px 0 0; padding: 13px 14px; border-radius: var(--r-card);
+  background: var(--t-line-soft); font-size: 13.5px; line-height: 1.5; color: var(--t-chrome);
+}
+
+/* --- THE DETAIL PANEL ----------------------------------------------------- */
+/* It takes the DAY COLUMN'S slot and its width. Nothing reflows, the month
+   does not narrow, and the conversation is untouched — spec §3.2. The panel
+   is a drill-down of the day, not a peer of the thread. */
+
+.detail {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  background: var(--t-surface); border: 1px solid var(--hair); border-radius: var(--r-lg);
+  box-shadow: var(--shadow-panel); overflow: hidden;
+}
+.desk.narrow .detail { min-height: 560px; }
+
+.detailback {
+  flex: none; display: flex; align-items: center; gap: 6px; width: 100%;
+  min-height: 44px; padding: 4px 12px; border: 0; border-bottom: 1px solid var(--hair);
+  background: none; cursor: pointer; font-family: var(--sans);
+  font-size: 13.5px; font-weight: 600; color: var(--t-muted); text-align: left;
+}
+.detailback:hover { color: var(--t-chrome); }
+
+.detailhead { flex: none; padding: 14px 16px 13px; border-bottom: 1px solid var(--hair); }
+.detailtop { display: flex; align-items: flex-start; gap: 12px; }
+.detailtop .who { flex: 1; min-width: 0; }
+.detailhead h2 { margin: 0 0 4px; font-size: 20px; line-height: 1.25; font-weight: 700; letter-spacing: -.025em; color: var(--t-chrome); overflow-wrap: break-word; }
+.detailhead .meta { font-size: 13.5px; font-weight: 500; color: var(--t-muted); }
+.iconbtn {
+  width: 44px; height: 44px; flex: none; border-radius: var(--r-pill); border: 0; cursor: pointer;
+  background: var(--t-line-soft); color: var(--t-chrome);
+  display: flex; align-items: center; justify-content: center;
+}
+.iconbtn[aria-expanded="true"] { background: var(--t-accent-650); color: #fff; }
+
+.insights { flex: none; padding: 12px 16px 0; }
+.insightbox { border: 1px solid rgb(77 176 160 / .45); border-radius: var(--r-card); background: var(--t-accent-100); padding: 12px 14px; }
+.insightbox h3 { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--t-accent-800); }
+.insightbox ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+.insightbox li { display: flex; gap: 8px; }
+.insightbox li .dot { flex: none; width: 3px; height: 3px; border-radius: var(--r-pill); background: rgb(40 92 84 / .55); margin-top: 7px; }
+.insightbox li .txt { flex: 1; min-width: 0; font-size: 13.5px; line-height: 1.45; color: var(--t-accent-800); }
+.insightbox li .quote { display: block; margin-top: 4px; font-style: italic; overflow-wrap: break-word; }
+.insightbox .exptnote { margin: 10px 0 0; padding-top: 10px; border-top: 1px solid rgb(77 176 160 / .25); font-size: 13.5px; line-height: 1.45; color: var(--t-accent-800); }
+
+.tabs { flex: none; display: flex; gap: 4px; padding: 12px 16px 0; }
+.tab {
+  flex: 1; min-height: 40px; border-radius: var(--r-md); cursor: pointer; font-family: var(--sans);
+  font-size: 13.5px; font-weight: 600; color: var(--t-muted); background: var(--t-line-soft); border: 0;
+}
+.tab[aria-selected="true"] { background: var(--t-chrome); color: #fff; }
+
+.detailbody { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 16px 16px; }
+.detailbody::-webkit-scrollbar { width: 0; }
+.desk.narrow .detailbody { overflow: visible; }
+
+.copyrow { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.copyrow .section-label { margin: 0; flex: 1; }
+.copyb {
+  display: inline-flex; align-items: center; gap: 7px; flex: none;
+  min-height: 40px; padding: 0 14px; border-radius: var(--r-pill); border: 0; cursor: pointer;
+  background: var(--t-line-soft); color: var(--t-chrome);
+  font-family: var(--sans); font-size: 13.5px; font-weight: 600;
+}
+.copyb:hover { background: rgb(143 146 150 / .25); }
+
+.prose { font-size: 15px; line-height: 1.62; color: var(--t-chrome); margin: 0; white-space: pre-wrap; }
+.prose.quiet { color: var(--t-muted); font-size: 13.5px; line-height: 1.55; white-space: normal; }
+.section-label { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--t-muted); margin: 18px 0 8px; }
+.notwritten { border: 1px solid var(--hair); border-radius: var(--r-card); background: var(--t-line-soft); padding: 16px; }
+.notwritten .h { font-size: 15px; font-weight: 600; color: var(--t-chrome); }
+.notwritten .p { margin: 6px 0 0; font-size: 13.5px; line-height: 1.45; color: var(--t-muted); }
+
+.tasklines { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.tasklines li { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 13.5px; color: var(--t-chrome); }
+.tasklines .tick { width: 22px; height: 22px; flex: none; border-radius: var(--r-pill); border: 2px solid var(--hair2); background: var(--t-surface); }
+.tasklines li.done .tick { border-color: var(--t-accent-600); background: var(--t-accent-600); color: #fff; display: flex; align-items: center; justify-content: center; }
+.tasklines li.done .lbl { color: var(--t-muted); text-decoration: line-through; }
+
+/* The action row, at stock-iOS weight: glyph and label on ONE line, 44px. */
+.acts { flex: none; display: flex; gap: 8px; padding: 12px 16px 16px; border-top: 1px solid var(--hair); background: var(--t-surface); }
+.act {
+  flex: 1; min-height: 44px; border-radius: 12px; cursor: pointer; font-family: var(--sans);
+  background: var(--t-line-soft); border: 0; color: var(--t-chrome);
+  display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 6px;
+  padding: 0 8px; transition: background .12s var(--ease);
+}
+.act:hover { background: rgb(143 146 150 / .25); }
+.act .actlabel { font-size: 15px; font-weight: 500; letter-spacing: -.01em; }
+/* `danger` on its own 10% tint: the destructive action is carried by the fill,
+   the colour AND the bin, so nothing about it has to be inferred. */
+.act.destructive { background: rgb(178 58 46 / .10); color: var(--t-danger); }
+.act.destructive:hover { background: rgb(178 58 46 / .18); }
+
+/* Shape mode replaces the footer wholesale — a button never changes meaning
+   mid-flow. The cancel is a QUIET NEUTRAL, never red: danger is Delete's
+   monopoly on this surface. */
+.shapewrap { flex: none; border-top: 1px solid var(--hair); background: var(--t-surface); padding: 12px 16px 16px; }
+.shapefield {
+  width: 100%; min-height: 76px; text-align: left;
+  border: 1px solid var(--hair2); border-radius: var(--r-md); background: var(--t-surface);
+  padding: 11px 12px; font-size: 15px; line-height: 1.45; color: var(--t-chrome);
+}
+.shapefield.empty { color: var(--t-muted); }
+.shapefoot { display: flex; gap: 8px; margin-top: 10px; }
+.shapefoot .submit {
+  flex: 1; min-height: 48px; border: 0; border-radius: var(--r-md); cursor: pointer;
+  background: var(--t-accent-650); color: #fff; font-family: var(--sans);
+  font-size: 15px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  box-shadow: var(--shadow-fab);
+}
+.shapefoot .cancel {
+  flex: 0 0 92px; min-height: 48px; border: 0; border-radius: var(--r-md); cursor: pointer;
+  background: var(--t-surface); color: var(--t-muted); box-shadow: inset 0 0 0 1px var(--hair2);
+  font-family: var(--sans); font-size: 15px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+}
+.shapenote { margin: 10px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--t-muted); }
+
+/* Format control — a compact segmented Single post / Carousel / Reel. */
+.seg { display: flex; background: rgb(143 146 150 / .18); border-radius: var(--r-md); padding: 3px; gap: 3px; }
+.seg button {
+  flex: 1; border: 0; background: none; cursor: pointer; font-family: var(--sans);
+  font-size: 12.5px; font-weight: 600; color: var(--t-muted);
+  min-height: 40px; border-radius: var(--r-sm); white-space: nowrap;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.seg button[aria-pressed="true"] { background: var(--t-accent-650); color: #fff; }
+
+/* --- THE DOCKED CONVERSATION (exception 1) -------------------------------- */
+
+.dock {
+  width: var(--dock-w); flex: none; display: flex; flex-direction: column;
+  background: var(--t-surface); border-left: 1px solid var(--hair);
+}
+.dockhead { flex: none; padding: 18px 18px 14px; border-bottom: 1px solid var(--hair); }
+.dockhead .h { display: flex; align-items: center; gap: 8px; }
+.dockhead h2 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -.01em; color: var(--t-chrome); }
+.dockhead .consequence { margin: 6px 0 0; font-size: 12.5px; line-height: 1.45; font-weight: 500; color: var(--t-muted); }
+.dockhead .waiting {
+  margin-left: auto; flex: none; font-size: 10.5px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--t-accent-800); background: var(--t-accent-100);
+  padding: 4px 9px; border-radius: var(--r-pill);
+}
+
+.thread { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 18px 8px; display: flex; flex-direction: column; gap: 12px; }
+/* A thread grows from the composer upwards, the way every chat does. `margin-top:
+   auto` on the first turn keeps a short conversation off the ceiling without
+   breaking the scroll once it is long. */
+.thread > :first-child { margin-top: auto; }
+
+/* The client's own words. Right-aligned, on the quiet neutral — never on the
+   accent, because the accent is the AGENT's register on this surface. */
+.turn.client {
+  align-self: flex-end; max-width: 88%;
+  background: var(--t-line-soft); border-radius: var(--r-card) var(--r-card) 6px var(--r-card);
+  padding: 10px 13px; font-size: 15px; line-height: 1.45; color: var(--t-chrome);
+}
+/* The agent register: the mark, the accent tint field, an accent left edge.
+   Deliberately NOT the dark slab that confirmations use — that slab means
+   "the app did a thing to your plan", and the agent is the other party. */
+.turn.agent {
+  align-self: stretch; margin-right: 26px; display: flex; align-items: flex-start; gap: 10px;
+  border-left: 3px solid var(--t-accent-700); border-radius: var(--r-md);
+  background: var(--t-accent-100); padding: 10px 12px;
+}
+.turn.agent svg.mark { width: 15px; height: 15px; flex: none; margin-top: 2px; color: var(--t-accent-700); }
+.turn.agent .body { flex: 1; min-width: 0; font-size: 15px; line-height: 1.45; color: var(--t-accent-800); }
+.turn.agent .body strong { font-weight: 600; }
+
+.dots3 { display: inline-flex; gap: 4px; align-items: center; }
+.dots3 i { width: 5px; height: 5px; border-radius: var(--r-pill); background: var(--t-accent-700); display: block; }
+.dots3 i:nth-child(1) { opacity: .45; }
+.dots3 i:nth-child(2) { opacity: .7; }
+
+/* The interpretation turn: what the client is agreeing to, itemised. */
+.interp {
+  align-self: stretch; margin-right: 26px;
+  border-left: 3px solid var(--t-accent-700); border-radius: var(--r-md);
+  background: var(--t-accent-100); padding: 12px;
+}
+.interp .ihead { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.interp .ihead svg.mark { width: 15px; height: 15px; flex: none; color: var(--t-accent-700); }
+.interp .ihead span { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--t-accent-800); }
+.interp ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.interp li { display: flex; min-width: 0; align-items: flex-start; gap: 8px; font-size: 15px; line-height: 1.45; color: var(--t-accent-800); }
+.interp li .txt { flex: 1; min-width: 0; }
+.interp li .txt b { font-weight: 600; }
+.interp .drop {
+  width: 40px; height: 40px; flex: none; margin: -8px -6px -8px 0; border: 0; background: none;
+  cursor: pointer; color: var(--t-accent-700); font-size: 16.5px; line-height: 1;
+  display: flex; align-items: center; justify-content: center; font-family: var(--sans);
+}
+.interp .ifoot { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.interp .discard {
+  min-height: 44px; flex: none; border: 0; border-radius: 12px; cursor: pointer;
+  background: var(--t-surface); color: var(--t-chrome); box-shadow: inset 0 0 0 1px var(--hair2);
+  font-family: var(--sans); font-size: 13.5px; font-weight: 600; padding: 0 16px;
+}
+.interp .apply {
+  flex: 1; min-height: 44px; border: 0; border-radius: 12px; cursor: pointer;
+  background: var(--t-accent-650); color: #fff; font-family: var(--sans);
+  font-size: 13.5px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.interp .resolved { margin: 10px 0 0; font-size: 12.5px; font-weight: 600; color: var(--t-accent-700); }
+
+/* The composer: a full-width text panel with the controls beneath it. */
+.composer { flex: none; border-top: 1px solid var(--hair); background: var(--t-surface); padding: 12px 18px 18px; }
+.composer .field {
+  width: 100%; min-height: 64px; text-align: left;
+  border: 1px solid var(--hair2); border-radius: var(--r-card); background: var(--t-surface);
+  padding: 12px 13px; font-size: 16.5px; line-height: 1.45; color: var(--t-chrome);
+}
+/* Placeholder ink is full `muted` (5.98:1), matching the shipped textarea's
+   `placeholder:text-muted`. An alpha here measured 3.6:1. */
+.composer .field.empty { color: var(--t-muted); }
+.composer .tools { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.speakbtn {
+  display: inline-flex; align-items: center; gap: 8px; flex: none;
+  min-height: 44px; padding: 0 16px; border: 0; border-radius: var(--r-pill); cursor: pointer;
+  background: var(--t-line-soft); color: var(--t-accent-800);
+  font-family: var(--sans); font-size: 13.5px; font-weight: 600;
+}
+.speakbtn[aria-pressed="true"] { background: var(--t-accent-650); color: #fff; }
+.sendbtn {
+  width: 44px; height: 44px; flex: none; border-radius: var(--r-pill); border: 0; cursor: pointer;
+  background: var(--t-accent-650); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+}
+.sendbtn[disabled] { background: var(--t-line-soft); color: var(--t-muted); cursor: default; }
+
+/* --- tasks view ----------------------------------------------------------- */
+
+.tasksview { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--gutter) 24px; }
+.tasksview::-webkit-scrollbar { width: 0; }
+.taskwrap { max-width: 720px; }
+.taskgroup { margin-bottom: 22px; }
+.taskgroup h3 { margin: 0 0 10px; display: flex; align-items: center; gap: 10px; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--t-muted); }
+.taskgroup h3 .n { font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--t-muted); }
+.taskgroup h3.late { color: var(--t-danger); }
+.taskgroup h3.late .n { color: var(--t-danger); }
+.taskrow {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+  background: var(--t-surface); border: 1px solid var(--hair); border-radius: var(--r-md);
+  padding: 12px 14px; margin-bottom: 8px; min-height: 56px; cursor: pointer; font-family: var(--sans);
+  box-shadow: var(--shadow-card);
+}
+.taskrow:hover { border-color: var(--hair2); }
+.taskrow .tick { width: 24px; height: 24px; flex: none; border-radius: var(--r-pill); border: 2px solid var(--hair2); background: var(--t-surface); display: flex; align-items: center; justify-content: center; color: transparent; }
+.taskrow.done .tick { border-color: var(--t-accent-600); background: var(--t-accent-600); color: #fff; }
+.taskrow .tbody { flex: 1; min-width: 0; }
+.taskrow .tlabel { font-size: 15px; font-weight: 600; color: var(--t-chrome); }
+.taskrow.done .tlabel { color: var(--t-muted); text-decoration: line-through; }
+.taskrow .tmeta { font-size: 12.5px; color: var(--t-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.taskrow .tdue { flex: none; font-size: 12.5px; font-weight: 700; color: var(--t-muted); font-variant-numeric: tabular-nums; }
+.taskrow .tdue.late { color: var(--t-danger); }
+.donetoggle {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  min-height: 44px; padding: 0 2px; border: 0; background: none; cursor: pointer;
+  font-family: var(--sans); font-size: 11px; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--t-muted);
+}
+
+/* --- approval modal ------------------------------------------------------- */
+/* A CENTRED MODAL, not a sheet. A bottom sheet is a phone shape — 1440px of
+   it would be a wall — and the decision it carries is small, deliberate and
+   the same size on every screen. */
+
+.scrim { position: absolute; inset: 0; background: rgb(30 41 59 / .34); z-index: 30; }
+.modal {
+  position: absolute; z-index: 31; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 480px; background: var(--t-surface); border-radius: var(--r-sheet);
+  box-shadow: 0 40px 90px -24px rgb(30 41 59 / .5); display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.modalhead { flex: none; display: flex; align-items: flex-start; gap: 12px; padding: 24px 24px 14px; }
+.modalhead .who { flex: 1; min-width: 0; }
+.modalhead h2 { margin: 0 0 4px; font-size: 20px; font-weight: 700; letter-spacing: -.025em; color: var(--t-chrome); }
+.modalhead .meta { font-size: 13.5px; font-weight: 500; color: var(--t-muted); }
+.modalbody { padding: 0 24px 4px; }
+.tally { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.tally li { display: flex; align-items: baseline; gap: 12px; }
+.tally .n { flex: none; width: 38px; text-align: right; font-size: 22px; font-weight: 700; color: var(--t-chrome); font-variant-numeric: tabular-nums; letter-spacing: -.03em; }
+.tally .what { flex: 1; min-width: 0; font-size: 15px; line-height: 1.4; color: var(--t-muted); }
+.consequence { margin: 20px 0 0; font-size: 15px; line-height: 1.5; color: var(--t-chrome); }
+.modalfoot { display: flex; gap: 8px; padding: 20px 24px 24px; }
+.btn {
+  flex: 1; min-height: 50px; border-radius: var(--r-md); border: 0; cursor: pointer;
+  font-family: var(--sans); font-size: 15px; font-weight: 600; letter-spacing: -.01em;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  background: var(--t-surface); color: var(--t-muted); box-shadow: inset 0 0 0 1px var(--hair2);
+}
+.btn.primary { background: var(--t-accent-650); color: #fff; box-shadow: var(--shadow-fab); font-weight: 700; }
+.btn.narrow { flex: none; padding: 0 18px; }
+
+/* --- the what-changed summary chip ---------------------------------------- */
+/* Fixed height. A one-line change and a fourteen-item brief cost the same
+   vertical space. One control — tap anywhere, the chevron is a state
+   indicator and not a second target. */
+.sumbar {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  height: 48px; margin-bottom: 12px; padding: 0 14px;
+  border: 0; font-family: var(--sans); text-align: left;
+  background: var(--t-accent-650); border-radius: var(--r-card); cursor: pointer;
+}
+.sumbar .txt { flex: 1; font-size: 13.5px; font-weight: 700; color: #fff; }
+.sumbar .chev { flex: none; color: #fff; opacity: .9; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}

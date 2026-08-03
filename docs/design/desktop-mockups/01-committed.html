@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1 — Committed month · Sprigly desktop plan surface</title>
+<link rel="stylesheet" href="sprigly-desktop.css">
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+<symbol id="i-reel" viewBox="0 0 24 24"><path style="fill:currentColor;stroke:none" d="M4.6 4.2h14.8a2 2 0 0 1 2 2v3.1H2.6V6.2a2 2 0 0 1 2-2Z"/><path style="fill:var(--t-accent-100);stroke:none" d="M8.2 4.2l-2.4 5.1h1.9l2.4-5.1zM14.4 4.2L12 9.3h1.9l2.4-5.1z"/><path d="M2.6 9.3h18.8V18a2 2 0 0 1-2 2H4.6a2 2 0 0 1-2-2V9.3Z"/></symbol>
+<symbol id="i-carousel" viewBox="0 0 24 24"><rect x="3.5" y="6.5" width="13" height="14" rx="2.5"/><path d="M7.2 3.5h9.3a3.5 3.5 0 0 1 3.5 3.5v9.6"/></symbol>
+<symbol id="i-single" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><circle cx="8.8" cy="9.2" r="1.5"/><path d="M4.3 17.3l4.5-4.8a1.7 1.7 0 0 1 2.5 0l5.2 5.5"/></symbol>
+<symbol id="i-chev-l" viewBox="0 0 24 24"><path d="M14.5 5.5l-7 6.5 7 6.5"/></symbol>
+<symbol id="i-chev-r" viewBox="0 0 24 24"><path d="M9.5 5.5l7 6.5-7 6.5"/></symbol>
+<symbol id="i-chev-u" viewBox="0 0 24 24"><path d="M6 14.5l6-6 6 6"/></symbol>
+<symbol id="i-chev-d" viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></symbol>
+<symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></symbol>
+<symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 17a6 6 0 1 1 6 0v1.6H9V17Z"/><path d="M10 21.5h4"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 10.8v5.7M12 7.7v.3"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="11" height="11" rx="2.5"/><path d="M15.5 5.5v-.5a2 2 0 0 0-2-2H6a2.5 2.5 0 0 0-2.5 2.5v7.5a2 2 0 0 0 2 2h.5"/></symbol>
+<symbol id="i-cal" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/></symbol>
+<symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z"/></symbol>
+<symbol id="i-bin" viewBox="0 0 24 24"><path d="M4.5 6.5h15M9.5 6.5V4.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v2M6.5 6.5l1 13a1.5 1.5 0 0 0 1.5 1.4h6a1.5 1.5 0 0 0 1.5-1.4l1-13"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+<symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+<symbol id="i-send" viewBox="0 0 24 24"><path d="M4.5 12h14M12.5 6l6 6-6 6"/></symbol>
+<symbol id="i-nav-plan" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/><path d="M8 13h.01M12 13h.01M16 13h.01M8 16.8h.01M12 16.8h.01"/></symbol>
+<symbol id="i-nav-tasks" viewBox="0 0 24 24"><path d="M4 7.5l2 2 3.5-3.5M4 16.5l2 2 3.5-3.5M13 8h7M13 17h7"/></symbol>
+</defs></svg>
+
+<div class="page-head">
+  <div class="crumbs">Desktop mockup 1 of 9 · <a href="02-draft.html">the draft month →</a> · <a href="index.html">all states</a></div>
+  <h1>Committed month — the shell</h1>
+  <p>Earl of East, October 2026, after approval: ten posts, real captions, one still on its way. This is the whole desktop shell in its resting state — left rail, month grid and day column side by side, and the conversation docked and present without being opened.</p>
+  <p><strong>Four columns, and the arithmetic is fixed:</strong> rail 196 · month 512 · day 320 · dock 344, with 24px gutters and a 20px column gap. 196 + 24 + 512 + 20 + 320 + 24 + 344 = 1440. The two columns that are invariant to how full the month is — the day and the conversation — hold 664px of it, which is what stops a thin month reading as a broken screen (mockup 8).</p>
+  <p><strong>The grid is a density map, not a second content surface.</strong> It carries the phone's own dot grammar at a larger size: a filled chrome dot per post, a ring for a post still being written, and the selected day as the same <code>accent-650</code> circle the week strip uses. What the dots <em>are</em> is the column beside it. That is round 6's P6 ruling — tap a day, stay where you are, read what it holds — with the “beneath” become “beside”.</p>
+</div>
+
+<div class="frame-wrap">
+  <p class="frame-label">A — Earl of East · October 2026 · Thursday 1 October selected · 1440 × 900</p>
+  <p class="frame-sub">Today is 1 October, so today and the selection are the same cell and the today ring is suppressed under the fill — the same rule the week strip already follows. 4 October's dot is a ring: that carousel's caption never landed, and it reads as <em>on its way</em>, with nothing asked of the client.</p>
+
+  <div class="desk">
+
+    <!-- ── LEFT RAIL ─────────────────────────────────────────────────────── -->
+    <aside class="rail">
+      <div class="raillogo">
+        <svg class="mark" viewBox="0 0 100 110" fill="currentColor" aria-hidden="true">
+          <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+          <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+          <line x1="50" y1="76" x2="50" y2="98" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+        <span class="wordmark">Sprigly</span>
+      </div>
+      <div class="railctx">
+        <div class="who">Earl of East</div>
+        <div class="sub">10 posts in October</div>
+      </div>
+      <nav class="railnav" aria-label="Views">
+        <button class="railbtn" type="button" aria-current="page"><svg class="ic"><use href="#i-nav-plan"/></svg>Plan</button>
+        <button class="railbtn" type="button"><svg class="ic"><use href="#i-nav-tasks"/></svg>Tasks<span class="count late">2 late</span></button>
+      </nav>
+      <div class="railfoot">Opened from your link, no password needed. Edit from today on; past dates are locked.</div>
+    </aside>
+
+    <!-- ── PLAN REGION ───────────────────────────────────────────────────── -->
+    <div class="plan">
+      <div class="planhead">
+        <div class="monthnav">
+          <button class="navbtn" type="button" aria-label="September 2026"><svg class="ic sm"><use href="#i-chev-l"/></svg></button>
+          <span class="monthtitle">October 2026</span>
+          <button class="navbtn" type="button" aria-label="November 2026" disabled><svg class="ic sm"><use href="#i-chev-r"/></svg></button>
+        </div>
+        <span style="flex:1"></span>
+        <button class="todaybtn" type="button">Today</button>
+      </div>
+
+      <div class="plancols">
+        <!-- month -->
+        <div class="monthcol">
+          <div class="mgrid">
+            <div class="gridhead" aria-hidden="true">
+            <span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span>
+          </div>
+          <div class="gridbody" role="group" aria-label="October 2026">
+            <button class="gcell out" type="button" aria-label="28 September, nothing planned"><span class="gnum">28</span><span class="dots"></span></button>
+            <button class="gcell out" type="button" aria-label="29 September, nothing planned"><span class="gnum">29</span><span class="dots"></span></button>
+            <button class="gcell out" type="button" aria-label="30 September, nothing planned"><span class="gnum">30</span><span class="dots"></span></button>
+            <button class="gcell today" type="button" aria-current="true" aria-label="1 October, 2 posts, today"><span class="gnum">1</span><span class="dots"><i class="committed"></i><i class="committed"></i></span></button>
+            <button class="gcell" type="button" aria-label="2 October, 1 post"><span class="gnum">2</span><span class="dots"><i class="committed"></i></span></button>
+            <button class="gcell" type="button" aria-label="3 October, nothing planned"><span class="gnum">3</span><span class="dots"></span></button>
+            <button class="gcell" type="button" aria-label="4 October, 1 post"><span class="gnum">4</span><span class="dots"><i class="onway"></i></span></button>
+
+            <button class="gcell" type="button" aria-label="5 October, nothing planned"><span class="gnum">5</span><span class="dots"></span></button>
+            <button class="gcell" type="button" aria-label="6 October, nothing planned"><span class="gnum">6</span><span class="dots"></span></button>
+            <button class="gcell" type="button" aria-label="7 October, nothing planned"><span class="gnum">7</span><span class="dots"></span></button>
+            <button class="gcell" type="button" aria-label="8 October, nothing planned"><span class="gnum">8</span><span class="dots"></span></button>
+            <button class="gcell" type="button" aria-label="9 October, 1 post"><span class="gnum">9</span><span class="dots"><i class="committed"></i></span></button>
+            <button class="gcell" type="button" aria-label="10 October, nothing planned"><span class="gnum">10</span><span class="dots"></span></button>
+            <button class="gcell" type="button" aria-label="11 October, nothing planned"><span class="gnum">11</span><span class="dots"></span></button>
+
+            <button class="gcell" type="button" aria-label="12 October, nothing planned"><span class="gnum">12</span><span class="dots"></span></button>
+            <button class="gcell" type="button" aria-label="13 October, nothing planned"><span class="gnum">13</span><span class="dots"></span></button>
+            <button class="gcell" type="button" aria-label="14 October, nothing planned"><span class="gnum">14</span><span class="dots"></span></button>
+            <button class="gcell" type="button" aria-label="15 October, nothing planned"><span class="gnum">15</span><span class="dots"></span></button>
+            <button class="gcell" type="button" aria-label="16 October, 1 post"><span class="gnum">16</span><span class="dots"><i class="committed"></i></span></button>
+            <button class="gcell" type="button" aria-label="17 October, nothing planned"><span class="gnum">17</span><span class="dots"></span></button>
+            <button class="gcell" type="button" aria-label="18 October, nothing planned"><span class="gnum">18</span><span class="dots"></span></button>
+
+            <button class="gcell" type="button" aria-label="19 October, nothing planned"><span class="gnum">19</span><span class="dots"></span></button>
+            <button class="gcell" type="button" aria-label="20 October, nothing planned"><span class="gnum">20</span><span class="dots"></span></button>
+            <button class="gcell" type="button" aria-label="21 October, 1 post"><span class="gnum">21</span><span class="dots"><i class="committed"></i></span></button>
+            <button class="gcell" type="button" aria-label="22 October, 1 post"><span class="gnum">22</span><span class="dots"><i class="committed"></i></span></button>
+            <button class="gcell" type="button" aria-label="23 October, nothing planned"><span class="gnum">23</span><span class="dots"></span></button>
+            <button class="gcell" type="button" aria-label="24 October, nothing planned"><span class="gnum">24</span><span class="dots"></span></button>
+            <button class="gcell" type="button" aria-label="25 October, nothing planned"><span class="gnum">25</span><span class="dots"></span></button>
+
+            <button class="gcell" type="button" aria-label="26 October, nothing planned"><span class="gnum">26</span><span class="dots"></span></button>
+            <button class="gcell" type="button" aria-label="27 October, nothing planned"><span class="gnum">27</span><span class="dots"></span></button>
+            <button class="gcell" type="button" aria-label="28 October, 1 post"><span class="gnum">28</span><span class="dots"><i class="committed"></i></span></button>
+            <button class="gcell" type="button" aria-label="29 October, 1 post"><span class="gnum">29</span><span class="dots"><i class="committed"></i></span></button>
+            <button class="gcell" type="button" aria-label="30 October, nothing planned"><span class="gnum">30</span><span class="dots"></span></button>
+            <button class="gcell" type="button" aria-label="31 October, nothing planned"><span class="gnum">31</span><span class="dots"></span></button>
+            <button class="gcell out" type="button" aria-label="1 November, nothing planned"><span class="gnum">1</span><span class="dots"></span></button>
+            </div>
+          </div>
+          <p class="monthfoot">10 posts across October. One is still being written.</p>
+        </div>
+
+        <!-- day -->
+        <div class="daycol">
+          <div class="dayhead">
+            <span class="dname">Thursday 1 October</span>
+            <span class="spacer"></span>
+            <span class="daycount">2 posts</span>
+          </div>
+          <div class="daybody">
+
+            <button class="card" type="button">
+              <div class="cardtop">
+                <span class="fmt" title="Reel"><svg class="ic sm"><use href="#i-reel"/></svg><span class="sr">Reel</span></span>
+                <span class="pillar">Home &amp; Space</span>
+                <span class="time">6:00</span>
+              </div>
+              <h4>Wilderness candle relaunch — Launch</h4>
+              <p class="excerpt">Wilderness is back. There is a particular quality to autumn light indoors, the way it sits low and golden across a room…</p>
+            </button>
+
+            <button class="card" type="button">
+              <div class="cardtop">
+                <span class="fmt" title="Single post"><svg class="ic sm"><use href="#i-single"/></svg><span class="sr">Single post</span></span>
+                <span class="pillar">Everyday Ritual</span>
+                <span class="time">7:00</span>
+              </div>
+              <h4>A small moment, made deliberate</h4>
+              <p class="excerpt">Caption written — 274 characters.</p>
+            </button>
+
+            <button class="addslot" type="button"><svg class="ic sm"><use href="#i-plus"/></svg> Plan a post for this day</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── DOCKED CONVERSATION ───────────────────────────────────────────── -->
+    <aside class="dock" aria-label="Talk to your plan">
+      <div class="dockhead">
+        <div class="h">
+          <h2>Talk to your plan</h2>
+        </div>
+        <p class="consequence">October is written. Nothing moves until you say so.</p>
+      </div>
+      <div class="thread">
+        <div class="turn agent">
+          <svg class="mark" viewBox="0 0 100 110" fill="currentColor" aria-hidden="true">
+            <path d="M50 10 C 36 12, 24 26, 24 44 C 24 60, 36 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 56 20, 50 10 Z"/>
+            <path d="M50 10 C 64 12, 76 26, 76 44 C 76 60, 64 74, 50 76 C 50 70, 50 56, 50 46 C 50 32, 44 20, 50 10 Z" opacity=".78"/>
+            <line x1="50" y1="76" x2="50" y2="98" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+          <div class="body">October is written. Say what you want different — I’ll show you exactly what I’ll change before anything moves.</div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="field empty">Move the Thursday post to Friday</div>
+        <div class="tools">
+          <button class="speakbtn" type="button" aria-pressed="false"><svg class="ic"><use href="#i-mic"/></svg>Speak</button>
+          <span style="flex:1"></span>
+          <button class="sendbtn" type="button" aria-label="Send this to Sprigly" disabled><svg class="ic"><use href="#i-send"/></svg></button>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+</div>
+
+<div class="notes">
+  <h2>What is on this screen, and where each thing came from</h2>
+  <ul>
+    <li><strong>The ten posts, their dates, formats, pillars and statuses</strong> — <code>docs/reports/build-d-approval-phase2.md</code> §1, the dogfood run. Zero structure drift across generation.</li>
+    <li><strong>The reel’s caption excerpt</strong> — verbatim from the same report. The 1 October single post’s caption text is <em>not</em> recorded (only its length, 274 characters), so the card states the length rather than showing invented copy — the same reconstruction the phone mockups made.</li>
+    <li><strong>The 4 October ring</strong> — that carousel is <code>generation_failed</code> in the report. Client-facing that is <em>on its way</em>, never a retry (G4), and the marker is a different <em>shape</em> so it survives greyscale.</li>
+    <li><strong>Posting times</strong> — the <code>PostingTimes</code> contract’s own documented example values (<code>packages/engine/src/types.ts</code>: launch 6am, morning 7am). Not a stored client config; labelled here as it is in the phone set.</li>
+    <li><strong>“2 late” on Tasks</strong> — derived from the real <code>step_templates</code> rows (0067) instantiated against the real post dates, with today at 1 October. Which steps are ticked is recorded nowhere; mockup 7 states that.</li>
+  </ul>
+  <h2>Decisions this frame carries</h2>
+  <ul>
+    <li><strong>No global “Add to your plan” button.</strong> It is retired here as it was on the phone: adding is the per-day slot, and briefing is the conversation. That control was also the surface’s one real accessibility defect — coral text on white at 3.03:1, which is what three of the eighteen standing desktop e2e failures are reporting.</li>
+    <li><strong>No Timeline, no Notes, no Approvals rail item.</strong> The grid and the day column supersede Timeline; the thread and the month summary supersede Notes; proposals are approved on the turn that raised them, inside the dock. The spec states each removal and what absorbs it.</li>
+    <li><strong>The rail is light, not the pre-redesign dark.</strong> White rail, grey working area, white dock. A dark rail opposite a white conversation panel puts the two loudest values at the outside edges and leaves the month — the thing the client came for — as the quietest region on the screen.</li>
+    <li><strong>The conversation is present and empty, not hidden.</strong> Its first turn is the agent’s framing sentence, which is exactly how the phone’s sheet opens; on desktop it simply never had to be opened.</li>
+  </ul>
+</div>
+
+</body>
+</html>
