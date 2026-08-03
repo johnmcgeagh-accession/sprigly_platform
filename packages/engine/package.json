@@ -37,6 +37,10 @@
     "./contrast": {
       "import": "./dist/contrast.js",
       "types": "./dist/contrast.d.ts"
+    },
+    "./caption-overlap": {
+      "import": "./dist/caption-overlap.js",
+      "types": "./dist/caption-overlap.d.ts"
     }
   },
   "scripts": {
