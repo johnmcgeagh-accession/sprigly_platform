@@ -312,6 +312,64 @@ for (const width of WIDTHS) {
       expect(screen.getByTestId('conversation-dock')).toBeTruthy();
     });
 
+    // ── W2 · the approval is a modal at content width, not a full-width sheet ────────
+
+    it('the Generate confirm is a centred MODAL on desktop and a sheet on the phone', () => {
+      render(<DraftSurface data={draftData()} frame="desktop" />);
+      fireEvent.click(screen.getByTestId('ready-pill'));
+      const modal = screen.getByTestId('approval-sheet');
+      expect(modal.getAttribute('data-chrome')).toBe('modal');
+      // Still modal in the ways that matter — it is the one door that spends money.
+      expect(modal.getAttribute('aria-modal')).toBe('true');
+      expect(screen.getByTestId('approval-sheet-scrim')).toBeTruthy();
+      // …and it carries the same three things it always did.
+      expect(within(modal).getByTestId('approval-counts')).toBeTruthy();
+      expect(within(modal).getByTestId('approval-consequence')).toBeTruthy();
+      expect(within(modal).getByTestId('approve-confirm')).toBeTruthy();
+      expect(within(modal).getByTestId('approve-not-yet')).toBeTruthy();
+      cleanup();
+
+      render(<DraftSurface data={draftData()} />);
+      fireEvent.click(screen.getByTestId('ready-pill'));
+      expect(screen.getByTestId('approval-sheet').getAttribute('data-chrome')).toBeNull();
+    });
+
+    // ── W3 · the dock's turns are panel-native ───────────────────────────────────────
+
+    it('an agent turn bleeds to the dock’s edges instead of floating as a card', async () => {
+      render(<CommittedSurface data={committedData()} frame="desktop" />);
+      const turn = await screen.findByTestId('turn-agent');
+      // The bleed is a negative inset against the thread's own gutter; the card treatment —
+      // a radius and a right inset — is what a phone sheet needs and a panel does not.
+      expect(turn.className).toContain('-mx-[18px]');
+      expect(turn.className).not.toContain('rounded-[14px]');
+      expect(turn.className).not.toContain('mr-8');
+      // The register survives: the accent left edge and the tint are what make it the agent.
+      expect(turn.className).toContain('border-l-[3px]');
+      expect(turn.className).toContain('bg-coral-100');
+    });
+
+    it('a thread grows from the composer upwards in a dock', async () => {
+      render(<CommittedSurface data={committedData()} frame="desktop" />);
+      await screen.findByTestId('turn-agent');
+      expect(screen.getByTestId('thread').className).toContain('[&>*:first-child]:mt-auto');
+    });
+
+    // ── W4 · tasks own the whole region ──────────────────────────────────────────────
+
+    it('Tasks takes the whole plan region, not the day column', () => {
+      render(<CommittedSurface data={committedData()} frame="desktop" />);
+      fireEvent.click(screen.getByTestId('rail-tasks'));
+
+      expect(within(screen.getByTestId('plan-region')).getByTestId('tasks-panel')).toBeTruthy();
+      // The two columns are gone entirely — a checklist in a 420px column beside an empty
+      // month is the shape this replaces.
+      expect(screen.queryByTestId('day-col')).toBeNull();
+      expect(screen.queryByTestId('month-col')).toBeNull();
+      // …and its sections flow into columns rather than one mobile-width stack.
+      expect(screen.getByTestId('tasks-panel').className).toContain('wide:columns-2');
+    });
+
     // ── D6 · the thin month ──────────────────────────────────────────────────────────
 
     it('a THIN month opens its own argument; a full one does not', () => {

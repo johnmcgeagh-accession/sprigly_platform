@@ -76,11 +76,11 @@ export function TaskRow({
 
 /** The collapsible Completed section. Shared, so the sheet and the Tasks view cannot disagree
  *  about what "done" looks like or where it goes. */
-export function CompletedSection({ count, children }: { count: number; children: React.ReactNode }) {
+export function CompletedSection({ count, children, className = '' }: { count: number; children: React.ReactNode; className?: string }) {
   const [open, setOpen] = useState(false);
   if (count === 0) return null;
   return (
-    <section data-testid="completed-section" className="pt-1">
+    <section data-testid="completed-section" className={`pt-1 ${className}`}>
       <button
         type="button" data-testid="completed-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}
         className="flex min-h-[44px] w-full items-center gap-2 text-left"

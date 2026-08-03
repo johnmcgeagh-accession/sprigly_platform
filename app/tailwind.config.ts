@@ -60,6 +60,9 @@ const config: Config = {
       maxWidth: {
         /** The shell's ceiling. Past this the margins grow, not the columns. */
         shell: '1764px',
+        /** A modal's content width. The decision it carries is the same size on every
+         *  screen, so this is fixed rather than proportional. */
+        modal: '480px',
       },
       flex: {
         /** The month : day ratio, as grow factors. 680 : 420 is 512 : 320. */

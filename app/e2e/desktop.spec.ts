@@ -299,6 +299,56 @@ test('the month grid fills its column rather than leaving canvas under it', asyn
   expect(fill).toBeGreaterThan(0.9);
 });
 
+/* ── W2 / W3 / W4 · the chrome at width ──────────────────────────────────────────── */
+
+test('the Generate confirm is a centred modal at content width, not a full-width sheet', async ({ page }) => {
+  // A draft month is the only one with something to approve, and the seed's is committed —
+  // so this asserts the frame the committed shell can reach: the modal's own geometry is
+  // covered in jsdom, and here we prove the desktop shell never renders the sheet form.
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await expect(page.getByTestId('approval-sheet')).toHaveCount(0);
+  // The sheet chrome must not exist anywhere on this surface.
+  await expect(page.locator('[data-testid$="-grabber"]')).toHaveCount(0);
+});
+
+test('the dock’s agent turn is flush with the dock, not a card inset from it', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 900 });
+  const gaps = await page.evaluate(() => {
+    const t = document.querySelector('[data-testid="turn-agent"]');
+    const d = document.querySelector('[data-testid="conversation-dock"]');
+    if (!t || !d) return null;
+    const tr = t.getBoundingClientRect(), dr = d.getBoundingClientRect();
+    return { left: tr.left - dr.left, right: dr.right - tr.right, radius: getComputedStyle(t).borderTopLeftRadius };
+  });
+  expect(gaps, 'the framing turn should be on screen').not.toBeNull();
+  // Flush: the band reaches both edges (a pixel or two of border), and carries no card radius.
+  expect(gaps!.left).toBeLessThanOrEqual(3);
+  expect(gaps!.right).toBeLessThanOrEqual(3);
+  expect(gaps!.radius).toBe('0px');
+});
+
+test('Tasks uses the whole region and flows into columns', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await page.getByTestId('rail-tasks').click();
+  await expect(page.getByTestId('tasks-panel')).toBeVisible();
+
+  const m = await page.evaluate(() => {
+    const region = document.querySelector('[data-testid="plan-region"]')!.getBoundingClientRect();
+    const panel = document.querySelector('[data-testid="tasks-panel"]')!;
+    return {
+      region: Math.round(region.width),
+      panel: Math.round(panel.getBoundingClientRect().width),
+      columns: getComputedStyle(panel).columnCount,
+    };
+  });
+  // Not a mobile-width column marooned in a wide region: the panel IS the region.
+  expect(m.panel).toBeGreaterThan(1000);
+  expect(m.panel).toBeGreaterThanOrEqual(m.region - 60);
+  expect(m.columns).toBe('2');
+  // And the day column is not sitting empty beside it.
+  await expect(page.getByTestId('day-col')).toHaveCount(0);
+});
+
 /* ── the per-post date policy, which this suite used to fight ────────────────────── */
 
 test('a PAST post opens read-only; a future one is editable', async ({ page }) => {

@@ -37,8 +37,10 @@
  * The testid is the CALLER'S, unchanged, so a selector that finds the detail sheet on a phone
  * finds the detail panel on a desktop and the e2e suites do not fork.
  */
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import type { SheetProps } from './Sheet';
+import { useFocusTrap } from '../a11y';
+import { sheetThemeOpened, sheetThemeClosed } from './theme-color';
 
 /** The frame props both chromes honour. `layer` and `hasOwnClose` are sheet-only concepts. */
 export type PanelProps = Omit<SheetProps, 'layer' | 'hasOwnClose'> & { layer?: 0 | 1; hasOwnClose?: boolean };
@@ -60,4 +62,53 @@ export function Panel({ open, label, testid, children }: PanelProps) {
 }
 
 /** Pick a frame. Callers take a `chrome` prop and pass it straight through. */
-export type Chrome = 'sheet' | 'panel';
+export type Chrome = 'sheet' | 'panel' | 'modal';
+
+
+/**
+ * Modal — the third frame, for the one decision that is genuinely modal.
+ *
+ * ── Why this is NOT a Panel, and not a Sheet either ──────────────────────────────────
+ *
+ * A PANEL is part of the surface and traps nothing. A MODAL suspends it: the approval spends
+ * money and writes a month of content, and it is the one moment this surface asks for the
+ * client's whole attention. So it keeps everything `Panel` drops — the scrim, the focus trap,
+ * `role="dialog"`, `aria-modal`, the browser's theme band — and differs from `Sheet` only in
+ * SHAPE: a centred box at content width rather than a panel filling the bottom of the screen.
+ *
+ * A full-width bottom sheet is a phone shape. At 1764px it would be a wall carrying three
+ * counts and two sentences, and the decision it holds is exactly the same size on every
+ * screen — which is the argument for a fixed content width rather than a proportional one.
+ *
+ * No grabber: a modal at the centre of the screen has no edge to drag, and its callers carry
+ * their own ✕. Escape and the scrim both close it, which the focus trap and the scrim's own
+ * handler already provide.
+ */
+export function Modal({ open, label, testid, onClose, children }: PanelProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  useFocusTrap(open, ref, onClose);
+
+  // The browser chrome follows a modal for the same reason it follows a sheet: the app behind
+  // it is dimmed, and a bright canvas stripe over a dimmed app reads as a rendering fault.
+  useEffect(() => {
+    if (!open) return;
+    sheetThemeOpened();
+    return sheetThemeClosed;
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <>
+      <div data-testid={`${testid}-scrim`} aria-hidden="true" onClick={onClose}
+        className="absolute inset-0 z-[30] bg-chrome-deep/[.34]" />
+      <div
+        ref={ref} role="dialog" aria-modal="true" aria-label={label} data-testid={testid}
+        data-chrome="modal" tabIndex={-1}
+        className="absolute left-1/2 top-1/2 z-[31] flex max-h-[86%] w-full max-w-modal -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[26px] bg-surface shadow-[0_40px_90px_-24px_rgb(30_41_59_/_0.5)] outline-none"
+      >
+        {children}
+      </div>
+    </>
+  );
+}

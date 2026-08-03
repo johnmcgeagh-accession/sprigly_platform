@@ -30,11 +30,12 @@
 import React, { useState } from 'react';
 import type { DraftBeatView } from '@/lib/types';
 import { Sheet } from './Sheet';
+import { Modal, type Chrome } from './Panel';
 import { CheckGlyph, CloseGlyph } from './icons';
 import { approvalCounts, approvalRows } from './approval-counts';
 
 export function ApprovalSheet({
-  open, monthLabel, beats, busy, error, onClose, onApprove,
+  open, monthLabel, beats, busy, error, onClose, onApprove, chrome = 'sheet',
 }: {
   open: boolean;
   monthLabel: string;
@@ -45,13 +46,18 @@ export function ApprovalSheet({
   error: string | null;
   onClose: () => void;
   onApprove: () => void;
+  /** `modal` centres this at content width on desktop. A full-width bottom sheet is a phone
+   *  shape; at 1764px it would be a wall carrying three counts. See Panel.tsx. */
+  chrome?: Chrome;
 }) {
   const rows = approvalRows(approvalCounts(beats));
 
   if (!open) return null;
 
+  const Frame = chrome === 'modal' ? Modal : Sheet;
+
   return (
-    <Sheet open={open} label={`Ready to go? ${monthLabel}`} testid="approval-sheet" onClose={onClose} hasOwnClose>
+    <Frame open={open} label={`Ready to go? ${monthLabel}`} testid="approval-sheet" onClose={onClose} hasOwnClose>
       <>
         <div className="flex flex-none items-start gap-3 px-[18px] pb-3 pt-1.5">
           <div className="min-w-0 flex-1">
@@ -87,7 +93,7 @@ export function ApprovalSheet({
           )}
         </div>
 
-        <div className="flex flex-none gap-2 border-t border-line/30 bg-surface px-[18px] pb-[26px] pt-3">
+        <div className={`flex flex-none gap-2 border-t border-line/30 bg-surface px-[18px] pt-3 ${chrome === 'modal' ? 'pb-[18px]' : 'pb-[26px]'}`}>
           <button
             type="button" data-testid="approve-confirm" disabled={busy || rows.length === 0} onClick={onApprove}
             className="flex min-h-[50px] flex-1 items-center justify-center gap-2 rounded-[14px] bg-coral-650 text-[15px] font-bold text-white shadow-[0_10px_26px_-6px_rgb(var(--t-accent-600,232_112_95)_/_0.58)] disabled:bg-line-soft disabled:text-muted disabled:shadow-none"
@@ -104,7 +110,7 @@ export function ApprovalSheet({
           </button>
         </div>
       </>
-    </Sheet>
+    </Frame>
   );
 }
 

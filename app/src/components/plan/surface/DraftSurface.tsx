@@ -294,6 +294,9 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
           undo={m.undo} onDismiss={() => m.setUndo(null)} message={data.toast}
           agent={null} agentWorking={m.shaping}
         />}
+        {...(railView === 'tasks'
+          ? { region: <TasksPanel data={data} onOpen={() => {}} frame="desktop" /> }
+          : {})}
         month={railView === 'tasks' ? null : showingReceipt && m.receipt ? (
           <ReceiptPanel
             receipt={m.receipt} monthName={monthName} editable={editable} rescuing={m.busy}
@@ -311,9 +314,7 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
             <div className="flex-none px-[22px] pb-5">{summaryNode}</div>
           </>
         )}
-        day={railView === 'tasks'
-          ? <TasksPanel data={data} onOpen={() => {}} frame="desktop" />
-          : openBeat
+        day={openBeat
             ? draftDetailNode
             : (
               <DraftDayPanel
@@ -357,7 +358,7 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
           )}
           <ApprovalSheet
             open={approval.open} monthLabel={monthTitle(month)} beats={m.beats}
-            busy={approval.busy} error={approval.error}
+            busy={approval.busy} error={approval.error} chrome="modal"
             onClose={() => approval.setOpen(false)}
             onApprove={() => void approval.approve()}
           />

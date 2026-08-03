@@ -121,7 +121,7 @@ export type InterpretationStatus = 'open' | 'applying' | 'resolved' | 'discarded
  * ten status regions would re-announce the whole conversation at every render.
  */
 export function InterpretationTurn({
-  items, status, busy, live = false, onApply, onDiscard, onDropItem,
+  items, status, busy, live = false, onApply, onDiscard, onDropItem, flush = false,
 }: {
   items: readonly InterpretedItem[];
   status: InterpretationStatus;
@@ -132,6 +132,8 @@ export function InterpretationTurn({
   onDiscard?: (() => void) | undefined;
   /** Per-item discard. Cheap because a change IS a proposal row, and dropping one is a reject. */
   onDropItem?: ((proposalId: string) => void) | undefined;
+  /** Panel-native inside the docked conversation — see AgentSays. */
+  flush?: boolean | undefined;
 }) {
   const changes = items.filter((i): i is Extract<InterpretedItem, { kind: 'change' }> => i.kind === 'change');
   const applicable = status === 'open' && changes.length > 0 && !!onApply;
@@ -141,7 +143,9 @@ export function InterpretationTurn({
       data-testid="interpretation" data-status={status}
       {...(live ? { role: 'status' as const, 'aria-live': 'polite' as const } : {})}
       aria-label="What we understood"
-      className="mr-8 rounded-[14px] border-l-[3px] border-coral-700 bg-coral-100 px-3 py-3"
+      className={`border-l-[3px] border-coral-700 bg-coral-100 ${
+        flush ? '-mx-[18px] px-[18px] py-3.5' : 'mr-8 rounded-[14px] px-3 py-3'
+      }`}
     >
       <div className="mb-2 flex items-center gap-2">
         <SprigMarkV2 aria-hidden="true" className="h-[15px] w-[15px] flex-none text-coral-700" />

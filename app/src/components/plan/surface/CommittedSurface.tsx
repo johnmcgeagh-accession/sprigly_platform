@@ -470,6 +470,9 @@ export function CommittedSurface({ data, frame = 'mobile' }: { data: PlanData; f
           undo={undo} onDismiss={() => setUndo(null)} message={data.toast}
           agent={null} agentWorking={false}
         />}
+        {...(railView === 'tasks'
+          ? { region: <TasksPanel data={data} onOpen={setOpenId} frame="desktop" /> }
+          : {})}
         month={railView === 'tasks' ? null : (
           <MonthGrid
             month={month} selected={selected} today={data.today} frame="desktop"
@@ -477,9 +480,7 @@ export function CommittedSurface({ data, frame = 'mobile' }: { data: PlanData; f
             onPick={pickFromGrid} footer={monthFooter} lockToMonth
           />
         )}
-        day={railView === 'tasks'
-          ? <TasksPanel data={data} onOpen={setOpenId} frame="desktop" />
-          : openPost
+        day={openPost
             ? detailNode
             : (
               <DayPanel

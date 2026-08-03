@@ -43,8 +43,26 @@ export function TasksPanel({ data, onOpen, frame = 'mobile' }: { data: PlanData;
     .flatMap((p) => p.steps.filter((s) => s.done).map((s) => ({ post: p, step: s })))
     .sort((a, b) => (b.step.doneAt ?? '').localeCompare(a.step.doneAt ?? ''));
 
+  /**
+   * ── W4: THE SECTIONS FLOW INTO COLUMNS AT WIDTH ────────────────────────────────────
+   *
+   * A task row is a label, the post it belongs to and a due date. It stops getting better at
+   * about 560px, so a single stack in a 1120px region is half a screen of nothing beside a
+   * list — and this view used to render in the 420px DAY column, which was worse.
+   *
+   * CSS multi-column rather than a grid, because the sections are different heights and a grid
+   * would align their tops and leave ragged gaps between them. `break-inside-avoid` keeps a
+   * section whole; the browser balances the rest.
+   */
+  const desktop = frame === 'desktop';
+
   return (
-    <div data-testid="tasks-panel" className={`flex-1 overflow-y-auto px-5 pt-3 [scrollbar-width:none] ${scrollPad(frame)}`}>
+    <div
+      data-testid="tasks-panel"
+      className={`flex-1 overflow-y-auto pt-3 [scrollbar-width:none] ${scrollPad(frame)} ${
+        desktop ? 'px-1 wide:columns-2 wide:gap-7' : 'px-5'
+      }`}
+    >
       {total === 0 && (
         <div className="mx-6 my-10 text-center">
           <span className="mb-2 block text-[22px] font-bold tracking-[-.02em] text-chrome">
@@ -57,7 +75,7 @@ export function TasksPanel({ data, onOpen, frame = 'mobile' }: { data: PlanData;
       )}
 
       {sections.map(([key, label, items]) => items.length > 0 && (
-        <section key={key} className="mb-[18px]">
+        <section key={key} className={`mb-[18px] ${desktop ? 'break-inside-avoid' : ''}`}>
           <div className="flex items-center gap-2.5 pb-2 pt-1">
             <h3 className={`text-[11px] font-bold uppercase tracking-[.1em] ${key === 'overdue' ? 'text-danger' : key === 'today' ? 'text-chrome' : 'text-muted'}`}>
               {label}
@@ -83,7 +101,7 @@ export function TasksPanel({ data, onOpen, frame = 'mobile' }: { data: PlanData;
         </section>
       ))}
 
-      <CompletedSection count={completed.length}>
+      <CompletedSection count={completed.length} className={desktop ? 'break-inside-avoid' : ''}>
         {completed.map(({ post, step }) => (
           <TaskRow
             key={step.id} label={step.label} due={dueDate(post.date, step.leadDays)} done

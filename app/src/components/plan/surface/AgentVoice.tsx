@@ -63,6 +63,7 @@ export function AgentDots({ tone = 'accent', className = '' }: {
 
 export function AgentSays({
   children, working = false, label = 'Sprigly', testid = 'agent-says', className = '', grows = false, live = true,
+  flush = false,
 }: {
   /** What the agent said. Absent while it is still working — then the dots stand alone. */
   children?: React.ReactNode;
@@ -88,6 +89,16 @@ export function AgentSays({
    * on every render. Default true, so every existing single-block use is unchanged.
    */
   live?: boolean;
+  /**
+   * PANEL-NATIVE, for the docked conversation.
+   *
+   * A rounded card with an inset on both sides is a phone treatment: it floats over a sheet
+   * that floats over the month. In a dock the turn is not floating over anything — it IS the
+   * panel — and a card inside a panel, inset from edges it already has, reads as a component
+   * borrowed from somewhere else. Flush, it bleeds to the dock's own edges and keeps the one
+   * thing that makes it the agent: the accent left edge and the mark.
+   */
+  flush?: boolean;
 }) {
   const hasWords = children !== undefined && children !== null && children !== '';
   return (
@@ -96,7 +107,10 @@ export function AgentSays({
       {...(live ? { role: 'status' as const, 'aria-live': 'polite' as const, 'aria-atomic': grows ? ('false' as const) : ('true' as const) } : {})}
       aria-label={label}
       className={[
-        'flex items-start gap-2.5 rounded-[14px] border-l-[3px] border-coral-700 bg-coral-100 px-3 py-2.5',
+        'flex items-start gap-2.5 border-l-[3px] border-coral-700 bg-coral-100',
+        // The bleed is a negative inset against the thread's own 18px gutter, with the
+        // padding put back inside — so the band reaches the dock's edges and the words do not.
+        flush ? '-mx-[18px] px-[18px] py-3' : 'rounded-[14px] px-3 py-2.5',
         className,
       ].join(' ')}
     >

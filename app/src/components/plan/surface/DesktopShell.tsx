@@ -53,7 +53,7 @@ import type { RailView } from './Rail';
 export function DesktopShell({
   clientName, subtitle, view, onView, tasksCount, tasksLate,
   monthLabel, onPrevMonth, onNextMonth, onToday, todayEnabled,
-  badge, headerRight, topSlot, month, day, dock, overlays,
+  badge, headerRight, topSlot, month, day, dock, region, overlays,
 }: {
   clientName: string;
   /** The rail's one context line — the month's own count, in the surface's own words. */
@@ -82,6 +82,16 @@ export function DesktopShell({
    *  ABSENT on a read-only month: `data.ask` refuses there, and a composer that can only be
    *  turned away is worse than no composer, which is the same rule the mobile mic follows. */
   dock?: React.ReactNode | undefined;
+  /**
+   * A view that owns the WHOLE plan region rather than one of its columns — Tasks and Ideas.
+   * When present it replaces both columns; `month` and `day` are ignored.
+   *
+   * Tasks used to render into the `day` slot, which meant a checklist laid out in a 420px
+   * column with 680px of empty month beside it — a mobile-width list marooned in a wide
+   * region, which is the shape W4 names. What a task row wants is not the day's measure; it
+   * is the region's.
+   */
+  region?: React.ReactNode | undefined;
   /** Sheets that genuinely still are sheets on this form factor: move, add, approval. */
   overlays?: React.ReactNode | undefined;
 }) {
@@ -140,17 +150,23 @@ export function DesktopShell({
           Above it the columns are PROPORTIONS (flex-month / flex-day), so they grow together
           to their ceilings instead of leaving the surplus in the gap.
         */}
-        <div
-          data-testid="plan-cols"
-          className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 pb-5 wide:flex-row wide:gap-5 wide:overflow-hidden wide:pb-6"
-        >
-          <div data-testid="month-col" className="flex min-h-0 w-full flex-none flex-col wide:w-auto wide:flex-month wide:overflow-y-auto">
-            {month}
+        {region ? (
+          <div data-testid="plan-region" className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 pb-6">
+            {region}
           </div>
-          <div data-testid="day-col" className="flex min-h-0 w-full flex-none flex-col wide:w-auto wide:flex-day">
-            {day}
+        ) : (
+          <div
+            data-testid="plan-cols"
+            className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 pb-5 wide:flex-row wide:gap-5 wide:overflow-hidden wide:pb-6"
+          >
+            <div data-testid="month-col" className="flex min-h-0 w-full flex-none flex-col wide:w-auto wide:flex-month wide:overflow-y-auto">
+              {month}
+            </div>
+            <div data-testid="day-col" className="flex min-h-0 w-full flex-none flex-col wide:w-auto wide:flex-day">
+              {day}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* THE DOCK. A region with its own edge, present in every state that HAS a conversation

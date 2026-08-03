@@ -490,6 +490,8 @@ export function VoiceSheet({
   const lastAgentIdx = turns.reduce((acc, t, i) => (t.kind !== 'user' ? i : acc), -1);
 
   const Frame = chrome === 'panel' ? Panel : Sheet;
+  /** In a dock the turns are the panel, not cards floating over one (W3). */
+  const flush = chrome === 'panel';
 
   return (
     <Frame open={open} label={framing.title} testid="voice-sheet" onClose={onClose} hasOwnClose>
@@ -509,7 +511,12 @@ export function VoiceSheet({
         </div>
 
         {/* ── THE THREAD ──────────────────────────────────────────────────────────────── */}
-        <div data-testid="thread" className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-[18px] pb-3 pt-1 [scrollbar-width:none]">
+        <div data-testid="thread" className={`flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-[18px] pb-3 pt-1 [scrollbar-width:none] ${
+          // A thread grows from the composer upwards, the way every chat does. On a 92% sheet
+          // that is barely visible; in an 800px dock, four turns pinned to the ceiling with
+          // 500px of white under them is the single loudest "unfinished" signal on the screen.
+          flush ? '[&>*:first-child]:mt-auto' : ''
+        }`}>
           {turns.map((t, i) => {
             if (t.kind === 'user') {
               return (
@@ -523,7 +530,7 @@ export function VoiceSheet({
               return (
                 <InterpretationTurn
                   key={t.key} items={t.items} status={t.status} busy={busy}
-                  live={i === lastAgentIdx}
+                  live={i === lastAgentIdx} flush={flush}
                   onApply={() => applyTurn(t.key, t.items)}
                   onDiscard={() => discardTurn(t.key, t.items)}
                   {...(onDiscard ? { onDropItem: (id: string) => dropItem(t.key, t.items, id) } : {})}
@@ -532,7 +539,7 @@ export function VoiceSheet({
             }
             if (t.kind === 'cap') {
               return (
-                <AgentSays key={t.key} testid="turn-cap" live={i === lastAgentIdx} className="mr-8 self-stretch">
+                <AgentSays key={t.key} testid="turn-cap" live={i === lastAgentIdx} flush={flush} className={flush ? 'self-stretch' : 'mr-8 self-stretch'}>
                   <span className="block">{t.text}</span>
                   {t.asked ? (
                     <span data-testid="want-more-sent" className="mt-2.5 block text-[13.5px] font-semibold text-muted">
@@ -553,7 +560,7 @@ export function VoiceSheet({
             // A plain agent turn: dots while working, structured lines once it has words.
             const lines = t.text ? agentLines(t.text) : [];
             return (
-              <AgentSays key={t.key} testid="turn-agent" working={!!t.working} live={i === lastAgentIdx} className="mr-8 self-stretch">
+              <AgentSays key={t.key} testid="turn-agent" working={!!t.working} live={i === lastAgentIdx} flush={flush} className={flush ? 'self-stretch' : 'mr-8 self-stretch'}>
                 {lines.length === 0 ? undefined
                   : lines.length === 1 ? lines[0]!.text
                   : lines.map((l, j) => (
