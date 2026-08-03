@@ -9,6 +9,7 @@
 | `9c3f400` | M4 (derivation) — the panel absorbs the whole assumption set, question included |
 | `89d1ce7` | M1–M4 — the panel takes the tint, the CTA, and the day's assumption strip |
 | `ad7bf88` | fix — the summary's lists carry no browser marker, and no 40px indent (§6) |
+| `1f04ca5` | fix — the beat sheet's grounding list drops its 40px indent too (§8) |
 
 ---
 
@@ -246,19 +247,8 @@ On a 350px panel that indent pushed the longest pillar onto a second line and le
 stranded beside the first — breaking the count column the section exists for. `list-none pl-0` is
 load-bearing here, not tidying. Panel height fell from 1103px to 1039px as a side effect.
 
-**One pre-existing defect, NOT fixed, reported instead.** The beat sheet's insights list has the
-same problem, from last session's T1:
-
-```
-[data-testid="insights"] ul  →  { listStyleType: "disc", paddingInlineStart: "40px" }
-```
-
-It draws its own dot spans, so the browser's disc renders *as well*, and the 40px indent costs the
-grounding lines a chunk of their measure — "WSG (Weekend Style Guide) — weekly; last ran 28 August"
-wraps earlier than it needs to. It is the identical one-class fix. I have not applied it: it is
-outside M1–M4, it changes a component this brief does not name, and it is the kind of thing worth a
-deliberate yes rather than a quiet ride-along. Screenshot evidence is in the session; the fix is
-`list-none pl-0` on `DraftDetailSheet.tsx`'s `ul`.
+**One pre-existing defect on the beat sheet — reported here, then fixed on the operator's yes.**
+See §8, which also corrects what this section originally claimed about it.
 
 ---
 
@@ -309,3 +299,73 @@ at the UAT database and entering on an **existing, unexpired** magic link rather
 so the only trace is the `last_used_at` touch any client visit makes. The thin-month variant used a
 throwaway local database built from the UAT schema plus two copied rows, dropped afterwards. No
 draft was re-assembled and nothing was pushed.
+
+---
+
+## 8. The beat sheet's insights list — the follow-on fix
+
+**Commit `1f04ca5`.** Authorised after §6 reported it. Same treatment as `ad7bf88`:
+`list-none pl-0` on the `ul` in `DraftDetailSheet.tsx`.
+
+### A correction first
+
+§6 originally described this as the *same* defect as the summary panel's — "it draws its own dot
+spans, so the browser's disc renders as well". **Measuring it disproved half of that**, and the
+half that was wrong is the half that named it a duplicate marker:
+
+```
+before   ul   { listStyleType: "disc",  paddingInlineStart: "40px" }
+         li   display: "flex"          ← blockified: NO ::marker is generated
+```
+
+Every `li` in that list carries `className="flex gap-2"`. A flex item is blockified, so the
+browser never rendered a disc there — the `list-style` was a dead declaration, not a second dot.
+The before/after screenshots show one dot per row in both, and it is the drawn `span` in both.
+
+The summary panel's `li` was a plain `display: list-item`, so on that one the markers were real
+and `ad7bf88`'s description holds. The two lists had the same *cause* and different *symptoms*, and
+saying so at the time would have been a guess dressed as a measurement.
+
+### What was actually wrong, measured at 390px
+
+```
+                          before                 after
+li x / width          x=73, w=284px          x=33, w=324px
+ul content width          284px                  324px
+```
+
+**40px of dead indent — 14% of the measure — on a list whose lines are long by design.** It also
+detached the facts from their own heading: the block sat 40px to the right of `WHY THIS ONE IS
+HERE`, which is why the panel read as indented prose rather than as a list belonging to that label.
+
+| before | after |
+|---|---|
+| ![insights, before](./summary-cta/390-insights-before.png) | ![insights, after](./summary-cta/390-insights-after.png) |
+
+The recovered measure shows in the wrapping — `WSG (Weekend Style Guide) — weekly; last ran / 28
+August` instead of `WSG (Weekend Style Guide) — weekly; / last ran 28 August`, and the same on
+three of the other four lines.
+
+**Row COUNT is unchanged for this beat** — `[41, 20, 41, 41, 41]` px before and after. These five
+strings happen to wrap to the same number of rows at both widths, so the honest claim is 40px of
+measure and a left-aligned block, not fewer lines. A longer product name or series name is where
+the extra 40px starts removing a row.
+
+### Gates
+
+`tsc` clean · app **1273 passed**, 38 skipped (unchanged — no test asserted the indent) · tokens
+fence 10 · terminology fence 8 · draft invisibility 5 · detector on `DraftDetailSheet.tsx` **0
+findings, exit 0** · fence diffs still empty.
+
+Verified against ivy-t's live September on UAT, at 390px, DPR 2 — the 5 September beat
+(`WSG: mornings made easy with Bea`), which carries the richest grounding list on the month.
+Nothing was written to UAT.
+
+### The remaining lists, for the record — not touched
+
+`ReceiptPanel` (×3), `ApprovalSheet`, `Interpretation` and `IntakeCapture` (×3) all declare a `ul`
+without the reset. Every one of them is `display: flex` on the `ul` itself, which makes its
+children flex items — so no marker is generated there either, and the padding question is the only
+live one. None of them was on screen in this session's acceptance path, so none was measured, and
+I am not reporting them as defects on the strength of reading the class names. They are worth one
+pass with a browser open.
