@@ -164,8 +164,23 @@ body {
   padding: 18px 14px 16px;
 }
 .raillogo { display: flex; align-items: center; gap: 7px; padding: 0 6px 18px; }
+/* THE IDENTITY, AND WHAT IT IS ALLOWED TO BE — inherited from the phone (round 8,
+   fix 4), not decided here.
+     THE MARK keeps `accent-600`. It is a FILL, not text, and it is the identity's
+     own tone.
+     THE WORDMARK takes `accent-700`, and the tier is the whole point: `accent-600`
+     is the mark's colour and measures 2.35:1 on canvas, which the contrast table
+     rules out for text by name. `accent-700` is the same hue one step down,
+     sanctioned as text at 5.62:1 on `surface` — the lightest mint this surface may
+     legibly write in, which is precisely what "the wordmark renders in the accent"
+     is asking for. A future "make it match the mark" is a legibility regression,
+     and on the built surface it is a test rather than a comment
+     (`header-identity.interaction.test.tsx`).
+   These mockups previously carried `--t-chrome` here, inherited from the MOBILE
+   MOCKUPS — which the mobile spec itself marks as the older document where it and
+   the built surface disagree. The built surface is the authority. */
 .raillogo svg.mark { width: 20px; height: 20px; display: block; color: var(--t-accent-600); }
-.wordmark { font-family: var(--logo); font-size: 17px; font-weight: 800; letter-spacing: -.02em; color: var(--t-chrome); }
+.wordmark { font-family: var(--logo); font-size: 17px; font-weight: 800; letter-spacing: -.02em; color: var(--t-accent-700); }
 
 .railctx { padding: 0 6px 16px; border-bottom: 1px solid var(--hair); margin-bottom: 14px; }
 .railctx .who { font-size: 15px; font-weight: 600; letter-spacing: -.01em; color: var(--t-chrome); }

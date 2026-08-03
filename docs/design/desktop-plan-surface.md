@@ -220,6 +220,29 @@ The selected item is `accent-650` with white ink, which is the same recorded 3.4
 DESIGN.md scopes to eight controls. **This adds a ninth**, and it must be added to DESIGN.md's
 mapping table and to the axe ignore's enumeration by name, not by pattern. See §10.
 
+#### The wordmark — inherited, not decided here
+
+**The identity treatment is the phone's, and this surface only relocates it.** Round 8, fix 4
+ruled it on the built mobile shell and pinned it in a test
+(`header-identity.interaction.test.tsx`), which is why it is not re-argued here:
+
+| | Treatment | Why |
+|---|---|---|
+| **The mark** | `accent-600` | It is a **fill**, not text, and it is the identity's own tone |
+| **The wordmark** | `accent-700`, `font-logo`, 800 | `accent-600` is the mark's colour and measures **2.35:1 on canvas** — the contrast table rules it out for text by name. `accent-700` is the same hue one step down, sanctioned as text. Measured in these frames: **5.62:1** on the rail's `surface` |
+
+A future *“make it match the mark”* is a legibility regression, not a correction. On the built
+surface that is a test rather than a comment, and this set now agrees with it.
+
+**One part of that ruling does not transfer, and it is stated rather than quietly dropped.** Round
+8 also ruled **wordmark ≥ month title in px**, because on the phone the two are stacked in one
+header column and a 17px wordmark sat directly above a 20px month title — smaller than the thing
+beneath it and coloured like it. On desktop they are in **different regions**, about 220px apart
+horizontally: the wordmark leads the rail, alone, above a hairline; the month title leads the plan
+header. There is nothing for it to be smaller *than*, so the wordmark stays at 17px and the month
+title at 20px. **The colour rule transfers unconditionally; the scale rule was written about a
+stack this form factor does not have.**
+
 ### 3.2 The plan header
 
 `‹ Month Year ›`, the `Draft` badge on a draft month, `Today`, and `Generate` on a draft month.
@@ -685,6 +708,7 @@ does not exist.
 | 13 | **Composer and Shape placeholders at `muted` 72% / 70%** ≈ 3.6:1 | Full `muted`, matching the shipped `placeholder:text-muted` |
 | 14 | **The rail's “2 late” count stayed `danger` on the selected item's `accent-650` fill** — red on green | White on the selected item, with the number and the word still carrying the meaning. Folded into D1 |
 | 15 | Duplicate `id`s on the summary panel across duplicated frames, and one `aria-controls` pointing at nothing on a **closed** panel | Ids made unique per frame and re-paired; `aria-controls` dropped where the region is not rendered. The built component keeps it, because there the region is always in the DOM |
+| 16 | **The wordmark rendered in `chrome` grey, not the accent** — the identity coloured like every other word on the surface. Inherited from the *mobile mockups*, which carry `--t-chrome` and which the mobile spec itself marks as the older document where they and the built surface disagree. The built surface has shipped `text-coral-700` since round 8, fix 4, with a test pinning it | `.wordmark` takes `var(--t-accent-700)` — one rule in the shared stylesheet, which is the only place the colour was declared, so all **15 instances across 9 files** moved with it. Verified from the rendered pages rather than the source: every instance computes `#327267` at **5.62:1**, and the mark beside it still computes `#4DB0A0`. §3.1 records that the treatment is inherited and names the one part of the ruling that does not transfer |
 
 ### Deferred — real, and not this commit's to fix
 
