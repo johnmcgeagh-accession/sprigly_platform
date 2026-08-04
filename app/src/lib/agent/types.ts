@@ -207,8 +207,16 @@ export type InterpretedItem =
       format?: string | null;
       target?: 'hook' | 'script' | null;
     }
-  /** Filed rather than placed. The honest state the intake receipts already use. */
-  | { kind: 'idea'; text: string }
+  /**
+   * Filed rather than placed. The honest state the intake receipts already use.
+   *
+   * `month` is the plan month the idea NAMES ('YYYY-MM'), when it named one. It is carried so the
+   * surface can say which month was captured instead of asserting that none was: the copy used to
+   * read "couldn't place a date" on every idea unconditionally, including the ones where a month
+   * was extracted, stored and honoured. A line that is wrong whenever it matters is worse than no
+   * line, because it teaches the client that we lost something we kept.
+   */
+  | { kind: 'idea'; text: string; month?: string | null }
   /** The extractor could not resolve it. Carries the real question, and applies nothing. */
   | { kind: 'unresolved'; question: string };
 

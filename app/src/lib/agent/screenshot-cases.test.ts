@@ -274,7 +274,7 @@ describe('the interpretation is computed from resolved targets', () => {
     h.tasks = [{ action: 'add_note', content: 'the candle relaunch is coming' }] as ParsedTask[];
     const r = await ask('cyc-aug', 'remember the candle relaunch is coming');
 
-    expect(r.items).toEqual([{ kind: 'idea', text: 'the candle relaunch is coming' }]);
+    expect(r.items).toEqual([{ kind: 'idea', text: 'the candle relaunch is coming', month: null }]);
     expect(r.proposals).toHaveLength(0);
   });
 

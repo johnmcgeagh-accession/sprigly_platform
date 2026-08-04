@@ -105,6 +105,30 @@ export function lineFor(item: Extract<InterpretedItem, { kind: 'change' }>): Lin
  */
 export type InterpretationStatus = 'open' | 'applying' | 'resolved' | 'discarded' | 'superseded';
 
+const IDEA_MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/**
+ * What we did with the idea's DATE — derived from the item, not asserted (F5).
+ *
+ * This line used to be the constant "couldn't place a date", rendered on every idea whatever
+ * happened. It was false in precisely the case that mattered: the client said "I have an idea for
+ * October", the parser extracted `targetMonth: "2026-10"`, the note was filed against October's
+ * relevance window — and the surface told them the date had been lost. Copy that contradicts the
+ * row we just wrote is worse than no copy, because a client who is told we dropped their month
+ * will say it again, and we will file it twice.
+ *
+ * Exported so the derivation is testable on its own, which is the point: the sentence is now a
+ * function of the item and can be checked against one.
+ */
+export function ideaPlacement(month?: string | null): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(month ?? '');
+  const name = m ? IDEA_MONTHS[Number(m[2]) - 1] : null;
+  return name ? `kept for ${name} ${m![1]}.` : 'no date to place it on.';
+}
+
 /**
  * ── THE INTERPRETATION, AS A TURN (the conversation sheet) ───────────────────────────
  *
@@ -158,9 +182,9 @@ export function InterpretationTurn({
         {items.map((item, i) => {
           if (item.kind === 'idea') {
             return (
-              <li key={`idea-${i}`} data-testid="interp-idea" className="text-[14.5px] leading-[1.45] text-coral-800">
+              <li key={`idea-${i}`} data-testid="interp-idea" data-month={item.month ?? ''} className="text-[14.5px] leading-[1.45] text-coral-800">
                 <span className="font-semibold">Saved to your ideas</span>
-                <span className="text-coral-700"> — couldn’t place a date.</span>
+                <span className="text-coral-700"> — {ideaPlacement(item.month)}</span>
                 <span className="mt-0.5 block">“{item.text}”</span>
               </li>
             );

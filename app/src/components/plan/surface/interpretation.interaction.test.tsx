@@ -131,7 +131,17 @@ describe('what could not be resolved says so, and applies nothing', () => {
     show([{ kind: 'idea', text: 'the candle relaunch is coming' }]);
     const said = screen.getByTestId('interp-idea').textContent ?? '';
     expect(said).toContain('Saved to your ideas');
-    expect(said).toContain('couldn’t place a date');
+    expect(said).toContain('no date to place it on');
+  });
+
+  it('an idea that DID name a month says which one — the line is derived, not asserted (F5)', () => {
+    // The copy used to be the constant "couldn't place a date" whatever happened, so the one
+    // case where a month WAS captured was also the one case the sentence was false in.
+    show([{ kind: 'idea', text: 'TV Halloween theme, people-focused on Hannah', month: '2026-10' }]);
+    const said = screen.getByTestId('interp-idea').textContent ?? '';
+    expect(said).toContain('Saved to your ideas');
+    expect(said).toContain('kept for October 2026');
+    expect(said).not.toContain('no date to place it on');
   });
 
   it('APPLY IS ABSENT when nothing is applicable — and so is Discard, because there is nothing to reject', () => {

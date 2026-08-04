@@ -163,6 +163,24 @@ function moveAmbiguous(cands: PlanPost[], task: ParsedTask): string {
   return `There are ${cands.length} posts on ${on} — ${list}? Which one should I move${dest}?`;
 }
 
+/**
+ * 'YYYY-MM' → that month's first and last day, as the relevance window (F5).
+ *
+ * The upper bound is computed from the month's own calendar rather than written as a literal:
+ * a `${month}-31` bound is an INVALID DATE for September, April, June, November and February,
+ * and Postgres rejects it against a `date` column rather than clamping — the same trap
+ * `intake-signals.ts:firstOfMonthAfter` documents having already been caught by once.
+ *
+ * Returns nulls for anything that is not a month, so a malformed value files an undated note
+ * rather than a note with half a window.
+ */
+function monthWindow(month?: string | null): { from: string | null; to: string | null } {
+  if (!month || !/^\d{4}-\d{2}$/.test(month)) return { from: null, to: null };
+  const [y, m] = month.split('-').map(Number);
+  const lastDay = new Date(Date.UTC(y!, m!, 0)).getUTCDate();   // day 0 of the NEXT month
+  return { from: `${month}-01`, to: `${month}-${String(lastDay).padStart(2, '0')}` };
+}
+
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
@@ -519,13 +537,39 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
       }
       case 'add_note': {
         if (!task.content) { cannot('What would you like me to note down?'); break; }
+        /**
+         * ── THE MONTH SURVIVES WHETHER OR NOT A CYCLE EXISTS (F5) ────────────────────────
+         *
+         * `targetMonth` used to be a CYCLE LOOKUP KEY and nothing else: resolve it, file the note
+         * under that cycle, discard the month. So "I have an idea for October", parsed correctly
+         * as `targetMonth: "2026-10"`, hit a client with no October cycle, resolved to null, and
+         * was stored with `cycle_id = null` and no other trace — October surviving only as two
+         * words inside the free text, reachable by nothing.
+         *
+         * The month is now written where the schema already means it: the relevance WINDOW. That
+         * is not a second meaning bolted onto `relevant_from`/`relevant_to` — it is their first
+         * one. Both readers apply the identical overlap predicate, one against a week
+         * (`weekly-session.ts`) and one against a plan month (`intake-signals.ts:loadDurableInputs`,
+         * shared verbatim by the planning gate and the generator), and `draft-apply.ts` already
+         * writes a client-named future date into `relevant_from` for exactly this reason: filing
+         * a dated ask as an undated one loses the part the client was most specific about.
+         *
+         * Applied whenever the client named a month and did not name a narrower window of their
+         * own — one rule, not a special case for the branch that failed. A note scoped to its
+         * month is also a note that stops being live when the month does, which is what
+         * `expireStaleNotes` has always been for and what a null `relevant_to` never triggered.
+         */
         const noteCycle = task.targetMonth ? await cycleForMonth(task.targetMonth) : cycleId;
-        await saveNote({ clientId, cycleId: noteCycle, content: task.content, source, relevantFrom: task.relevantFrom ?? null, relevantTo: task.relevantTo ?? null });
-        const window = task.relevantFrom || task.relevantTo ? ` (relevant ${task.relevantFrom ?? '…'} to ${task.relevantTo ?? '…'})` : '';
+        const named = task.relevantFrom || task.relevantTo
+          ? { from: task.relevantFrom ?? null, to: task.relevantTo ?? null }
+          : monthWindow(task.targetMonth);
+        await saveNote({ clientId, cycleId: noteCycle, content: task.content, source, relevantFrom: named.from, relevantTo: named.to });
+        const window = named.from || named.to ? ` (relevant ${named.from ?? '…'} to ${named.to ?? '…'})` : '';
         replyParts.push(`Noted: ${task.content}${window}`);
         // The honest state, and the same one the intake receipts already render: it is on record,
-        // it is not on the calendar. Nothing to apply — it is already saved.
-        items.push({ kind: 'idea', text: task.content });
+        // it is not on the calendar. Nothing to apply — it is already saved. The month rides along
+        // so the surface can say WHICH month rather than claim there wasn't one.
+        items.push({ kind: 'idea', text: task.content, month: task.targetMonth ?? null });
         break;
       }
       case 'query': {
