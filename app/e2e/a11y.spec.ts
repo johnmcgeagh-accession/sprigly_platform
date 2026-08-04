@@ -135,11 +135,15 @@ test('no serious/critical axe violations across the primary surfaces', async ({ 
   expect(await seriousViolations(page), 'empty field').toEqual([]);
   await (desktop ? page.getByTestId('detail-back') : page.getByTestId('detail-sheet-grabber')).click();
 
-  // 2d. The add sheet (round 6, P1): a segmented control, a free field and a primary.
+  // 2d. Plan a post (round 6, P1): a segmented control, a free field and a primary. ONE
+  //     component, two frames like the detail above it — a sheet on the phone, the day
+  //     column's own panel on desktop — so the way OUT differs the same way: a grabber there,
+  //     the day-naming back control here.
   await page.getByTestId('add-slot').click();
   await expect(page.getByTestId('add-sheet')).toBeVisible();
   expect(await seriousViolations(page), 'add sheet').toEqual([]);
-  await page.getByTestId('add-sheet-grabber').click();
+  await (desktop ? page.getByTestId('add-back') : page.getByTestId('add-sheet-grabber')).click();
+  await expect(page.getByTestId('add-sheet')).toHaveCount(0);
 
   // 3. THE CONVERSATION. Docked on desktop (already on screen, nothing to open) and a sheet
   //    the mic summons on the phone. Same thread, same composer, same axe walk.

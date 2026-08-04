@@ -436,27 +436,39 @@ export function CommittedSurface({ data, frame = 'mobile' }: { data: PlanData; f
     />
   );
 
-  const pickerNodes = (
-    <>
-      {addFor && (
-        <AddSheet
-          open date={addFor} pillars={null} busy={data.busy}
-          onClose={() => setAddFor(null)}
-          onSubmit={({ format, subject }) => data.addShapedPost(addFor, format, subject)}
-        />
-      )}
-      {movePost && (
-        <MoveSheet
-          open onClose={() => setMoveId(null)}
-          postDate={movePost.date} postTime={movePost.postingTime ?? null}
-          postHeading={cardText(movePost).heading}
-          knownTimes={knownTimes}
-          canMoveTo={data.canEdit}
-          onMove={(d, t) => doMove(movePost, d, t)}
-        />
-      )}
-    </>
-  );
+  /**
+   * Plan a post — ONE definition, framed by its caller.
+   *
+   * `overlays` is the one slot both shells share, so a component that does not opt into a frame
+   * gets the phone's by default. This one had no `chrome` prop at all and rendered as the
+   * mobile bottom sheet across the whole desktop window: at 2560 a 2524px subject field and an
+   * "Add it" bar the width of the screen.
+   *
+   * On desktop it takes the DAY COLUMN's slot, which is DetailSheet's pattern and for
+   * DetailSheet's reason — a date-scoped drill-down belongs in the slot that already holds the
+   * day. Naming the frame at the call site rather than inside keeps that a decision the shell
+   * makes, which is what every other gated surface here does.
+   */
+  const addNode = (chrome: 'sheet' | 'panel') => (addFor ? (
+    <AddSheet
+      open date={addFor} pillars={null} busy={data.busy} chrome={chrome}
+      onClose={() => setAddFor(null)}
+      onSubmit={({ format, subject }) => data.addShapedPost(addFor, format, subject)}
+    />
+  ) : null);
+
+  const moveNode = movePost ? (
+    <MoveSheet
+      open onClose={() => setMoveId(null)}
+      postDate={movePost.date} postTime={movePost.postingTime ?? null}
+      postHeading={cardText(movePost).heading}
+      knownTimes={knownTimes}
+      canMoveTo={data.canEdit}
+      onMove={(d, t) => doMove(movePost, d, t)}
+    />
+  ) : null;
+
+  const pickerNodes = <>{addNode('sheet')}{moveNode}</>;
 
   const overlayNodes = <>{detailNode}{voiceNode}{pickerNodes}</>;
 
@@ -501,7 +513,8 @@ export function CommittedSurface({ data, frame = 'mobile' }: { data: PlanData; f
             onPick={pickFromGrid} footer={monthFooter} lockToMonth
           />
         )}
-        day={openPost
+        day={addNode('panel')
+            ?? (openPost
             ? detailNode
             : (
               <DayPanel
@@ -517,9 +530,9 @@ export function CommittedSurface({ data, frame = 'mobile' }: { data: PlanData; f
                 timeOf={timeOf}
                 weather={data.weather.get(selected)}
               />
-            )}
+            ))}
         dock={data.readOnly ? undefined : voiceNode}
-        overlays={pickerNodes}
+        overlays={moveNode}
       />
     );
   }

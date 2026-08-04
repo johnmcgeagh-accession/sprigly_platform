@@ -29,7 +29,9 @@
 import React, { useState } from 'react';
 import type { PostFormat } from '@/lib/types';
 import { Sheet } from './Sheet';
+import { Panel, type Chrome } from './Panel';
 import { FormatControl } from './FormatControl';
+import { ChevronL } from './icons';
 import { dayTitle } from './dates';
 
 export interface AddSpec {
@@ -41,10 +43,25 @@ export interface AddSpec {
 }
 
 export function AddSheet({
-  open, date, pillars, busy, onClose, onSubmit,
+  open, date, pillars, busy, onClose, onSubmit, chrome = 'sheet',
 }: {
   open: boolean;
   date: string;
+  /**
+   * WHICH FRAME. `sheet` on a phone; `panel` on desktop, where it takes the DAY COLUMN's slot.
+   *
+   * It had no such prop and was hardcoded to `Sheet`, so on desktop it rendered as the phone's
+   * bottom sheet across the whole window — at 2560 that is a 2524px subject field and an
+   * "Add it" bar the width of the screen. `overlays` is the one slot both shells share, and a
+   * component that does not opt into a frame gets the phone's by default.
+   *
+   * The day column is the right slot rather than a centred modal, and the reason is the same
+   * one D3 gave for the detail panel: this form is a DRILL-DOWN OF THE DAY. It is opened from
+   * the day's own add slot, its heading names that day, and every field on it is scoped to it.
+   * A modal is for a decision that interrupts the plan (the approval, which spends money); this
+   * is the plan being worked on.
+   */
+  chrome?: Chrome;
   /** The client's configured pillars on a DRAFT month; null on a committed one. */
   pillars: string[] | null;
   busy: boolean;
@@ -68,6 +85,9 @@ export function AddSheet({
 
   if (!open) return null;
 
+  const panel = chrome === 'panel';
+  const Frame = panel ? Panel : Sheet;
+
   const submit = async () => {
     if (busy) return;
     const ok = await onSubmit(pillars ? { format, subject: subject.trim(), pillar } : { format, subject: subject.trim() });
@@ -75,8 +95,24 @@ export function AddSheet({
   };
 
   return (
-    <Sheet open={open} label={`Plan a post for ${dayTitle(date)}`} testid="add-sheet" onClose={onClose}>
+    <Frame open={open} label={`Plan a post for ${dayTitle(date)}`} testid="add-sheet" onClose={onClose}>
       <>
+        {/* THE WAY BACK, and it is not decoration. A panel replaces the day column outright, so
+            without this the client taps "Plan a post" and the day's other posts are simply gone
+            with no control that says otherwise. Verbatim the rule DetailSheet's panel branch
+            follows, down to naming the DAY rather than saying "Back": a direction tells you
+            which way, a day tells you where you land. A sheet needs none of it — it has a scrim
+            and a grabber, and the day is still behind it. */}
+        {panel && (
+          <button
+            type="button" data-testid="add-back" onClick={onClose}
+            className="flex min-h-[44px] flex-none items-center gap-1.5 border-b border-line/30 px-3 text-left text-[13.5px] font-semibold text-muted transition-colors duration-100 hover:text-chrome"
+          >
+            <ChevronL className="h-[15px] w-[15px]" />
+            {dayTitle(date)}
+          </button>
+        )}
+
         <div className="flex-none border-b border-line/30 px-[18px] pb-3.5 pt-1.5">
           <h2 className="mb-1 text-[20px] font-bold tracking-[-.025em] text-chrome">Plan a post</h2>
           <p className="text-[13.5px] font-medium text-muted">{dayTitle(date)}</p>
@@ -118,15 +154,19 @@ export function AddSheet({
           </p>
         </div>
 
-        <div className="flex flex-none gap-2 border-t border-line/30 bg-surface px-[18px] pb-[26px] pt-3">
+        {/* `pb-[26px]` on the sheet is the home-indicator inset; a panel sits in a column and
+            has no such edge to clear. And the button is sized to its CONTENT in a panel: a
+            full-width bar is a phone affordance, where it is the thumb's target and the last
+            thing on the screen. In a column it is one control among several. */}
+        <div className={`flex flex-none gap-2 border-t border-line/30 bg-surface px-[18px] pt-3 ${panel ? 'pb-4' : 'pb-[26px]'}`}>
           <button
             type="button" data-testid="add-confirm" onClick={() => void submit()} disabled={busy}
-            className="flex min-h-[50px] flex-1 items-center justify-center rounded-[14px] bg-coral-650 text-[15px] font-bold text-white shadow-[0_10px_26px_-6px_rgb(var(--t-accent-600,232_112_95)_/_0.58)] disabled:bg-line-soft disabled:text-muted disabled:shadow-none"
+            className={`flex min-h-[50px] items-center justify-center rounded-[14px] bg-coral-650 text-[15px] font-bold text-white shadow-[0_10px_26px_-6px_rgb(var(--t-accent-600,232_112_95)_/_0.58)] disabled:bg-line-soft disabled:text-muted disabled:shadow-none ${panel ? 'px-6' : 'flex-1'}`}
           >
             {busy ? 'Adding…' : 'Add it'}
           </button>
         </div>
       </>
-    </Sheet>
+    </Frame>
   );
 }

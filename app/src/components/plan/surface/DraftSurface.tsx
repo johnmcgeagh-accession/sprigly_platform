@@ -283,6 +283,19 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
     />
   );
 
+  /**
+   * Plan a post — one definition, framed by its caller. Sheet on a phone; on desktop it takes
+   * the DAY COLUMN's slot, which is DetailSheet's pattern and for DetailSheet's reason: a
+   * date-scoped drill-down belongs in the slot that already holds the day. See AddSheet.
+   */
+  const addNode = (chrome: 'sheet' | 'panel') => (addFor ? (
+    <AddSheet
+      open date={addFor} pillars={draft?.pillars ?? []} busy={m.busy} chrome={chrome}
+      onClose={() => setAddFor(null)}
+      onSubmit={async ({ format, subject, pillar }) => (await m.add(addFor, format, pillar ?? '', subject)).ok}
+    />
+  ) : null);
+
   // `onIdeas` turns the "6 ideas you gave us in July" line into a way to go and read them.
   // Desktop only: Ideas is a rail destination and the phone has no rail to send anyone to.
   const summaryNode = (
@@ -346,7 +359,8 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
             <div className="flex-none px-[22px] pb-5">{summaryNode}</div>
           </>
         )}
-        day={openBeat
+        day={addNode('panel')
+            ?? (openBeat
             ? draftDetailNode
             : (
               <DraftDayPanel
@@ -358,7 +372,7 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
                 onAdd={() => setAddFor(selected)}
                 footer={thinNote}
               />
-            )}
+            ))}
         dock={editable ? (
           <VoiceSheet
             open context="draft" monthName={monthName} busy={m.busy}
@@ -395,13 +409,6 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
             onClose={() => approval.setOpen(false)}
             onApprove={() => void approval.approve()}
           />
-          {addFor && (
-            <AddSheet
-              open date={addFor} pillars={draft?.pillars ?? []} busy={m.busy}
-              onClose={() => setAddFor(null)}
-              onSubmit={async ({ format, subject, pillar }) => (await m.add(addFor, format, pillar ?? '', subject)).ok}
-            />
-          )}
         </>}
       />
     );
@@ -492,13 +499,7 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
             }}
           />
         )}
-        {addFor && (
-          <AddSheet
-            open date={addFor} pillars={draft?.pillars ?? []} busy={m.busy}
-            onClose={() => setAddFor(null)}
-            onSubmit={async ({ format, subject, pillar }) => (await m.add(addFor, format, pillar ?? '', subject)).ok}
-          />
-        )}
+        {addNode('sheet')}
       </>}
       strip={view === 'day' && !showingReceipt ? (
         <WeekStrip
