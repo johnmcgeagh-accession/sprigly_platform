@@ -107,6 +107,19 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
   const [addFor, setAddFor] = useState<string | null>(null);
   /** null = closed. A string = open, answering that question. '' = open, no question. */
   const [voiceFor, setVoiceFor] = useState<string | null>(null);
+  /**
+   * Every request to take the composer, counted.
+   *
+   * On the phone `setVoiceFor` both opens the sheet and points it at a question — one act. On
+   * desktop the dock is already open, so `setVoiceFor` alone changed a prop the sheet had
+   * stopped listening to and the summary's two foot buttons did nothing at all. Bumping this
+   * beside it is what makes them live; see VoiceSheet's `focusSignal`.
+   */
+  const [voiceSignal, setVoiceSignal] = useState(0);
+  const askVoice = useCallback((question: string) => {
+    setVoiceFor(question);
+    setVoiceSignal((n) => n + 1);
+  }, []);
   const [receiptOpen, setReceiptOpen] = useState(false);
   const approval = useApproval(data.viewedCycleId);
 
@@ -275,8 +288,8 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
   const summaryNode = (
     <DraftMonthSummary
       summary={summary} expanded={summaryOpen} onToggle={() => setSummaryOpen((v) => !v)}
-      onAnswer={(question) => setVoiceFor(question)}
-      {...(editable ? { onShape: () => setVoiceFor('') } : {})}
+      onAnswer={askVoice}
+      {...(editable ? { onShape: () => askVoice('') } : {})}
       {...(desktop ? { onIdeas: () => setRailView('ideas') } : {})}
     />
   );
@@ -351,6 +364,7 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
             open context="draft" monthName={monthName} busy={m.busy}
             cycleId={data.viewedCycleId} chrome="panel" entry="docked"
             {...(voiceFor ? { question: voiceFor } : {})}
+            {...(voiceSignal ? { focusSignal: voiceSignal } : {})}
             onClose={() => setVoiceFor(null)}
             onSubmit={async (text, source) => {
               const r = await m.say(text, source);
@@ -405,7 +419,7 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
       // gesture raises proposals the client then approves. Same icon, different consequence, and
       // the sheet is what says which. Absent past the cutoff rather than inert: a mic that
       // refuses is worse than no mic.
-      onMic={editable ? () => setVoiceFor('') : undefined}
+      onMic={editable ? () => askVoice('') : undefined}
       micLabel={`Tell us about ${monthName}`}
       onToday={goToday}
       todayEnabled={todayEnabled}
@@ -456,6 +470,10 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
             open context="draft" monthName={monthName} busy={m.busy}
             cycleId={data.viewedCycleId}
             {...(voiceFor ? { question: voiceFor } : {})}
+            // The phone gets the signal too. It does not NEED it — a summoned sheet mounts on
+            // the same gesture and its mount effect already focuses — but passing it keeps one
+            // behaviour across both frames instead of two paths that happen to agree.
+            {...(voiceSignal ? { focusSignal: voiceSignal } : {})}
             onClose={() => setVoiceFor(null)}
             // NO interpretation turns on a draft month, and that is not an omission. A reshape
             // here APPLIES directly and returns a receipt — so the agent's turn IS the receipt's
