@@ -94,6 +94,9 @@ const model = createModelClientFromEnv();
 /** The month-scoped fields worth showing, extracted from a routing for eyeballing. */
 function fieldsOf(routing: IntakeRouting): string {
   if (routing.scope === 'evergreen') return `reason=${routing.reason}`;
+  // A question is decided before the model is asked, so it has no intent fields to show — only
+  // which answerer it went to (intake-classify.ts, `parsePlanQuestion`).
+  if (routing.scope === 'question') return `question=${routing.kind}`;
   const i = routing.intent as Record<string, unknown>;
   const parts: string[] = [];
   const show = (k: string, v: unknown) => { if (v !== null && v !== undefined) parts.push(`${k}=${typeof v === 'object' ? JSON.stringify(v) : String(v)}`); };
@@ -173,7 +176,9 @@ for (const b of fixture.briefs ?? []) {
     // Classify WITH the brief framing — exactly as the production decompose path does.
     const routing = await classifyIntake({ text: seg, planMonth, model, logger, ...modelOverride, context: 'brief_segment' });
     decomposeSpent++;
-    const kind = routing.scope === 'evergreen' ? `evergreen(${routing.reason})` : `month_scoped/${routing.intent.kind}`;
+    const kind = routing.scope === 'evergreen' ? `evergreen(${routing.reason})`
+      : routing.scope === 'question' ? `question/${routing.kind}`
+      : `month_scoped/${routing.intent.kind}`;
     console.log(`   ${String(n + 1).padStart(2)}. [${kind}]  ${seg.slice(0, 80)}`);
   }
 }

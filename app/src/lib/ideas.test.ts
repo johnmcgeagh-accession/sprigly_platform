@@ -73,7 +73,7 @@ describe('ideaStateLabel', () => {
 
 describe('sortIdeas', () => {
   const idea = (id: string, state: IdeaView['state'], createdAt: string): IdeaView =>
-    ({ id, content: id, createdAt, state, usedInMonth: null, postId: null, postTitle: null });
+    ({ id, content: id, createdAt, state, usedInMonth: null, usedInCycleId: null, postId: null, postTitle: null });
 
   it('puts what is still live first and what is finished last', () => {
     const out = sortIdeas([

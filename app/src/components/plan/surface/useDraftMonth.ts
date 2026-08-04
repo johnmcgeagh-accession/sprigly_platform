@@ -99,7 +99,13 @@ export function useDraftMonth(data: PlanData) {
       const r = await post(url, body);
       if (!r.ok) { data.flash(r.message ?? GENERIC_FAIL); return r; }
       if (r.beats) setBeats(r.beats);
-      if (r.application) { setReceipt(r.application); setChangedIds(r.application.changedIds ?? []); }
+      // A QUESTION does not become the surface's receipt. A receipt is a record of what changed
+      // and offers a review of it; an answer changed nothing, and its place is the thread where
+      // it was asked. Promoting it would put "What changed" over a list of things that didn't.
+      if (r.application && r.application.scope !== 'question') {
+        setReceipt(r.application);
+        setChangedIds(r.application.changedIds ?? []);
+      }
       return r;
     } finally { setBusy(false); }
   }, [data, setBeats]);

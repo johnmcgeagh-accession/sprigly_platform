@@ -92,6 +92,10 @@ export interface IdeaView {
   state: IdeaState;
   /** 'August 2026', when the consuming cycle is on record. */
   usedInMonth: string | null;
+  /** WHICH cycle consumed it. The label above is for reading; this is for filtering — the
+   *  answerer needs "used in THIS month", and matching on a rendered month name would break
+   *  the first time the label's format changed. */
+  usedInCycleId: string | null;
   /** The post this became, when a beat recorded the link (`beat_meta.sourceRef`). */
   postId: string | null;
   postTitle: string | null;

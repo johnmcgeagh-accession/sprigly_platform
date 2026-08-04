@@ -132,7 +132,32 @@ const classificationSchema = z.object({
 
 export type IntakeRouting =
   | { scope: 'month_scoped'; intent: MonthScopedIntent; sourceText: string }
-  | { scope: 'evergreen'; sourceText: string; reason: EvergreenReason };
+  | { scope: 'evergreen'; sourceText: string; reason: EvergreenReason }
+  /**
+   * A QUESTION about the plan or its inputs. Answered, never filed.
+   *
+   * The third scope exists because the first two were an exhaustive split of one axis — is this
+   * about this month, or is it for later? — and a question is not on that axis at all. Asked
+   * "what ideas of mine are integrated into this month", the classifier read topic words and no
+   * date and did the only thing it could: filed the question itself as a new idea. Four
+   * phrasings, four new ideas, no answer (operator, 3 Aug).
+   *
+   * `kind` says which answerer: 'ideas' is computed from lifecycle, 'plan' from the month's
+   * own beats. See `parsePlanQuestion`.
+   */
+  | { scope: 'question'; kind: PlanQuestionKind; sourceText: string };
+
+export type PlanQuestionKind = 'ideas' | 'plan';
+
+/**
+ * What the MODEL can return.
+ *
+ * A question is decided before the model is asked — by grammar, deterministically — so
+ * `routeFromParsed` can never produce one, and saying so in the type is what keeps every
+ * existing `routing.intent` read narrowing correctly instead of needing a guard for a case
+ * that cannot occur.
+ */
+export type ModelRouting = Exclude<IntakeRouting, { scope: 'question' }>;
 
 /** Why an input went to the backlog. Surfaced in the receipt so "we filed this" is never
  *  mysterious, and recorded so a misroute is diagnosable rather than just annoying. */
@@ -157,6 +182,95 @@ export const BRIEF_SEGMENT_FRAMING = `CONTEXT: this is ONE item taken from a cli
 LAUNCH vs EVENT — read this before choosing kind=launch: launch means a PRODUCT or COLLECTION is launching and wants a build-up arc (tease → launch → follow-up). A single requested post that merely MENTIONS a launch or its build-up is NOT a launch — it is an event (or beat_spec if it fully specifies one post). Examples:
 - "The Navy Edit launches on the 28th" → kind=launch (the product is launching).
 - "In the Navy Edit build-up, a colour-reveal post on the 25th, guess the main colour" → kind=event (one post inside the build-up, not the launch itself).`;
+
+/**
+ * ── IS THIS A QUESTION ABOUT THE PLAN? ───────────────────────────────────────────────
+ *
+ * Deterministic, and deliberately so. The classifier decided on TOPIC WORDS and DATELESSNESS:
+ * "what ideas of mine are integrated into this month" mentions ideas, carries no date, and is
+ * therefore — by that rule — a standing idea for the backlog. It had no concept of a question
+ * at all, so the honest fix is not a better prompt but a missing distinction, made before the
+ * model is asked anything.
+ *
+ * Three gates, and all three must pass:
+ *
+ *   1. IT IS INTERROGATIVE — a '?' or a leading wh/auxiliary word. Grammar, not vocabulary.
+ *   2. IT IS ABOUT THE PLAN OR ITS INPUTS — a topic word. "What time is it?" is a question and
+ *      not our business; it falls through to the model exactly as before.
+ *   3. IT IS NOT A REQUEST IN QUESTION FORM. This is the gate that matters most and the one a
+ *      naive implementation forgets. "Can we move the Friday post?" is interrogative and about
+ *      the plan, and answering it instead of doing it would be a far worse regression than the
+ *      bug being fixed: the whole reshape path is phrased that way half the time. An action
+ *      verb aimed at the plan means DO IT, whatever the punctuation.
+ *
+ * A false negative here is harmless — the sentence goes to the model, which is what happened
+ * before. A false positive stops a client changing their month. So every gate is written to
+ * fail closed.
+ */
+const INTERROGATIVE_OPENERS = /^(what|which|why|when|where|who|whose|whom|how|is|are|was|were|do|does|did|can|could|will|would|should|shall|has|have|had|am)\b/i;
+
+/**
+ * "tell me what…", "show me the ideas you used…" — a question wearing an imperative.
+ *
+ * The object is deliberately unconstrained. Requiring a wh-word after "me" missed one of the
+ * four phrasings the operator actually typed ("Show me the ideas you used in this month's
+ * plan"), and the thing that makes it safe to widen is that the ACTION-VERB gate runs first:
+ * "show me" cannot smuggle a request through, because a request carries a verb that changes
+ * something and that verb is what disqualifies it.
+ */
+const INDIRECT_QUESTION = /^(tell|show|remind|let)\s+me\b|^list\b/i;
+
+/**
+ * Words that make an utterance about THIS product rather than the world.
+ *
+ * Dates count. This composer is only ever pointed at a plan, so "is there anything on the 14th?"
+ * is a question about the month even though it names nothing else — and a client checking a
+ * date is one of the commonest things asked here.
+ */
+const PLAN_TOPIC = new RegExp([
+  '\\b(plan|planned|planning|month|months|post|posts|posting|schedule|scheduled|calendar)\\b',
+  '\\b(idea|ideas|input|inputs|note|notes|suggestion|suggestions|beat|beats|content)\\b',
+  '\\b(reel|reels|carousel|carousels|caption|captions|week|weeks|draft|series|launch|pillar|pillars)\\b',
+  '\\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|tomorrow|weekend)\\b',
+  '\\b\\d{1,2}(st|nd|rd|th)\\b',
+  '\\b(january|february|march|april|may|june|july|august|september|october|november|december)\\b',
+].join('|'), 'i');
+
+/** The client's own contributions — the sub-topic with a computed answer of its own. */
+const INPUT_TOPIC = /\b(idea|ideas|input|inputs|note|notes|suggestion|suggestions)\b|\b(i|we)\s+(said|told|sent|gave|asked)\b|\b(told|gave|sent)\s+you\b|\bof\s+mine\b|\bmy\s+(idea|ideas|input|inputs|note|notes)\b/i;
+
+/**
+ * A verb that asks us to CHANGE the plan. Its presence means the sentence is a request even
+ * when it is punctuated as a question — "could you move the launch to the 3rd?" is an
+ * instruction with a polite hat on.
+ *
+ * 'plan' is here only as a transitive verb ("plan a reel for Friday"); "what's planned" is the
+ * passive and must not match, which is why the list carries no participles.
+ */
+const ACTION_VERB = /\b(move|add|change|swap|switch|push|pull|delete|remove|drop|make|put|shift|reschedule|replace|rewrite|write|create|schedule|cancel|postpone|bring|turn|shorten|lengthen|redo|fix|update|edit)\b/i;
+
+/**
+ * The question kind, or null when this is not a question about the plan.
+ *
+ * Exported for its own tests: this is a routing rule, and a routing rule that can only be
+ * observed through two service layers is a routing rule nobody will check.
+ */
+export function parsePlanQuestion(text: string): PlanQuestionKind | null {
+  const t = text.trim();
+  if (!t) return null;
+
+  // Gate 1 — grammar.
+  const interrogative = t.endsWith('?') || INTERROGATIVE_OPENERS.test(t) || INDIRECT_QUESTION.test(t);
+  if (!interrogative) return null;
+
+  // Gate 3 first, because it is the expensive mistake. A request in question form is a request.
+  if (ACTION_VERB.test(t)) return null;
+
+  // Gate 2 — is it about us at all?
+  if (!PLAN_TOPIC.test(t)) return null;
+
+  return INPUT_TOPIC.test(t) ? 'ideas' : 'plan';
+}
 
 export const CLASSIFY_SYSTEM = `You route a single message from a small brand's owner about their social media content plan.
 
@@ -221,7 +335,7 @@ export function parseClassification(text: string): unknown {
  * the input, not to guess at a mutation. Exported so the fallback is directly testable
  * without a model.
  */
-export function routeFromParsed(parsed: unknown, sourceText: string): IntakeRouting {
+export function routeFromParsed(parsed: unknown, sourceText: string): ModelRouting {
   const outer = classificationSchema.safeParse(parsed);
   if (!outer.success) return { scope: 'evergreen', sourceText, reason: 'validation_failed' };
   if (outer.data.scope === 'evergreen') return { scope: 'evergreen', sourceText, reason: 'classified_evergreen' };
@@ -358,6 +472,16 @@ export async function classifyIntake(params: ClassifyParams): Promise<IntakeRout
   const { text, planMonth, model, modelName = 'sonnet', logger, audit, clientId, context } = params;
   const sourceText = text.trim();
   if (!sourceText) return { scope: 'evergreen', sourceText, reason: 'validation_failed' };
+
+  // A QUESTION IS ANSWERED, NEVER FILED — and that is decided here, before the model, for the
+  // same reason the typed row is: it is a fact about the sentence's grammar, not a judgement
+  // about its content, and a judgement is what went wrong. See `parsePlanQuestion`.
+  const question = parsePlanQuestion(sourceText);
+  if (question) {
+    logger?.info({ planMonth, kind: 'question', questionKind: question, preParsed: true },
+      'intake-classify: question about the plan — no model call, routed to the answerer');
+    return { scope: 'question', kind: question, sourceText };
+  }
 
   // A typed calendar row is applied literally, without a model call. The deterministic
   // pre-parse runs FIRST: a date-leading [date][format?][title] line is a beat to place, not

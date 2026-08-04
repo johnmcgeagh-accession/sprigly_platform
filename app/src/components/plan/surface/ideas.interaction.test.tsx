@@ -46,7 +46,7 @@ const post = (over: Partial<PlanPost> = {}): PlanPost => ({
 
 const idea = (over: Partial<IdeaView> = {}): IdeaView => ({
   id: 'i1', content: 'make Fridays more personal', createdAt: '2026-07-02T09:00:00.000Z',
-  state: 'waiting', usedInMonth: null, postId: null, postTitle: null,
+  state: 'waiting', usedInMonth: null, usedInCycleId: null, postId: null, postTitle: null,
   ...over,
 });
 

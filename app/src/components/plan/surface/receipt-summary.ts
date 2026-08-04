@@ -69,6 +69,9 @@ export function countItems(items: readonly BriefItem[]): SummaryPart[] {
  */
 export function chipLabel(receipt: DraftReceipt | null): string {
   if (!receipt) return '';
+  // A QUESTION changed nothing, so the month's chip has nothing to say about it. Stated rather
+  // than left to fall out of `countVerbs` finding no verbs, which is the same answer by luck.
+  if (receipt.scope === 'question') return '';
   const parts = receipt.items ? countItems(receipt.items) : countVerbs(receipt.lines ?? []);
   if (parts.length === 0) {
     // An evergreen receipt applied nothing to the month ON PURPOSE — it filed an idea. That is

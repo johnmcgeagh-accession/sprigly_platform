@@ -28,6 +28,9 @@ import { createAuditLogger } from '@sprigly/audit';
 import { editScopeToday } from '@/lib/edit-scope';
 import { cycleIsPreCutoff } from '@/lib/draft-mutations';
 import { loadDraftBeats } from '@/lib/plan';
+import { monthLabel } from '@/lib/agent/cycle-state';
+import { listIdeas } from '@/lib/agent/ideas';
+import { answerIdeasQuestion, answerPlanQuestion, datesNamedIn } from '@/lib/plan-answers';
 import type { DraftBeatView } from '@/lib/types';
 
 /** How many receipts a cycle keeps. Enough to see the session's history, not a ledger. */
@@ -50,10 +53,11 @@ export interface DraftApplication {
   /** Spoken or typed. Absent on every receipt written before gap 8 closed — which reads as
    *  UNKNOWN, never as 'web'. Defaulting a null to typed would quietly under-count voice. */
   source?:     InputSource;
-  scope:       'month_scoped' | 'evergreen';
+  scope:       'month_scoped' | 'evergreen' | 'question';
   /** Why it went to the backlog. Present on evergreen only. */
   reason?:     string;
-  /** Rendered diff lines. Empty on the evergreen path. */
+  /** Rendered diff lines. Empty on the evergreen path; the ANSWER on the question path, which
+   *  is why the surface can render both from one field — a receipt is what the agent said. */
   lines:       string[];
   /** Beats added or changed — the surface marks these until the next visit. */
   changedIds:  string[];
@@ -347,6 +351,29 @@ export async function applyIntakeToDraft(params: {
     sourceText,
     source,
   };
+
+  // ── A question — answered, never filed ─────────────────────────────────────
+  //
+  // This branch sits ABOVE evergreen deliberately. Evergreen is the catch-all, and a question
+  // reaching a catch-all is exactly how "what ideas of mine are in this month" got recorded as
+  // a new idea four times in a row. Nothing here writes: no backlog row, no beat, no cadence
+  // floor. The receipt is persisted so the answer survives a reload like every other turn, and
+  // it carries `changedIds: []` because nothing changed — which is the whole claim.
+  if (routing.scope === 'question') {
+    const monthName = monthLabel(planMonth);
+    const lines = routing.kind === 'ideas'
+      ? answerIdeasQuestion({ ideas: await listIdeas(clientId), cycleId, monthLabel: monthName })
+      : answerPlanQuestion({
+          beats: await loadDraftBeats(clientId, cycleId),
+          monthLabel: monthName,
+          dates: datesNamedIn(sourceText, planMonth),
+        });
+    const application: DraftApplication = {
+      ...base, scope: 'question', lines, changedIds: [],
+    };
+    if (!params.suppressReceipt) await persistReceipt(cycleId, application);
+    return { ok: true, application, beats: await loadDraftBeats(clientId, cycleId) };
+  }
 
   // ── Evergreen ──────────────────────────────────────────────────────────────
   if (routing.scope === 'evergreen') {

@@ -146,7 +146,10 @@ async function runBrief(): Promise<{ segments: string[]; results: StepResult[]; 
 
   for (const i of orderIndices(routings)) {
     const seg = segSteps[i]!;
-    if (seg.routing.scope === 'evergreen') {
+    // A question segment touches no beats either — it is answered by the apply path and files
+    // nothing. Grouped with evergreen here because this harness only cares whether a segment
+    // produced ops.
+    if (seg.routing.scope === 'evergreen' || seg.routing.scope === 'question') {
       results[i] = { seg, ops: [], deferred: 0, kind: 'evergreen' };
       continue;
     }

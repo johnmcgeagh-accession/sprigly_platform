@@ -214,7 +214,10 @@ const TIER: Record<string, number> = {
 const EVERGREEN_TIER = 6;
 
 export function tierOf(routing: IntakeRouting): number {
-  if (routing.scope === 'evergreen') return EVERGREEN_TIER;
+  // A question inside a pasted brief touches no beats either, so it sorts with the evergreen
+  // segments — last, after the plan has settled. It is NOT filed with them: the apply path
+  // answers it and files nothing (draft-apply.ts). Only its ORDER is shared.
+  if (routing.scope === 'evergreen' || routing.scope === 'question') return EVERGREEN_TIER;
   return TIER[routing.intent.kind] ?? 3;
 }
 

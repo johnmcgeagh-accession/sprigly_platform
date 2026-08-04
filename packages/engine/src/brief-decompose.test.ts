@@ -104,7 +104,7 @@ describe('orderIndices — launch → series → event/beat_spec → correction 
   it('sorts by tier, document order as the stable tiebreak', () => {
     const routings = [ms('cadence'), eg, ms('correction'), ms('launch'), ms('event'), ms('series'), ms('emphasis'), ms('beat_spec')];
     const order = orderIndices(routings);
-    const kinds = order.map((i) => (routings[i]!.scope === 'evergreen' ? 'evergreen' : routings[i]!.intent.kind));
+    const kinds = order.map((i) => (routings[i]!.scope === 'month_scoped' ? routings[i]!.intent.kind : 'evergreen'));
     expect(kinds).toEqual(['launch', 'series', 'event', 'beat_spec', 'correction', 'emphasis', 'cadence', 'evergreen']);
   });
 

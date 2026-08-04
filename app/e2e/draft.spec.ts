@@ -372,6 +372,113 @@ test('a structural move is undoable, and undo puts the day back exactly', async 
 
 });
 
+/* ── F2 · a question about the plan is answered, never filed ────────────────────── */
+
+/**
+ * The operator asked, four ways, which of their own ideas had made it into the month. All four
+ * were FILED AS NEW IDEAS: the classifier routed on topic words and datelessness and had no
+ * concept of a question, so a client asking what we did with their input was answered by us
+ * recording that they had said it again (3 Aug).
+ *
+ * These are the four phrasings verbatim. Each must come back with the seeded idea AND the beat
+ * it became — and each must leave the backlog exactly as it found it, which is the half that
+ * would otherwise regress silently.
+ */
+const ASKED = [
+  'What ideas of mine are integrated into this month',
+  'Which of my ideas made it into September?',
+  'Have any of the things I told you been used this month?',
+  'Show me the ideas you used in this month’s plan',
+];
+
+/** How many ideas the client has on record. The answer path must never change this. */
+async function ideaCount(page: Page): Promise<number> {
+  return page.evaluate(async () => {
+    const r = await fetch('/api/plan/ideas');
+    return ((await r.json()) as { ideas: unknown[] }).ideas.length;
+  });
+}
+
+for (const question of ASKED) {
+  test(`"${question}" is answered, and files nothing`, async ({ page }) => {
+    const before = await ideaCount(page);
+    await showDay(page);
+    await openVoice(page);
+
+    await page.getByTestId('voice-input').fill(question);
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes('/api/plan/draft/apply') && r.request().method() === 'POST'),
+      page.getByTestId('voice-submit').click(),
+    ]);
+
+    const thread = page.getByTestId('thread');
+    // The seeded idea, in her words, and the beat it became — the answer, not a count.
+    await expect(thread).toContainText('One of your ideas is in September 2026');
+    await expect(thread).toContainText(DRAFT_BACKLOG_TEXT);
+    await expect(thread).toContainText('Where the cloth comes from');
+
+    // …and NOT the sentence that used to appear here.
+    await expect(thread).not.toContainText('Saved to your ideas');
+
+    // The backlog is untouched. This is the assertion the bug would have failed: four questions
+    // asked, four new ideas recorded, and the client's own list quietly growing with their
+    // questions in it.
+    expect(await ideaCount(page)).toBe(before);
+  });
+}
+
+test('a question changes nothing on the month, and leaves no receipt to review', async ({ page }) => {
+  const before = await beatDates(page);
+  await showDay(page);
+  await openVoice(page);
+
+  await page.getByTestId('voice-input').fill(ASKED[0]!);
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/plan/draft/apply') && r.request().method() === 'POST'),
+    page.getByTestId('voice-submit').click(),
+  ]);
+  await expect(page.getByTestId('thread')).toContainText('One of your ideas is in September 2026');
+
+  expect(await beatDates(page)).toEqual(before);
+  // No summary chip: a receipt records a change, and an answer is not one.
+  await expect(page.getByTestId('summary-chip')).toHaveCount(0);
+});
+
+test('"add an idea about winter layering" still goes to the backlog — a statement is not a question', async ({ page }) => {
+  // The gate in the other direction. The sentence is ABOUT ideas and mentions no date, which is
+  // exactly the shape that used to catch the questions — and it genuinely is an idea.
+  const before = await ideaCount(page);
+  await showDay(page);
+  await openVoice(page);
+
+  await page.getByTestId('voice-input').fill('add an idea about winter layering');
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/plan/draft/apply') && r.request().method() === 'POST'),
+    page.getByTestId('voice-submit').click(),
+  ]);
+
+  await expect(page.getByTestId('thread')).toContainText('Saved to your ideas');
+  expect(await ideaCount(page)).toBe(before + 1);
+});
+
+test('"what’s planned next week" is answered from the month — the existing query, unbroken', async ({ page }) => {
+  await showDay(page);
+  await openVoice(page);
+
+  await page.getByTestId('voice-input').fill('what’s planned next week');
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/plan/draft/apply') && r.request().method() === 'POST'),
+    page.getByTestId('voice-submit').click(),
+  ]);
+
+  const thread = page.getByTestId('thread');
+  // A relative phrase resolves no specific dates on purpose, so the answer is the whole month —
+  // the eight seeded beats, dated and read back.
+  await expect(thread).toContainText('8 posts across September 2026');
+  await expect(thread).toContainText('Weekend Style Guide');
+  await expect(thread).not.toContainText('Saved to your ideas');
+});
+
 /* ── f) Ideas resolves to the beat its idea became ───────────────────────────────── */
 
 test('[desktop] the seeded backlog idea shows its state and taps through to its beat', async ({ page }) => {

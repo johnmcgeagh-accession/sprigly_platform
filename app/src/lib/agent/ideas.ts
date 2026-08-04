@@ -53,6 +53,7 @@ export async function listIdeas(clientId: string): Promise<IdeaView[]> {
       lifecycle: planInputs.lifecycle,
       createdAt: planInputs.createdAt,
       usedCycleMonth: contentCycles.cycleMonth,
+      usedInCycleId: planInputs.usedInCycleId,
       postId: contentCyclePosts.id,
       postCaption: contentCyclePosts.caption,
       postSourceMeta: contentCyclePosts.sourceMeta,
@@ -80,6 +81,7 @@ export async function listIdeas(clientId: string): Promise<IdeaView[]> {
       // cycle_month of 2026-07 is the August plan. Reading the raw column here would
       // tell the client their July idea was used in July, a month before it ran.
       usedInMonth: r.usedCycleMonth ? monthLabel(nextMonth(r.usedCycleMonth)) : null,
+      usedInCycleId: r.usedInCycleId ?? null,
       // THE HEADING THIS POST ACTUALLY SHOWS, which is two different fields depending on how
       // far along the post is. A written post's card title is its caption's first sentence
       // (`postTitle`); a DRAFT beat has no caption at all and shows `source_meta.title`
