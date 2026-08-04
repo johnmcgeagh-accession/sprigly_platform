@@ -34,7 +34,8 @@ export interface BriefItem {
 /** A change receipt, as persisted on the cycle's intake record. */
 export interface DraftReceipt {
   id: string; at: string; sourceText: string;
-  scope: 'month_scoped' | 'evergreen';
+  /** 'question' carries an ANSWER in `lines` and changed nothing — see draft-apply.ts. */
+  scope: 'month_scoped' | 'evergreen' | 'question';
   reason?: string; lines: string[]; changedIds: string[]; note?: string;
   /** The backlog row, when this receipt filed one — what the rescue tap acts on. */
   planInputId?: string;
@@ -297,7 +298,10 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
             <textarea
               id="draft-say" value={said} disabled={saying} rows={2}
               onChange={(e) => setSaid(e.target.value)}
-              placeholder="e.g. the Wilderness candle relaunches on the 24th"
+              /* Month-aware, product-free — the same ruling as VoiceSheet's framing. This view
+                 is the pre-redesign draft surface and still reachable, so it leaked the same
+                 Earl of East product on every other tenant's screen. */
+              placeholder={`e.g. what’s launching or happening in ${monthLabel}`}
               style={{ width: '100%', font: 'inherit', fontSize: 15, lineHeight: 1.45, padding: '10px 11px', border: `1px solid ${C.line}`, borderRadius: 10, resize: 'vertical', color: C.navy, boxSizing: 'border-box' }}
             />
             <button type="button" onClick={say} disabled={saying || !said.trim()}

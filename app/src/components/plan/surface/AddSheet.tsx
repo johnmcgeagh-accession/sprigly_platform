@@ -106,7 +106,9 @@ export function AddSheet({
           <textarea
             data-testid="add-subject" value={subject} disabled={busy}
             onChange={(e) => setSubject(e.target.value)}
-            placeholder="The Wilderness candle, back in stock"
+            /* A worked example of the SHAPE, naming nobody's catalogue — the third place the
+               Earl of East candle was rendering on every tenant's surface. */
+            placeholder="A restock, an event, a story you want told"
             className="min-h-[96px] w-full rounded-[14px] border border-line/55 bg-surface p-3.5 text-[16.5px] leading-[1.45] text-chrome outline-none placeholder:text-muted"
           />
           <p className="mt-2 text-[12.5px] leading-normal text-muted">

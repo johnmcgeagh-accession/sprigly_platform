@@ -292,13 +292,31 @@ describe('framing and identity', () => {
     expect(screen.getByTestId('voice-sheet').getAttribute('aria-label')).toBe('Tell us about October');
   });
 
-  it('the placeholders keep the one example each context is allowed', () => {
+  it('the placeholders name a month, never a product', () => {
+    // The draft placeholder was "The Wilderness candle relaunches on the 24th…" — an Earl of
+    // East product rendering on every tenant's composer, caught by an operator on ivy-t's
+    // screen. A placeholder is a worked example, and a worked example built from one client's
+    // catalogue cannot be shown to another. Month-aware instead of product-aware.
     open({ context: 'committed' });
-    expect(composer().placeholder).toBe('Move the Thursday post to Friday');
+    expect(composer().placeholder).toBe('Ask about or change your plan…');
     cleanup();
     speechSupported();
     open({ context: 'draft' });
-    expect(composer().placeholder).toContain('relaunches on the 24th');
+    expect(composer().placeholder).toBe('Tell me what’s happening in October…');
+  });
+
+  it('no client’s catalogue appears in either placeholder — the regression, named', () => {
+    // Pinned by the words rather than by the sentence, so a future example built from whatever
+    // month's data happens to be to hand fails here rather than on a client's screen.
+    const LEAKED = [/wilderness/i, /candle/i, /earl of east/i, /ivy/i, /sally/i];
+    for (const context of ['draft', 'committed'] as const) {
+      cleanup();
+      speechSupported();
+      open({ context });
+      for (const word of LEAKED) {
+        expect(composer().placeholder, `${context}: ${word}`).not.toMatch(word);
+      }
+    }
   });
 
   it('no starters, and no invitation to try starting with anything (round 8, fix 6 stands)', () => {

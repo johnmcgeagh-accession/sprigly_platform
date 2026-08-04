@@ -75,18 +75,33 @@ export interface ApplyReport { text: string }
 
 interface Framing { title: string; blurb: string; placeholder: string }
 
+/**
+ * ── THE PLACEHOLDER NAMES NO PRODUCT, AND THAT IS NOT A STYLE PREFERENCE ─────────────
+ *
+ * It read "The Wilderness candle relaunches on the 24th…" — a real Earl of East product, on
+ * every client's composer. An operator caught it rendering on ivy-t's surface, where the only
+ * available reading is that we have shown them another brand's plan. A placeholder is a worked
+ * example, and a worked example built from one client's catalogue cannot be shown to another.
+ *
+ * The replacement is month-aware instead of product-aware: it demonstrates the SHAPE of a useful
+ * sentence ("tell me what is happening, in this month") without borrowing anyone's inventory.
+ * Anything a client recognises as not-theirs is a leak, whether or not it is one.
+ */
 const FRAMING: Record<VoiceContext, (monthName: string) => Framing> = {
   draft: (m) => ({
     title: `Tell us about ${m}`,
     // The framing is the agent's FIRST TURN in an empty conversation, not chrome: the sheet
     // opens as a conversation already in progress, with the agent having spoken first.
     blurb: `This is your ${m} draft. Tell me what’s happening and I’ll reshape it — what’s launching, what’s on, what you want more of.`,
-    placeholder: 'The Wilderness candle relaunches on the 24th…',
+    placeholder: `Tell me what’s happening in ${m}…`,
   }),
   committed: (m) => ({
     title: `Talk to your plan`,
     blurb: `${m} is written. Say what you want different — I’ll show you exactly what I’ll change before anything moves.`,
-    placeholder: 'Move the Thursday post to Friday',
+    // "Ask about" leads, because asking is now a thing this composer does: a question about the
+    // plan is answered rather than filed (F2). The old placeholder offered one verb and one
+    // shape — "Move the Thursday post to Friday" — which taught the composer as a command line.
+    placeholder: 'Ask about or change your plan…',
   }),
 };
 
@@ -110,7 +125,7 @@ let localKey = 0;
 const nextKey = () => `local-${++localKey}`;
 
 export function VoiceSheet({
-  open, monthName, busy, question, context = 'draft', cycleId, entry = 'mic',
+  open, monthName, busy, question, focusSignal, context = 'draft', cycleId, entry = 'mic',
   onClose, onSubmit, onApply, onDiscard, onWantMore, isPending,
   chrome = 'sheet', onOpenChanges,
 }: {
@@ -130,6 +145,19 @@ export function VoiceSheet({
   /** The assumption being answered, when opened from the nudge. It arrives as the agent's next
    *  turn — a question in the thread, answered through the composer like any other. */
   question?: string | undefined;
+  /**
+   * A REQUEST TO TAKE THE COMPOSER, counted rather than flagged.
+   *
+   * The mobile sheet is summoned, so "open it" and "point it at this question" are the same
+   * event and one mount-time effect serves both. The desktop DOCK is never summoned — it has
+   * been open since the page loaded — so that effect had already run, and the month summary's
+   * two foot buttons changed a prop nobody was listening to. Both were dead on desktop
+   * (operator, 3 Aug).
+   *
+   * A number and not a boolean because the same button can be pressed twice: tap "tell us what
+   * to change", type nothing, tap it again. A flag would already be true.
+   */
+  focusSignal?: number | undefined;
   onClose: () => void;
   /** `conversationId` is THIS session's — the caller sends it so every turn, and the parser's
    *  context window with it, belongs to the conversation the client is having now. */
@@ -266,6 +294,32 @@ export function VoiceSheet({
    * too: "move it back" resolves against THIS conversation and nothing older. Prior
    * conversations stay stored under their own rows; they are simply not asked for.
    */
+  /**
+   * A LATER request to take the composer — the desktop dock's whole path.
+   *
+   * `historyLoaded` makes the effect above run once per mount, which is right for a summoned
+   * sheet and wrong for a permanent one: on desktop the dock mounts with the page, so a
+   * question arriving afterwards had nowhere to land. This runs on the SIGNAL rather than on
+   * open, appends the question as an agent turn if it is new, and puts the cursor in the field.
+   *
+   * Deliberately keyed on the signal alone. Re-running on `question` would re-append the same
+   * turn on any unrelated re-render, and a thread that repeats itself is worse than one that
+   * misses a line.
+   */
+  useEffect(() => {
+    if (!open || !focusSignal) return;
+    if (question) {
+      setTurns((prev) => {
+        const last = prev[prev.length - 1];
+        if (last?.kind === 'agent' && last.text === question) return prev;
+        return [...prev, { key: nextKey(), kind: 'agent', text: question }];
+      });
+    }
+    // After the turn, so the field is the last thing that moves and the client's eye follows it.
+    field.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusSignal, open]);
+
   useEffect(() => {
     if (!open || historyLoaded.current) return;
     historyLoaded.current = true;

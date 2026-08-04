@@ -602,8 +602,11 @@ function Detail({ post, busy, rewriting, onSetFormat, onSaveCaption, onRemove, o
         ) : (
           <>
             <div style={{ display: 'flex', gap: 8, marginTop: 9 }}>
+              {/* "more about the fabric" assumed a clothing brand. A candle maker reading that on
+                  their own editor is being shown someone else's vocabulary — the same mistake as
+                  the composer placeholder, one size down. */}
               <input value={shapeText} onChange={(e) => setShapeText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') fireShape(); }}
-                placeholder="Make it softer · shorter · warmer · more about the fabric…" style={inputStyle} />
+                placeholder="Make it softer · shorter · warmer · more specific…" style={inputStyle} />
               <button onClick={fireShape} disabled={busy || !shapeText.trim()} aria-label="Ask Sprigly to rewrite"
                 style={{ ...primaryBtn, padding: '0 14px', height: 42, opacity: busy || !shapeText.trim() ? 0.45 : 1 }}><Sparkles size={16} /></button>
             </div>
