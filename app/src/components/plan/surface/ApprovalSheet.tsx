@@ -83,10 +83,21 @@ export function ApprovalSheet({
         </div>
 
         <div className={`flex-1 overflow-y-auto [scrollbar-width:none] ${pad} ${modal ? 'pb-8' : 'pb-4'}`}>
-          <ul data-testid="approval-counts" className={`flex flex-col pt-1 ${modal ? 'gap-5' : 'gap-3'}`}>
+          {/* `list-none pl-0 m-0` IS LOAD-BEARING, not tidying — the same ruling DraftMonthSummary
+              carries, for the same reason. Tailwind preflight is disabled on this surface
+              (globals.css), so a bare `ul` keeps the browser's disc marker, its 40px
+              `padding-inline-start` and its 16px block margins. The indent was eating 40 of the
+              400px content box, which is what pushed "opening hooks — for the reels and
+              carousels" onto two lines: the row needs 303px of text column and was being given
+              264. The marker never showed only because `li` is `display: flex`, which suppresses
+              the marker box — so the cost was invisible and the symptom read as a width problem. */}
+          <ul data-testid="approval-counts" className={`m-0 flex list-none flex-col pl-0 pt-1 ${modal ? 'gap-5' : 'gap-3'}`}>
             {rows.map((r) => (
               <li key={r.label} className="flex items-baseline gap-3">
-                <span className="w-[38px] flex-none text-right text-[22px] font-bold tabular-nums tracking-[-.03em] text-chrome">{r.count}</span>
+                {/* 44px, because a three-digit count measures 41 at this size and the old 38px
+                    column would have spilled it into the gap. `tabular-nums` keeps the three
+                    numerals in a column whatever their digits. */}
+                <span className="w-11 flex-none text-right text-[22px] font-bold tabular-nums tracking-[-.03em] text-chrome">{r.count}</span>
                 <span className="min-w-0 flex-1 text-[15px] leading-[1.4] text-muted">{r.label}</span>
               </li>
             ))}

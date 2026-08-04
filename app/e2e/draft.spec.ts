@@ -521,10 +521,21 @@ test('the Generate confirm states what it starts, in the frame this form factor 
     expect(box.width).toBe(vw);
     expect(box.y + box.height).toBeGreaterThan(page.viewportSize()!.height - 2);
   } else {
-    // A centred box at content width. A full-width sheet at 1440+ is a wall carrying three
-    // counts and two sentences, which is what W2 replaced.
-    expect(box.width).toBeLessThanOrEqual(480);
+    // A centred box at CONTENT width — a fraction of the window, not a wall. The bound is
+    // `max-w-modal` (512 since the stat rows were unwrapped), and it is asserted as a ceiling
+    // rather than an equality so a copy change that needs another 16px does not fail here.
+    expect(box.width).toBeLessThanOrEqual(512);
+    expect(box.width).toBeLessThan(vw / 2);
     expect(Math.abs((box.x + box.width / 2) - vw / 2)).toBeLessThan(2);
+
+    // …and the three counts are ONE LINE EACH. The row heights are equal, which they are not
+    // when a label wraps — the failure this replaces was a browser list indent eating 40px of
+    // the content box and pushing the middle row onto two lines (see ApprovalSheet).
+    const rowHeights = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="approval-counts"] li')]
+        .map((li) => Math.round(li.getBoundingClientRect().height)));
+    expect(rowHeights).toHaveLength(3);
+    expect(new Set(rowHeights).size, `stat rows must not wrap — heights ${rowHeights}`).toBe(1);
   }
 
   // The counts are the fan-out's own arithmetic over the seeded formats — 8 captions, 5 hooks

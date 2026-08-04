@@ -72,9 +72,17 @@ const config: Config = {
          * around it, so the two edge regions stay flush with the viewport.
          */
         cols: '1168px',
-        /** A modal's content width. The decision it carries is the same size on every
-         *  screen, so this is fixed rather than proportional. */
-        modal: '480px',
+        /**
+         * A modal's content width. The decision it carries is the same size on every screen, so
+         * this is fixed rather than proportional.
+         *
+         * 512 rather than 480 for HEADROOM, not to clear a wrap. The wrap it was blamed for was
+         * a browser list indent (see ApprovalSheet), and removing that alone unwraps every row
+         * at 480. This buys margin on top: the longest row needs 303px of text column and now
+         * gets 376, so a longer label or a three-digit count has somewhere to go. Tuned to the
+         * exact wrap point it would break on the next copy change.
+         */
+        modal: '512px',
       },
       flex: {
         /** The month : day ratio, as grow factors. 680 : 420 is 512 : 320. */
