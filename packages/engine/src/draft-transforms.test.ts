@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   applyLaunchArc, applyEvent, applyEmphasis, applyBeatEdit, applyIntent,
-  replacementCandidates, isReplaceable, replacementTier, resolveBeatRef, type TransformBeat,
+  replacementCandidates, isReplaceable, replacementTier, resolveBeatRef, resolveEmphasisTarget,
+  type TransformBeat,
 } from './draft-transforms.js';
 import type { MonthScopedIntent } from './intake-classify.js';
 import type { BeatMeta } from '@sprigly/db';
@@ -195,32 +196,34 @@ describe('applyEmphasis', () => {
     beat('c', '2026-09-12', observed(12)),
     beat('touched', '2026-09-15', clientTouched()),
   ];
+  /** The client's configured pillars. Supplied now because the match resolves against them —
+   *  see `resolveEmphasisTarget`. The month's own beats are all 'Everyday Ritual'. */
+  const VOCAB = ['Product & Fragrance', 'Everyday Ritual', 'Home & Space', 'Brand Story & Culture'];
   const emphasis: MonthScopedIntent = {
     kind: 'emphasis', subject: 'more product', sourceText: 'more product this month', emphasis: 'Product & Fragrance',
   };
+  const run = (i: MonthScopedIntent = emphasis, m = month) => applyEmphasis(i, m, TODAY, VOCAB);
 
   it('never touches a PAST-dated beat', () => {
-    const ids = applyEmphasis(emphasis, month, TODAY).ops.map((o) => (o as { id: string }).id);
-    expect(ids).not.toContain('past');
+    expect(run().ops.map((o) => (o as { id: string }).id)).not.toContain('past');
   });
 
   it('never touches a CLIENT-EDITED beat', () => {
-    const ids = applyEmphasis(emphasis, month, TODAY).ops.map((o) => (o as { id: string }).id);
-    expect(ids).not.toContain('touched');
+    expect(run().ops.map((o) => (o as { id: string }).id)).not.toContain('touched');
   });
 
   it('tilts the month rather than replacing it — at most a third of eligible beats', () => {
-    const res = applyEmphasis(emphasis, month, TODAY);
+    const res = run();
     expect(res.ops.length).toBeLessThanOrEqual(1);        // 3 eligible → floor(3/3) = 1
     expect(res.ops.every((o) => o.op === 'update')).toBe(true);
   });
 
   it('converts the weakest-evidence beats first', () => {
-    expect((applyEmphasis(emphasis, month, TODAY).ops[0] as { id: string }).id).toBe('a');   // n=5
+    expect((run().ops[0] as { id: string }).id).toBe('a');   // n=5
   });
 
   it('recognises a FORMAT emphasis and changes format, not pillar', () => {
-    const res = applyEmphasis({ ...emphasis, emphasis: 'reel' }, month, TODAY);
+    const res = run({ ...emphasis, emphasis: 'reel' });
     expect(res.ops[0]).toMatchObject({ op: 'update', changes: { format: 'reel' } });
   });
 
@@ -228,7 +231,7 @@ describe('applyEmphasis', () => {
     // The beat cited "Everyday Ritual is 20% of what you post". It is now under Product &
     // Fragrance. Carrying the old share over would be misleading, so the evidence is
     // replaced with the honest one: the client asked for this.
-    const op = applyEmphasis(emphasis, month, TODAY).ops[0] as { beatMeta: BeatMeta };
+    const op = run().ops[0] as { beatMeta: BeatMeta };
     expect(op.beatMeta.rationaleEvidence.basis).toBe('emphasis_reweight');
     expect(op.beatMeta.rationaleEvidence.reason).toBe('more product this month');
     expect(op.beatMeta.rationaleEvidence.pillarShare).toBeUndefined();
@@ -236,9 +239,125 @@ describe('applyEmphasis', () => {
   });
 
   it('says so when there is nothing eligible left', () => {
-    const res = applyEmphasis(emphasis, [beat('touched', '2026-09-15', clientTouched())], TODAY);
+    const res = run(emphasis, [beat('touched', '2026-09-15', clientTouched())]);
     expect(res.ops).toEqual([]);
     expect(res.note).toBeTruthy();
+  });
+
+  /**
+   * ── THE PHRASE IS NEVER THE PILLAR ───────────────────────────────────────────────
+   *
+   * The match was case-insensitive EQUALITY, and the eligibility filter (`b.pillar !==
+   * target`) doubled as the match test — so a phrase equal to no pillar was unequal to every
+   * pillar, made every future untouched beat eligible, and wrote itself into the `pillar`
+   * column of a third of them. Missing was the maximum-damage case. Only the 120-character
+   * cap in `intake-classify.ts` kept whole sentences out, which is why no `emphasis_reweight`
+   * beat exists anywhere in the corpus.
+   */
+  describe('a phrase that names no pillar', () => {
+    const sentence: MonthScopedIntent = {
+      kind: 'emphasis',
+      subject: 'back to school',
+      sourceText: 'the back to school should talk about the juggle of the school run and working life',
+      emphasis: 'Back to school content should focus on the juggle of the school run and working life',
+    };
+
+    it('changes NOTHING — no ops at all', () => {
+      expect(run(sentence).ops).toEqual([]);
+    });
+
+    it('never writes the phrase into a pillar', () => {
+      const written = run(sentence).ops.map((o) => (o as { changes?: { pillar?: string } }).changes?.pillar);
+      expect(written).not.toContain(sentence.emphasis);
+      // …and the guarantee, stated against ANY input rather than this one.
+      for (const p of run(sentence).ops.map((o) => (o as { changes?: { pillar?: string } }).changes?.pillar)) {
+        if (p) expect(VOCAB).toContain(p);
+      }
+    });
+
+    it('tells the client what they could have named', () => {
+      const note = run(sentence).note!;
+      expect(note).toContain('doesn’t name one of your content pillars');
+      expect(note).toContain('Product & Fragrance');
+      expect(note).toContain('Nothing has changed');
+    });
+
+    it('a matched phrase writes the CANONICAL pillar name, not the client’s words', () => {
+      const res = run({ ...emphasis, emphasis: 'more of the product stuff please' });
+      expect(res.ops[0]).toMatchObject({ changes: { pillar: 'Product & Fragrance' } });
+    });
+  });
+});
+
+/**
+ * The matching rule itself. Exported and tested directly because it is what the whole
+ * transform now turns on, and a rule only observable through a database and a model call is
+ * a rule nobody will check.
+ */
+describe('resolveEmphasisTarget', () => {
+  const IVY = [
+    'Simplify Your Morning', 'Born From Real Need', 'Stable Foundations',
+    'Ethical Without Compromise', 'Understands Real Women', 'Personal Relationships',
+    'A Supportive Friend, Always By Your Side',
+  ];
+  const EOE = ['Product & Fragrance', 'Everyday Ritual', 'Home & Space', 'Workshops & Experiences', 'Brand Story & Culture'];
+
+  it('matches a pillar named exactly', () => {
+    expect(resolveEmphasisTarget('Product & Fragrance', EOE)).toEqual({ kind: 'pillar', name: 'Product & Fragrance' });
+  });
+
+  it('matches a pillar named loosely, inside a sentence', () => {
+    expect(resolveEmphasisTarget('more product this month', EOE)).toEqual({ kind: 'pillar', name: 'Product & Fragrance' });
+    expect(resolveEmphasisTarget('lean into the morning routine', IVY)).toEqual({ kind: 'pillar', name: 'Simplify Your Morning' });
+    expect(resolveEmphasisTarget('more workshops please', EOE)).toEqual({ kind: 'pillar', name: 'Workshops & Experiences' });
+  });
+
+  it('reads “&” and “and” as the same word', () => {
+    expect(resolveEmphasisTarget('home and space', EOE)).toEqual({ kind: 'pillar', name: 'Home & Space' });
+  });
+
+  it('prefers the pillar supplying MORE of its own words', () => {
+    // 'women' hits Understands Real Women only; 'real women' hits it twice and Born From
+    // Real Need once, so the count decides rather than the order.
+    expect(resolveEmphasisTarget('more real women', IVY)).toEqual({ kind: 'pillar', name: 'Understands Real Women' });
+  });
+
+  it('refuses to guess when two pillars fit equally — and names both', () => {
+    const r = resolveEmphasisTarget('more real content', IVY);
+    expect(r.kind).toBe('ambiguous');
+    if (r.kind === 'ambiguous') expect(r.candidates).toEqual(['Born From Real Need', 'Understands Real Women']);
+  });
+
+  it('THE FAILING CASE: a whole sentence names nothing', () => {
+    const r = resolveEmphasisTarget('Back to school content should focus on the juggle of the school run and working life, tied to the new Karen range photoshoot', IVY);
+    expect(r.kind).toBe('none');
+  });
+
+  it('matches a FORMAT, including plurals and everyday synonyms', () => {
+    for (const [phrase, name] of [['reel', 'reel'], ['more reels', 'reel'], ['more video', 'reel'],
+      ['carousels', 'carousel'], ['more photos', 'single'], ['single', 'single']] as const) {
+      expect(resolveEmphasisTarget(phrase, IVY), phrase).toEqual({ kind: 'format', name });
+    }
+  });
+
+  it('a pillar outranks a format when a phrase names both', () => {
+    // The richer ask, and the cheaper one to be wrong about: a re-pillar shows on the card,
+    // a format swap changes what has to be shot.
+    expect(resolveEmphasisTarget('more product reels', EOE)).toEqual({ kind: 'pillar', name: 'Product & Fragrance' });
+  });
+
+  it('two different formats named at once is not a format ask', () => {
+    expect(resolveEmphasisTarget('reels and carousels', IVY).kind).toBe('none');
+  });
+
+  it('function words alone match nothing', () => {
+    expect(resolveEmphasisTarget('more of this please', IVY).kind).toBe('none');
+    expect(resolveEmphasisTarget('a the and of', IVY).kind).toBe('none');
+  });
+
+  it('an empty vocabulary yields no pillar, and still finds a format', () => {
+    expect(resolveEmphasisTarget('more product', []).kind).toBe('none');
+    expect(resolveEmphasisTarget('more reels', [])).toEqual({ kind: 'format', name: 'reel' });
   });
 });
 

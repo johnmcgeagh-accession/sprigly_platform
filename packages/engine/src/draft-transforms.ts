@@ -736,21 +736,156 @@ export function applyEvent(intent: MonthScopedIntent, beats: TransformBeat[], mo
 }
 
 /**
+ * ── WHAT AN EMPHASIS PHRASE NAMES ────────────────────────────────────────────────────
+ *
+ * The emphasis field is *the pillar or format to weight up* — that is what the classifier's
+ * prompt asks the model for. It was then tested for case-insensitive EQUALITY against a
+ * pillar name, and whatever the client said was written into the `pillar` column verbatim.
+ *
+ * Those two facts do not sit together. A phrase that does not exactly equal a pillar name
+ * matched nothing, and "matched nothing" was not a no-op: the eligibility filter reads
+ * `b.pillar !== target`, so a non-matching target is unequal to EVERY pillar, every future
+ * untouched beat becomes eligible, and a third of the month is re-pillared to the raw
+ * phrase. Missing the target was the maximum-damage case, not the safe one.
+ *
+ * The only thing standing in the way was the 120-character cap on the field
+ * (`intake-classify.ts`), which rejected the sentences before they ever reached here — a
+ * guard doing a matcher's job, and the reason the corpus contains no `emphasis_reweight`
+ * beat and no "Leaned…" receipt. Nothing has to be migrated because nothing has happened.
+ *
+ * So the match is made to do what the field is for. Word overlap against the month's own
+ * pillar names, and the CANONICAL name is what gets written — never the client's phrase.
+ *
+ * ── The vocabulary is the CLIENT'S, not just the month's ─────────────────────────────
+ *
+ * "more product this month" is most likely to be said about a month with no product in it,
+ * so matching against the pillars the month already carries would fail exactly when the
+ * client needs it. The authority on what this client's pillars ARE is
+ * `client_planning_config.pillars` — the same list `addBeat` validates against, and for the
+ * same reason: free text in the pillar column poisons the weights the assembler reads.
+ *
+ * So the caller passes it in, and it is UNIONED with the month's own pillars: a config that
+ * changed after the month was drafted must not make the month's existing pillars
+ * unnameable. When no vocabulary is supplied the union degrades to the month's own pillars
+ * — narrower, still correct, and never the raw phrase.
+ */
+const EMPHASIS_STOPWORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'of', 'to', 'for', 'in', 'on', 'at', 'by', 'with', 'from',
+  'my', 'our', 'your', 'their', 'its', 'this', 'that', 'these', 'those', 'it', 'we', 'i', 'you',
+  'is', 'are', 'be', 'do', 'doing', 'please', 'more', 'less', 'some', 'any', 'all', 'bit', 'lot',
+]);
+
+/** Whole words, lowercased, '&' read as "and", punctuation dropped, function words removed.
+ *  Applied identically to the client's phrase and to a pillar name — an asymmetric
+ *  normalisation would make the match depend on which side a word happened to sit. */
+function emphasisWords(text: string): Set<string> {
+  return new Set(
+    text.toLowerCase().replace(/&/g, ' and ').split(/[^a-z0-9]+/)
+      .filter((w) => w.length > 1 && !EMPHASIS_STOPWORDS.has(w)),
+  );
+}
+
+/** The format families a phrase can name, so "more reels" and "more video" both land. */
+const FORMAT_WORDS: Record<string, string> = {
+  reel: 'reel', reels: 'reel', video: 'reel', videos: 'reel',
+  carousel: 'carousel', carousels: 'carousel', gallery: 'carousel',
+  single: 'single', singles: 'single', photo: 'single', photos: 'single',
+  image: 'single', images: 'single', picture: 'single', pictures: 'single',
+};
+
+export type EmphasisTarget =
+  | { kind: 'pillar'; name: string }
+  | { kind: 'format'; name: string }
+  | { kind: 'none';   candidates: string[] }
+  /** Two or more pillars fit equally well. Naming them is more useful than picking one. */
+  | { kind: 'ambiguous'; candidates: string[] };
+
+/**
+ * Which pillar or format is this phrase asking for?
+ *
+ * PILLAR FIRST, then format. A phrase naming both ("more product reels") is answered with
+ * the pillar because that is the richer of the two asks and the cheaper one to be wrong
+ * about — a re-pillar is visible on the card, a format swap changes what has to be shot.
+ *
+ * A pillar wins on the COUNT of its own words the phrase supplies, and it must win outright:
+ * "more real content" supplies one word each to *Born From Real Need* and *Understands Real
+ * Women*, and picking either would be a guess. Ties return `ambiguous` and change nothing.
+ *
+ * Exported because this is the rule the whole transform now turns on, and a rule only
+ * observable through a database and a model call is a rule nobody will check.
+ */
+export function resolveEmphasisTarget(phrase: string, pillars: readonly string[]): EmphasisTarget {
+  const said = emphasisWords(phrase);
+  const names = [...new Set(pillars.map((p) => p.trim()).filter(Boolean))].sort();
+
+  let best = 0;
+  let winners: string[] = [];
+  for (const name of names) {
+    const hits = [...emphasisWords(name)].filter((w) => said.has(w)).length;
+    if (hits === 0 || hits < best) continue;
+    if (hits > best) { best = hits; winners = [name]; } else winners.push(name);
+  }
+  if (winners.length === 1) return { kind: 'pillar', name: winners[0]! };
+  if (winners.length > 1)   return { kind: 'ambiguous', candidates: winners };
+
+  const formats = [...new Set([...said].map((w) => FORMAT_WORDS[w]).filter((f): f is string => !!f))];
+  if (formats.length === 1) return { kind: 'format', name: formats[0]! };
+
+  return { kind: 'none', candidates: names };
+}
+
+/** The month's pillars, in a sentence — what the client can actually ask for. */
+const listPillars = (names: readonly string[]): string =>
+  names.length === 0 ? ''
+  : names.length === 1 ? names[0]!
+  : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`;
+
+/**
  * Reweight the rest of the month toward a pillar or format.
  *
  * Only FUTURE, untouched, non-client beats are eligible — a past-dated beat cannot be
  * changed and a beat the client edited must not be. Converts up to a third of the eligible
  * beats, so an emphasis tilts the month rather than replacing it: "more product" does not
  * mean "only product", and reading it that way would be a worse answer than doing nothing.
+ *
+ * A phrase that names nothing changes NOTHING, and says so. Returning `{ops: []}` is not a
+ * dead end: `draft-apply.ts` files a no-op month-scoped intent to the backlog with
+ * `reason: 'not_applicable'`, carries this note onto the receipt, and attaches the
+ * `planInputId` that powers the "add it to this month" tap. So the client's words are kept,
+ * the reason is on screen, and there is a way forward — without a single beat being touched.
  */
 export function applyEmphasis(
   intent: MonthScopedIntent, beats: TransformBeat[], today: string,
+  /** The client's configured pillar names. Unioned with the month's own — see above. */
+  clientPillars: readonly string[] = [],
 ): TransformResult {
-  const target = (intent.emphasis ?? intent.subject).trim();
-  if (!target) return { ops: [], note: 'It wasn’t clear what to lean into, so nothing changed.' };
+  const phrase = (intent.emphasis ?? intent.subject).trim();
+  if (!phrase) return { ops: [], note: 'It wasn’t clear what to lean into, so nothing changed.' };
 
-  const FORMATS = new Set(['reel', 'carousel', 'single']);
-  const asFormat = FORMATS.has(target.toLowerCase()) ? target.toLowerCase() : null;
+  const monthPillars = [...new Set([
+    ...clientPillars.map((p) => p.trim()),
+    ...beats.map((b) => b.pillar.trim()),
+  ].filter(Boolean))].sort();
+  const resolved = resolveEmphasisTarget(phrase, monthPillars);
+
+  if (resolved.kind === 'ambiguous') {
+    return { ops: [], note: `“${phrase}” could mean ${listPillars(resolved.candidates)} — which did you mean? Nothing has changed.` };
+  }
+  if (resolved.kind === 'none') {
+    // NOT re-pillared to the phrase, which is what used to happen here. The month is left
+    // alone and the client is told what they could have named.
+    return {
+      ops: [],
+      note: monthPillars.length
+        ? `I couldn’t tell which part of the month to lean into — “${phrase}” doesn’t name one of your content pillars. You could say ${listPillars(monthPillars)}, or name a format (reel, carousel or single image). Nothing has changed.`
+        : `I couldn’t tell what to lean into, so nothing has changed.`,
+    };
+  }
+
+  const asFormat = resolved.kind === 'format' ? resolved.name : null;
+  /** The CANONICAL pillar name, never the client's phrase — the whole point of the match. */
+  const asPillar = resolved.kind === 'pillar' ? resolved.name : null;
+  const label = resolved.name;
 
   const eligible = beats
     .filter((b) => b.date >= today)               // past beats are not ours to change
@@ -758,11 +893,13 @@ export function applyEmphasis(
     // not re-pillar a beat an earlier sentence asked for by name — displacing one to make
     // room for a NEW named ask is defensible; quietly rewriting what it is about is not.
     .filter((b) => { const t = replacementTier(b); return t === 0 || t === 1; })
-    .filter((b) => (asFormat ? b.format !== asFormat : b.pillar.toLowerCase() !== target.toLowerCase()))
+    // Skip what is already leaning that way. This line used to double as the match test,
+    // which is why a phrase matching nothing selected everything.
+    .filter((b) => (asFormat ? b.format !== asFormat : b.pillar.trim().toLowerCase() !== asPillar!.toLowerCase()))
     .sort(byWeakestEvidence);
 
   if (eligible.length === 0) {
-    return { ops: [], note: `The rest of ${target ? 'the month' : 'it'} is already yours or already leaning that way.` };
+    return { ops: [], note: `The rest of the month is already yours or already leaning toward ${label}.` };
   }
 
   const convert = Math.max(1, Math.floor(eligible.length / 3));
@@ -777,9 +914,9 @@ export function applyEmphasis(
       // citing "Everyday Ritual is 20% of what you post" while sitting under Product &
       // Fragrance. Stale metrics from the old pillar must never survive the move, so the
       // evidence is REPLACED with the honest one: you asked for this.
-      : { op: 'update' as const, id: b.id, changes: { pillar: target }, beatMeta: reweighted(b, intent.sourceText) }
+      : { op: 'update' as const, id: b.id, changes: { pillar: asPillar! }, beatMeta: reweighted(b, intent.sourceText) }
   ));
-  return { ops, note: `Leaned ${convert} post${convert === 1 ? '' : 's'} toward ${target}.` };
+  return { ops, note: `Leaned ${convert} post${convert === 1 ? '' : 's'} toward ${label}.` };
 }
 
 /**
@@ -912,6 +1049,10 @@ export function applyCorrection(intent: MonthScopedIntent, beats: TransformBeat[
 /** Dispatch an intent to its transform. */
 export function applyIntent(
   intent: MonthScopedIntent, beats: TransformBeat[], month: string, today: string,
+  /** The client's configured pillar names — the emphasis branch's vocabulary. Optional so
+   *  every other kind's callers are unchanged; omitting it narrows an emphasis match to the
+   *  month's own pillars rather than widening it to anything (`applyEmphasis`). */
+  clientPillars: readonly string[] = [],
 ): TransformResult {
   switch (intent.kind) {
     case 'launch':    return applyLaunchArc(intent, beats, month);
@@ -919,7 +1060,7 @@ export function applyIntent(
     case 'series':    return applySeries(intent, beats, month);
     case 'beat_spec': return applyBeatSpec(intent, beats, month);
     case 'cadence':   return applyCadence(intent, beats, month);
-    case 'emphasis':  return applyEmphasis(intent, beats, today);
+    case 'emphasis':  return applyEmphasis(intent, beats, today, clientPillars);
     case 'beat_edit': return applyBeatEdit(intent, beats, month);
     case 'correction':return applyCorrection(intent, beats, month);
     default:          return { ops: [] };

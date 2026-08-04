@@ -150,21 +150,26 @@ describe('a tier-2 displacement is NAMED in the receipt', () => {
 });
 
 describe('emphasis stays out of tier 2', () => {
+  // The emphasis phrase resolves against the client's configured pillars now, so the
+  // fixture states them — 'Product' on its own equals no pillar name and, before the match
+  // was fixed, would have been written into the column verbatim.
+  const VOCAB = ['Product & Fragrance', 'Everyday Ritual'];
+  const more = { kind: 'emphasis' as const, subject: 'product', sourceText: 'more product this month', emphasis: 'Product' };
+
   it('will not re-pillar a beat an earlier sentence asked for by name', () => {
-    const res = applyEmphasis(
-      { kind: 'emphasis', subject: 'product', sourceText: 'more product this month', emphasis: 'Product' },
-      [beat('i', '2026-09-10', fromInput(), 5)], TODAY,
-    );
+    const res = applyEmphasis(more, [beat('i', '2026-09-10', fromInput(), 5)], TODAY, VOCAB);
     expect(res.ops).toEqual([]);
   });
 
   it('but still tilts ordinary observed beats', () => {
     const res = applyEmphasis(
-      { kind: 'emphasis', subject: 'product', sourceText: 'more product this month', emphasis: 'Product' },
+      more,
       [beat('o1', '2026-09-10', observed(4)), beat('o2', '2026-09-12', observed(9)), beat('o3', '2026-09-14', observed(12))],
-      TODAY,
+      TODAY, VOCAB,
     );
     expect(res.ops.length).toBeGreaterThan(0);
+    // …and onto the CANONICAL pillar, never the word the client used.
+    expect(res.ops[0]).toMatchObject({ changes: { pillar: 'Product & Fragrance' } });
   });
 });
 

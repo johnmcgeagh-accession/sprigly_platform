@@ -204,8 +204,13 @@ function withClientTouched(beatMeta: BeatMeta | null): BeatMeta {
 }
 
 /** The client's configured pillar names for this channel. Empty means unconfigured, which
- *  we treat as "cannot validate" — see addBeat. */
-async function pillarVocab(clientId: string, channel: string): Promise<string[]> {
+ *  we treat as "cannot validate" — see addBeat.
+ *
+ *  Exported for `draft-apply.ts`, which needs the SAME list to resolve an emphasis phrase to
+ *  a pillar. Two readers of "what are this client's pillars" is one too many: `addBeat`
+ *  refuses a pillar outside this list precisely so free text cannot reach the column, and an
+ *  emphasis that resolved against a different vocabulary could put it there anyway. */
+export async function pillarVocab(clientId: string, channel: string): Promise<string[]> {
   const [row] = await db
     .select({ pillars: clientPlanningConfig.pillars })
     .from(clientPlanningConfig)

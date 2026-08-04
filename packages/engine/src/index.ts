@@ -99,8 +99,9 @@ export {
   applyIntent, applyLaunchArc, applyEvent, applySeries, applyBeatSpec, applyCadence, expandSeries, applyEmphasis, applyBeatEdit,
   replacementCandidates, byWeakestEvidence, isReplaceable, replacementTier, isClientTouched, isClientOriginated,
   isClientAdded, isFromEarlierInput, POOL_EMPTY_NOTE, deriveTitle, resolveBeatRef,
+  resolveEmphasisTarget,
 } from './draft-transforms.js';
-export type { TransformBeat, BeatOp, TransformResult, DeferredInstance } from './draft-transforms.js';
+export type { TransformBeat, BeatOp, TransformResult, DeferredInstance, EmphasisTarget } from './draft-transforms.js';
 export { diffBeats, renderDiff, renderDelta, shortDate, isNoOp } from './draft-diff.js';
 export type { DiffBeat, BeatDelta, DraftDiff } from './draft-diff.js';
 
