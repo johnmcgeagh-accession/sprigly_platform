@@ -550,7 +550,15 @@ export function VoiceSheet({
   return (
     <Frame open={open} label={framing.title} testid="voice-sheet" onClose={onClose} hasOwnClose>
       <>
-        <div className="flex flex-none items-center gap-3 px-[18px] pb-2 pt-1">
+        {/* The dock's title sat 4px from the top of the panel, which on a permanent region reads
+            as content that has slipped rather than a heading with a top to it. The SHEET keeps
+            its 4px: it is dragged up over the month and its own grabber is the space above the
+            title, so adding more would push the thread down for nothing.
+
+            28px, which is a step above the shell header's `pt-4` and MonthGrid's 18px. Those
+            two sit under the browser chrome with the wordmark above them; this one is the first
+            thing in its column, and the first thing in a column needs the larger inset. */}
+        <div className={`flex flex-none items-center gap-3 px-[18px] pb-2 ${flush ? 'pt-7' : 'pt-1'}`}>
           <h2 data-testid="voice-heading" className="min-w-0 flex-1 truncate text-[17px] font-bold tracking-[-.02em] text-chrome">
             {framing.title}
           </h2>
