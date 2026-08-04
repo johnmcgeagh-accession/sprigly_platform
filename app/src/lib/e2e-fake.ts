@@ -66,12 +66,106 @@ export function makeFakeModelClient(): ModelClient {
   const complete = async (req: { system?: string; messages: { role: string; content: unknown }[] }) => {
     const system = req.system ?? '';
     const user = req.messages.map((m) => messageText(m.content)).join('\n');
-    const content = system.includes('ordered list of TASKS')
+    const content = isClassifyCall(system)
+      ? JSON.stringify(fakeClassification(user))
+      : system.includes('ordered list of TASKS')
       ? JSON.stringify({ tasks: fakeTasks(user) })
       : 'This is a canned answer for testing.';
     return { content, inputTokens: 0, outputTokens: 0, modelId: 'fake-e2e', stopReason: 'end_turn' as const };
   };
   return { complete, completeStreaming: complete } as unknown as ModelClient;
+}
+
+/**
+ * The opening of the intake classifier's system prompt, which is how a classify call is told
+ * apart from the task parser's.
+ *
+ * IT IS A COPY, AND THAT IS THE POINT OF THE TEST BESIDE IT. Importing `CLASSIFY_SYSTEM` from
+ * `@sprigly/engine` would be the drift-proof version, but this module is loaded by `queue.ts`
+ * and `model.ts` — the Next.js runtime — and the engine barrel drags `@sprigly/db`'s client in
+ * with it, so a test-only guarantee would cost every request a database import. Instead
+ * `e2e-fake.parity.test.ts` asserts this constant against the real prompt: change the prompt
+ * and the unit test fails by name, rather than every draft e2e failing by timeout.
+ */
+export const E2E_CLASSIFY_MARKER = "You route a single message from a small brand's owner";
+
+function isClassifyCall(system: string): boolean {
+  return system.includes(E2E_CLASSIFY_MARKER);
+}
+
+/**
+ * A deterministic routing decision for a draft reshape (`POST /api/plan/draft/apply`).
+ *
+ * ── What this must get right, and what it deliberately does not do ───────────────────
+ *
+ * It is NOT a classifier. It recognises the handful of instructions the draft e2e types and
+ * returns the routing a correct classifier would return for each; anything else lands on
+ * EVERGREEN, which is exactly what the real one does when it is unsure — so an unrecognised
+ * sentence in a future test files itself to the backlog rather than silently applying a
+ * fabricated change to a month.
+ *
+ * ── How it stays honest ──────────────────────────────────────────────────────────────
+ *
+ * The output is a `MonthScopedIntent`-shaped object and it is checked as one:
+ * `e2e-fake.parity.test.ts` runs every branch below through the REAL `parseClassification`
+ * → `routeFromParsed` pair — the same two functions the production path uses on a Bedrock
+ * response — and asserts the routing that comes out. A field this fake stops emitting, or
+ * emits under a stale name, fails there rather than in a Playwright timeout six months later.
+ * That is the C4 lesson applied up front: the script job that wrote a script without its hook
+ * was undetectable because nothing compared the fake's field-set to the real one's.
+ */
+export function fakeClassification(user: string): Record<string, unknown> {
+  // The classifier is handed `OWNER'S MESSAGE:` followed by the text, verbatim.
+  const sourceText = between(user, 'OWNER’S MESSAGE:\n', '\n\nRoute it now.').trim() || user.trim();
+  const lower = sourceText.toLowerCase();
+  // The plan month it was told to resolve relative dates against, e.g. '2026-09'.
+  const planMonth = /PLAN MONTH: (\d{4}-\d{2})/.exec(user)?.[1] ?? '2026-09';
+
+  const intent = (over: Record<string, unknown>) => ({
+    scope: 'month_scoped',
+    intent: {
+      subject: '', sourceText,
+      dateRange: null, format: null, postsPerWeek: null, postsPerMonth: null,
+      instances: null, recurrence: null, beatRef: null, edit: null, editValue: null,
+      emphasis: null, correctionOf: null,
+      ...over,
+    },
+  });
+
+  // A CORRECTION with a new date — "move the Weekend Style Guide to the 12th". The e2e's
+  // reshape: one beat changes day, the receipt says which, the month is otherwise untouched.
+  //
+  // `correctionOf` is THE THING BEING CORRECTED, in the owner's words — not the whole
+  // sentence. `applyCorrection` resolves it against the beats' own subjects, so handing it
+  // the verb and the date as well guarantees no match and a "we couldn't find that on this
+  // month's plan" every time. The real classifier is told this in as many words ("the thing
+  // being corrected in the owner's words"); the fake has to obey the same instruction or it
+  // tests the failure path while claiming to test the success one.
+  const dateClause = /\bto\s+(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)\b/.exec(lower);
+  if (/\b(move|actually|not the|instead of|push)\b/.test(lower) && dateClause) {
+    const day = dateClause[1]!;
+    const date = `${planMonth}-${day.padStart(2, '0')}`;
+    const subject = sourceText
+      .replace(/^\s*(please\s+)?(move|push|actually,?\s*move)\s+/i, '')
+      .replace(/\s+to\s+(the\s+)?\d{1,2}(st|nd|rd|th)\b.*$/i, '')
+      .replace(/^the\s+/i, '')
+      .trim();
+    return intent({ kind: 'correction', subject, correctionOf: subject, dateRange: { start: date, end: date } });
+  }
+
+  // A CADENCE target — a number of posts, no date, no title.
+  const perWeek = /\b(\d+)\s+posts?\s+a\s+week\b/.exec(lower)?.[1];
+  if (perWeek) {
+    return intent({ kind: 'cadence', subject: `${perWeek} posts a week`, postsPerWeek: Number(perWeek) });
+  }
+
+  // An EMPHASIS shift for this month.
+  if (/\bmore\b|\bless\b/.test(lower)) {
+    return intent({ kind: 'emphasis', subject: sourceText, emphasis: sourceText });
+  }
+
+  // Unsure → evergreen, which is the real classifier's own rule and its safest failure.
+  return { scope: 'evergreen' };
 }
 
 /** Seeded post ids (see seed-e2e.ts): …0003 is a reel (no hook/script), …0001 a single
@@ -156,11 +250,13 @@ function fakeTasks(userMessage: string): Record<string, unknown>[] {
   return [{ action: 'clarify', question: 'Which post did you mean?', reason: 'unclear' }];
 }
 
-function between(s: string, delim: string): string {
-  const a = s.indexOf(delim);
+/** The text between two markers. Called with the same marker twice for the task parser's
+ *  triple-quoted client message, and with a distinct open/close for the classifier's prompt. */
+function between(s: string, open: string, close = open): string {
+  const a = s.indexOf(open);
   if (a === -1) return '';
-  const b = s.indexOf(delim, a + delim.length);
-  return b === -1 ? '' : s.slice(a + delim.length, b);
+  const b = s.indexOf(close, a + open.length);
+  return b === -1 ? '' : s.slice(a + open.length, b);
 }
 
 /** The caption a faked shape job writes, so "shape pending → caption swaps" is
