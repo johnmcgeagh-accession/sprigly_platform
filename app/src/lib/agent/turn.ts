@@ -15,7 +15,7 @@ import { getModelClient, getEmbeddingClient } from '@/lib/agent/model';
 import { createAuditLogger } from '@sprigly/audit';
 import { db } from '@sprigly/db';
 import { parseTasks } from '@/lib/agent/task-parser';
-import { resolveCycleForMonth } from '@/lib/agent/cycle-state';
+import { resolveCycleForMonth, monthWindow } from '@/lib/agent/cycle-state';
 import { buildPlanContext } from '@/lib/agent/plan-context';
 import { loadProductIndex } from '@/lib/agent/catalogue';
 import { resolveTargets, resolveMoveSource, postTitle, titleFromSubject, parseISO } from '@/lib/agent/selectors';
@@ -162,24 +162,6 @@ function moveAmbiguous(cands: PlanPost[], task: ParsedTask): string {
   const titles = cands.map((p) => `“${postTitle(p)}”`);
   const list = titles.length === 2 ? `${titles[0]} or ${titles[1]}` : `${titles.slice(0, -1).join(', ')}, or ${titles[titles.length - 1]}`;
   return `There are ${cands.length} posts on ${on} — ${list}? Which one should I move${dest}?`;
-}
-
-/**
- * 'YYYY-MM' → that month's first and last day, as the relevance window (F5).
- *
- * The upper bound is computed from the month's own calendar rather than written as a literal:
- * a `${month}-31` bound is an INVALID DATE for September, April, June, November and February,
- * and Postgres rejects it against a `date` column rather than clamping — the same trap
- * `intake-signals.ts:firstOfMonthAfter` documents having already been caught by once.
- *
- * Returns nulls for anything that is not a month, so a malformed value files an undated note
- * rather than a note with half a window.
- */
-function monthWindow(month?: string | null): { from: string | null; to: string | null } {
-  if (!month || !/^\d{4}-\d{2}$/.test(month)) return { from: null, to: null };
-  const [y, m] = month.split('-').map(Number);
-  const lastDay = new Date(Date.UTC(y!, m!, 0)).getUTCDate();   // day 0 of the NEXT month
-  return { from: `${month}-01`, to: `${month}-${String(lastDay).padStart(2, '0')}` };
 }
 
 /** '<ErrorName>' for the ledger — never the message, which can carry a client id or a whole

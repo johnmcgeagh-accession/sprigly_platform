@@ -26,9 +26,9 @@ import {
 } from '@sprigly/engine';
 import { createAuditLogger } from '@sprigly/audit';
 import { editScopeToday } from '@/lib/edit-scope';
-import { cycleIsPreCutoff } from '@/lib/draft-mutations';
+import { cycleIsPreCutoff, pillarVocab } from '@/lib/draft-mutations';
 import { loadDraftBeats } from '@/lib/plan';
-import { monthLabel } from '@/lib/agent/cycle-state';
+import { monthLabel, monthWindow, monthNamedIn } from '@/lib/agent/cycle-state';
 import { listIdeas } from '@/lib/agent/ideas';
 import { answerIdeasQuestion, answerPlanQuestion, datesNamedIn } from '@/lib/plan-answers';
 import type { DraftBeatView } from '@/lib/types';
@@ -249,13 +249,44 @@ export async function loadReceipts(cycleId: string): Promise<DraftApplication[]>
   return Array.isArray(intake['draftApplications']) ? (intake['draftApplications'] as DraftApplication[]) : [];
 }
 
-/** File an input in the ideas backlog. */
-async function saveToBacklog(clientId: string, cycleId: string, sourceText: string, source: InputSource): Promise<string | undefined> {
+/**
+ * The relevance window a filed input keeps — the same window the agent path gives a note (F5).
+ *
+ * Preference order, and it is about PROVENANCE. A `dateRange` is a span the classifier already
+ * extracted from the client's words; a month read back out of the prose is our own reading of
+ * them. Where the parsed one exists it wins, because re-deriving something already known is
+ * precisely how two readings of one sentence start to disagree.
+ *
+ * Neither is available on most trips through here — an evergreen verdict carries only the source
+ * text and a reason — so the prose read is what covers the case this exists for: "October idea:
+ * TV Halloween theme", filed with October surviving nowhere but the sentence.
+ */
+function backlogWindow(routing: IntakeRouting, sourceText: string, today: string): { from: string | null; to: string | null } {
+  if (routing.scope === 'month_scoped' && routing.intent.dateRange) {
+    return { from: routing.intent.dateRange.start, to: routing.intent.dateRange.end };
+  }
+  return monthWindow(monthNamedIn(sourceText, today.slice(0, 7)));
+}
+
+/**
+ * File an input in the ideas backlog.
+ *
+ * `relevant` is the WINDOW, and everything else about the row is deliberately unchanged: a
+ * backlog item is still `type: 'idea'`, `origin: 'client'`, `lifecycle: 'candidate'` and
+ * `cycleId: null`. That shape is what keeps these rows in `DURABLE_INPUT_TYPES` and out of
+ * cycle binding, and a window is a filter applied to durables — not a step away from being one.
+ */
+async function saveToBacklog(
+  clientId: string, cycleId: string, sourceText: string, source: InputSource,
+  relevant: { from: string | null; to: string | null },
+): Promise<string | undefined> {
   const [row] = await db.insert(planInputs).values({
     clientId,
     cycleId: null,                 // durable items are cycle-INDEPENDENT (see notes.ts)
     type: 'idea',
     content: sourceText,
+    relevantFrom: relevant.from,   // the month they named, kept as a window rather than as prose
+    relevantTo: relevant.to,
     status: 'active',              // availability
     source,                        // transport: how they said it (gap 8)
     origin: 'client',              // where the idea came from (Build C)
@@ -377,7 +408,7 @@ export async function applyIntakeToDraft(params: {
 
   // ── Evergreen ──────────────────────────────────────────────────────────────
   if (routing.scope === 'evergreen') {
-    const planInputId = await saveToBacklog(clientId, cycleId, sourceText, source);
+    const planInputId = await saveToBacklog(clientId, cycleId, sourceText, source, backlogWindow(routing, sourceText, today));
     const application: DraftApplication = {
       ...base, scope: 'evergreen', reason: routing.reason, lines: [], changedIds: [],
       ...(planInputId ? { planInputId } : {}),
@@ -433,7 +464,25 @@ export async function applyIntakeToDraft(params: {
   const before = await loadTransformBeats(clientId, cycleId);
   if (before.length === 0) return { ok: false, error: 'no_draft', message: 'There’s no draft to change yet.' };
 
-  const result = applyIntent(routing.intent as MonthScopedIntent, before, planMonth, today);
+  /**
+   * THE PILLAR VOCABULARY, for the emphasis branch.
+   *
+   * `applyEmphasis` used to test the client's phrase for EQUALITY against a pillar name and
+   * write the phrase itself into the `pillar` column when it matched nothing — which was
+   * every phrase that was not literally a pillar name. It now resolves the phrase to a
+   * pillar and writes the CANONICAL name, and this is the list it resolves against: the same
+   * one `addBeat` validates against (`draft-mutations.ts:pillarVocab`), so the two cannot
+   * disagree about what a pillar is.
+   *
+   * Read only for the kind that uses it — every other intent ignores it, and an emphasis is
+   * a small share of inputs. A failed read degrades to the month's own pillars rather than
+   * failing the reshape: a narrower match is a worse answer, an aborted one is no answer.
+   */
+  const clientPillars = routing.intent.kind === 'emphasis'
+    ? await pillarVocab(clientId, cycle.channel).catch(() => [])
+    : [];
+
+  const result = applyIntent(routing.intent as MonthScopedIntent, before, planMonth, today, clientPillars);
 
   // A transform that can do nothing files the input instead of dropping it. The client
   // typed something; it has to land somewhere they can see.
@@ -441,7 +490,7 @@ export async function applyIntakeToDraft(params: {
     // A series whose every instance fell outside the month produced no ops but still has
     // dated asks to keep. File those as well as the input itself.
     const deferred0 = await saveDeferredInstances(clientId, result.deferred ?? [], source);
-    const planInputId = await saveToBacklog(clientId, cycleId, sourceText, source);
+    const planInputId = await saveToBacklog(clientId, cycleId, sourceText, source, backlogWindow(routing, sourceText, today));
     const application: DraftApplication = {
       ...base, scope: 'evergreen', reason: 'not_applicable', lines: [], changedIds: [],
       ...(result.note ? { note: result.note } : {}),

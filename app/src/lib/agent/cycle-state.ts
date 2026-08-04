@@ -20,6 +20,116 @@ export function monthLabel(yyyymm: string): string {
   return `${MONTH_NAMES[Number(m[2]) - 1] ?? yyyymm} ${m[1]}`;
 }
 
+/**
+ * 'YYYY-MM' → that month's first and last day, as the relevance window (F5).
+ *
+ * The upper bound is computed from the month's own calendar rather than written as a literal:
+ * a `${month}-31` bound is an INVALID DATE for September, April, June, November and February,
+ * and Postgres rejects it against a `date` column rather than clamping — the same trap
+ * `intake-signals.ts:firstOfMonthAfter` documents having already been caught by once.
+ *
+ * Returns nulls for anything that is not a month, so a malformed value files an undated note
+ * rather than a note with half a window.
+ *
+ * Lives here rather than in `turn.ts` because BOTH paths that file a durable input need it and
+ * neither may import the other: `turn.ts` is the agent entry point and `draft-apply.ts` is the
+ * intake one, and the two API routes import both. A second implementation next to the second
+ * caller is exactly how the two paths would start disagreeing about what October means.
+ */
+export function monthWindow(month?: string | null): { from: string | null; to: string | null } {
+  if (!month || !/^\d{4}-\d{2}$/.test(month)) return { from: null, to: null };
+  const [y, m] = month.split('-').map(Number);
+  const lastDay = new Date(Date.UTC(y!, m!, 0)).getUTCDate();   // day 0 of the NEXT month
+  return { from: `${month}-01`, to: `${month}-${String(lastDay).padStart(2, '0')}` };
+}
+
+/** Month name → 1-based number, by first three letters. 'sept' and 'september' both slice to 'sep'. */
+const MONTH_ABBREV = MONTH_NAMES.map((n) => n.slice(0, 3).toLowerCase());
+
+/** Every month name and the abbreviations clients actually type. `\b` on both ends is what stops
+ *  'mar' matching inside 'marketing' and 'sep' inside 'separate'. */
+const MONTH_WORDS = /\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept|sep|oct|nov|dec)\b/gi;
+
+/** A preposition immediately before "may" makes it the month ("an idea for may"); without one it
+ *  is the modal verb ("we may want more BTS"), which is far commoner in client prose. */
+const BEFORE_A_MONTH = /\b(?:in|for|during|by|until|through|of)\s+$/i;
+
+/** "the June heatwave", "the August drop" — a month after "the" is describing the SUBJECT, not
+ *  naming a window. See `monthNamedIn`. A following year ("the June 2027 drop") is exempt: a
+ *  client who states the year is stating a date. */
+const ATTRIBUTIVE = /\bthe\s+$/i;
+
+/**
+ * The month a client's own words name, as 'YYYY-MM' — or null if they named none, or more
+ * than one.
+ *
+ * DETERMINISTIC on purpose, and worth saying why rather than reaching for the model that is
+ * already on this path: month names are a closed set of twelve, the text is prose the client
+ * typed, and the year is arithmetic. A second Bedrock round trip would add latency and cost
+ * and a new failure mode to a step whose whole job is to write a row.
+ *
+ * The year resolves FORWARD FROM THE ANCHOR MONTH — pass today's month, not the plan month.
+ * A client saying "August" on 4 August means this August; anchoring on the plan month
+ * (September) would file them into next year. Naming the anchor month or any month after it
+ * lands inside the next twelve, and no phrasing can name a past month — correct for a backlog,
+ * where an idea is always for something still to come.
+ *
+ * Two DIFFERENT months named → null. "Move the October launch into November" states a
+ * relationship between months, not a window to file under, and half a guess is worse than
+ * the undated row we already write.
+ *
+ * ── Every ambiguity resolves to "no window" ──────────────────────────────────────────
+ * The same asymmetry `intake-classify.ts` opens with, for the same reason. A month we FAIL to
+ * read files the row exactly as it files today: undated, permanently live, visible in the
+ * backlog — the status quo, and no worse. A month we read WRONGLY files a live idea into a
+ * window it does not belong to, where the durable readers will skip it until that window opens.
+ * Those costs are not symmetric, so the reading is deliberately conservative and every doubtful
+ * case returns null.
+ *
+ * The rule that costs the most recall is `ATTRIBUTIVE`, and it is here because of a real row:
+ * "a throwback post using the video of Sally fitting the pre-production long sleeve Ivy tee
+ * during the June heatwave". June is what the video SHOWS. Without the guard that idea is filed
+ * into next June and disappears for ten months. It also declines "the October plan", which is a
+ * genuine miss — and a row that stays undated is the right price for not doing that.
+ */
+export function monthNamedIn(text: string, anchorMonth: string): string | null {
+  const a = /^(\d{4})-(\d{2})$/.exec(anchorMonth);
+  if (!a) return null;
+  const anchorYear = Number(a[1]), anchorNum = Number(a[2]);
+
+  /**
+   * Two sets, because the two guards below reject for different reasons and only one of them
+   * means "this is not a reference to a month at all".
+   *
+   * `mentioned` is every month the text refers to, however it refers to it. `qualified` is the
+   * subset that reads as a WINDOW. The ambiguity test has to run on `mentioned`: in "move the
+   * October launch into November" the attributive guard correctly declines October, and scoring
+   * that on `qualified` alone would leave November standing unopposed and file the row into a
+   * month the sentence was moving things OUT of.
+   */
+  const mentioned = new Set<number>(), qualified = new Set<number>();
+  for (const m of text.matchAll(MONTH_WORDS)) {
+    const word = m[1]!;
+    const idx = MONTH_ABBREV.indexOf(word.slice(0, 3).toLowerCase());
+    if (idx < 0) continue;
+    const before = text.slice(0, m.index);
+    // 'May' is the one month name that is also an ordinary English word. A modal verb is not a
+    // reference to May at all, so it counts for NEITHER set — otherwise "we may post in October"
+    // reads as two months and files nowhere.
+    if (idx === 4 && word !== 'May' && !BEFORE_A_MONTH.test(before)) continue;
+    mentioned.add(idx + 1);
+    // Describing the subject rather than naming a window — unless a year follows. Still a real
+    // mention, so it stays in `mentioned` and can still make the sentence ambiguous.
+    if (ATTRIBUTIVE.test(before) && !/^\s+\d{4}\b/.test(text.slice(m.index + word.length))) continue;
+    qualified.add(idx + 1);
+  }
+  if (mentioned.size !== 1 || qualified.size !== 1) return null;
+
+  const month = [...qualified][0]!;
+  const year = month >= anchorNum ? anchorYear : anchorYear + 1;
+  return `${year}-${String(month).padStart(2, '0')}`;
+}
+
 export interface CycleRow { id: string; month: string; status: string }
 
 /** Days in the month of 'YYYY-MM'. Day 0 of the NEXT month is the last day of this one. */
