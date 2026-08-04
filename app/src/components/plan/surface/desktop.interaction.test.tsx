@@ -334,7 +334,11 @@ for (const width of WIDTHS) {
 
       render(<DraftSurface data={draftData()} />);
       fireEvent.click(screen.getByTestId('ready-pill'));
-      expect(screen.getByTestId('approval-sheet').getAttribute('data-chrome')).toBeNull();
+      // The sheet NAMES its frame now, like the other two. This used to assert the attribute
+      // was absent, which pinned an accident: `Sheet` simply had not been given one, so "is
+      // this the sheet form?" was answerable for two frames of three and had to be read off a
+      // class string for the third.
+      expect(screen.getByTestId('approval-sheet').getAttribute('data-chrome')).toBe('sheet');
     });
 
     // ── W3 · the dock's turns are panel-native ───────────────────────────────────────
@@ -430,7 +434,7 @@ describe('the mobile surface is untouched by any of it', () => {
     render(<CommittedSurface data={committedData()} />);
     fireEvent.click(screen.getByTestId('post-card'));
     const detail = screen.getByTestId('detail-sheet');
-    expect(detail.getAttribute('data-chrome')).toBeNull();
+    expect(detail.getAttribute('data-chrome')).toBe('sheet');
     expect(detail.getAttribute('aria-modal')).toBe('true');
     expect(screen.getByTestId('detail-sheet-scrim')).toBeTruthy();
   });

@@ -9,9 +9,19 @@
  * and two sources for one number is how a screen ends up disagreeing with itself at the exact
  * moment money is spent.
  *
- * The arithmetic is the fan-out's own, and it is not a guess: `startPhase2` queues a caption for
- * every approved post, a hook for every reel and carousel, and a script for every reel. If that
- * ever changes, this file is what has to change with it — which is the point of it being a file.
+ * The arithmetic is what the client ENDS UP WITH, and it is not a guess: a caption for every
+ * approved post, an opening hook for every reel and carousel, a script for every reel.
+ *
+ * IT IS NOT A COUNT OF JOBS, and the difference is worth stating because it looks like a bug
+ * until you know it isn't. `startPhase2` enqueues a caption for every post and a STANDALONE hook
+ * job for carousels only — a reel's hook is written by its combined hook+script job, which the
+ * worker enqueues once that reel's caption lands, so a standalone one as well would write the
+ * hook twice, incoherently (phase2.ts). Scripts are enqueued on the same later beat. So the
+ * approve response reports 2 hook jobs for a month this screen correctly promises 5 hooks.
+ *
+ * (This comment used to say `startPhase2` queued "a hook for every reel and carousel", which
+ * stopped being true when the combined job landed. The number on the screen was right the whole
+ * time; the reason given for it was not. The draft e2e is what surfaced the gap.)
  *
  * ZERO ROWS ARE OMITTED, never printed. "0 hooks" is padding on a screen whose job is to state a
  * consequence plainly, and a month of ten single posts genuinely has nothing to say about hooks.

@@ -81,8 +81,17 @@ test('the month arrows round-trip to the adjacent cycle and disable at the edge'
 
   await page.getByTestId('next-month').click();
   await expect(page.getByTestId('month-title')).toContainText('August');
+
+  // SEPTEMBER IS THE EDGE NOW. The seed grew a third cycle — the draft month the draft specs
+  // review — so August stopped being the last one. The test was pinned to a fixture fact
+  // ("two cycles") while claiming to test a rule ("the arrow disables at the edge"); it now
+  // walks to the actual edge and asserts the rule there.
+  await page.getByTestId('next-month').click();
+  await expect(page.getByTestId('month-title')).toContainText('September');
   await expect(page.getByTestId('next-month')).toBeDisabled();
 
+  await page.getByTestId('prev-month').click();
+  await expect(page.getByTestId('month-title')).toContainText('August');
   await page.getByTestId('prev-month').click();
   await expect(page.getByTestId('month-title')).toContainText('July');
 });

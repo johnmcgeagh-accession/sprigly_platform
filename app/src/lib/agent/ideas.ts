@@ -37,6 +37,12 @@ import { ideaState, postHeadline, sortIdeas, type IdeaView } from '@/lib/ideas';
  * a foreign key. It is also filtered to live posts: a beat whose post was deleted is not a
  * tap-through, and offering one would 404.
  */
+/** A draft beat's own heading, the way `toDraftBeat` reads it. */
+function beatHeading(sourceMeta: unknown): string | null {
+  const t = (sourceMeta as Record<string, unknown> | null)?.['title'];
+  return typeof t === 'string' && t.trim() ? t : null;
+}
+
 export async function listIdeas(clientId: string): Promise<IdeaView[]> {
   const rows = await db
     .select({
@@ -49,6 +55,7 @@ export async function listIdeas(clientId: string): Promise<IdeaView[]> {
       usedCycleMonth: contentCycles.cycleMonth,
       postId: contentCyclePosts.id,
       postCaption: contentCyclePosts.caption,
+      postSourceMeta: contentCyclePosts.sourceMeta,
     })
     .from(planInputs)
     .leftJoin(contentCycles, eq(contentCycles.id, planInputs.usedInCycleId))
@@ -73,10 +80,16 @@ export async function listIdeas(clientId: string): Promise<IdeaView[]> {
       // cycle_month of 2026-07 is the August plan. Reading the raw column here would
       // tell the client their July idea was used in July, a month before it ran.
       usedInMonth: r.usedCycleMonth ? monthLabel(nextMonth(r.usedCycleMonth)) : null,
-      // A post with no caption yet has no headline, and the row then shows the state
-      // alone rather than a tap-through labelled "Untitled".
+      // THE HEADING THIS POST ACTUALLY SHOWS, which is two different fields depending on how
+      // far along the post is. A written post's card title is its caption's first sentence
+      // (`postTitle`); a DRAFT beat has no caption at all and shows `source_meta.title`
+      // instead (`toDraftBeat`). Reading only the caption meant every idea that became a beat
+      // in a month still in draft came back with no title — and so with neither a tap-through
+      // nor the fact — which is precisely the month a client is most likely to be looking at.
+      // A post with neither still has no headline, and the row then shows its state alone
+      // rather than a tap-through labelled "Untitled".
       postId: r.postId ?? null,
-      postTitle: postHeadline(r.postCaption),
+      postTitle: postHeadline(r.postCaption) ?? beatHeading(r.postSourceMeta),
     };
   }));
 }

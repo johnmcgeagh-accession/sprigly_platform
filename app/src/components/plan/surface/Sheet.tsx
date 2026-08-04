@@ -222,7 +222,14 @@ export function Sheet({ open, label, testid, onClose, layer = 0, hasOwnClose = f
       <div data-testid={`${testid}-scrim`} aria-hidden="true" onClick={onClose}
         className={`absolute inset-0 ${z.scrim} bg-chrome-deep/[.34]`} />
       <div
-        ref={ref} role="dialog" aria-modal="true" aria-label={label} data-testid={testid} tabIndex={-1}
+        ref={ref} role="dialog" aria-modal="true" aria-label={label} data-testid={testid}
+        // The third of the trio. `Panel` and `Modal` have named their frame since D3/W2; this
+        // one did not, so "which frame is on screen?" was answerable for two of the three and
+        // had to be inferred from a class string for the sheet. Presentational only — nothing
+        // is styled or selected on it — and it makes the one component, three frames pattern
+        // checkable from outside, which is the whole claim the pattern makes.
+        data-chrome="sheet"
+        tabIndex={-1}
         // Every sheet in the set is the same height, so opening one never changes how much of
         // the app you can see. 92%, because at 90% the cut landed mid-word on the month title.
         // No overflow clip here: the panel's shadow reaches UP past its own top edge, and the

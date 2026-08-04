@@ -75,13 +75,22 @@ export function IdeasPanel({
   const { ideas, ideasError } = data;
 
   /**
-   * The tap-through is offered only for a post THIS view already has. A beat's `sourceRef`
-   * points at whatever post the assembler wrote, which may sit in a month the client is not
-   * looking at — and `onOpen` resolves ids against the loaded plan, so offering it there would
-   * be a control that visibly does nothing. Where the post is out of view the title is still
-   * shown, as text: the fact survives, the dead end does not.
+   * The tap-through is offered only for a beat THIS view already has. A `sourceRef` points at
+   * whatever post the assembler wrote, which may sit in a month the client is not looking at —
+   * and `onOpen` resolves ids against what is loaded, so offering it there would be a control
+   * that visibly does nothing. Where the post is out of view the title is still shown, as text:
+   * the fact survives, the dead end does not.
+   *
+   * BOTH SETS, and the draft one is not an afterthought. `calendarPosts` is fenced against draft
+   * rows by contract, so on a DRAFT month it is empty — and the draft month is exactly where an
+   * idea most recently became something. Reading only it meant the one case the client is most
+   * likely to check ("I said this in June, what happened?") was the one case with no way through.
+   * Found by the draft e2e; before that there was no fixture in which it could show up.
    */
-  const loaded = new Set(data.calendarPosts.map((p) => p.id));
+  const loaded = new Set([
+    ...data.calendarPosts.map((p) => p.id),
+    ...(data.draft?.beats ?? []).map((b) => b.id),
+  ]);
 
   /**
    * The columns exist to lay out GROUPS, so they are off when there are none.

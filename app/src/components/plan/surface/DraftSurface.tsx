@@ -143,6 +143,17 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
   const markFor = useCallback((iso: string): DayMark => (beatsOn(iso).length ? 'draft' : 'none'), [beatsOn]);
 
   const openBeat = m.beats.find((b) => b.id === openId) ?? null;
+  /**
+   * Open a beat from a view that owns the WHOLE plan region — Ideas, Tasks.
+   *
+   * The same rule the committed surface follows: the detail renders into the day column and
+   * `region` replaces both columns, so setting the id without returning to the plan changes
+   * state and nothing on the screen. Opening a beat is a plan act.
+   */
+  const openFromRegion = useCallback((beatId: string) => {
+    setOpenId(beatId);
+    setRailView('plan');
+  }, []);
   const moveBeat = m.beats.find((b) => b.id === moveId) ?? null;
 
   const sorted = useMemo(() => [...data.cycles].sort((a, b) => a.displayMonth.localeCompare(b.displayMonth)), [data.cycles]);
@@ -300,7 +311,7 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
           agent={null} agentWorking={m.shaping}
         />}
         {...(railView === 'ideas'
-          ? { region: <IdeasPanel data={data} onOpen={() => {}} frame="desktop" /> }
+          ? { region: <IdeasPanel data={data} onOpen={openFromRegion} frame="desktop" /> }
           : {})}
         {...(railView === 'tasks'
           ? { region: <TasksPanel data={data} onOpen={() => {}} frame="desktop" /> }
