@@ -37,6 +37,33 @@ interface Logger { info(obj: unknown, msg?: string): void; warn(obj: unknown, ms
 
 // ── The validated contract ────────────────────────────────────────────────────
 
+/**
+ * A length bound that SHORTENS rather than refuses.
+ *
+ * Every other bound in this schema is a rejection, and rejection is right for a value that
+ * is matched, looked up or parsed: a shortened key is a wrong key. It is wrong for a phrase
+ * whose only consumer degrades safely on a shorter one — there, refusing the whole input
+ * over its last few characters throws away everything the model got right.
+ *
+ * The cut is at a WHITESPACE boundary. Slicing mid-word can manufacture a token the client
+ * never typed, and one of those tokens ("photoshoot" → "photos") is read downstream as a
+ * format instruction. A trailing partial word is dropped rather than kept.
+ *
+ * A single token longer than the bound leaves nothing behind, and that is the honest result:
+ * the consumer's own empty-input branch says it could not tell what was meant, which beats
+ * inventing a prefix of a word nobody said.
+ */
+const displayPhrase = (max: number) =>
+  z.string().transform((s) => {
+    if (s.length <= max) return s;
+    const cut = s.slice(0, max);
+    // The cut already fell on whitespace — every word in it is whole, so keep them all.
+    if (/\s/.test(s.charAt(max))) return cut.trimEnd();
+    // It fell mid-word. Drop that partial token; `\S*$` always matches, so a value with no
+    // whitespace at all correctly leaves nothing rather than a prefix of one long word.
+    return cut.replace(/\S*$/, '').trimEnd();
+  });
+
 const dateRangeSchema = z.object({
   start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   end:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -104,13 +131,55 @@ export const monthScopedIntentSchema = z.object({
   instances:  z.array(seriesInstanceSchema).max(60).nullable().optional(),
   /** series only — the rule, when they gave a cadence instead of a list. */
   recurrence: recurrenceSchema.nullable().optional(),
-  /** beat_edit only: which beat, in the client's words ("the Friday reel"). */
+  /**
+   * beat_edit only: which beat, in the client's words ("the Friday reel").
+   *
+   * REJECTS rather than shortens, and must. `resolveBeatRef` scans it for a weekday, a
+   * format word and a day number, and falls back to `title.includes(needle)` when it finds
+   * none — so a shortened ref matches a DIFFERENT set of beats, sometimes a different single
+   * one. This is a lookup key, and a shortened key is a wrong key, not a short one.
+   */
   beatRef:    z.string().max(200).nullable().optional(),
   /** beat_edit only: what to do with it. */
   edit:       z.enum(['move', 'swap_format', 'drop']).nullable().optional(),
+  /**
+   * beat_edit only: the new format or the new date.
+   *
+   * REJECTS. It is compared for equality against 'reel'/'carousel'/'single' or read as an
+   * ISO date — the longest legitimate value is 10 characters, so 64 is already six times
+   * what any real value needs and shortening could only ever corrupt one.
+   */
   editValue:  z.string().max(64).nullable().optional(),
-  /** emphasis only: the pillar or format to weight up. */
-  emphasis:   z.string().max(120).nullable().optional(),
+  /**
+   * emphasis only: the pillar or format to weight up.
+   *
+   * ── THE ONE FIELD THAT SHORTENS INSTEAD OF REFUSING ──────────────────────────────
+   *
+   * The model reads the back-to-school brief as an emphasis correctly, 10 times out of 10,
+   * and then writes a 113–138 character phrase into a field capped at 120. Nine times in ten
+   * that failed the schema, both attempts failed the same way (the retry re-rolls the same
+   * distribution, it does not fix a systematic overrun), and a whole month-scoped input was
+   * lost to the backlog as "Saved to your ideas" over four characters.
+   *
+   * It is the only one of these fields that can be shortened safely, because it is the only
+   * one whose consumer fails safe: `resolveEmphasisTarget` requires an outright winner and
+   * answers `ambiguous` or `none` otherwise, and both change nothing and say so. A shortened
+   * emphasis can lose the match; it cannot silently land on the wrong beat.
+   *
+   * ── AND THE CUT IS AT A WORD BOUNDARY, WHICH IS NOT TIDINESS ─────────────────────
+   *
+   * A blind `.slice(0, 120)` of the real 124-character output ends
+   * *"…tied to the new Karen range photos"* — and `photos` is a FORMAT word, so the month's
+   * commonest phrase would have resolved to `format: single` and reformatted a third of the
+   * month on a word the client never said. Measured, on the exact string the corpus produces
+   * five times in ten. Cutting at whitespace gives *"…the new Karen range"*, which correctly
+   * matches nothing.
+   *
+   * The bound is 200 — the same as `subject`, `beatRef` and `correctionOf`, so the schema
+   * has one number for "a phrase in the owner's words" rather than four. At 200 the observed
+   * outputs pass untouched and the truncation is a backstop rather than a routine step.
+   */
+  emphasis:   displayPhrase(200).nullable().optional(),
   /**
    * correction only: what the owner is correcting ABOUT, in their words — "the Meadow
    * candle launch". Matched against the beats already on the plan, so a correction acts on
@@ -119,6 +188,11 @@ export const monthScopedIntentSchema = z.object({
    * Distinct from beatRef, which points at ONE post by day/format/date. A correction names
    * a SUBJECT and may move a whole arc: "the Meadow launch is the 10th not the 1st" is
    * three beats, not one.
+   *
+   * REJECTS, and this is the one where shortening would be worst. `resolveBeatSubject`
+   * requires EVERY significant word to appear in a beat, so dropping words WIDENS the match
+   * — and `applyCorrection` then moves every beat it matched, keeping their spacing. A
+   * shortened correctionOf is a silent multi-beat reschedule, not a near miss.
    */
   correctionOf: z.string().max(200).nullable().optional(),
 });

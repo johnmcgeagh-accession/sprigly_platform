@@ -124,3 +124,85 @@ describe('classifyIntake — end to end, never throws', () => {
     expect(r.scope).toBe('month_scoped');
   });
 });
+
+/**
+ * ── A COSMETIC BOUND MUST NOT COST A WHOLE INPUT ─────────────────────────────────────
+ *
+ * The back-to-school brief classifies as an emphasis 10 times out of 10 and then writes a
+ * 113–138 character phrase into a field capped at 120. Nine of ten overran, both attempts
+ * overran the same way (the retry re-rolls the same distribution rather than fixing a
+ * systematic overrun), and a correctly-read month-scoped input was lost to the backlog as
+ * "Saved to your ideas" over four characters.
+ *
+ * `emphasis` is the ONLY field here that may be shortened, because it is the only one whose
+ * consumer fails safe. The other three are pinned below as rejecting, by name, because each
+ * would fail differently and worse.
+ */
+describe('emphasis shortens; every other bound still refuses', () => {
+  const emphasisOf = async (value: string) => {
+    const r = await classify(monthScoped({ kind: 'emphasis', subject: 'x', sourceText: 'x', emphasis: value }));
+    return r.scope === 'month_scoped' ? r.intent.emphasis : `EVERGREEN/${(r as { reason: string }).reason}`;
+  };
+
+  it('THE LIVE CASE: a 124-character emphasis is no longer thrown away', async () => {
+    const real = 'Back to school content should focus on the juggle of the school run and working life, tied to the new Karen range photoshoot';
+    expect(real.length).toBe(124);
+    const r = await classify(monthScoped({ kind: 'emphasis', subject: 'back to school', sourceText: 'x', emphasis: real }));
+    expect(r.scope).toBe('month_scoped');
+    expect(await emphasisOf(real)).toBe(real);       // 124 < 200 — it passes untouched now
+  });
+
+  it('shortens only past the bound, and leaves everything shorter exactly as sent', async () => {
+    expect(await emphasisOf('Product & Fragrance')).toBe('Product & Fragrance');
+    expect(await emphasisOf('x'.repeat(200))).toHaveLength(200);
+  });
+
+  it('cuts at a WORD boundary — a blind slice can manufacture a word nobody said', async () => {
+    // Measured on the real output: `.slice(0, 120)` of the 124-character string above ends
+    // "…Karen range photos", and `photos` is read downstream as a FORMAT instruction, which
+    // would reformat a third of the month on a word the client never typed.
+    const long = `${'a b c d e f g h i j '.repeat(10)}photoshoot`;   // 210 chars, ends mid-word at 200
+    const got = await emphasisOf(long) as string;
+    expect(got.length).toBeLessThanOrEqual(200);
+    expect(got.endsWith('photo')).toBe(false);
+    expect(got.endsWith('photos')).toBe(false);
+    expect(long.startsWith(got)).toBe(true);          // a prefix, never a rewrite
+    expect(got).toMatch(/\S$/);                        // no dangling whitespace
+  });
+
+  it('a single token longer than the bound leaves nothing, rather than a prefix of a word', async () => {
+    // The consumer's own empty branch then says it could not tell what was meant, which is
+    // honest. A 200-character prefix of one word is not a phrase and must not be matched on.
+    expect(await emphasisOf('x'.repeat(260))).toBe('');
+  });
+
+  it('beatRef still REJECTS — it is a lookup key, and a short key is a wrong key', async () => {
+    const r = await classify(monthScoped({
+      kind: 'beat_edit', subject: 'x', sourceText: 'x', edit: 'drop', beatRef: 'y'.repeat(201),
+    }));
+    expect(r).toMatchObject({ scope: 'evergreen' });
+  });
+
+  it('correctionOf still REJECTS — dropping words WIDENS its match and moves more beats', async () => {
+    const r = await classify(monthScoped({
+      kind: 'correction', subject: 'x', sourceText: 'x', correctionOf: 'y'.repeat(201),
+      dateRange: { start: '2026-09-10', end: '2026-09-10' },
+    }));
+    expect(r).toMatchObject({ scope: 'evergreen' });
+  });
+
+  it('editValue still REJECTS — it is compared for equality, and 10 characters is its real max', async () => {
+    const r = await classify(monthScoped({
+      kind: 'beat_edit', subject: 'x', sourceText: 'x', edit: 'swap_format', beatRef: 'the Friday reel',
+      editValue: 'y'.repeat(65),
+    }));
+    expect(r).toMatchObject({ scope: 'evergreen' });
+  });
+
+  it('subject still REJECTS — it becomes a post’s title, and a truncated title is wrong, not short', async () => {
+    const r = await classify(monthScoped({
+      kind: 'event', subject: 'y'.repeat(201), sourceText: 'x', dateRange: { start: '2026-09-12', end: '2026-09-12' },
+    }));
+    expect(r).toMatchObject({ scope: 'evergreen' });
+  });
+});
