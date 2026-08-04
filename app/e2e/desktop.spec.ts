@@ -260,29 +260,69 @@ test('below 1440 the plan region STACKS; at 1440 and up it is side by side', asy
   expect(Math.abs(m.day.w - 320)).toBeLessThanOrEqual(4);
 });
 
-test('the columns grow to their ceilings and then the shell centres', async ({ page }) => {
-  await page.setViewportSize({ width: 1920, height: 900 });
-  await expect(page.getByTestId('month-grid')).toBeVisible();
-  let m = await metrics(page);
-  expect(m.month.w).toBe(680);          // the stated ceilings
-  expect(m.day.w).toBe(420);
-  expect(m.dock.w).toBe(400);
-  expect(m.shell.w).toBe(1764);
-  // Balanced: the margin on the left equals the margin on the right.
-  expect(m.shell.x).toBe(Math.round((m.viewport - m.shell.w) / 2));
+test('the columns grow to their ceilings and then CENTRE — inside a full-width shell', async ({ page }) => {
+  // W1 capped the SHELL and centred that, which stopped the columns growing but also put the
+  // rail's and dock's borders 400px inside a 2560 viewport — an app reading as a bordered
+  // rectangle floating in a field (F4). The ceiling moved down a level: the shell fills the
+  // window, its two edge regions are flush, and the COLUMNS centre in what is left.
+  for (const width of [1920, 2560]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(page.getByTestId('month-grid')).toBeVisible();
+    const m = await metrics(page);
 
-  await page.setViewportSize({ width: 2560, height: 900 });
-  await expect(page.getByTestId('month-grid')).toBeVisible();
-  m = await metrics(page);
-  // Past the ceiling nothing grows — the MARGINS do, and they stay equal.
-  expect(m.month.w).toBe(680);
-  expect(m.day.w).toBe(420);
-  expect(m.dock.w).toBe(400);
-  expect(m.shell.w).toBe(1764);
-  expect(m.shell.x).toBe(Math.round((m.viewport - m.shell.w) / 2));
-  // The failure this replaces: columns left-anchored with the whole surplus on the right.
-  const rightMargin = m.viewport - (m.shell.x + m.shell.w);
-  expect(Math.abs(rightMargin - m.shell.x)).toBeLessThanOrEqual(1);
+    expect(m.month.w, `${width}: month ceiling`).toBe(680);
+    expect(m.day.w, `${width}: day ceiling`).toBe(420);
+    expect(m.dock.w, `${width}: dock ceiling`).toBe(400);
+
+    // The shell IS the window.
+    expect(m.shell.x, `${width}: shell flush left`).toBe(0);
+    expect(m.shell.w, `${width}: shell fills`).toBe(width);
+
+    // …and the surplus is still split evenly on both sides of the columns, which was W1's
+    // actual rule. The failure it replaced — columns left-anchored, whole surplus on the
+    // right — is what this measures.
+    const cols = await page.evaluate(() => {
+      const c = document.querySelector('[data-testid="plan-cols"]')!.getBoundingClientRect();
+      const rail = document.querySelector('[data-testid="plan-rail"]')!.getBoundingClientRect();
+      const dock = document.querySelector('[data-testid="conversation-dock"]')!.getBoundingClientRect();
+      return { left: c.left - rail.right, right: dock.left - c.right };
+    });
+    expect(Math.abs(cols.left - cols.right), `${width}: balanced around the columns`).toBeLessThanOrEqual(1);
+  }
+});
+
+test('the shell meets the viewport edge to edge, with no card chrome on its regions', async ({ page }) => {
+  for (const width of [1024, 1440, 1920, 2560]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(page.getByTestId('plan-rail')).toBeVisible();
+
+    const seams = await page.evaluate(() => {
+      const box = (t: string) => document.querySelector(`[data-testid="${t}"]`)?.getBoundingClientRect() ?? null;
+      const shell = box('plan-desktop')!, rail = box('plan-rail')!, dock = box('conversation-dock');
+      const panel = document.querySelector('[data-chrome="panel"]');
+      const cs = panel ? getComputedStyle(panel) : null;
+      return {
+        shellLeft: Math.round(shell.left),
+        shellRight: Math.round(window.innerWidth - shell.right),
+        railLeft: Math.round(rail.left),
+        dockRight: dock ? Math.round(window.innerWidth - dock.right) : 0,
+        panelRadius: cs?.borderTopLeftRadius ?? '0px',
+        panelBorder: cs?.borderTopWidth ?? '0px',
+        panelShadow: cs?.boxShadow ?? 'none',
+      };
+    });
+
+    expect(seams.shellLeft, `${width}: shell left`).toBe(0);
+    expect(seams.shellRight, `${width}: shell right`).toBe(0);
+    expect(seams.railLeft, `${width}: rail flush`).toBe(0);
+    expect(seams.dockRight, `${width}: dock flush`).toBe(0);
+    // W3 flattened the TURNS inside the dock and left the panel holding them a floating card,
+    // so the seam moved rather than went. A panel is a region of the shell, not an object
+    // resting on it.
+    expect(seams.panelRadius, `${width}: panel radius`).toBe('0px');
+    expect(seams.panelBorder, `${width}: panel border`).toBe('0px');
+    expect(seams.panelShadow, `${width}: panel shadow`).toBe('none');
+  }
 });
 
 test('the rail collapses to icons below 1280 and carries its labels above', async ({ page }) => {
@@ -292,6 +332,40 @@ test('the rail collapses to icons below 1280 and carries its labels above', asyn
 
   await page.setViewportSize({ width: 1440, height: 900 });
   expect((await metrics(page)).rail.w).toBe(196);
+});
+
+test('the wordmark survives the collapse — stacked and smaller, never dropped', async ({ page }) => {
+  // Collapsed, "Sprigly" at 22px is wider than the 68px rail, so it was clipped or spilling over
+  // the month grid depending on where the overflow landed (F5). An app that drops its own name
+  // when the navigation narrows has decided the name was decoration.
+  const read = () => page.evaluate(() => {
+    const wm = document.querySelector('[data-testid="wordmark"]')!;
+    const word = wm.querySelector('span')!, mark = wm.querySelector('svg')!;
+    const rail = document.querySelector('[data-testid="plan-rail"]')!.getBoundingClientRect();
+    const w = word.getBoundingClientRect(), m = mark.getBoundingClientRect();
+    return {
+      text: word.textContent,
+      inside: w.left >= rail.left - 0.5 && w.right <= rail.right + 0.5,
+      markPx: Math.round(m.width),
+      stacked: m.bottom <= w.top + 1,
+    };
+  });
+
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await expect(page.getByTestId('plan-rail')).toBeVisible();
+  const collapsed = await read();
+  expect(collapsed.text).toBe('Sprigly');
+  expect(collapsed.inside, 'the word must fit inside the collapsed rail').toBe(true);
+  expect(collapsed.stacked, 'collapsed, the name sits under the mark').toBe(true);
+  // The MARK does not shrink with it — the identity reads at the same weight either way.
+  expect(collapsed.markPx).toBe(20);
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const expanded = await read();
+  expect(expanded.text).toBe('Sprigly');
+  expect(expanded.inside).toBe(true);
+  expect(expanded.stacked, 'expanded, the name sits beside the mark').toBe(false);
+  expect(expanded.markPx).toBe(20);
 });
 
 test('the month grid fills its column rather than leaving canvas under it', async ({ page }) => {

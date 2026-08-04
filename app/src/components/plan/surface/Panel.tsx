@@ -54,7 +54,18 @@ export function Panel({ open, label, testid, children }: PanelProps) {
       aria-label={label}
       // `min-h-0` is load-bearing: this is a flex child whose own child scrolls, and without it
       // the scroll region grows to its content and takes the column with it.
-      className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[20px] border border-line/30 bg-surface shadow-card"
+      //
+      // ── FLAT, AND IT IS THE SAME ARGUMENT W3 MADE ONE LEVEL UP ────────────────────
+      //
+      // W3 flattened the TURNS inside the dock: a rounded card inset from edges it already has
+      // reads as a component borrowed from somewhere else. The panel holding them kept its own
+      // radius, border and shadow — so the dock was a floating card containing flush content,
+      // and the seam moved rather than went (operator, 3 Aug).
+      //
+      // A panel is a REGION of the shell, not an object resting on it. The fill change from
+      // canvas to surface is the whole separation it needs; a border and a 20px radius on top
+      // of that is the app drawing a card around one of its own walls.
+      className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface"
     >
       {children}
     </section>

@@ -180,7 +180,18 @@ export function PlanShell({
  * the reach of a client's patience. Nothing visible changes until it fires, so the wordmark is
  * still just the wordmark; the panel that appears names itself in its first line.
  */
-export function Wordmark({ className = 'flex flex-none items-center gap-[7px] px-5 pt-1.5' }: { className?: string }) {
+export function Wordmark({
+  className = 'flex flex-none items-center gap-[7px] px-5 pt-1.5',
+  /**
+   * The word's own type, so a caller with less room can shrink it rather than lose it.
+   *
+   * The desktop rail collapses to 68px and "Sprigly" at 22px is about 75 — so the identity was
+   * either clipped or spilling over the month grid, depending on where the overflow landed
+   * (operator, 3 Aug). The answer is a smaller word, not no word: an app that drops its own name
+   * when the navigation narrows has decided the name was decoration.
+   */
+  wordClassName = 'text-[22px]',
+}: { className?: string; wordClassName?: string }) {
   const taps = React.useRef<{ n: number; at: number }>({ n: 0, at: 0 });
   const onTap = () => {
     const now = performance.now();
@@ -198,7 +209,7 @@ export function Wordmark({ className = 'flex flex-none items-center gap-[7px] px
       data-testid="wordmark"
     >
       <SprigMarkV2 className="h-[20px] w-[20px] text-coral-600" />
-      <span className="font-logo text-[22px] font-extrabold leading-none tracking-[-.02em] text-coral-700">Sprigly</span>
+      <span className={`font-logo font-extrabold leading-none tracking-[-.02em] text-coral-700 ${wordClassName}`}>Sprigly</span>
     </div>
   );
 }

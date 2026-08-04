@@ -58,8 +58,20 @@ const config: Config = {
         dock: 'clamp(320px, 24vw, 400px)',
       },
       maxWidth: {
-        /** The shell's ceiling. Past this the margins grow, not the columns. */
+        /**
+         * The shell's old ceiling. Kept because the spec's §2.6 arithmetic is stated in terms
+         * of it (rail + columns + dock, all at their ceilings) — but the shell itself is
+         * full-width now: capping it there put the rail's and dock's borders 400px inside a
+         * 2560 viewport, and the app read as a bordered rectangle floating in a field.
+         */
         shell: '1764px',
+        /**
+         * WHERE THE CEILING LIVES NOW: month 680 + gap 20 + day 420, plus the region's own
+         * 24px gutters. The columns still stop growing and the surplus still splits evenly on
+         * both sides of them — W1's rule unchanged — except it is inside the app rather than
+         * around it, so the two edge regions stay flush with the viewport.
+         */
+        cols: '1168px',
         /** A modal's content width. The decision it carries is the same size on every
          *  screen, so this is fixed rather than proportional. */
         modal: '480px',

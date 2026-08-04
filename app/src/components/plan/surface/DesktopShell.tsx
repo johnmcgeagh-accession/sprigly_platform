@@ -97,10 +97,21 @@ export function DesktopShell({
   overlays?: React.ReactNode | undefined;
 }) {
   return (
-    // THE SHELL HAS A CEILING AND CENTRES INSIDE IT (spec §2.6). Past `max-w-shell` the
-    // surplus becomes balanced margin on both sides rather than one void between the day
-    // column and the dock, which is what a fixed-width layout does with a wide monitor.
-    <div data-testid="plan-desktop" className="relative mx-auto flex h-[100dvh] w-full max-w-shell overflow-hidden bg-bg text-chrome">
+    /**
+     * ── THE SHELL FILLS THE WINDOW; THE COLUMNS KEEP THEIR CEILING ────────────────────
+     *
+     * W1 capped the whole shell at `max-w-shell` and centred it, which stopped the columns
+     * growing forever — the right goal — but at 2560 it also put the rail's left border and the
+     * dock's right border 400px inside the viewport, with canvas either side. The app read as a
+     * bordered rectangle floating in a field rather than as an app (operator, 3 Aug).
+     *
+     * Both rules hold at once by moving the cap DOWN a level. The shell is `w-full` and its two
+     * edge regions are flush with the viewport; the ceiling lives on the plan columns, which
+     * centre in whatever space is left between rail and dock. So the columns still stop at
+     * 680/420, the surplus is still balanced on both sides of them — W1's rule, unchanged in
+     * substance — and it is now INSIDE the app instead of around it.
+     */
+    <div data-testid="plan-desktop" className="relative flex h-[100dvh] w-full overflow-hidden bg-bg text-chrome">
       <Rail
         clientName={clientName} subtitle={subtitle}
         view={view} onView={onView} tasksCount={tasksCount} tasksLate={tasksLate} ideasCount={ideasCount}
@@ -109,7 +120,9 @@ export function DesktopShell({
       <div className="flex min-w-0 flex-1 flex-col">
         {topSlot}
 
-        <div className="flex flex-none items-center gap-2 px-6 pb-3 pt-4">
+        {/* The header rides the columns' measure, not the window's. Left flush it would sit a
+            long way from the grid it names once the surplus grew. */}
+        <div className="mx-auto flex w-full max-w-cols flex-none items-center gap-2 px-6 pb-3 pt-4">
           <div className="-ml-[11px] flex min-w-0 items-center">
             <ArrowBtn dir="prev" onClick={onPrevMonth} />
             {/* The month is the page's subject, so it is the h1 — the same ladder the phone
@@ -152,13 +165,13 @@ export function DesktopShell({
           to their ceilings instead of leaving the surplus in the gap.
         */}
         {region ? (
-          <div data-testid="plan-region" className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 pb-6">
+          <div data-testid="plan-region" className="mx-auto flex min-h-0 w-full max-w-cols flex-1 flex-col overflow-hidden px-6 pb-6">
             {region}
           </div>
         ) : (
           <div
             data-testid="plan-cols"
-            className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 pb-5 wide:flex-row wide:gap-5 wide:overflow-hidden wide:pb-6"
+            className="mx-auto flex min-h-0 w-full max-w-cols flex-1 flex-col gap-4 overflow-y-auto px-6 pb-5 wide:flex-row wide:gap-5 wide:overflow-hidden wide:pb-6"
           >
             <div data-testid="month-col" className="flex min-h-0 w-full flex-none flex-col wide:w-auto wide:flex-month wide:overflow-y-auto">
               {month}

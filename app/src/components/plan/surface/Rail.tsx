@@ -59,7 +59,15 @@ export function Rail({
       aria-label="Views"
       className="flex w-rail-tight flex-none flex-col items-center border-r border-line/30 bg-surface px-2.5 py-4 xl:w-rail xl:items-stretch xl:px-3.5"
     >
-      <Wordmark className="mb-4 flex flex-none items-center justify-center gap-[7px] xl:justify-start xl:px-1.5" />
+      {/* COLLAPSED, THE NAME STACKS UNDER THE MARK RATHER THAN GOING. 68px will not hold
+          "Sprigly" beside the leaf at 22px, so the word used to be clipped or spilling over the
+          month grid — and an app that drops its own name when the navigation narrows has decided
+          the name was decoration. Stacked and small it fits with room to spare, and the mark
+          keeps its size, so the identity reads the same at both widths. */}
+      <Wordmark
+        className="mb-4 flex flex-none flex-col items-center gap-1 xl:flex-row xl:justify-start xl:gap-[7px] xl:px-1.5"
+        wordClassName="text-[12px] xl:text-[22px]"
+      />
 
       <div className="hidden min-w-0 border-b border-line/30 px-1.5 pb-4 xl:block">
         <div data-testid="rail-client" className="truncate text-[15px] font-semibold tracking-[-.01em] text-chrome">{clientName}</div>
