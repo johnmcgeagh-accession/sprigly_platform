@@ -91,6 +91,10 @@ NEW=(
   # refuse: it is the second file, not a second name for the first.
   0090_plan_activity_post_fk
   0091_cost_pence_subpenny
+  # Schema, not seed: agent_messages gains outcome columns with defaults. Landed in 0f50522 and
+  # never named here, so the manifest guard refused every e2e run after it — which is the guard
+  # doing its job.
+  0092_agent_turn_outcome
 )
 
 # Deliberately NOT applied, each for a stated reason. A migration is either in NEW or in
