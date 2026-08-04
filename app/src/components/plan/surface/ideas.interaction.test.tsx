@@ -133,13 +133,29 @@ describe('the words are hers, and the state is derived', () => {
     expect(within(panel).getByTestId('idea-state').textContent).toBe('Used in September 2026');
   });
 
-  it('says "waiting" and "deferred to next month" in those words', () => {
+  it('says "waiting" and "deferred to next month" in those words, on the heading', () => {
+    // The state is on the group, not repeated under every row in it — four rows under a
+    // "WAITING" heading each ending in the word "Waiting" is noise dressed as information.
     const panel = openIdeas(base({
       ideas: [idea({ state: 'waiting' }), idea({ id: 'i2', state: 'deferred' })],
     } as Partial<PlanData>));
+    const headings = within(panel).getAllByTestId('ideas-group').map((g) => g.textContent ?? '');
+    expect(headings.some((h) => h.includes('Waiting'))).toBe(true);
+    expect(headings.some((h) => h.includes('Deferred to next month'))).toBe(true);
+    // …and the rows themselves carry no state line, because neither has a month to add.
+    expect(within(panel).queryAllByTestId('idea-state')).toHaveLength(0);
+  });
+
+  it('only a USED row says its own state, because only that one has a month to add', () => {
+    const panel = openIdeas(base({
+      ideas: [
+        idea({ state: 'waiting' }),
+        idea({ id: 'i2', state: 'used', usedInMonth: 'September 2026' }),
+        idea({ id: 'i3', state: 'set-aside' }),
+      ],
+    } as Partial<PlanData>));
     const states = within(panel).getAllByTestId('idea-state').map((e) => e.textContent);
-    expect(states).toContain('Waiting');
-    expect(states).toContain('Deferred to next month');
+    expect(states).toEqual(['Used in September 2026']);
   });
 
   it('groups by state, live first and finished last', () => {
@@ -228,6 +244,19 @@ describe('the empty state teaches the add path', () => {
     expect(empty.textContent).toContain('they’re captured here');
     // It says what saying something DOES. It does not report a zero.
     expect(empty.textContent).not.toContain('0');
+  });
+
+  it('is NOT laid out in columns — a heading and its sentence are one thing', () => {
+    // Found by screenshot: with the two-column flow always on, "Nothing here yet" landed in the
+    // first column and the sentence explaining it in the second, halfway across the screen.
+    // Multi-column does not know they belong together, so it is off when there is nothing to
+    // flow. The populated case keeps it — see the group test above.
+    const panel = openIdeas(base({ ideas: [] } as Partial<PlanData>));
+    expect(panel.className).not.toContain('columns-2');
+
+    const populated = base({ ideas: [idea()] } as Partial<PlanData>);
+    cleanup();
+    expect(openIdeas(populated).className).toContain('wide:columns-2');
   });
 
   it('says the list could not be read rather than showing an empty one', () => {

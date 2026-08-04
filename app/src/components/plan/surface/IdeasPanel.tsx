@@ -48,12 +48,19 @@ import { ChevronR } from './icons';
 const EMPTY_HEAD = 'Nothing here yet';
 const EMPTY_BODY = 'When you tell Sprigly things like “make Fridays more personal”, they’re captured here.';
 
-/** The groups, in reading order: what is still live, then what is finished. */
+/**
+ * The groups, in reading order: what is still live, then what is finished.
+ *
+ * THE HEADING CARRIES THE STATE, ONCE. The first render put the state under every row as well,
+ * and four rows under a "WAITING" heading each ending in the word "Waiting" is noise dressed as
+ * information. The only row that still says its own state is a used one, because it has a month
+ * to add — see `IdeaRow`.
+ */
 const GROUPS: [IdeaState, string, string][] = [
-  ['waiting',   'Waiting',   'On record. Not used yet, and not turned down.'],
-  ['deferred',  'Next month', 'You asked us to hold these for the month after this one.'],
-  ['used',      'Used',      'These became posts.'],
-  ['set-aside', 'Set aside', 'Either you turned these down, or their moment passed.'],
+  ['waiting',   'Waiting',                  'On record. Not used yet, and not turned down.'],
+  ['deferred',  'Deferred to next month',   'You asked us to hold these for the month after this one.'],
+  ['used',      'Used',                     'These became posts.'],
+  ['set-aside', 'Set aside',                'Either you turned these down, or their moment passed.'],
 ];
 
 export function IdeasPanel({
@@ -76,12 +83,22 @@ export function IdeasPanel({
    */
   const loaded = new Set(data.calendarPosts.map((p) => p.id));
 
+  /**
+   * The columns exist to lay out GROUPS, so they are off when there are none.
+   *
+   * Found by screenshot, not by a test: with `columns-2` always on, the empty state's heading
+   * flowed into the first column and its sentence into the second — "Nothing here yet" on the
+   * left and the explanation of it stranded halfway across the screen. Multi-column does not
+   * know that a heading and its body are one thing; the fix is not to ask it.
+   */
+  const flow = desktop && ideas.length > 0 ? 'wide:columns-2 wide:gap-7' : '';
+
   return (
     <div
       data-testid="ideas-panel"
       className={`flex-1 overflow-y-auto pt-3 [scrollbar-width:none] ${scrollPad(frame)} ${
-        desktop ? 'px-1 wide:columns-2 wide:gap-7' : 'px-5'
-      }`}
+        desktop ? 'px-1' : 'px-5'
+      } ${flow}`}
     >
       {ideasError && (
         <p data-testid="ideas-error" className="mx-1 mb-3 rounded-xl border border-line/40 px-3 py-2.5 text-[13px] leading-normal text-muted">
@@ -126,15 +143,19 @@ export function IdeasPanel({
  * marks are real: this text was not written for a screen and is not being paraphrased into one.
  */
 function IdeaRow({ idea, onOpen }: { idea: IdeaView; onOpen?: ((postId: string) => void) | undefined }) {
-  const label = ideaStateLabel(idea.state, idea.usedInMonth);
+  // Only where it adds something the heading above has not already said — which is the month,
+  // and only a used idea has one. Everywhere else the row is her sentence and nothing else.
+  const label = idea.state === 'used' && idea.usedInMonth
+    ? ideaStateLabel(idea.state, idea.usedInMonth)
+    : null;
   return (
     <div data-testid="idea-row" data-state={idea.state} className="border-b border-line/25 py-2.5 last:border-b-0">
       <p className="break-words text-[14px] leading-[1.45] text-chrome">“{idea.content}”</p>
 
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span data-testid="idea-state" className={`text-[12px] font-semibold ${idea.state === 'used' ? 'text-coral-700' : 'text-muted'}`}>
-          {label}
-        </span>
+      <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${label || idea.postTitle ? 'mt-1.5' : ''}`}>
+        {label && (
+          <span data-testid="idea-state" className="text-[12px] font-semibold text-coral-700">{label}</span>
+        )}
 
         {/* The beat it became. A separate control from the state word rather than a link on it,
             so "Used in August" stays a statement you can read and the tap target is a thing you
