@@ -343,7 +343,9 @@ describe('move: a date, a time, and where it went', () => {
     fireEvent.click(document.querySelector('[data-testid="move-sheet"] [data-date="2026-10-22"]')!);
     fireEvent.click(screen.getByTestId('move-confirm'));
 
-    expect(screen.getByTestId('feedback').className).toContain('top-[46px]');
+    // The placement moved one element out, to the frame wrapper — the bar itself is now only
+    // the bar, and where it sits is the shell's answer rather than the phone's for everyone.
+    expect(screen.getByTestId('feedback').parentElement!.className).toContain('top-[46px]');
   });
 
   it('a past date is not pickable, so the move cannot be refused after the fact', () => {

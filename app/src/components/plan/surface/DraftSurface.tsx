@@ -332,9 +332,25 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
         headerRight={editable && m.beats.length > 0
           ? <ApprovalPill busy={approval.busy} onClick={() => approval.setOpen(true)} />
           : undefined}
+        /**
+         * X5a's RULE, IN THE SHELL WHERE THE THREAD NEVER CLOSES.
+         *
+         * ec86c35 ruled that while the conversation is open it owns the agent's voice and its
+         * working state, and this bar carries only what is about the plan behind it. It applied
+         * that on the phone, where "open" is a state — `voiceFor !== null` below. On desktop the
+         * conversation is DOCKED: it has been open since the page loaded, which is E1's whole
+         * argument. So the same rule reads as a constant here, and `m.shaping` was putting a
+         * second "Sprigly is thinking" over the header while the dock's own turn said it in the
+         * client's own thread, three feet to the right. Measured at 1440: dots at (56, 67) and
+         * dots at (1141, 690), in the same second.
+         *
+         * The committed desktop surface already passes both off for the same reason. This is
+         * the pair matching, not a new rule.
+         */
         topSlot={<Feedback
+          frame="desktop"
           undo={m.undo} onDismiss={() => m.setUndo(null)} message={data.toast}
-          agent={null} agentWorking={m.shaping}
+          agent={null} agentWorking={false}
         />}
         {...(railView === 'ideas'
           ? { region: <IdeasPanel data={data} onOpen={openFromRegion} frame="desktop" /> }
@@ -450,6 +466,7 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
       // X5a, same rule as the committed month: while the sheet is open the THREAD owns the
       // agent's voice and its working state, and this bar must not render a second copy over it.
       topSlot={<Feedback
+        frame="mobile"
         undo={m.undo} onDismiss={() => m.setUndo(null)} message={data.toast}
         agent={voiceFor !== null ? null : data.agentToast}
         agentWorking={voiceFor === null && (data.agentBusy || m.shaping)}

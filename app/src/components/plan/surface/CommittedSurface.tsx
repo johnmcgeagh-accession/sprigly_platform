@@ -503,6 +503,7 @@ export function CommittedSurface({ data, frame = 'mobile' }: { data: PlanData; f
         onNextMonth={next ? () => { navTrace('cycle user:next-month', next.cycleId); void data.switchCycle(next.cycleId); } : undefined}
         onToday={goToday} todayEnabled={todayEnabled}
         topSlot={<Feedback
+          frame="desktop"
           undo={undo} onDismiss={() => setUndo(null)} message={data.toast}
           agent={null} agentWorking={false}
         />}
@@ -584,6 +585,7 @@ export function CommittedSurface({ data, frame = 'mobile' }: { data: PlanData; f
        * behind it. Structural rather than a flag every future caller has to remember.
        */
       topSlot={<Feedback
+        frame="mobile"
         undo={undo} onDismiss={() => setUndo(null)} message={data.toast}
         agent={voiceOpen ? null : data.agentToast} agentWorking={!voiceOpen && data.agentBusy}
       />}

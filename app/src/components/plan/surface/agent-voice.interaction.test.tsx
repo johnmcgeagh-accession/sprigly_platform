@@ -108,7 +108,7 @@ describe('the top slot: a reply is not a confirmation', () => {
   const noop = () => {};
 
   it('an agent reply renders in the agent’s register, NOT the dark slab', () => {
-    render(<Feedback undo={null} onDismiss={noop} agent="That would move it into November — shall I?" />);
+    render(<Feedback frame="mobile" undo={null} onDismiss={noop} agent="That would move it into November — shall I?" />);
     expect(screen.getByTestId('feedback-agent')).toBeTruthy();
     expect(screen.getByTestId('feedback-agent-text').textContent)
       .toBe('That would move it into November — shall I?');
@@ -116,14 +116,14 @@ describe('the top slot: a reply is not a confirmation', () => {
   });
 
   it('a plain statement keeps the dark slab — the app reporting on itself', () => {
-    render(<Feedback undo={null} onDismiss={noop} message="Moved to Friday." />);
+    render(<Feedback frame="mobile" undo={null} onDismiss={noop} message="Moved to Friday." />);
     const slab = screen.getByTestId('feedback');
     expect(slab.className).toContain('bg-chrome-deep');
     expect(screen.queryByTestId('feedback-agent')).toBeNull();
   });
 
   it('the agent WORKING shows the dots before there are any words', () => {
-    render(<Feedback undo={null} onDismiss={noop} agentWorking />);
+    render(<Feedback frame="mobile" undo={null} onDismiss={noop} agentWorking />);
     expect(screen.getByTestId('agent-dots')).toBeTruthy();
     expect(screen.queryByTestId('feedback-agent-text')).toBeNull();
   });
@@ -131,6 +131,7 @@ describe('the top slot: a reply is not a confirmation', () => {
   it('UNDO OUTRANKS THE AGENT — it is time-limited and destructive to miss', () => {
     render(
       <Feedback
+        frame="mobile"
         undo={{ message: 'Moved to 3 November.', onUndo: noop }}
         onDismiss={noop}
         agent="Done — moved it."
@@ -143,13 +144,13 @@ describe('the top slot: a reply is not a confirmation', () => {
   });
 
   it('and the agent outranks a plain message, which is the reply to what they just said', () => {
-    render(<Feedback undo={null} onDismiss={noop} message="Saved." agent="I’ve put that up to approve." />);
+    render(<Feedback frame="mobile" undo={null} onDismiss={noop} message="Saved." agent="I’ve put that up to approve." />);
     expect(screen.getByTestId('feedback-agent-text').textContent).toBe('I’ve put that up to approve.');
     expect(screen.queryByTestId('feedback')).toBeNull();
   });
 
   it('nothing at all renders nothing', () => {
-    const { container } = render(<Feedback undo={null} onDismiss={noop} />);
+    const { container } = render(<Feedback frame="mobile" undo={null} onDismiss={noop} />);
     expect(container.firstChild).toBeNull();
   });
 });

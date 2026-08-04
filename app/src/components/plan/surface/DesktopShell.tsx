@@ -117,7 +117,12 @@ export function DesktopShell({
         view={view} onView={onView} tasksCount={tasksCount} tasksLate={tasksLate} ideasCount={ideasCount}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      {/* `relative` is what scopes `topSlot` to this column. The feedback bar is absolutely
+          positioned, and without a containing block here it resolved against `plan-desktop` —
+          the whole window — so the phone's `inset-x-4` became a 2528px bar across the rail, the
+          header and the dock. Overlays are deliberately NOT in here: a modal and its scrim
+          suspend the whole app and must keep the window as their frame. */}
+      <div className="relative flex min-w-0 flex-1 flex-col">
         {topSlot}
 
         {/* The header rides the columns' measure, not the window's. Left flush it would sit a

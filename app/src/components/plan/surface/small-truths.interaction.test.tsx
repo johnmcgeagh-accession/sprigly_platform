@@ -113,7 +113,7 @@ describe('d) a digest answer renders as structured lines', () => {
   });
 
   it('the feedback slot renders blocks, and no asterisk survives to the screen', () => {
-    render(<Feedback undo={null} onDismiss={() => {}} agent={ANSWER} />);
+    render(<Feedback frame="mobile" undo={null} onDismiss={() => {}} agent={ANSWER} />);
     const said = screen.getByTestId('feedback-agent').textContent ?? '';
     expect(said).not.toContain('*');
     expect(said).toContain('Weekend Style Guide');
@@ -121,7 +121,7 @@ describe('d) a digest answer renders as structured lines', () => {
   });
 
   it('a one-line reply stays plain prose — structure is for structure', () => {
-    render(<Feedback undo={null} onDismiss={() => {}} agent="You have 12 posts planned across August." />);
+    render(<Feedback frame="mobile" undo={null} onDismiss={() => {}} agent="You have 12 posts planned across August." />);
     expect(screen.queryByTestId('agent-line')).toBeNull();
     expect(screen.getByTestId('feedback-agent').textContent).toContain('12 posts planned');
   });

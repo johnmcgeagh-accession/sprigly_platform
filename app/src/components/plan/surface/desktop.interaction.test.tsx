@@ -362,6 +362,55 @@ for (const width of WIDTHS) {
       expect(screen.getByTestId('thread').className).toContain('[&>*:first-child]:mt-auto');
     });
 
+    // ── THE TOP SLOT — the other slot both shells render into ────────────────────────
+
+    /**
+     * The feedback bar was the phone's, ungated, on both desktop surfaces. Its geometry was
+     * hardcoded — `absolute inset-x-4 top-[46px] z-40` — and `plan-desktop` is the positioned
+     * ancestor, so at 2560 that was a 2528px bar across the rail, the wordmark, the month title
+     * and the Generate pill. Same class of defect as d6427ff's five, in `topSlot` rather than
+     * `overlays`, and the same fix: the frame is a required prop with no default.
+     *
+     * jsdom cannot measure the bar, so this asserts the two facts that DECIDE the measurement —
+     * which frame's classes it took, and which element is its containing block.
+     */
+    it('the top slot takes the DESKTOP frame: the columns’ measure, inside the main column', () => {
+      render(<CommittedSurface data={committedData({ toast: 'Moved to Friday.' } as Partial<PlanData>)} frame="desktop" />);
+      const placed = screen.getByTestId('feedback').parentElement!;
+
+      expect(placed.className).toContain('max-w-cols');   // the columns' measure, not the window's
+      expect(placed.className).toContain('top-[72px]');   // clears the header rather than covering it
+      expect(placed.className).not.toContain('inset-x-4');// the phone's inset, at any window width
+
+      // …and the containing block is the MAIN COLUMN, which is what puts the rail and the dock
+      // out of reach by construction. Without `relative` here it resolves to the whole window
+      // again and every measure above it is decoration.
+      expect(placed.parentElement!.className).toContain('relative');
+      expect(within(placed.parentElement!).getByTestId('month-title')).toBeTruthy();
+    });
+
+    it('a working turn shows ONE indicator — the dock’s — and never a second over the header', async () => {
+      // The turn is held open, because the defect only exists while it is running.
+      let release!: () => void;
+      const held = new Promise<void>((r) => { release = r; });
+      vi.stubGlobal('fetch', vi.fn(async () => {
+        await held;
+        return { ok: true, json: async () => ({ ok: true, beats: [draftBeat()] }) } as unknown as Response;
+      }));
+
+      render(<DraftSurface data={draftData()} frame="desktop" />);
+      fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'Move it to the 12th' } });
+      await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+
+      // X5a's rule, in the shell where the thread never closes: the docked conversation owns the
+      // agent's working state, and the bar over the plan carries none of it.
+      expect(screen.getAllByTestId('agent-dots')).toHaveLength(1);
+      expect(within(screen.getByTestId('conversation-dock')).getByTestId('agent-dots')).toBeTruthy();
+      expect(screen.queryByTestId('feedback-agent')).toBeNull();
+
+      await act(async () => { release(); });
+    });
+
     // ── W4 · tasks own the whole region ──────────────────────────────────────────────
 
     it('Tasks takes the whole plan region, not the day column', () => {
@@ -428,6 +477,14 @@ describe('the mobile surface is untouched by any of it', () => {
     const thin = [draftBeat(), draftBeat({ id: 'b2', date: '2026-10-02', title: 'A small moment' })];
     render(<DraftSurface data={draftData(thin)} />);
     expect(screen.getByTestId('draft-summary-toggle').getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('the top slot is still the phone’s bar — inset from the screen, under the header band', () => {
+    render(<CommittedSurface data={committedData({ toast: 'Moved to Friday.' } as Partial<PlanData>)} />);
+    const placed = screen.getByTestId('feedback').parentElement!;
+    expect(placed.className).toContain('inset-x-4');
+    expect(placed.className).toContain('top-[46px]');
+    expect(placed.className).not.toContain('max-w-cols');
   });
 
   it('the detail sheet is still a SHEET on a phone — scrim, grabber, modal', () => {
