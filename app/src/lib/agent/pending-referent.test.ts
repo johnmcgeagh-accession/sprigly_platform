@@ -38,7 +38,7 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('@sprigly/db', () => ({ db: {}, contentCycles: {}, contentCyclePosts: {}, conversations: {}, agentMessages: {}, agentProposals: {} }));
-vi.mock('@/lib/plan', () => ({ loadPlanPosts: async () => [P('p-aug-14', '2026-08-14', 'Weekend Style Guide')] }));
+vi.mock('@/lib/plan', () => ({ loadPlanPosts: async () => [P('p-aug-14', '2026-08-14', 'Weekend Style Guide')], loadDraftBeats: async () => [] }));
 vi.mock('@/lib/agent/model', () => ({ getModelClient: () => ({}), getEmbeddingClient: () => ({}) }));
 vi.mock('@/lib/agent/catalogue', () => ({ loadProductIndex: async () => '- (no products)' }));
 vi.mock('@/lib/agent/task-parser', async (orig) => ({

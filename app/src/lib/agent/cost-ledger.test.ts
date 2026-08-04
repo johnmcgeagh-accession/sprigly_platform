@@ -71,7 +71,7 @@ vi.mock('@sprigly/db', () => ({
   serializeVector: (v: number[]) => `[${v.join(',')}]`,
 }));
 
-vi.mock('@/lib/plan', () => ({ loadPlanPosts: async () => [...h.posts] }));
+vi.mock('@/lib/plan', () => ({ loadPlanPosts: async () => [...h.posts], loadDraftBeats: async () => [] }));
 vi.mock('@/lib/agent/catalogue', () => ({ loadProductIndex: async () => '- Maebelle (dress) — navy, cream' }));
 vi.mock('@/lib/e2e-fake', () => ({ e2eTodayIso: () => '2026-08-01', e2eFakeEnabled: () => false }));
 

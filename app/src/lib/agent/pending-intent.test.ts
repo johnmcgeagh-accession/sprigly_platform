@@ -45,7 +45,7 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('@sprigly/db', () => ({ db: {}, contentCycles: {}, contentCyclePosts: {}, conversations: {}, agentMessages: {} }));
-vi.mock('@/lib/plan', () => ({ loadPlanPosts: async () => [] }));
+vi.mock('@/lib/plan', () => ({ loadPlanPosts: async () => [], loadDraftBeats: async () => [] }));
 vi.mock('@/lib/agent/model', () => ({ getModelClient: () => ({}), getEmbeddingClient: () => ({}) }));
 vi.mock('@/lib/agent/catalogue', () => ({ loadProductIndex: async () => '- Raspberry set (RS01) — raspberry' }));
 vi.mock('@/lib/agent/task-parser', async (orig) => ({

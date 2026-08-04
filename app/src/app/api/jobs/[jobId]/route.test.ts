@@ -33,7 +33,7 @@ vi.mock('@/lib/queue', () => ({
   readShapeJob: (...a: unknown[]) => h.readShape(...a),
   readScriptJob: (...a: unknown[]) => h.readScript(...a),
 }));
-vi.mock('@/lib/plan', () => ({ loadPlanPosts: (...a: unknown[]) => h.loadPlanPosts(...a) }));
+vi.mock('@/lib/plan', () => ({ loadPlanPosts: (...a: unknown[]) => h.loadPlanPosts(...a), loadDraftBeats: async () => [] }));
 
 import { GET } from './route';
 

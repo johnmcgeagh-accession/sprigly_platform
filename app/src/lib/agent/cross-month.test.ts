@@ -55,7 +55,7 @@ const h = vi.hoisted(() => ({
 vi.mock('@sprigly/db', () => ({ db: {}, contentCycles: {}, contentCyclePosts: {}, conversations: {}, agentMessages: {} }));
 vi.mock('@sprigly/audit', () => ({ createAuditLogger: () => ({ logModelCall: async () => undefined }) }));
 vi.mock('@sprigly/knowledge', () => ({ retrieveChunks: async () => [] }));
-vi.mock('@/lib/plan', () => ({ loadPlanPosts: async (_c: string, cycleId: string) => h.postsByCycle[cycleId] ?? [] }));
+vi.mock('@/lib/plan', () => ({ loadPlanPosts: async (_c: string, cycleId: string) => h.postsByCycle[cycleId] ?? [], loadDraftBeats: async () => [] }));
 // A REAL model client shape, so the query answerer actually runs and its prompt can be read.
 vi.mock('@/lib/agent/model', () => ({
   getModelClient: () => ({
@@ -183,8 +183,8 @@ describe('the span: where they are standing, and where now is', () => {
 describe('the digest names every month in scope', () => {
   it('the window line lists all of them, and each month gets its own heading', () => {
     const cycles = [
-      { cycleId: 'cyc-aug', planMonth: '2026-08', status: 'a', reason: 'now' as const, inDigest: true, posts: AUG as never },
-      { cycleId: 'cyc-oct', planMonth: '2026-10', status: 'a', reason: 'viewed' as const, inDigest: true, posts: OCT as never },
+      { cycleId: 'cyc-aug', planMonth: '2026-08', status: 'a', reason: 'now' as const, inDigest: true, posts: AUG as never, beats: [] },
+      { cycleId: 'cyc-oct', planMonth: '2026-10', status: 'a', reason: 'viewed' as const, inDigest: true, posts: OCT as never, beats: [] },
     ];
     const d = spanDigest(cycles, '2026-07-31', 'cyc-oct');
     expect(d).toContain('2026-08-01 to 2026-08-31 (August 2026)');
@@ -196,7 +196,7 @@ describe('the digest names every month in scope', () => {
   it('every row carries its ISO date, and past rows are marked by the WRITE GATE’S predicate', () => {
     const cycles = [{
       cycleId: 'cyc-aug', planMonth: '2026-08', status: 'a', reason: 'viewed' as const, inDigest: true,
-      posts: [...AUG, post('p-old', 'cyc-aug', '2026-07-20', 'Gone')] as never,
+      posts: [...AUG, post('p-old', 'cyc-aug', '2026-07-20', 'Gone')] as never, beats: [],
     }];
     const rows = spanDigest(cycles, '2026-07-31', 'cyc-aug').split('\n');
     expect(rows.find((l) => l.includes('2026-07-20'))).toContain('[past — read-only]');
@@ -206,7 +206,7 @@ describe('the digest names every month in scope', () => {
   });
 
   it('a month in scope with no posts says so rather than vanishing', () => {
-    const cycles = [{ cycleId: 'cyc-nov', planMonth: '2026-11', status: 'a', reason: 'adjacent' as const, inDigest: true, posts: [] as never }];
+    const cycles = [{ cycleId: 'cyc-nov', planMonth: '2026-11', status: 'a', reason: 'adjacent' as const, inDigest: true, posts: [] as never, beats: [] }];
     expect(spanDigest(cycles, '2026-07-31', 'cyc-oct')).toContain('(no posts in this month yet)');
   });
 });

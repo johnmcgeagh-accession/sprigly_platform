@@ -47,9 +47,9 @@
  * (`task-parser.ts` → the cache_point), so a five-month span is paid for once per plan change
  * rather than once per turn. It is still the reason tool use is the endgame and this is not.
  */
-import { loadPlanPosts } from '../plan';
+import { loadPlanPosts, loadDraftBeats } from '../plan';
 import { isEditableDate } from '../edit-scope';
-import type { PlanPost } from '../types';
+import type { DraftBeatView, PlanPost } from '../types';
 import { fmtDate, postTitle } from './selectors';
 import { planMonthOf, planWindowLine, monthLabel, describeCycles, listClientCycles, type CycleRow } from './cycle-state';
 
@@ -66,6 +66,35 @@ export interface SpanCycle {
 
 export interface ContextCycle extends SpanCycle {
   posts: PlanPost[];
+  /**
+   * The month's UNAPPROVED DRAFT BEATS, if it is a draft month (F4).
+   *
+   * ── WHY THESE ARE A SECOND LIST AND NOT MORE `posts` ────────────────────────────────
+   *
+   * September had thirty beats and the agent said the month was empty, on the surface built
+   * to show the client those beats. The cause was not the span — September was selected
+   * (`reason=adjacent`) and loaded — it was `loadPlanPosts`, which applies `excludeDraftPosts()`
+   * and therefore returned nothing.
+   *
+   * The fence is NOT relaxed to fix that, and `loadPlanPosts` is not given a flag. Nine callers
+   * read it (first paint, GET /api/plan, /api/posts, shape, script, hooks, jobs, mutations, and
+   * this file) and every one of them means "the plan" — the committed thing a client approved,
+   * the thing a mutation may target, the thing a count counts. A parameter would put the burden
+   * of remembering the fence on nine call sites instead of zero.
+   *
+   * `loadDraftBeats` already exists and already says in its own name and doc comment that it is
+   * the ONLY reader permitted to see draft rows. This is its second caller. So drafts arrive
+   * here through the door that was built for them, the fence is untouched, and "who can see
+   * drafts?" still has one greppable answer.
+   *
+   * They stay OUT of `PlanContext.posts` deliberately. That list is the RESOLUTION SET — what a
+   * move, a delete, a rewrite or a format change may land on. Draft beats have their own write
+   * path with its own gate (`draft-mutations.ts` → `requireDraftMutable`), and putting a beat
+   * where `resolvePostRef` can find it would let the agent propose an ordinary `move_post`
+   * against a row that path must never touch. The agent may READ a beat and TALK about it; it
+   * may not quietly edit one.
+   */
+  beats: DraftBeatView[];
   /**
    * Is this month PRINTED in the digest?
    *
@@ -98,6 +127,14 @@ export interface PlanContext {
    * they are not looking at, and did.
    */
   posts:         PlanPost[];
+  /**
+   * Every DRAFT BEAT in scope, ascending by date — readable, never resolvable (F4).
+   *
+   * Separate from `posts` for the reason stated on `ContextCycle.beats`: these are slots the
+   * client has not approved, they carry no captions, and no mutation may target them. They exist
+   * so the agent can answer "what's in September" with the thirty beats that are in September.
+   */
+  beats:         DraftBeatView[];
   /** The prompt block: the window line naming every month in the SPAN, then its rows. */
   digest:        string;
   /** Plan months printed in the digest, ascending. */
@@ -188,10 +225,55 @@ export function spanDigest(cycles: readonly ContextCycle[], today: string, viewe
         const past = isEditableDate(p.date, today) ? '' : ' | [past — read-only]';
         return `- id=${p.id} | ${p.date} (${fmtDate(p.date)})${past} | ${p.channel}/${p.format} | ${postTitle(p)}`;
       });
-    return `${monthLabel(c.planMonth)} (${c.planMonth})${mark}:\n${rows.length ? rows.join('\n') : '  (no posts in this month yet)'}`;
+    const beats = beatBlock(c.beats);
+    const body = rows.length ? rows.join('\n')
+      : beats ? ''                                     // the beat block below IS this month's content
+      : '  (no posts in this month yet)';
+    return `${monthLabel(c.planMonth)} (${c.planMonth})${mark}:${beatHeading(c.beats)}\n${[body, beats].filter(Boolean).join('\n')}`;
   });
 
   return `${head ? `${head}\n\n` : ''}${blocks.join('\n\n')}`;
+}
+
+/**
+ * THE MONTH-LEVEL STATEMENT THAT A DRAFT MONTH IS UNWRITTEN (F4).
+ *
+ * Stated, not inferable. The beats carry a date, a format, a pillar and a title and NOTHING
+ * ELSE — 0 of September's 30 rows have a caption — and "no caption" as an absent field is
+ * exactly the kind of silence the digest has been burned by before: the plan's extent was once
+ * inferable only as max(scheduled_date), and the model inferred it wrong (G2). A reader given
+ * thirty title-bearing rows with no further comment will read thirty written posts.
+ *
+ * So the heading says the count, says the word DRAFT, and says the captions do not exist. The
+ * rows then repeat it per row with a `PLANNED` prefix rather than an `id=`, so a row lifted out
+ * of its block on its own still cannot be mistaken for a post.
+ *
+ * ── AND IT SAYS "PLANNED POST", NEVER THE INTERNAL WORD ──────────────────────────────
+ *
+ * Spec §7 (`terminology.fence.test.ts`) bans our internal word for a slot from any string a
+ * client can read, and this file is inside that fence's scope. That is not a technicality to be
+ * exempted around: this text goes into a PROMPT, and the one thing a model reliably does with
+ * prompt vocabulary is repeat it back. A word fenced out of every component would have walked
+ * onto the screen through the agent's own reply. Client-facing the thing is a PLANNED POST, so
+ * that is what the model is taught to call it.
+ */
+function beatHeading(beats: readonly DraftBeatView[]): string {
+  if (!beats.length) return '';
+  const n = beats.length;
+  return ` ⚠ DRAFT MONTH — ${n} PLANNED POST${n === 1 ? '' : 'S'}, NONE OF THEM WRITTEN YET.`
+    + ` These are proposed SLOTS the client has not yet confirmed. Each has a date, a format, a pillar and a working title.`
+    + ` NONE of them has a caption — no caption has been written for any post in this month, and there is no wording to quote, summarise or describe.`
+    + ` Answer questions about DATES, FORMATS, PILLARS and TITLES from these rows. For anything about what a post SAYS, say the captions are not written yet.`;
+}
+
+/** One line per slot. `PLANNED` rather than `id=` so the row is self-labelling out of context,
+ *  and `[no caption yet]` on every row so the fact survives a model that skims the heading. */
+function beatBlock(beats: readonly DraftBeatView[]): string {
+  if (!beats.length) return '';
+  return [...beats]
+    .sort((a, b) => a.date.localeCompare(b.date) || a.position - b.position)
+    .map((b) => `- PLANNED id=${b.id} | ${b.date} (${fmtDate(b.date)}) | ${b.format} | pillar: ${b.pillar || '(none)'} | title: ${b.title} | [no caption yet]`)
+    .join('\n');
 }
 
 /**
@@ -253,16 +335,27 @@ export async function buildPlanContext(
   const cycles: ContextCycle[] = (await Promise.all(
     [...wanted.values()]
       .sort((a, b) => a.planMonth.localeCompare(b.planMonth))
-      .map(async (c) => ({ ...c, inDigest: inSpan.has(c.cycleId), posts: await loadPlanPosts(clientId, c.cycleId) })),
+      .map(async (c) => {
+        // Both reads, per cycle. `loadDraftBeats` returns [] for a committed month, so a month
+        // that is not in draft costs one indexed query that finds nothing — the same shape the
+        // N+1 above already accepted, and for the same reason: one definition of each fact.
+        const [posts, beats] = await Promise.all([
+          loadPlanPosts(clientId, c.cycleId),
+          loadDraftBeats(clientId, c.cycleId),
+        ]);
+        return { ...c, inDigest: inSpan.has(c.cycleId), posts, beats };
+      }),
   ));
 
   const posts = cycles.flatMap((c) => c.posts).sort((a, b) => a.date.localeCompare(b.date));
+  const beats = cycles.flatMap((c) => c.beats).sort((a, b) => a.date.localeCompare(b.date));
   return {
     today,
     viewedCycleId,
     viewedMonth: cycles.find((c) => c.cycleId === viewedCycleId)?.planMonth ?? null,
     cycles,
     posts,
+    beats,
     digest: spanDigest(cycles, today, viewedCycleId),
     months: cycles.filter((c) => c.inDigest).map((c) => c.planMonth),
     allMonths: describeCycles(rows, viewedCycleId, cycles.filter((c) => c.inDigest).map((c) => c.cycleId)),

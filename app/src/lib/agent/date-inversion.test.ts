@@ -46,7 +46,7 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('@sprigly/db', () => ({ db: {}, contentCycles: {}, contentCyclePosts: {} }));
-vi.mock('@/lib/plan', () => ({ loadPlanPosts: async () => [...AUG_POSTS] }));
+vi.mock('@/lib/plan', () => ({ loadPlanPosts: async () => [...AUG_POSTS], loadDraftBeats: async () => [] }));
 vi.mock('@/lib/agent/model', () => ({ getModelClient: () => ({}), getEmbeddingClient: () => ({}) }));
 vi.mock('@/lib/agent/catalogue', () => ({ loadProductIndex: async () => '- (no products)' }));
 vi.mock('@/lib/agent/task-parser', () => ({

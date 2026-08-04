@@ -4,9 +4,9 @@
  */
 import { and, eq } from 'drizzle-orm';
 import { db, contentCycles } from '@sprigly/db';
-import { loadPlanPosts } from '../plan';
+import { loadDraftBeats, loadPlanPosts } from '../plan';
 import { isEditableDate } from '../edit-scope';
-import type { PlanPost } from '../types';
+import type { DraftBeatView, PlanPost } from '../types';
 import { fmtDate, parseISO, postTitle } from './selectors';
 import { weekLines, weekWindows } from './weeks';
 
@@ -233,10 +233,27 @@ export interface CycleState {
   counts: Record<string, number>;
 }
 
-/** Bucket a cycle's live posts into this-week / next-week and tally statuses. `planMonth`
- *  states the plan's calendar window in the summary — the query answerer reads ONLY this
- *  summary, so without it the plan's end is the last post (G2). */
-export function bucketCycleState(posts: PlanPost[], today: Date, planMonth?: string | readonly string[] | null): CycleState {
+/**
+ * Bucket a cycle's live posts into this-week / next-week and tally statuses. `planMonth`
+ * states the plan's calendar window in the summary — the query answerer reads ONLY this
+ * summary, so without it the plan's end is the last post (G2).
+ *
+ * ── `beats` IS NOT OPTIONAL DECORATION (F4) ──────────────────────────────────────────
+ *
+ * This summary is the ENTIRE plan context the query answerer receives. Putting draft beats in
+ * the parser's digest and not here would move the lie rather than fix it: the parser would route
+ * "what's in September" to a `query`, and the answerer — reading a plan state that still knew
+ * nothing about September — would say the month was empty exactly as before. Worse, once the
+ * answerer DOES see them, it must see what they are: thirty title-bearing rows presented as
+ * posts would have it answering caption questions out of the titles.
+ *
+ * So the beats arrive labelled, under their own heading, stating the count and the absence of
+ * captions — the same sentence the digest states, from the same facts.
+ */
+export function bucketCycleState(
+  posts: PlanPost[], today: Date, planMonth?: string | readonly string[] | null,
+  beats: readonly DraftBeatView[] = [],
+): CycleState {
   // Both windows from `weeks.ts` — the SAME function that prints them into the prompt below, so
   // the sentence the model reads and the posts it is given can never describe different weeks.
   const { thisWeek: tw, nextWeek: nw } = weekWindows(iso(today));
@@ -284,17 +301,43 @@ export function bucketCycleState(posts: PlanPost[], today: Date, planMonth?: str
     weekCount('NEXT WEEK holds', nextWeek),
     ...(window ? [window] : []),
     `Plan has ${posts.length} live posts (${Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(', ') || 'none'}).`,
-    byDate.length ? 'Posts (by date):' : '(no posts scheduled yet)',
+    byDate.length ? 'Posts (by date):' : '(no written posts scheduled yet)',
     ...byDate.map(line),
+    ...beatLines(beats),
   ].join('\n');
 
   return { summary, thisWeek, nextWeek, counts };
 }
 
+/** The draft block of the plan state — the same facts the digest states, in the one string the
+ *  query answerer reads. Empty array → no lines at all, so a committed month is unchanged.
+ *  "PLANNED POST", never the internal word: spec §7 fences it, and prompt vocabulary is what a
+ *  model echoes into a reply the client then reads. */
+function beatLines(beats: readonly DraftBeatView[]): string[] {
+  if (!beats.length) return [];
+  const months = [...new Set(beats.map((b) => b.date.slice(0, 7)))].sort();
+  const n = beats.length;
+  return [
+    `DRAFT MONTH${months.length === 1 ? '' : 'S'} — ${n} PLANNED POST${n === 1 ? '' : 'S'} in ${months.map(monthLabel).join(', ')}. READ THIS BEFORE ANSWERING ABOUT ${months.map(monthLabel).join(' or ')}:`,
+    `  ${months.length === 1 ? 'This month is' : 'These months are'} NOT empty — ${months.length === 1 ? 'it holds' : 'they hold'} the planned posts listed below. Each is a proposed SLOT the client has not yet confirmed: it has a date, a format, a pillar and a working title, and NO CAPTION.`,
+    `  NO POST IN ${months.map((m) => monthLabel(m).toUpperCase()).join(' OR ')} HAS BEEN WRITTEN. There is no caption text for any of them — not a short one, not a rough one, none.`,
+    `  You may answer from a planned post's date, format, pillar and title. You may NOT say what it says, quote it, summarise its caption, or describe its wording or tone — that copy does not exist yet. Say so instead.`,
+    'Planned posts, not yet written (by date):',
+    ...[...beats]
+      .sort((a, b) => a.date.localeCompare(b.date) || a.position - b.position)
+      .map((b) => `  - PLANNED ${b.date} (${fmtDate(b.date)}) (${b.format}, ${b.pillar || 'no pillar'}): title “${b.title}” — [no caption written yet]`),
+  ];
+}
+
 /** Load the session cycle's posts and bucket them relative to `today`. Reads the cycle's PLAN
  *  month too, so the summary can state the window rather than leave it to be inferred (G2). */
 export async function readCycleState(clientId: string, cycleId: string, today: Date): Promise<CycleState> {
-  const posts = await loadPlanPosts(clientId, cycleId);
+  const [posts, beats] = await Promise.all([
+    loadPlanPosts(clientId, cycleId),
+    // The standalone path (no PlanContext) needs the beats too, or a caller that skips the
+    // context builder gets the pre-F4 answer for a draft month.
+    loadDraftBeats(clientId, cycleId).catch(() => []),
+  ]);
   const planMonth = await getCycleMonth(clientId, cycleId).catch(() => null);
-  return bucketCycleState(posts, today, planMonth);
+  return bucketCycleState(posts, today, planMonth, beats);
 }

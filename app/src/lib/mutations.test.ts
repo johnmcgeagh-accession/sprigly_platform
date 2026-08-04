@@ -48,7 +48,7 @@ vi.mock('@sprigly/db', () => {
   return { db, contentCyclePosts, planActivity, DRAFT_PLACEHOLDER_CAPTION };
 });
 
-vi.mock('@/lib/plan', () => ({ loadPlanPosts: async () => [] }));
+vi.mock('@/lib/plan', () => ({ loadPlanPosts: async () => [], loadDraftBeats: async () => [] }));
 
 import { patchPost, softDeletePost, addDraft, revertPost } from './mutations';
 

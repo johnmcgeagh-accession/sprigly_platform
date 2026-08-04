@@ -31,7 +31,7 @@ vi.mock('@sprigly/db', () => ({
   hasRealCaption: (c: unknown) => typeof c === 'string' && c.trim().length > 0 && !c.startsWith('Draft idea.'),
 }));
 vi.mock('@/lib/auth', () => ({ getSession: async () => h.session }));
-vi.mock('@/lib/plan', () => ({ loadPlanPosts: async () => h.posts }));
+vi.mock('@/lib/plan', () => ({ loadPlanPosts: async () => h.posts, loadDraftBeats: async () => [] }));
 vi.mock('@/lib/edit-scope', () => ({
   gatePostEdit: async () => h.gate,
   editScopeToday: () => '2026-07-30',

@@ -31,7 +31,7 @@ vi.mock('@sprigly/db', () => ({ db: {}, contentCycles: {}, contentCyclePosts: {}
 vi.mock('@/lib/auth', () => ({ getSession: async () => h.session }));
 // The span (X1a) loads a post list per cycle, so this answers per cycle: the seeded posts
 // belong to cycle-1 and nothing else invents rows the fixtures would then see twice.
-vi.mock('@/lib/plan', () => ({ loadPlanPosts: async (_c: string, cycleId: string) => (cycleId === 'cycle-1' ? h.posts : []) }));
+vi.mock('@/lib/plan', () => ({ loadPlanPosts: async (_c: string, cycleId: string) => (cycleId === 'cycle-1' ? h.posts : []), loadDraftBeats: async () => [] }));
 vi.mock('@/lib/agent/model', () => ({ getModelClient: () => ({}), getEmbeddingClient: () => ({}), AGENT_MODEL: 'haiku' }));
 vi.mock('@/lib/agent/task-parser', () => ({ parseTasks: async () => h.tasks }));
 vi.mock('@/lib/agent/catalogue', () => ({ loadProductIndex: async () => ({}) }));
