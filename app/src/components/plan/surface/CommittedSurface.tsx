@@ -463,7 +463,9 @@ export function CommittedSurface({ data, frame = 'mobile' }: { data: PlanData; f
 
   const moveNode = movePost ? (
     <MoveSheet
-      open onClose={() => setMoveId(null)}
+      // Unlike the other overlays this one is not re-declared per shell — one node, used by
+      // both — so the frame is read off `desktop` here rather than named at two call sites.
+      open chrome={desktop ? 'modal' : 'sheet'} onClose={() => setMoveId(null)}
       postDate={movePost.date} postTime={movePost.postingTime ?? null}
       postHeading={cardText(movePost).heading}
       knownTimes={knownTimes}

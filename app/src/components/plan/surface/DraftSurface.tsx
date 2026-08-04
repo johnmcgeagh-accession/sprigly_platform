@@ -396,7 +396,7 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
         overlays={<>
           {moveBeat && (
             <MoveSheet
-              open onClose={() => setMoveId(null)}
+              open chrome="modal" onClose={() => setMoveId(null)}
               postDate={moveBeat.date} postTime={null} postHeading={moveBeat.title}
               knownTimes={[]} timeEditable={false}
               canMoveTo={data.canEdit}
@@ -459,7 +459,7 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
         {draftDetailNode}
         {moveBeat && (
           <MoveSheet
-            open onClose={() => setMoveId(null)}
+            open chrome="sheet" onClose={() => setMoveId(null)}
             postDate={moveBeat.date} postTime={null} postHeading={moveBeat.title}
             knownTimes={[]} timeEditable={false}
             canMoveTo={data.canEdit}

@@ -27,6 +27,7 @@
 import React, { useMemo, useState } from 'react';
 import { MonthGrid } from './MonthGrid';
 import { Sheet } from './Sheet';
+import { Modal, type ModalChrome } from './Panel';
 import { ChevronL, ChevronR, CloseGlyph } from './icons';
 import { monthOf, monthTitle, addDays, daysInMonth, shortDate } from './dates';
 
@@ -35,9 +36,22 @@ import { monthOf, monthTitle, addDays, daysInMonth, shortDate } from './dates';
 const FALLBACK_SLOTS = ['07:00', '12:00', '18:00'];
 
 export function MoveSheet({
-  open, postDate, postTime, postHeading, knownTimes, canMoveTo, onClose, onMove, timeEditable = true,
+  open, postDate, postTime, postHeading, knownTimes, canMoveTo, onClose, onMove, chrome, timeEditable = true,
 }: {
   open: boolean;
+  /**
+   * WHICH FRAME. Sheet on a phone; a centred MODAL on desktop.
+   *
+   * Modal rather than the day-column panel every other overlay takes, and the reason is where
+   * it is opened FROM: the detail panel, which occupies that column. Putting the move picker
+   * there would replace the post you are moving with the form for moving it — you would lose
+   * sight of the thing the decision is about. ApprovalSheet is the precedent (W2): a decision
+   * that interrupts the plan gets a centred box; a surface you work IN gets a region.
+   *
+   * Required, no default — the d6427ff rule. This was the last overlay still hardcoded to
+   * `Sheet`, and it rendered full-bleed at 2560 with a grabber.
+   */
+  chrome: ModalChrome;
   postDate: string;
   postTime: string | null;
   postHeading: string;
@@ -83,11 +97,25 @@ export function MoveSheet({
   };
   const crossesMonth = monthOf(date) !== monthOf(postDate);
 
+  const modal = chrome === 'modal';
+  const Frame = modal ? Modal : Sheet;
+
   return (
-    // layer 1: Move opens FROM the detail sheet, which stays mounted underneath. The two are
-    // ordered in z rather than sharing a layer, and each has its own focus trap — without one,
-    // Tab walked straight back out into the sheet behind.
-    <Sheet open={open} label={`Move ${postHeading}`} testid="move-sheet" onClose={onClose} layer={1} hasOwnClose>
+    /**
+     * `layer={1}` IS SHEET-ONLY, AND IT MATTERS ON ONE FRAME ONLY.
+     *
+     * On a phone Move opens FROM the detail SHEET, which stays mounted underneath at layer 0
+     * (z-30/31) — so this one has to sit at layer 1 (z-32/33) with its own focus trap, or Tab
+     * walks straight back out into the sheet behind it.
+     *
+     * On desktop the thing underneath is the detail PANEL: a region of the day column, in
+     * normal flow, with no z-layer and no trap of its own. So there is nothing to stack above
+     * and the modal's own z-30/31 is enough. `Modal` ignores `layer` — which is correct here,
+     * and correct BECAUSE the desktop detail is a region rather than a sheet. Passing it
+     * unconditionally is deliberate: the prop describes the phone's stacking, and the frame
+     * that does not stack discards it.
+     */
+    <Frame open={open} label={`Move ${postHeading}`} testid="move-sheet" onClose={onClose} layer={1} hasOwnClose>
       <>
         <div className="flex flex-none items-start gap-3 border-b border-line/30 px-[18px] pb-3.5 pt-1.5">
           <div className="min-w-0 flex-1">
@@ -157,7 +185,9 @@ export function MoveSheet({
           )}
         </div>
 
-        <div className="flex flex-none gap-2 border-t border-line/30 bg-surface px-[18px] pb-[26px] pt-3">
+        {/* `pb-[26px]` is the home-indicator inset — a phone edge a centred dialog does not
+            have. Same split ApprovalSheet's footer makes. */}
+        <div className={`flex flex-none gap-2 border-t border-line/30 bg-surface px-[18px] pt-3 ${modal ? 'pb-[18px]' : 'pb-[26px]'}`}>
           <button
             type="button" data-testid="move-confirm" onClick={() => onMove(date, time)}
             className="flex min-h-[50px] flex-1 items-center justify-center rounded-[14px] bg-coral-650 text-[15px] font-bold text-white shadow-[0_10px_26px_-6px_rgb(var(--t-accent-600,232_112_95)_/_0.58)]"
@@ -166,6 +196,6 @@ export function MoveSheet({
           </button>
         </div>
       </>
-    </Sheet>
+    </Frame>
   );
 }
