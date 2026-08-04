@@ -54,14 +54,26 @@ export function ApprovalSheet({
 
   if (!open) return null;
 
-  const Frame = chrome === 'modal' ? Modal : Sheet;
+  const modal = chrome === 'modal';
+  const Frame = modal ? Modal : Sheet;
+  /** 40px inside a centred dialog, the surface's own 18px inside a phone sheet. */
+  const pad = modal ? 'px-10' : 'px-[18px]';
 
   return (
     <Frame open={open} label={`Ready to go? ${monthLabel}`} testid="approval-sheet" onClose={onClose} hasOwnClose>
       <>
-        <div className="flex flex-none items-start gap-3 px-[18px] pb-3 pt-1.5">
+        {/* ── THE MODAL BREATHES; THE SHEET DOES NOT GET TO ─────────────────────────────
+            One component, two frames, and the padding is the one thing that cannot be shared.
+            A centred 480px dialog on a desktop can afford a 40px gutter and reads cramped
+            without one; the same 40px on a 390px phone sheet would leave 310px of measure for
+            a row that already carries a number column. So the generous values are scoped to
+            the modal chrome, exactly as the footer's bottom inset already was.
+            Tailwind's own scale throughout (`px-10` = 40, `px-8` = 32, `gap-5` = 20) — this
+            surface has no separate spacing token layer, and the scale is what everything else
+            here is written in. */}
+        <div className={`flex flex-none items-start ${pad} ${modal ? 'gap-6 pb-7 pt-10' : 'gap-3 pb-3 pt-1.5'}`}>
           <div className="min-w-0 flex-1">
-            <h2 className="mb-1 text-[20px] font-bold tracking-[-.025em] text-chrome">Ready to go?</h2>
+            <h2 className={`text-[20px] font-bold tracking-[-.025em] text-chrome ${modal ? 'mb-1.5' : 'mb-1'}`}>Ready to go?</h2>
             <p className="text-[13.5px] font-medium text-muted">{monthLabel}</p>
           </div>
           <button type="button" data-testid="approval-close" aria-label="Close" onClick={onClose}
@@ -70,8 +82,8 @@ export function ApprovalSheet({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-[18px] pb-4 [scrollbar-width:none]">
-          <ul data-testid="approval-counts" className="flex flex-col gap-3 pt-1">
+        <div className={`flex-1 overflow-y-auto [scrollbar-width:none] ${pad} ${modal ? 'pb-8' : 'pb-4'}`}>
+          <ul data-testid="approval-counts" className={`flex flex-col pt-1 ${modal ? 'gap-5' : 'gap-3'}`}>
             {rows.map((r) => (
               <li key={r.label} className="flex items-baseline gap-3">
                 <span className="w-[38px] flex-none text-right text-[22px] font-bold tabular-nums tracking-[-.03em] text-chrome">{r.count}</span>
@@ -81,7 +93,7 @@ export function ApprovalSheet({
           </ul>
 
           {/* The correction, verbatim. What approval actually does is start the WRITING. */}
-          <p data-testid="approval-consequence" className="mt-5 text-[15px] leading-[1.5] text-chrome">
+          <p data-testid="approval-consequence" className={`text-[15px] leading-[1.5] text-chrome ${modal ? 'mt-8' : 'mt-5'}`}>
             Dates and formats stay yours to change afterwards, right up until each post’s date.
             What this starts is the writing, and it takes a few minutes.
           </p>
@@ -93,7 +105,7 @@ export function ApprovalSheet({
           )}
         </div>
 
-        <div className={`flex flex-none gap-2 border-t border-line/30 bg-surface px-[18px] pt-3 ${chrome === 'modal' ? 'pb-[18px]' : 'pb-[26px]'}`}>
+        <div className={`flex flex-none gap-2 border-t border-line/30 bg-surface ${modal ? 'px-8 pb-8 pt-6' : 'px-[18px] pb-[26px] pt-3'}`}>
           <button
             type="button" data-testid="approve-confirm" disabled={busy || rows.length === 0} onClick={onApprove}
             className="flex min-h-[50px] flex-1 items-center justify-center gap-2 rounded-[14px] bg-coral-650 text-[15px] font-bold text-white shadow-[0_10px_26px_-6px_rgb(var(--t-accent-600,232_112_95)_/_0.58)] disabled:bg-line-soft disabled:text-muted disabled:shadow-none"
