@@ -402,7 +402,12 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
               const lines = r.application?.lines ?? [];
               return {
                 ok: true as const,
+                // A month-scoped application with NO diff lines is not "nothing happened": it
+                // is context kept with the month's brief, and its note is the only thing that
+                // says so. Without this the fallback claimed "the month view shows what
+                // changed" over a calendar that had not moved.
                 message: lines.length ? lines.join('\n')
+                  : r.application?.note ? r.application.note
                   : r.application?.scope === 'evergreen' ? 'Saved to your ideas — nothing on the month changed.'
                   : 'Done — the month view shows what changed.',
               };
@@ -511,7 +516,12 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
               const lines = r.application?.lines ?? [];
               return {
                 ok: true as const,
+                // A month-scoped application with NO diff lines is not "nothing happened": it
+                // is context kept with the month's brief, and its note is the only thing that
+                // says so. Without this the fallback claimed "the month view shows what
+                // changed" over a calendar that had not moved.
                 message: lines.length ? lines.join('\n')
+                  : r.application?.note ? r.application.note
                   : r.application?.scope === 'evergreen' ? 'Saved to your ideas — nothing on the month changed.'
                   : 'Done — the month view shows what changed.',
               };

@@ -57,6 +57,26 @@ export interface DeferredInstance {
 
 export interface TransformResult {
   ops: BeatOp[];
+  /**
+   * MONTH CONTEXT THE TRANSFORM COULD NOT PLACE.
+   *
+   * Set when the input is genuinely about this month but names nothing to move, add or
+   * reweight — "the back to school element should talk about the juggle of the school run".
+   * There is no beat to change, and inventing one would put a post on a date the client
+   * never gave. But it is not an idea for later either: it is what this month's captions
+   * should be about.
+   *
+   * The caller writes it to `intake_json.planContent.freeNotes`, which is the ONE
+   * cycle-level field the caption generator reads (planning.ts:471 → buildPlanningUserMessage
+   * → `FREE NOTES:` → regeneratePost's user message). Every `client_input` transform before
+   * this one put the client's sentence in `beat_meta.rationaleEvidence.reason`, which nothing
+   * downstream of the receipt has ever read.
+   *
+   * Distinct from `note`: `note` is what the client is TOLD, this is what is KEPT. A result
+   * carrying context still reports zero ops, because the month's shape must not change —
+   * they did not ask for posts.
+   */
+  context?: string;
   /** Why nothing (or less than asked) happened. Surfaced to the client, never swallowed. */
   note?: string;
   /**
@@ -872,13 +892,26 @@ export function applyEmphasis(
     return { ops: [], note: `“${phrase}” could mean ${listPillars(resolved.candidates)} — which did you mean? Nothing has changed.` };
   }
   if (resolved.kind === 'none') {
-    // NOT re-pillared to the phrase, which is what used to happen here. The month is left
-    // alone and the client is told what they could have named.
+    /**
+     * NOT re-pillared to the phrase — that is what used to happen here, and it is what the
+     * 120-character cap was quietly preventing.
+     *
+     * But "names no pillar" is not "means nothing". *"the back to school element should talk
+     * about the juggle of the school run and working life"* is exactly what the client wants
+     * this month's captions to be about; it simply names no beat and no date, so there is
+     * nothing to move and nothing to place. It is returned as CONTEXT: the shape of the month
+     * is untouched, and the caller keeps the sentence where generation will read it.
+     *
+     * The client is told that, rather than told we failed. The pillar list stays in the copy
+     * because naming one is still the way to make the month VISIBLY tilt, and that is a real
+     * second option rather than a consolation.
+     */
     return {
       ops: [],
+      context: intent.sourceText.trim() || phrase,
       note: monthPillars.length
-        ? `I couldn’t tell which part of the month to lean into — “${phrase}” doesn’t name one of your content pillars. You could say ${listPillars(monthPillars)}, or name a format (reel, carousel or single image). Nothing has changed.`
-        : `I couldn’t tell what to lean into, so nothing has changed.`,
+        ? `Noted for this month: “${phrase}”. I’ve kept it with the month’s brief, so it’s there when the captions are written. It doesn’t name one of your content pillars, so nothing on the calendar has moved — say ${listPillars(monthPillars)}, or a format (reel, carousel or single image), if you want the month to lean that way too.`
+        : `Noted for this month: “${phrase}”. I’ve kept it with the month’s brief, so it’s there when the captions are written. Nothing on the calendar has moved.`,
     };
   }
 

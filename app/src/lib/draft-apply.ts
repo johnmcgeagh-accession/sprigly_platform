@@ -16,7 +16,7 @@
  */
 import { and, eq, isNull } from 'drizzle-orm';
 import {
-  db, contentCycles, contentCyclePosts, planInputs,
+  db, contentCycles, contentCyclePosts, planInputs, clearStructuredBriefIfPrePlanning,
   POST_STATUS_DRAFT, type BeatMeta, type NewContentCyclePostRow,
 } from '@sprigly/db';
 import {
@@ -231,6 +231,97 @@ async function persistCadenceFloor(cycleId: string, intent: MonthScopedIntent, a
   await db.update(contentCycles)
     .set({ intakeJson: { ...intake, cadenceFloor: floor } as unknown, updatedAt: new Date() })
     .where(eq(contentCycles.id, cycleId));
+}
+
+/**
+ * Append one sentence to a cycle's running free-text brief.
+ *
+ * `\n\n` because that is what the intake route's `mergeIntake` uses, and two writers of one
+ * field that disagree about its separator is how a brief comes apart. APPENDS — a second
+ * sentence must never delete the first.
+ *
+ * IDEMPOTENT on the exact sentence. A client who says the same thing twice, a double-tapped
+ * send, or a retried request must not double the text the generator reads: the brief is
+ * repeated verbatim into every caption prompt for the month, so a duplicate is not merely
+ * untidy, it is emphasis nobody asked for.
+ *
+ * Pure and exported so the rule is testable without a database — the wrapper below is only
+ * the read, the write and the brief invalidation.
+ */
+export function mergeFreeNotes(current: string, addition: string): string {
+  const cur = current.trim();
+  const add = addition.trim();
+  if (!add) return cur;
+  if (cur.split('\n\n').some((p) => p.trim() === add)) return cur;
+  return cur ? `${cur}\n\n${add}` : add;
+}
+
+/**
+ * ── THE SINK THE GENERATOR ACTUALLY READS ────────────────────────────────────────────
+ *
+ * Every `client_input` transform writes the client's sentence to
+ * `beat_meta.rationaleEvidence.reason`, and NOTHING downstream of the receipt reads it. The
+ * caption generator's per-post brief is `captionInstruction(title, pillar)` and its
+ * cycle-level text is `intake_json.planContent.freeNotes` — which was empty on Ivy T's
+ * September while three live "Molly" beats carried the client's launch sentence in
+ * `beat_meta` where generation would never see it.
+ *
+ * So month-scoped context that names nothing to place lands HERE instead. The read path,
+ * confirmed end to end:
+ *
+ *   intake_json.planContent.freeNotes
+ *     → assembleShapeContext            planning.ts:471   (read live, per shape job)
+ *     → buildPlanningUserMessage        planning.ts:289   ("FREE NOTES:\n…")
+ *     → ctx.userMessage
+ *     → regeneratePost's fixMessage     plan-validation.ts:358  (its FIRST line)
+ *     → Bedrock
+ *
+ * and separately into `intakeText`, which ranks the catalogue grounding block (planning.ts:501).
+ *
+ * APPENDS, never replaces, and with the SAME `\n\n` join the intake route's `mergeIntake`
+ * uses — a second brief must not silently delete the first, and two writers of one field
+ * that disagree about its format is how a month's brief comes apart. Everything else under
+ * `planContent` is preserved: this path has no answers to contribute and must not blank the
+ * ones the intake route collected.
+ *
+ * The structured brief is cleared afterwards for the reason `clearStructuredBriefIfPrePlanning`
+ * states: `ensureStructuredBrief` returns the persisted brief and never re-extracts, so a
+ * brief left in place would be the extraction of an intake that no longer exists. It is a
+ * no-op at or after 'planning', which is exactly right — a month being generated must not
+ * have its brief pulled out from under it.
+ */
+async function appendMonthContext(cycleId: string, sentence: string, source: InputSource): Promise<string> {
+  const text = sentence.trim();
+  const [cycle] = await db
+    .select({ intakeJson: contentCycles.intakeJson })
+    .from(contentCycles)
+    .where(eq(contentCycles.id, cycleId))
+    .limit(1);
+
+  const intake = (cycle?.intakeJson ?? {}) as Record<string, unknown>;
+  const planContent = (intake['planContent'] ?? {}) as { answers?: Record<string, string>; freeNotes?: string };
+  const current = (planContent.freeNotes ?? '').trim();
+  const merged = mergeFreeNotes(current, text);
+  if (merged === current) return merged;
+
+  await db.update(contentCycles)
+    .set({
+      intakeJson: {
+        ...intake,
+        planContent: { answers: planContent.answers ?? {}, freeNotes: merged },
+        // Provenance for the same reason the receipts carry it (gap 8): a brief that arrived
+        // by voice on the draft surface and one typed into the Ask email are different acts.
+        source: source === 'voice' ? 'voice' : 'manual',
+        capturedAt: new Date().toISOString(),
+      } as unknown,
+      updatedAt: new Date(),
+    })
+    .where(eq(contentCycles.id, cycleId));
+
+  // Best-effort, and deliberately AFTER the write it invalidates: losing the sentence is
+  // worse than leaving a stale brief, which the next intake write would clear anyway.
+  try { await clearStructuredBriefIfPrePlanning(db, cycleId); } catch { /* never fail the capture */ }
+  return merged;
 }
 
 const describeStoredCadence = (i: MonthScopedIntent): string =>
@@ -483,6 +574,29 @@ export async function applyIntakeToDraft(params: {
     : [];
 
   const result = applyIntent(routing.intent as MonthScopedIntent, before, planMonth, today, clientPillars);
+
+  /**
+   * ── CONTEXT FOR THIS MONTH, NOT AN IDEA FOR LATER ────────────────────────────────
+   *
+   * Zero ops with `context` is a THIRD outcome, and it needed to be: filing it as evergreen
+   * would tell the client "saved to your ideas" about a sentence they plainly said was about
+   * September, and applying it as month_scoped would claim a change that did not happen.
+   *
+   * It is month_scoped because it DID act on the month — on what its captions will say
+   * rather than on which posts exist — and `changedIds` is empty because no row moved. No
+   * backlog row is written: this is not something to promote into the month later, it is
+   * already in the month's brief. That is also why it keeps no `planInputId`; the rescue tap
+   * would offer to add something that is already there.
+   */
+  if (result.ops.length === 0 && result.context) {
+    await appendMonthContext(cycleId, result.context, source);
+    const application: DraftApplication = {
+      ...base, scope: 'month_scoped', lines: [], changedIds: [],
+      ...(result.note ? { note: result.note } : {}),
+    };
+    if (!params.suppressReceipt) await persistReceipt(cycleId, application);
+    return { ok: true, application, beats: await loadDraftBeats(clientId, cycleId) };
+  }
 
   // A transform that can do nothing files the input instead of dropping it. The client
   // typed something; it has to land somewhere they can see.

@@ -279,7 +279,39 @@ describe('applyEmphasis', () => {
       const note = run(sentence).note!;
       expect(note).toContain('doesn’t name one of your content pillars');
       expect(note).toContain('Product & Fragrance');
-      expect(note).toContain('Nothing has changed');
+      expect(note).toContain('nothing on the calendar has moved');
+    });
+
+    /**
+     * "Names no pillar" is not "means nothing". The sentence is what the client wants this
+     * month's captions to be about; it simply names no beat and no date. It comes back as
+     * CONTEXT so the caller can put it where the caption generator reads it — every
+     * client_input transform before this one wrote the sentence to
+     * beat_meta.rationaleEvidence.reason, which nothing downstream of the receipt opens.
+     */
+    it('hands the sentence back as month CONTEXT, verbatim', () => {
+      const res = run(sentence);
+      expect(res.context).toBe(sentence.sourceText);
+      expect(res.ops).toEqual([]);          // and still changes nothing
+    });
+
+    it('carries the sourceText, not the (possibly truncated) emphasis phrase', () => {
+      const res = run({ ...sentence, emphasis: 'a shortened fragment' });
+      expect(res.context).toBe(sentence.sourceText);
+    });
+
+    it('an AMBIGUOUS phrase is a question, not context — it named a pillar, just not which', () => {
+      const res = applyEmphasis(
+        { kind: 'emphasis', subject: 'x', sourceText: 'more everyday product', emphasis: 'everyday product' },
+        month, TODAY, ['Product & Fragrance', 'Everyday Ritual'],
+      );
+      expect(res.ops).toEqual([]);
+      expect(res.context).toBeUndefined();
+      expect(res.note).toContain('which did you mean');
+    });
+
+    it('a MATCHED phrase is not context — it changed the month instead', () => {
+      expect(run({ ...emphasis, emphasis: 'more of the product stuff' }).context).toBeUndefined();
     });
 
     it('a matched phrase writes the CANONICAL pillar name, not the client’s words', () => {
