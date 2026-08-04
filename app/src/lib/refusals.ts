@@ -31,6 +31,10 @@ const BY_CODE: Record<string, string> = {
   bad_request:    'Something in that didn’t reach us properly. Try again?',
   format_unsupported: 'That format doesn’t take one of those.',
   caption_required:   'Write the caption first — the hook and the script are built around it.',
+  // The draft fence, said in the client's language. "planned post" and "draft", never the
+  // internal word for a slot (spec §7) — these strings render on screen.
+  draft_row:          'That’s a planned post in a month you haven’t approved yet. Open that month to change it.',
+  draft_month:        'That month is still a draft you haven’t approved. Approve it first, then posts can be added and moved there.',
 };
 
 /** When the server said nothing we can use. Never blames the client for our own outage. */

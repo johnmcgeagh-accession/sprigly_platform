@@ -19,7 +19,7 @@ import { enqueueShape, enqueueHookJob, enqueueScriptJob } from '../queue';
 const DEFAULT_SCRIPT_SECONDS = 30;
 import { getUsageForCycle, isRewriteBlocked } from '../usage';
 import { startPostGeneration, enqueueFollowOnGeneration, defaultCaptionBrief } from '../post-generation';
-import { resolvePostForEdit, isEditableDate, canAddPost, editScopeToday } from '../edit-scope';
+import { resolvePostForEdit, isEditableDate, canAddPost, editScopeToday, landsInDraftMonth } from '../edit-scope';
 import { markNoteIntegrated } from './notes';
 import type { MutatingAction, ProposalPayload, ProposalView } from './types';
 
@@ -31,6 +31,12 @@ const MONTH_NAMES = [
 function dayMonth(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   return m ? `${Number(m[3])} ${MONTH_NAMES[Number(m[2]) - 1] ?? ''}`.trim() : iso;
+}
+
+/** 'YYYY-MM-DD' → 'October 2026' — a refusal about a whole MONTH names the month, not a day. */
+function monthName(iso: string): string {
+  const m = /^(\d{4})-(\d{2})/.exec(iso);
+  return m ? `${MONTH_NAMES[Number(m[2]) - 1] ?? iso} ${m[1]}` : iso;
 }
 
 /**
@@ -306,6 +312,20 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
     return { proposal: view({ ...row, status: 'failed' }), failed: true, message: reason };
   };
   const readOnlyFail = () => refuse(dateRefusal(payload));
+  /**
+   * THE DRAFT FENCE, RE-CHECKED AT APPLY.
+   *
+   * `turn.ts` refuses these at PROPOSAL time, which is where the client reads it. This is the
+   * second check, and it is not redundant: a proposal is a stored row a client can approve at
+   * any later moment, and the month it targets can have entered draft since — a re-assembly, a
+   * new cycle drafted — between the proposal and the tap. `mutations.ts` would then refuse with
+   * a bare null that this file reports as `readOnlyFail()`, i.e. "that date has already passed",
+   * which would be false. Named here so the refusal is true.
+   */
+  const draftFail = async (cycleId: string | null, date: string | null): Promise<ApproveResult | null> => {
+    if (!(await landsInDraftMonth(row.clientId, cycleId, date))) return null;
+    return refuse(`${date ? monthName(date) : 'that month'} is still a draft you haven’t approved — changes to it happen on the draft itself.`);
+  };
   try {
     if (payload.kind === 'rewrite') {
       if (!(await agentPostEditable(row.clientId, payload.postId, today))) return readOnlyFail();
@@ -325,6 +345,8 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
       if (!(await agentPostEditable(row.clientId, payload.postId, today))) {
         return refuse('That post is in the past — it’s read-only now.');
       }
+      const moveIntoDraft = await draftFail(null, payload.toDate);
+      if (moveIntoDraft) return moveIntoDraft;
       await patchPost(row.clientId, payload.cycleId, payload.postId, { date: payload.toDate }, agentActor, today);
       changedPostIds = [payload.postId];
     } else if (payload.kind === 'delete') {
@@ -340,6 +362,8 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
       changedPostIds = [payload.postId];
     } else if (payload.kind === 'add') {
       if (!canAddPost(payload.date, today)) return readOnlyFail();   // ADD POLICY: see canAddPost
+      const addIntoDraft = await draftFail(payload.cycleId, payload.date);
+      if (addIntoDraft) return addIntoDraft;
       const channel = payload.channel ?? await cycleChannel(row.clientId, payload.cycleId);
       const format = payload.format ?? 'single';   // the inferred (or defaulted) format
       /**
@@ -449,6 +473,8 @@ export async function approveProposal(clientId: string, id: string, resolvedBy: 
       changedPostIds = [payload.postId];
     } else if (payload.kind === 'add_generated') {
       if (!canAddPost(payload.date, today)) return readOnlyFail();   // ADD POLICY: see canAddPost
+      const genIntoDraft = await draftFail(payload.cycleId, payload.date);
+      if (genIntoDraft) return genIntoDraft;
       const added = await addGeneratedPost(row.clientId, payload.cycleId, { channel: payload.channel, date: payload.date, format: payload.format, pillar: payload.pillar, caption: payload.caption }, agentActor, today);
       if (added?.mode === 'applied') changedPostIds = added.changedPostIds;
     }

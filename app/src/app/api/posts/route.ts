@@ -29,7 +29,7 @@ import { addGeneratingPost } from '@/lib/mutations';
 import { startPostGeneration, enqueueFollowOnGeneration, defaultCaptionBrief } from '@/lib/post-generation';
 import { loadPlanPosts } from '@/lib/plan';
 import { titleFromSubject } from '@/lib/agent/selectors';
-import { editScopeToday, canAddPost } from '@/lib/edit-scope';
+import { editScopeToday, canAddPost, landsInDraftMonth } from '@/lib/edit-scope';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -63,6 +63,13 @@ export async function POST(req: Request) {
     .where(and(eq(contentCycles.id, targetCycleId), eq(contentCycles.clientId, session.clientId)))
     .limit(1);
   if (!cycle) return NextResponse.json({ error: 'no_cycle' }, { status: 404 });
+
+  // DRAFT POLICY. `addGeneratingPost` refuses this too (mutations.ts → landsInDraftMonth), but
+  // a bare null there is indistinguishable from the past-date refusal below it and would render
+  // as "that date has already passed". Checked here so the client is told the real reason.
+  if (await landsInDraftMonth(session.clientId, targetCycleId, date)) {
+    return NextResponse.json({ error: 'draft_month' }, { status: 409 });
+  }
 
   /**
    * CAPTION GENERATION ENQUEUES REGARDLESS; AN INSTRUCTION ONLY STEERS IT.

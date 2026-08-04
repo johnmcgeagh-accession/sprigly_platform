@@ -24,7 +24,7 @@ import { ensureConversation, appendMessage, listTurns, threadForParser, latestPe
 import { createProposal, loadPendingPayloads, rejectProposal } from '@/lib/agent/proposals';
 import { saveNote } from '@/lib/agent/notes';
 import { answerQuery } from '@/lib/agent/query';
-import { editScopeToday, isEditableDate } from '@/lib/edit-scope';
+import { editScopeToday, isEditableDate, loadDraftCycles } from '@/lib/edit-scope';
 import { getUsageForCycle, remainingAiChanges } from '@/lib/usage';
 import { capAnnouncement } from '@sprigly/engine/ai-change-cap';
 import type { AgentTurnResponse, CapNotice, InterpretedItem, ParsedTask, PendingIntent, ProposalView } from '@/lib/agent/types';
@@ -303,6 +303,22 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
    * reference resolves against), not where a change may LAND. A client with a March cycle can
    * be given a March post from the August view even though March's rows were never loaded.
    */
+  /**
+   * ── THE MONTHS THAT ARE STILL DRAFTS ─────────────────────────────────────────────────
+   *
+   * Read ONCE per turn, because a compound request ("add three posts in September") asks the
+   * same question three times and this is a database read. Plan months ('YYYY-MM'), from
+   * `loadDraftCycles` — the same predicate `resolveSurfaceKind` uses, so what the agent
+   * refuses and what the surface renders can never disagree.
+   *
+   * An unreadable answer degrades to "no draft months", which leaves the guard below inert
+   * and the `mutations.ts` refusal as the backstop: a failed read must never be the thing
+   * that stops a client editing a live month.
+   */
+  const draftMonths = await loadDraftCycles(clientId)
+    .then((d) => new Set(d.byPlanMonth.keys()))
+    .catch(() => new Set<string>());
+
   const cycleForMonthCache = new Map<string, string | null>();
   const cycleForMonth = async (month: string): Promise<string | null> => {
     if (cycleForMonthCache.has(month)) return cycleForMonthCache.get(month)!;
@@ -472,6 +488,14 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
           cannot(`I can’t move it into ${monthName(task.toDate)} — there’s no ${monthName(task.toDate)} plan yet, and I can’t make one. Pick a date in a month you already have.`);
           break;
         }
+        // A DRAFT MONTH IS NOT A DESTINATION (see draftMonths above). A post keeps its own
+        // cycle through a move, so this would not join the draft — it would leave this month's
+        // grid and never appear in that one. Refused HERE rather than at apply, so the client
+        // reads it instead of tapping Apply on a change that will not happen.
+        if (draftMonths.has(task.toDate.slice(0, 7))) {
+          cannot(`I can’t move it into ${monthName(task.toDate)} — that month is still a draft you haven’t approved, and the post would vanish from both months. Approve ${monthName(task.toDate)} first, or pick a date in a month that’s live.`);
+          break;
+        }
         // The proposal carries the POST'S OWN cycle, never the viewed one: the apply step scopes
         // its write by (client, cycle, post), so an August post moved from the October view
         // would find nothing to update if this said October.
@@ -528,6 +552,14 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
         const destCycle = await cycleForMonth(date.slice(0, 7));
         if (!destCycle) {
           cannot(`There’s no ${monthName(date)} plan yet, and I can’t start one — that’s a planning run, not an edit. Pick a date in a month you already have, or ask us to set ${monthName(date)} up.`);
+          break;
+        }
+        // A DRAFT MONTH IS NOT A DESTINATION. This is the one that could destroy a month: the
+        // row would go in as 'generating', which the draft reader cannot see and the plan reader
+        // can, flipping the whole month out of its draft surface and hiding every planned post
+        // in it. Refused at proposal time so nothing reaches an Apply the client would regret.
+        if (draftMonths.has(date.slice(0, 7))) {
+          cannot(`${monthName(date)} is still a draft you haven’t approved, so I can’t add to it from here — it would hide the posts already planned for it. Open ${monthName(date)} and tell me there: on a draft I can reshape the month directly.`);
           break;
         }
         const inferred = task.format === 'reel' || task.format === 'carousel' || task.format === 'single';

@@ -31,6 +31,9 @@ const h = vi.hoisted(() => ({
   // DATE POLICY: default the affected post to far-future (editable); a test can override
   // to a past date to assert the agent read-only refusal.
   resolvePost: vi.fn(async () => ({ cycleId: 'cycle-1', scheduledDate: '2999-01-01', channel: 'instagram' }) as { cycleId: string; scheduledDate: string; channel: string } | null),
+  // DRAFT POLICY: which cycles / plan months are still unapproved drafts. Empty by default.
+  draftCycleIds: [] as string[],
+  draftMonths: [] as string[],
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -98,6 +101,10 @@ vi.mock('../edit-scope', () => ({
   isEditableDate: (d: string, t = '2026-07-11') => d >= t,
   canAddPost: (d: string | undefined, t = '2026-07-11') => !!d && d >= t,
   resolvePostForEdit: (...a: unknown[]) => h.resolvePost(...(a as [])),
+  // DRAFT POLICY: the plan months this client has not approved yet. Empty by default, so
+  // every pre-existing expectation here is unchanged; a test sets it to assert the refusal.
+  landsInDraftMonth: async (_c: string, cycleId: string | null, date: string | null) =>
+    (!!cycleId && h.draftCycleIds.includes(cycleId)) || (!!date && h.draftMonths.includes(date.slice(0, 7))),
 }));
 
 import { createProposal, listPendingProposals, approveProposal, rejectProposal } from './proposals';
@@ -125,6 +132,7 @@ beforeEach(() => {
   h.enqueueScript.mockReset().mockResolvedValue({ jobId: 'script_cycle-1_post-9' });
   h.blocked = false; h.usage = { used: 0, limit: 30, unlimited: false };
   h.resolvePost.mockReset().mockResolvedValue({ cycleId: 'cycle-1', scheduledDate: '2999-01-01', channel: 'instagram' });
+  h.draftCycleIds.length = 0; h.draftMonths.length = 0;
 });
 
 describe('createProposal', () => {
@@ -198,6 +206,52 @@ describe('approve applies deterministically, scoped + idempotent', () => {
       expect(r.failed).toBe(true);
       expect(r.message).toContain('30 June');
       expect(h.addGenerating).not.toHaveBeenCalled();
+    });
+
+    /**
+     * ── AND THE DRAFT FENCE, AT APPLY ────────────────────────────────────────────────
+     *
+     * `turn.ts` refuses these when the proposal is MADE, which is where the client reads it.
+     * These pin the second check, which is not redundant: a proposal is a stored row a client
+     * can approve at any later moment, and the target month can have entered draft in between.
+     * Without it `mutations.ts` refuses with a bare null that this file reports as the DATE
+     * refusal — telling the client a future date "has already passed".
+     */
+    it('an ADD into a draft month: failed, naming the MONTH and not the date', async () => {
+      h.draftMonths.push('2026-09');
+      h.claimQueue = [[addRow('2026-09-15')]];
+      const r = await approveProposal(CLIENT, 'prop-1', 'client');
+      expect(r.proposal?.status).toBe('failed');
+      expect(r.failed).toBe(true);
+      expect(r.message).toContain('September 2026');
+      expect(r.message).toContain('draft');
+      // The refusal is not the past-date one — that sentence would be false here.
+      expect(r.message).not.toContain('already passed');
+      expect(h.addGenerating).not.toHaveBeenCalled();
+    });
+
+    it('an ADD whose target CYCLE is in draft is refused even when the date reads fine', async () => {
+      h.draftCycleIds.push('cycle-1');
+      h.claimQueue = [[addRow('2026-09-15')]];
+      const r = await approveProposal(CLIENT, 'prop-1', 'client');
+      expect(r.failed).toBe(true);
+      expect(h.addGenerating).not.toHaveBeenCalled();
+    });
+
+    it('a MOVE into a draft month is refused, and nothing is patched', async () => {
+      h.draftMonths.push('2026-09');
+      h.claimQueue = [[moveRow]];                 // toDate 2026-09-14
+      const r = await approveProposal(CLIENT, 'prop-1', 'client');
+      expect(r.failed).toBe(true);
+      expect(r.message).toContain('September 2026');
+      expect(h.patch).not.toHaveBeenCalled();
+    });
+
+    it('a move into a LIVE month is untouched by the fence', async () => {
+      h.claimQueue = [[moveRow]];
+      const r = await approveProposal(CLIENT, 'prop-1', 'client');
+      expect(r.failed).toBeUndefined();
+      expect(h.patch).toHaveBeenCalledTimes(1);
     });
 
     it('a past-dated MOVE names the DESTINATION, not the post', async () => {

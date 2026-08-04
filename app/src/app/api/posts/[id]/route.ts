@@ -8,7 +8,7 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { patchPost, softDeletePost, type PostPatch } from '@/lib/mutations';
-import { gatePostEdit, editScopeToday, isEditableDate } from '@/lib/edit-scope';
+import { gatePostEdit, editScopeToday, isEditableDate, landsInDraftMonth } from '@/lib/edit-scope';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,6 +26,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   // A date move must land today-onward too (can't move a post INTO the past).
   if (typeof body.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.date) && !isEditableDate(body.date, today)) {
     return NextResponse.json({ error: 'read_only' }, { status: 403 });
+  }
+  // …and it must not land in a month that is still an unapproved draft, where the post would
+  // leave this month's grid and never appear in that one (edit-scope.ts → landsInDraftMonth).
+  // `patchPost` refuses it too; checked here so the refusal names its real reason.
+  if (typeof body.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.date)
+      && await landsInDraftMonth(session.clientId, null, body.date)) {
+    return NextResponse.json({ error: 'draft_month' }, { status: 409 });
   }
 
   const result = await patchPost(session.clientId, gate.cycleId, params.id, body, undefined, today);

@@ -6,14 +6,16 @@
  *
  * The `pending` (regen) branch is Phase 3 — not here.
  */
-import { and, eq, isNull, desc } from 'drizzle-orm';
-import { db, contentCyclePosts, DRAFT_PLACEHOLDER_CAPTION } from '@sprigly/db';
+import { and, eq, isNull, ne, desc } from 'drizzle-orm';
+import { db, contentCyclePosts, DRAFT_PLACEHOLDER_CAPTION, POST_STATUS_DRAFT } from '@sprigly/db';
 import { QUOTA_BANKED_KEY, QUOTA_BANKED_AT_KEY } from '@sprigly/engine/ai-change-cap';
 import type { ContentCyclePostRow } from '@sprigly/db';
 import { loadPlanPosts } from '@/lib/plan';
 import { resolveRevert } from '@/lib/revert';
 import { recordActivity, USER_ACTOR, type ActivityActor, type ActivityAction } from '@/lib/activity';
-import { isEditableDate, canAddPost, editScopeToday } from '@/lib/edit-scope';
+// `landsInDraftMonth` is the WRITE-TIME half of the draft fence — the read-time half is
+// `excludeDraftPosts()` in every plan reader. See edit-scope.ts for what it refuses and why.
+import { isEditableDate, canAddPost, editScopeToday, landsInDraftMonth } from '@/lib/edit-scope';
 import { normalisePostingTime } from '@/lib/posting-time';
 import type { ShapeResult, PostFormat } from '@/lib/types';
 
@@ -34,12 +36,28 @@ function scopedPost(clientId: string, cycleId: string, postId: string) {
   );
 }
 
-/** Fetch a post only if it belongs to this session's client+cycle (and isn't deleted). */
+/**
+ * Fetch a post only if it belongs to this session's client+cycle (and isn't deleted).
+ *
+ * A DRAFT beat is not fetchable here. Every update in this file goes through this function,
+ * so this is the one place the ordinary path can be told that an unapproved slot is not its
+ * row to touch — and it had no status condition at all, which is how `patchPost` came to be
+ * able to stamp `status: 'edited'` onto a beat and convert it into a committed post.
+ *
+ * Defence in depth, not the only guard: `gatePostEdit` (edit-scope.ts) refuses the same rows
+ * at the route boundary with a 409 the client can read. This one cannot produce a sentence —
+ * it returns null like every other refusal here — and exists so no caller, present or future,
+ * can reach a draft row by skipping the gate.
+ */
 async function ownedPost(clientId: string, cycleId: string, postId: string): Promise<ContentCyclePostRow | null> {
   const [row] = await db
     .select()
     .from(contentCyclePosts)
-    .where(and(scopedPost(clientId, cycleId, postId), isNull(contentCyclePosts.deletedAt)))
+    .where(and(
+      scopedPost(clientId, cycleId, postId),
+      isNull(contentCyclePosts.deletedAt),
+      ne(contentCyclePosts.status, POST_STATUS_DRAFT),   // the draft's own path is draft-mutations.ts
+    ))
     .limit(1);
   return row ?? null;
 }
@@ -81,6 +99,9 @@ export async function patchPost(clientId: string, cycleId: string, postId: strin
   // INTO the past. Refuse (null) rather than partially apply.
   if (!isEditableDate(row.scheduledDate, today)) return null;
   if (typeof patch.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(patch.date) && !isEditableDate(patch.date, today)) return null;
+  // DRAFT POLICY: and it must not land in a month that is still an unapproved draft — see
+  // landsInDraftMonth. Only a DATE move can do that; every other field stays where it is.
+  if (typeof patch.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(patch.date) && await landsInDraftMonth(clientId, null, patch.date)) return null;
 
   const set: Partial<ContentCyclePostRow> = {
     status: row.status === 'new' ? 'new' : 'edited',
@@ -134,6 +155,7 @@ export async function patchPost(clientId: string, cycleId: string, postId: strin
  *  a post_created ledger row atomically. */
 export async function addDraft(clientId: string, cycleId: string, channel: string, date: string, actor: ActivityActor = USER_ACTOR, format = 'single', today: string = editScopeToday(), title?: string | null): Promise<ShapeResult | null> {
   if (!canAddPost(date, today)) return null;   // ADD POLICY: see canAddPost
+  if (await landsInDraftMonth(clientId, cycleId, date)) return null;   // DRAFT POLICY
   const fmt: PostFormat = FORMATS.has(format as PostFormat) && format !== 'email' ? (format as PostFormat) : 'single';
   // place it last
   const [maxRow] = await db
@@ -175,6 +197,7 @@ export async function addGeneratedPost(
   actor: ActivityActor = USER_ACTOR, today: string = editScopeToday(),
 ): Promise<ShapeResult | null> {
   if (!canAddPost(spec.date, today)) return null;   // ADD POLICY: see canAddPost
+  if (await landsInDraftMonth(clientId, cycleId, spec.date)) return null;   // DRAFT POLICY
   const [maxRow] = await db
     .select({ position: contentCyclePosts.position })
     .from(contentCyclePosts)
@@ -216,6 +239,7 @@ export async function addGeneratingPost(
   actor: ActivityActor = USER_ACTOR, today: string = editScopeToday(),
 ): Promise<{ postId: string } | null> {
   if (!canAddPost(spec.date, today)) return null;   // ADD POLICY: see canAddPost
+  if (await landsInDraftMonth(clientId, cycleId, spec.date)) return null;   // DRAFT POLICY
   const fmt: PostFormat = spec.format && FORMATS.has(spec.format as PostFormat) && spec.format !== 'email' ? (spec.format as PostFormat) : 'single';
   const [maxRow] = await db
     .select({ position: contentCyclePosts.position })
