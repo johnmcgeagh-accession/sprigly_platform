@@ -74,7 +74,7 @@ vi.mock('@/lib/agent/proposals', () => ({
   rejectProposal: async () => null,
 }));
 vi.mock('@/lib/agent/notes', () => ({ saveNote: async () => undefined }));
-vi.mock('@/lib/agent/query', () => ({ answerQuery: async () => 'answer' }));
+vi.mock('@/lib/agent/query', () => ({ answerQuery: async () => ({ text: 'answer', outcome: 'answered' }) }));
 // THE DAY OF THE SCREENSHOT. Frozen through the same door production's e2e freeze uses:
 // editScopeToday() → resolveTodayIso() → e2eTodayIso().
 vi.mock('@/lib/e2e-fake', () => ({ e2eTodayIso: () => '2026-07-30', e2eFakeEnabled: () => false }));

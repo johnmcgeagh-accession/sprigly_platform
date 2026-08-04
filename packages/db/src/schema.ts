@@ -1266,11 +1266,70 @@ export const agentMessages = pgTable(
     // Voice sessionId (the sprigly-voice integration seam), the intent
     // classification result, and any proposal ids created from this message.
     metadata:       jsonb('metadata').$type<Record<string, unknown>>(),
+    // ─── turn outcome, as DATA (migration 0092) ──────────────────────────────
+    // A caught parse throw used to write metadata.tasks = ["clarify"] and a caught
+    // answerer throw metadata.tasks = ["query"] — byte-identical to their success
+    // cases. Every failure was therefore recorded as a success, and only exact-string
+    // matching on canned copy could tell them apart.
+    //
+    // These live in COLUMNS rather than metadata because there is no single insert
+    // path to enforce a TypeScript field on: weekly-session.ts inserts here directly
+    // from the worker, and seed-e2e.ts from this package. Only the database reaches
+    // all three, and its default is 'unknown' — never 'answered'.
+    /** Which code path wrote this row: see AGENT_MESSAGE_WRITERS. */
+    writer:         text('writer').notNull().default('unknown'),
+    /** What happened: see AGENT_TURN_OUTCOMES. 'errored' always wins over a cheerier value. */
+    outcome:        text('outcome').notNull().default('unknown'),
+    /** '<stage>:<ErrorName>' — set if and only if outcome is 'errored' (CHECK constraint). */
+    errorKind:      text('error_kind'),
   },
   (t) => ({
     convIdx: index('agent_messages_conversation_idx').on(t.conversationId, t.createdAt),
+    // "Show me every failed turn, newest first" — the query this instrumentation exists for.
+    outcomeIdx: index('agent_messages_outcome_idx').on(t.outcome, t.createdAt),
   }),
 );
+
+/**
+ * WHO WROTE AN agent_messages ROW. Four paths write to this table and, until 0092, none of them
+ * said so — a draft-surface receipt and a plan-agent turn were the same shape, and which
+ * metadata keys a row happened to carry was the only clue.
+ *
+ * 'unknown' is the column default and belongs in the list: it is what a writer that says nothing
+ * gets, and what all 340 pre-0092 rows carry. It is a real value, not a gap.
+ */
+export const AGENT_MESSAGE_WRITERS = [
+  'plan-agent',     // app: lib/agent/turn.ts — the conversational agent
+  'draft-apply',    // app: api/plan/draft/apply — a draft reshape and its receipt
+  'confirm',        // app: api/plan/conversation/confirm — the post-apply confirmation
+  'weekly-session', // worker: engine/content-cycles/weekly-session.ts — inserts DIRECTLY
+  'unknown',
+] as const;
+export type AgentMessageWriter = typeof AGENT_MESSAGE_WRITERS[number];
+
+/**
+ * WHAT HAPPENED ON A TURN, in strict precedence: the most diagnostically significant value wins,
+ * so a turn that both changed something and threw is 'errored'. A failure must never be masked
+ * by a cheerier outcome — that masking is the whole defect 0092 addresses.
+ *
+ * Deliberately text + a documented vocabulary rather than a Postgres enum: this list will grow,
+ * and ALTER TYPE ... ADD VALUE cannot run inside a transaction block.
+ */
+export const AGENT_TURN_OUTCOMES = [
+  'errored',      // something threw and was caught — ALWAYS wins
+  'declined',     // the model correctly said it does not have something on file
+  'answered',     // a query answered from the context it was given
+  'changed',      // proposals created
+  'noted',        // an idea or note recorded
+  'clarified',    // we asked a question, or could not place the request
+  'user',         // a client's own message — has no outcome, and must not claim one
+  'receipt',      // draft-apply's applied-lines receipt
+  'confirmation', // confirm's post-apply line
+  'proposed',     // weekly-session raised changes
+  'quiet',        // weekly-session found nothing to raise
+  'unknown',      // nobody said. The default, and never a synonym for success.
+] as const;
+export type AgentTurnOutcome = typeof AGENT_TURN_OUTCOMES[number];
 export type AgentMessageRow    = typeof agentMessages.$inferSelect;
 export type NewAgentMessageRow = typeof agentMessages.$inferInsert;
 

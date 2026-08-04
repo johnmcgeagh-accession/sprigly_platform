@@ -54,6 +54,20 @@ export interface ParsedTask {
    * slot, and carried forward until the intent resolves into a real action. See `PendingIntent`.
    */
   intent?: PendingIntent | null;
+  /**
+   * THIS CLARIFY IS A FAILURE WEARING A CLARIFY'S CLOTHES (0092).
+   *
+   * `parseTasks` catches its own model errors and malformed output and synthesises a clarify, so
+   * the client always gets a sentence rather than a 500. That is right — and it is why the
+   * caught-throw path in `turn.ts` is NOT the only way a parse failure reaches the thread, and
+   * arguably not the likeliest: a Bedrock throttle is swallowed inside `parseTasks` and never
+   * reaches `turn.ts`'s catch at all.
+   *
+   * Set ONLY on those synthesised clarifies, and never by `normalizeTask` on a clarify the model
+   * genuinely chose. The turn loop reads it to record `outcome: 'errored'` on a row that would
+   * otherwise be indistinguishable from a good clarify.
+   */
+  parseError?: string | null;
 }
 
 /**

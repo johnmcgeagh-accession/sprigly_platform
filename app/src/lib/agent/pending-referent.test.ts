@@ -71,7 +71,7 @@ vi.mock('@/lib/agent/proposals', () => ({
   rejectProposal: async (_c: string, id: string) => { h.rejected.push(id); return null; },
 }));
 vi.mock('@/lib/agent/notes', () => ({ saveNote: async () => undefined }));
-vi.mock('@/lib/agent/query', () => ({ answerQuery: async () => 'answer' }));
+vi.mock('@/lib/agent/query', () => ({ answerQuery: async () => ({ text: 'answer', outcome: 'answered' }) }));
 vi.mock('@/lib/e2e-fake', () => ({ e2eTodayIso: () => '2026-08-01', e2eFakeEnabled: () => false }));
 
 import { runPlanAgentTurn } from './turn';

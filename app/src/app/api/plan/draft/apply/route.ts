@@ -86,13 +86,16 @@ export async function POST(req: Request) {
   if (res.ok) {
     try {
       conversationId = await ensureConversation(session.clientId, session.cycleId);
-      await appendMessage({ conversationId, role: 'user', content: text, source });
+      await appendMessage({ conversationId, role: 'user', content: text, source, writer: 'draft-apply', outcome: 'user' });
       const lines = res.application?.lines ?? [];
       await appendMessage({
         conversationId, role: 'assistant',
         content: lines.length ? lines.join('\n')
           : res.application?.scope === 'evergreen' ? 'Saved to your ideas — nothing on the month changed.'
           : 'Done.',
+        // 'receipt', not 'answered' (0092): this row is the draft surface's applied-lines
+        // receipt, not a plan-agent turn, and the two were previously the same shape.
+        writer: 'draft-apply', outcome: 'receipt',
         metadata: { receiptId: res.application?.id ?? null, changedIds: res.application?.changedIds ?? [] },
       });
     } catch { conversationId = null; }

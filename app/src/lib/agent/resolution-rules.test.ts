@@ -66,7 +66,7 @@ vi.mock('@/lib/agent/proposals', () => ({
   rejectProposal: async () => null,
 }));
 vi.mock('@/lib/agent/notes', () => ({ saveNote: async () => undefined }));
-vi.mock('@/lib/agent/query', () => ({ answerQuery: async () => 'answer' }));
+vi.mock('@/lib/agent/query', () => ({ answerQuery: async () => ({ text: 'answer', outcome: 'answered' }) }));
 // Mid-month Wednesday, through the write gate's own freeze door.
 vi.mock('@/lib/e2e-fake', () => ({ e2eTodayIso: () => '2026-08-12', e2eFakeEnabled: () => false }));
 

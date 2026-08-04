@@ -50,7 +50,7 @@ vi.mock('@/lib/agent/proposals', () => ({
   rejectProposal: async () => null,
 }));
 vi.mock('@/lib/agent/notes', () => ({ saveNote: async () => undefined }));
-vi.mock('@/lib/agent/query', () => ({ answerQuery: async () => 'answer' }));
+vi.mock('@/lib/agent/query', () => ({ answerQuery: async () => ({ text: 'answer', outcome: 'answered' }) }));
 // The REAL cap arithmetic and copy — this file is about what the turn DOES with them.
 vi.mock('@/lib/usage', async () => {
   const cap = await import('@sprigly/engine/ai-change-cap');

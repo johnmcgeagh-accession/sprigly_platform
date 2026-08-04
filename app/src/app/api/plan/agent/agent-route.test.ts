@@ -84,7 +84,7 @@ beforeEach(() => {
   h.turnCalls.length = 0;
   h.createCalls.length = 0;
   h.saveNote.mockReset();
-  h.answerQuery.mockReset().mockResolvedValue('You need to film the reel.');
+  h.answerQuery.mockReset().mockResolvedValue({ text: 'You need to film the reel.', outcome: 'answered' });
 });
 
 describe('compound message', () => {

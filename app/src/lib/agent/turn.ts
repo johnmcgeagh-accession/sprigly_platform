@@ -28,6 +28,7 @@ import { editScopeToday, isEditableDate } from '@/lib/edit-scope';
 import { getUsageForCycle, remainingAiChanges } from '@/lib/usage';
 import { capAnnouncement } from '@sprigly/engine/ai-change-cap';
 import type { AgentTurnResponse, CapNotice, InterpretedItem, ParsedTask, PendingIntent, ProposalView } from '@/lib/agent/types';
+import type { AgentTurnOutcome } from '@sprigly/db';
 
 export interface AgentTurnArgs {
   clientId:        string;
@@ -181,6 +182,46 @@ function monthWindow(month?: string | null): { from: string | null; to: string |
   return { from: `${month}-01`, to: `${month}-${String(lastDay).padStart(2, '0')}` };
 }
 
+/** '<ErrorName>' for the ledger — never the message, which can carry a client id or a whole
+ *  prompt fragment and is stored. The NAME is what triage keys on. */
+const errName = (e: unknown): string =>
+  (e instanceof Error && e.name ? e.name : typeof e === 'string' ? 'string' : 'Unknown');
+
+/**
+ * WHAT HAPPENED ON THIS TURN, as one value (0092).
+ *
+ * Strict precedence, and the order is the whole point:
+ *
+ *   errored    — anything threw. NEVER masked by a later success, because a failure a cheerier
+ *                outcome hides is a failure nobody will ever query for.
+ *   declined   — the answerer correctly said it does not have something on file. A GOOD outcome,
+ *                and the one that used to be byte-identical to both a good answer and a throw.
+ *   answered   — a query answered from context.
+ *   changed    — proposals created.
+ *   noted      — an idea or note recorded.
+ *   clarified  — we asked something, or could not place the request.
+ *   unknown    — none of the above described it. Honest, and never a synonym for success.
+ *
+ * A query whose answerer emitted no tag lands on 'unknown' rather than 'answered' for the same
+ * reason: this instrumentation exists because silence was being read as success.
+ */
+function turnOutcome(args: {
+  thrown: string | null;
+  queryOutcome: 'answered' | 'declined' | 'unknown' | null;
+  proposals: number;
+  noted: boolean;
+  items: readonly InterpretedItem[];
+}): AgentTurnOutcome {
+  if (args.thrown) return 'errored';
+  if (args.queryOutcome === 'declined') return 'declined';
+  if (args.queryOutcome === 'answered') return 'answered';
+  if (args.proposals > 0) return 'changed';
+  if (args.noted) return 'noted';
+  if (args.queryOutcome === 'unknown') return 'unknown';
+  if (args.items.some((i) => i.kind === 'unresolved')) return 'clarified';
+  return 'unknown';
+}
+
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
@@ -231,7 +272,8 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
   catch { /* an unreadable thread degrades to a threadless turn, never a failed one */ }
   const userMeta: Record<string, unknown> = { source };
   if (args.sessionId) userMeta.sessionId = args.sessionId;
-  const userMessageId = await appendMessage({ conversationId: convId, role: 'user', content: instruction, source, metadata: userMeta });
+  // A client's own message has no outcome and must not claim one — 'user' says exactly that.
+  const userMessageId = await appendMessage({ conversationId: convId, role: 'user', content: instruction, source, metadata: userMeta, writer: 'plan-agent', outcome: 'user' });
 
   const { iso: todayNow, date: today } = agentToday();
   /**
@@ -303,14 +345,32 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
       ...(openIntent ? { intent: intentForParser(openIntent) } : {}),
     };
     tasks = await parseTasks(instruction, ctx, getModelClient(), { audit, clientId });
-  } catch {
-    tasks = [{ action: 'clarify', question: 'I couldn’t process that just now. Please try again in a moment.' }];
+  } catch (err) {
+    // Everything OUTSIDE parseTasks' own try: building the context (a cycle read, the catalogue),
+    // resolving the model client, or parseTasks itself failing in a way it does not catch. The
+    // client copy is unchanged; the row now says an error produced it.
+    tasks = [{ action: 'clarify', question: 'I couldn’t process that just now. Please try again in a moment.', parseError: `context:${errName(err)}` }];
   }
 
   // ── Execute in message order ──────────────────────────────────────────────
   const changeSetId = randomUUID();
   const proposals: ProposalView[] = [];
   const replyParts: string[] = [];
+  /**
+   * ── WHAT ACTUALLY HAPPENED ON THIS TURN (0092) ───────────────────────────────────────
+   *
+   * `thrown` is the FIRST error kind caught anywhere in this turn, and it is sticky: once set it
+   * is never cleared, so a turn that threw and then went on to do something useful is still
+   * recorded as errored. A failure that is masked by a later success is a failure nobody sees,
+   * which is precisely the state this instrumentation replaces.
+   *
+   * `queryOutcome` is the query answerer's own verdict — 'declined' when it correctly told the
+   * client it does not have something, which used to be indistinguishable from both a good
+   * answer and a caught throw.
+   */
+  let thrown: string | null = null;
+  let queryOutcome: 'answered' | 'declined' | 'unknown' | null = null;
+  let notedSomething = false;
   /**
    * The interpretation, built as each task resolves — which is the only place it CAN be built
    * honestly, because it is the only place both the structured task and the post row it resolved
@@ -367,6 +427,9 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
   };
 
   for (const task of tasks) {
+    // A clarify carrying `parseError` is a failure the client sees as an ordinary clarify —
+    // synthesised either inside parseTasks (a throttle, malformed JSON) or by the catch above.
+    if (task.parseError) thrown ??= task.parseError;
     if (task.amends && pending.length) await supersedePending();
     switch (task.action) {
       case 'move_post': {
@@ -570,18 +633,28 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
         // it is not on the calendar. Nothing to apply — it is already saved. The month rides along
         // so the surface can say WHICH month rather than claim there wasn't one.
         items.push({ kind: 'idea', text: task.content, month: task.targetMonth ?? null });
+        notedSomething = true;
         break;
       }
       case 'query': {
         let answer: string;
         try {
-          answer = await answerQuery(
+          const res = await answerQuery(
             // The SPAN goes to the answerer (X1a/d): "what's happening next week" is a question
             // about dates, and it must not be answered from the month that happens to be up.
             { clientId, cycleId, question: task.question ?? instruction, today, context: planCtx },
             { model: getModelClient(), embeddingClient: getEmbeddingClient(), audit },
           );
-        } catch { answer = 'I couldn’t look that up just now. Please try again.'; }
+          answer = res.text;
+          // The answerer's OWN verdict (0092). A decline is a CORRECT outcome — the model saying
+          // it does not have something is the behaviour the grounding contract asks for — and it
+          // must be distinguishable from an answer, which string-matching the copy could not do.
+          queryOutcome = res.outcome;
+        } catch (err) {
+          answer = 'I couldn’t look that up just now. Please try again.';
+          // This sentence used to be stored as a successful `tasks: ["query"]` row. It is a throw.
+          thrown ??= `answer-query:${errName(err)}`;
+        }
         replyParts.push(answer);
         break;
       }
@@ -658,8 +731,16 @@ export async function runPlanAgentTurn(args: AgentTurnArgs): Promise<AgentTurnRe
     ...(capNotice ? { capNotice } : {}),
   };
 
+  /** The turn's outcome, as data (0092). Computed here, from what actually happened, and stored
+   *  on the row beside the prose rather than inferable from it. */
+  const outcome = turnOutcome({ thrown, queryOutcome, proposals: proposals.length, noted: notedSomething, items });
   await appendMessage({
     conversationId: convId, role: 'assistant',
+    writer: 'plan-agent',
+    outcome,
+    // The CHECK constraint pins these two together: an error always names itself, and a
+    // non-error can never carry a kind.
+    errorKind: outcome === 'errored' ? thrown : null,
     content: message || `Proposed ${proposals.length} change${proposals.length === 1 ? '' : 's'} for review.`,
     // `items` persists ON the turn so the thread can re-render its interpretation across a
     // reopen (the sheet reads it back through listTurns) and so the NEXT turn's parser window

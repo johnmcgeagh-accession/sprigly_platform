@@ -24,6 +24,7 @@
  */
 import { and, desc, eq } from 'drizzle-orm';
 import { db, conversations, agentMessages } from '@sprigly/db';
+import type { AgentMessageWriter, AgentTurnOutcome } from '@sprigly/db';
 import type { InterpretedItem, PendingIntent } from './types';
 
 /**
@@ -67,6 +68,22 @@ export interface AppendMessageArgs {
   content: string;
   source?: 'web' | 'voice';
   metadata?: Record<string, unknown>;
+  /**
+   * WHO IS WRITING, and WHAT HAPPENED (0092). Both REQUIRED — not optional with a default —
+   * because the whole defect is that silence read as success. An optional field would be
+   * forgotten by the next caller in exactly the way `metadata` already was, and the row would
+   * go back to being indistinguishable from a good turn.
+   *
+   * The database still defaults both to 'unknown', which catches the writers TypeScript cannot
+   * reach: `weekly-session.ts` inserts into this table directly from the worker, and
+   * `seed-e2e.ts` from @sprigly/db. Neither imports this function.
+   */
+  writer: AgentMessageWriter;
+  outcome: AgentTurnOutcome;
+  /** '<stage>:<ErrorName>'. Required when outcome is 'errored', forbidden otherwise — the
+   *  database enforces exactly that with a CHECK constraint, so a mismatch fails the insert
+   *  rather than storing an error nobody can act on. */
+  errorKind?: string | null;
 }
 
 /**
@@ -210,6 +227,9 @@ export async function appendMessage(args: AppendMessageArgs): Promise<string> {
       role: args.role,
       content: args.content,
       source: args.source ?? 'web',
+      writer: args.writer,
+      outcome: args.outcome,
+      errorKind: args.errorKind ?? null,
       ...(args.metadata !== undefined ? { metadata: args.metadata } : {}),
     })
     .returning({ id: agentMessages.id });

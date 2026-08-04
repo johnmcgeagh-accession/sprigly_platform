@@ -213,6 +213,11 @@ export async function runWeeklySession(job: WeeklySessionJob, deps: PlanningDeps
   const [conv] = await db.insert(conversations).values({ clientId, cycleId }).returning({ id: conversations.id });
   const [msg] = await db.insert(agentMessages).values({
     conversationId: conv!.id, role: 'assistant', content: message, source: 'web',
+    // 0092: this insert bypasses app's appendMessage entirely — different package, no shared
+    // helper — so it is exactly the writer a TypeScript-only marker would have missed. Without
+    // these two fields it falls to the column default 'unknown', which is honest but says less
+    // than it could.
+    writer: 'weekly-session', outcome: quiet ? 'quiet' : 'proposed',
     metadata: { weeklySession: true, weekStart, changeSetId: quiet ? null : changeSetId },
   }).returning({ id: agentMessages.id });
 

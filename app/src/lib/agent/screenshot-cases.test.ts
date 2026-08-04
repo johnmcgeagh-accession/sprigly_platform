@@ -75,7 +75,7 @@ vi.mock('@/lib/agent/proposals', () => ({
   rejectProposal: async () => null,
 }));
 vi.mock('@/lib/agent/notes', () => ({ saveNote: async () => undefined }));
-vi.mock('@/lib/agent/query', () => ({ answerQuery: async () => 'answer' }));
+vi.mock('@/lib/agent/query', () => ({ answerQuery: async () => ({ text: 'answer', outcome: 'answered' }) }));
 // The day of the re-check. August 5th and September 4th are both still ahead of it, which is the
 // only fact the editability rule is allowed to care about. The turn now reads today through
 // `editScopeToday()` (the write gate's own source), whose chain ends at `e2eTodayIso` — so the

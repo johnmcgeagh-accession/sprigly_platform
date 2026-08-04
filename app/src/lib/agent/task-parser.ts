@@ -358,6 +358,16 @@ const isoDate = (v: unknown): string | null => (typeof v === 'string' && /^\d{4}
 const isoMonth = (v: unknown): string | null => (typeof v === 'string' && /^\d{4}-\d{2}$/.test(v) ? v : null);
 const clarify = (question: string, reason?: string | null): ParsedTask => ({ action: 'clarify', question, reason: reason ?? null });
 
+/** A clarify that exists ONLY because something failed — tagged so the turn loop can record it
+ *  as an error rather than as the ordinary clarify it is deliberately indistinguishable from
+ *  on screen. The client copy is unchanged; the row is not. */
+const failedClarify = (question: string, parseError: string): ParsedTask => ({ ...clarify(question), parseError });
+
+/** '<ErrorName>' for the ledger. Never the message: a message can carry a client id, a prompt
+ *  fragment or a whole stack, and this string is stored. The NAME is what triage keys on. */
+const errName = (e: unknown): string =>
+  (e instanceof Error && e.name ? e.name : typeof e === 'string' ? 'string' : 'Unknown');
+
 /**
  * Normalise one raw task into a valid ParsedTask, or a clarify if it can't be.
  *
@@ -553,12 +563,16 @@ export async function parseTasks(
         });
       } catch { /* auditing must never change the answer */ }
     }
-  } catch {
-    return [clarify('I couldn’t process that just now — send it again in a moment.')];
+  } catch (err) {
+    // The model call itself failed — a throttle, a timeout, a credentials problem. The client
+    // sees the same sentence as before; the row now says which.
+    return [failedClarify('I couldn’t process that just now — send it again in a moment.', `parse:${errName(err)}`)];
   }
 
   const parsed = extractJson(raw) as { tasks?: unknown } | null;
   const tasks = parsed && Array.isArray(parsed.tasks) ? parsed.tasks : null;
-  if (!tasks || tasks.length === 0) return [clarify('I didn’t catch a request there — send another message with what you’d like to change.')];
+  // The call SUCCEEDED and returned something we could not use — a different failure from the
+  // one above, and one no amount of retrying the network will fix. It gets its own kind.
+  if (!tasks || tasks.length === 0) return [failedClarify('I didn’t catch a request there — send another message with what you’d like to change.', 'parse:MalformedOutput')];
   return tasks.map(normalizeTask);
 }

@@ -77,7 +77,7 @@ vi.mock('@/lib/agent/proposals', () => ({
 vi.mock('@/lib/agent/notes', () => ({ saveNote: async () => undefined }));
 vi.mock('@/lib/agent/query', async (orig) => ({
   ...(await orig<typeof import('./query')>()),
-  answerQuery: async () => 'answer',
+  answerQuery: async () => ({ text: 'answer', outcome: 'answered' }),
 }));
 // Mid-October, so every date in the fixture's second half is still ahead.
 vi.mock('@/lib/e2e-fake', () => ({ e2eTodayIso: () => '2026-10-15', e2eFakeEnabled: () => false }));

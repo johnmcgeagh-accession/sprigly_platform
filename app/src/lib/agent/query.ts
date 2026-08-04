@@ -31,7 +31,40 @@ export const QUERY_SYSTEM_PROMPT = `You are a clothing brand's content-plan assi
   · That month is NOT EMPTY. It has that many planned posts, on those dates, in those formats, under those pillars, with those working titles. Never say such a month has "nothing scheduled", is "empty", or is "not in the plan" — count them and name them exactly as you would written posts. Call them planned posts.
   · That month has NO CAPTIONS. Not one of them has copy written. If the question is about what a post SAYS — its caption, its wording, its tone, its opening line, what it "talks about" beyond its title, or asks you to quote or summarise it — SAY THE CAPTIONS ARE NOT WRITTEN YET and say what you do have (the date, format, pillar and working title). NEVER answer a caption question out of a planned post's title: a title is a slot's label, not its copy, and expanding one into what the post "is about" is inventing the post.
 - ANSWER THE QUESTION THAT WAS ASKED, OR SAY YOU CANNOT. If the question asks for a CLASS OF INFORMATION the plan state and knowledge context do not carry at all — products, prices, stock, performance, engagement, competitors, analytics, who created a plan or when — say plainly that you do not have that on file. Do NOT answer an adjacent question instead and let it stand as the answer: a question about products is not a question about posts, and an answer about posts does not address it. Name what you can see, and stop.
-- SEVERAL MONTHS MAY BE IN VIEW, AND A DATE QUESTION IS ABOUT THE DATE. "This week", "next week", "the 4th" mean the actual dates, whichever month the client happens to have on screen. Work them out from today's ISO date and answer from whichever month's posts cover them. If the dates asked about fall OUTSIDE every window the plan state names, say so plainly and NAME THE MONTHS YOU CAN SEE — never answer "nothing is planned" for a week you cannot see, and never say a month is unavailable when the plan state simply does not include it.`;
+- SEVERAL MONTHS MAY BE IN VIEW, AND A DATE QUESTION IS ABOUT THE DATE. "This week", "next week", "the 4th" mean the actual dates, whichever month the client happens to have on screen. Work them out from today's ISO date and answer from whichever month's posts cover them. If the dates asked about fall OUTSIDE every window the plan state names, say so plainly and NAME THE MONTHS YOU CAN SEE — never answer "nothing is planned" for a week you cannot see, and never say a month is unavailable when the plan state simply does not include it.
+
+FINALLY, ON A LINE OF ITS OWN, END YOUR REPLY WITH EXACTLY ONE OF THESE TAGS. It is stripped before the client sees anything, so it changes nothing they read — it is how we record whether you could actually help:
+[[outcome:answered]]  — you answered the question from the context.
+[[outcome:declined]]  — you told them you do not have something on file, or that captions are not written yet: any reply whose substance is "I can't tell you that from what I have".
+If the reply does both — answers part and declines part — use [[outcome:declined]], because the part you could not answer is the part worth knowing about.`;
+
+/** The tag the answerer ends on, and the pattern that removes it. Anchored to the tag's own
+ *  shape rather than to a position, so a model that puts it inline or adds trailing whitespace
+ *  still gets it stripped rather than showing the client a marker. */
+const OUTCOME_TAG = /\[\[outcome:(answered|declined)\]\]/gi;
+
+export interface QueryAnswer {
+  /** What the client sees. The tag is REMOVED — this is byte-identical to the pre-tag reply. */
+  text: string;
+  /**
+   * What the model said it did. 'unknown' when it emitted no tag at all.
+   *
+   * 'unknown' rather than defaulting to 'answered' on purpose: guessing success when nothing
+   * said so is the exact defect this instrumentation exists to remove, and re-introducing it
+   * here — in the one place that knows better — would be worse than not measuring at all.
+   */
+  outcome: 'answered' | 'declined' | 'unknown';
+}
+
+/** Split the model's reply into what the client reads and what we record. */
+export function readOutcomeTag(raw: string): QueryAnswer {
+  const found = [...raw.matchAll(OUTCOME_TAG)].map((m) => (m[1] ?? '').toLowerCase());
+  const text = raw.replace(OUTCOME_TAG, '').trim();
+  // A reply carrying BOTH tags is a model that could not choose; the cautious read is the one
+  // that flags something to look at, and it matches the prompt's own tie-break rule above.
+  const outcome = found.includes('declined') ? 'declined' : found.includes('answered') ? 'answered' : 'unknown';
+  return { text, outcome };
+}
 
 export interface AnswerQueryArgs {
   clientId: string;
@@ -58,7 +91,7 @@ export interface AnswerQueryDeps {
   audit?: AuditLogger;
 }
 
-export async function answerQuery(args: AnswerQueryArgs, deps: AnswerQueryDeps): Promise<string> {
+export async function answerQuery(args: AnswerQueryArgs, deps: AnswerQueryDeps): Promise<QueryAnswer> {
   const cycleState = args.context
     ? bucketCycleState(args.context.posts, args.today, args.context.months, args.context.beats)
     : await readCycleState(args.clientId, args.cycleId, args.today);
@@ -110,6 +143,9 @@ ${args.question}`;
           // Whether retrieval contributed. A query answered from plan state alone is a different
           // cost shape from one that pulled six chunks in, and the row should say which.
           knowledgeUsed: knowledge !== '(no matching knowledge on file)' && knowledge !== '(knowledge lookup unavailable)',
+          // The answerer's OWN verdict on whether it could help — the row that used to be
+          // indistinguishable from a decline now says which it was.
+          outcome: readOutcomeTag(res.content).outcome,
           ...(res.cacheReadTokens !== undefined ? { cacheReadTokens: res.cacheReadTokens } : {}),
           ...(res.cacheWriteTokens !== undefined ? { cacheWriteTokens: res.cacheWriteTokens } : {}),
         },
@@ -117,5 +153,5 @@ ${args.question}`;
     } catch { /* auditing must never change the answer */ }
   }
 
-  return res.content.trim();
+  return readOutcomeTag(res.content);
 }

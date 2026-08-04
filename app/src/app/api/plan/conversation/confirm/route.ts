@@ -109,6 +109,7 @@ export async function POST(req: Request) {
 
   await appendMessage({
     conversationId, role: 'assistant', content: text,
+    writer: 'confirm', outcome: 'confirmation',
     metadata: { confirmation: true, ...(pendingIntent ? { pendingIntent } : {}) },
   });
 

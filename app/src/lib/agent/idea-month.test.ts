@@ -38,7 +38,7 @@ vi.mock('@/lib/agent/conversation', () => ({
   listTurns: async () => [], threadForParser: () => '', latestPendingIntent: () => null, intentForParser: () => '',
 }));
 vi.mock('@/lib/agent/proposals', () => ({ createProposal: async () => ({ id: 'pv-1' }), loadPendingPayloads: async () => [], rejectProposal: async () => null }));
-vi.mock('@/lib/agent/query', () => ({ answerQuery: async () => 'answer' }));
+vi.mock('@/lib/agent/query', () => ({ answerQuery: async () => ({ text: 'answer', outcome: 'answered' }) }));
 vi.mock('@/lib/agent/notes', () => ({ saveNote: async (a: Record<string, unknown>) => { h.saved.push(a); return 'note-1'; } }));
 vi.mock('@sprigly/audit', () => ({ createAuditLogger: () => ({ logModelCall: async () => undefined }) }));
 vi.mock('@/lib/e2e-fake', () => ({ e2eTodayIso: () => '2026-08-04', e2eFakeEnabled: () => false }));
