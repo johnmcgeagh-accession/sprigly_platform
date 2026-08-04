@@ -19,6 +19,9 @@ import { dirname, join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { db, sql } from './client.js';
 import {
+  DRAFT_CYCLE, DRAFT_CYCLE_MONTH, DRAFT_TOKEN, draftBeatRows, draftBacklogInput,
+} from './e2e-draft-fixture.js';
+import {
   clients, clientConfigs, contentCycles, contentCyclePosts, postSteps,
   conversations, agentMessages, agentProposals, planInputs, appMagicLinkTokens,
 } from './schema.js';
@@ -138,13 +141,15 @@ async function main() {
     summary: 'Move “What makes a great sweatshirt?” to Sun 27 Jul', status: 'pending',
   });
 
-  // Voice-sourced notes.
-  for (const content of [
-    'Push the launch a few days — the fabric delivery slipped.',
-    'Make Fridays feel more personal, more Sally, less product.',
-    'We want to lean into provenance this month.',
-  ]) {
-    await db.insert(planInputs).values({ clientId: CLIENT, cycleId: CYCLE, type: 'note', content, status: 'active', source: 'voice' });
+  // Voice-sourced notes. Fixed ids, like everything else in this seed — SEED_PLAN_INPUT_IDS is
+  // what lets the draft restore delete the ideas the tests file without touching these.
+  const NOTES: [string, string][] = [
+    ['33333333-3333-4333-8333-333333333341', 'Push the launch a few days — the fabric delivery slipped.'],
+    ['33333333-3333-4333-8333-333333333342', 'Make Fridays feel more personal, more Sally, less product.'],
+    ['33333333-3333-4333-8333-333333333343', 'We want to lean into provenance this month.'],
+  ];
+  for (const [id, content] of NOTES) {
+    await db.insert(planInputs).values({ id, clientId: CLIENT, cycleId: CYCLE, type: 'note', content, status: 'active', source: 'voice' });
   }
 
   // ── Durable inputs in every state the Ideas view can draw (W6) ────────────────────
@@ -163,16 +168,19 @@ async function main() {
       status: 'active', lifecycle: 'used', usedInCycleId: CYCLE,
     },
     {
+      id: '33333333-3333-4333-8333-333333333332',
       clientId: CLIENT, type: 'next_cycle', source: 'voice',
       content: 'Save the winter fabric piece for the month after this one.',
       status: 'active', lifecycle: 'candidate',
     },
     {
+      id: '33333333-3333-4333-8333-333333333333',
       clientId: CLIENT, type: 'idea', source: 'web',
       content: 'A giveaway with the tote bags.',
       status: 'active', lifecycle: 'declined',
     },
     {
+      id: '33333333-3333-4333-8333-333333333334',
       clientId: CLIENT, type: 'idea', source: 'voice',
       content: 'More behind-the-scenes from the studio.',
       status: 'active', lifecycle: 'candidate',
@@ -200,6 +208,29 @@ async function main() {
     clientId: CLIENT, cycleId: CYCLE, token: TOKEN, expiresAt: new Date('2035-01-01T00:00:00Z'),
   });
 
+  // ── The DRAFT month, and its own session ──────────────────────────────────────────
+  //
+  // Until this existed, the entire draft surface — the month summary, the beat sheet, the
+  // reshape path and the Generate confirm — had zero end-to-end coverage on either form
+  // factor, which is the surface the September debut opens on. See e2e-draft-fixture.ts for
+  // the month itself and for why it lives in a module rather than inline here.
+  //
+  // 'intake_confirmed' is a PRE_PLANNING_STATUS, which is what `approveDraftCore` requires
+  // for a manual approval (a post-planning status refuses with `cutoff_passed`). It is also
+  // the honest state for this fixture: the client answered, and the draft was built from it.
+  await db.insert(contentCycles).values({
+    id: DRAFT_CYCLE, clientId: CLIENT, channel: 'instagram',
+    cycleMonth: DRAFT_CYCLE_MONTH, status: 'intake_confirmed',
+  });
+  await db.insert(planInputs).values(draftBacklogInput(CLIENT, DRAFT_CYCLE));
+  await db.insert(contentCyclePosts).values(draftBeatRows(CLIENT, DRAFT_CYCLE));
+  // Its OWN token, so the session's cycle IS the draft. `POST /api/plan/draft/approve` takes
+  // the cycle from the session and accepts no body — a committed session pointed here with
+  // `?cycle=` would approve the wrong month.
+  await db.insert(appMagicLinkTokens).values({
+    clientId: CLIENT, cycleId: DRAFT_CYCLE, token: DRAFT_TOKEN, expiresAt: new Date('2035-01-01T00:00:00Z'),
+  });
+
   // Tenant B — empty current cycle, no notes/posts/proposals. Powers the empty-state and
   // cross-tenant-isolation tests. plan_redesign is on so its session lands on the redesign.
   await db.insert(clients).values({ id: CLIENT_B, name: 'Beta Co', slug: 'e2e-beta-co', status: 'active' });
@@ -212,9 +243,10 @@ async function main() {
   mkdirSync(authDir, { recursive: true });
   writeFileSync(join(authDir, 'token.txt'), TOKEN, 'utf8');
   writeFileSync(join(authDir, 'token-b.txt'), TOKEN_B, 'utf8');
+  writeFileSync(join(authDir, 'token-draft.txt'), DRAFT_TOKEN, 'utf8');
 
   // eslint-disable-next-line no-console
-  console.log(`seeded ${POSTS.length} posts (tenant A) + empty tenant B; tokens written`);
+  console.log(`seeded ${POSTS.length} posts + a ${draftBeatRows().length}-beat DRAFT month (tenant A) + empty tenant B; tokens written`);
   await sql.end();
 }
 

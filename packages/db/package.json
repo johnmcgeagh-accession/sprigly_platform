@@ -9,6 +9,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./e2e-draft-fixture": {
+      "import": "./dist/e2e-draft-fixture.js",
+      "types": "./dist/e2e-draft-fixture.d.ts"
     }
   },
   "scripts": {
