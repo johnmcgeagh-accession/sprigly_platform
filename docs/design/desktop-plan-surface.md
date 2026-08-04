@@ -205,6 +205,44 @@ against 69px at 1440), not less.
 The rail's collapse is also a manual control at every width — the existing `rail-toggle`, carried
 forward. Above 1280 it is the client's choice; below it, it is the default.
 
+### 2.6 Above 1440 — the width rule *(added by the refinement session, W1)*
+
+This table stopped at "≥ 1280px", which was the whole defect: it described a design and not a
+*behaviour*, so above the width it was drawn at, the columns held their pixel values and the
+shell grew a void on the right. Reviewed on a 2560px monitor, the plan occupied the left 1440
+and the remaining 1120 was empty canvas. **The rule below is the spec's answer to every width,
+not to one.**
+
+> **THE COLUMNS GROW IN PROPORTION TO A STATED CEILING. THEN THE SHELL CENTRES.**
+>
+> 1. **Month : day = 680 : 420.** Not fixed widths — a ratio. Between the side-by-side
+>    breakpoint and the ceiling, both columns take their share of whatever is available, so
+>    1440 falls out as the reviewed layout (within 3px) rather than being special-cased.
+> 2. **The dock is `clamp(320px, 24vw, 400px)`.** It is a reading column for a conversation, and
+>    a conversation does not read better at 700px. 320 at the narrow end is the middle band's
+>    existing value; 400 is where a turn stops improving.
+> 3. **The shell caps at 1764px** — the sum of every region at its ceiling — **and centres.**
+>    Beyond that the margins grow equally on both sides. Never left-anchored columns with a
+>    right void.
+>
+> Tested at **1024, 1440, 1920 and 2560**: nothing overflows sideways at any of them, and at
+> 1920 and 2560 the left and right margins are measured equal.
+
+Two consequences worth stating, because both were bugs the rule uncovered:
+
+- **The side-by-side switch moved from `xl` (1280) to a named `wide` (1440).** At 1280 the old
+  fixed columns needed 852px of a 692px content box inside an `overflow-hidden` parent, so
+  *every* width from 1280 to 1439 clipped the day column. No test covered the band. The middle
+  band described in the table above is therefore **1080–1439**, not 1080–1279.
+- **The month grid fills its column.** The cells were `aspect-square`, which at a grown column
+  width made the grid taller than the space and, at the reviewed widths, left it about
+  two-fifths full. On desktop the rows share the available height with a 64px floor; the
+  phone's square geometry is untouched.
+
+Every value above is named in the Tailwind theme (`max-w-shell`, `w-dock`, `flex-month`,
+`flex-day`, the `wide` screen) rather than written as an arbitrary length, so the tokens fence
+— which bans `w-[Npx]` over 280 — passes unchanged and there is one place to change any of them.
+
 ---
 
 ## 3. What each region carries
@@ -212,9 +250,20 @@ forward. Above 1280 it is the client's choice; below it, it is the default.
 ### 3.1 The rail
 
 Wordmark and mark · client name and the month's post count · **Plan** · **Tasks** (with the late
-count) · a foot line stating the session's own terms (*“Opened from your link, no password needed.
-Edit from today on; past dates are locked.”*). Collapsed it is icons only, and the late count
-becomes a dot — the incumbent rail's own carried-forward behaviour.
+count) · **Ideas** (with the count of durable inputs) · a foot line stating the session's own
+terms (*“Opened from your link, no password needed. Edit from today on; past dates are locked.”*).
+Collapsed it is icons only, and the late count becomes a dot — the incumbent rail's own
+carried-forward behaviour.
+
+> **Ideas was the predicted third item** *(added by the refinement session, W6)*. This spec
+> argued that a vertical list would take one with no layout change, and used that to justify not
+> drawing a placeholder for Insights; Ideas arrived on exactly those terms. It lists every
+> durable input (`plan_inputs`) in the client's own words with the state derived from
+> `status` + `lifecycle` — *waiting*, *deferred to next month*, *used in \<month\>* with a
+> tap-through to the beat it became, or *set aside*. It is a **destination and not a panel on the
+> plan** because it records a relationship rather than a month: the sentences in it outlive the
+> cycle on screen, and hanging them off one month would say the opposite. Read-only — the add
+> path is still telling the agent. **Insights is still not drawn.**
 
 The selected item is `accent-650` with white ink, which is the same recorded 3.40:1 deviation
 DESIGN.md scopes to eight controls. **This adds a ninth**, and it must be added to DESIGN.md's
