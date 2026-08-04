@@ -1,0 +1,27 @@
+[
+  {
+    "name": "Product Launches",
+    "description": "Announcing new styles, colours, restocks, pre-orders, and limited drops with waitlist and early-access calls to action",
+    "sharePct": 30
+  },
+  {
+    "name": "Outfit Inspiration",
+    "description": "Weekly style guides and Sunday Style posts showing multiple ways to wear Ivy pieces, with full outfit credits",
+    "sharePct": 25
+  },
+  {
+    "name": "Brand Values & Ethics",
+    "description": "Communicating the brand's commitment to organic cotton, ethical Portuguese manufacturing, slow fashion, and sustainable quality",
+    "sharePct": 20
+  },
+  {
+    "name": "Founder Story & Community",
+    "description": "Personal updates from founder Sally, behind-the-scenes moments, customer reviews, milestones, and community-building content",
+    "sharePct": 15
+  },
+  {
+    "name": "Promotions & Sales",
+    "description": "Black Friday discounts, seasonal sales, free shipping offers, and limited-time promo codes",
+    "sharePct": 10
+  }
+]

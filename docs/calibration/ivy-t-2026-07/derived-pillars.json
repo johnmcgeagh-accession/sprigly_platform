@@ -1,0 +1,27 @@
+[
+  {
+    "name": "Style Inspiration",
+    "description": "Outfit guides and styling ideas showing how to wear Ivy pieces with complementary brands for everyday occasions",
+    "sharePct": 28
+  },
+  {
+    "name": "Product Spotlights",
+    "description": "Focused posts introducing, describing, or launching specific garments including new colours, pre-orders, and waitlists",
+    "sharePct": 25
+  },
+  {
+    "name": "Brand Values & Quality",
+    "description": "Posts explaining the brand's ethos around organic cotton, ethical production, timeless design, and why quality matters over cheap alternatives",
+    "sharePct": 20
+  },
+  {
+    "name": "Founder & Team Stories",
+    "description": "Personal, behind-the-scenes content from founder Sally and team members sharing the human story behind the brand",
+    "sharePct": 15
+  },
+  {
+    "name": "Promotions & Sales",
+    "description": "Posts announcing sales events, discount codes, free delivery offers, and limited-time deals",
+    "sharePct": 12
+  }
+]

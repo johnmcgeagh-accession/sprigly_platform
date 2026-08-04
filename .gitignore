@@ -43,3 +43,7 @@ app/test-results/
 app/playwright-report/
 app/blob-report/
 app/.playwright/
+
+# local scheduler state dumps
+pause-state.txt
+resume-state.txt
