@@ -29,7 +29,7 @@
 import React, { useState } from 'react';
 import type { PostFormat } from '@/lib/types';
 import { Sheet } from './Sheet';
-import { Panel, type Chrome } from './Panel';
+import { Panel, type PanelChrome } from './Panel';
 import { FormatControl } from './FormatControl';
 import { ChevronL } from './icons';
 import { dayTitle } from './dates';
@@ -43,7 +43,7 @@ export interface AddSpec {
 }
 
 export function AddSheet({
-  open, date, pillars, busy, onClose, onSubmit, chrome = 'sheet',
+  open, date, pillars, busy, onClose, onSubmit, chrome,
 }: {
   open: boolean;
   date: string;
@@ -61,7 +61,7 @@ export function AddSheet({
    * A modal is for a decision that interrupts the plan (the approval, which spends money); this
    * is the plan being worked on.
    */
-  chrome?: Chrome;
+  chrome: PanelChrome;
   /** The client's configured pillars on a DRAFT month; null on a committed one. */
   pillars: string[] | null;
   busy: boolean;

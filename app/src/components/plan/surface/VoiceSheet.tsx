@@ -40,7 +40,7 @@
  */
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Sheet } from './Sheet';
-import { Panel, type Chrome } from './Panel';
+import { Panel, type PanelChrome } from './Panel';
 import { MicGlyph, SendGlyph, CloseGlyph } from './icons';
 import { AgentSays } from './AgentVoice';
 import { capAnnouncement } from '@sprigly/engine/ai-change-cap';
@@ -127,7 +127,7 @@ const nextKey = () => `local-${++localKey}`;
 export function VoiceSheet({
   open, monthName, busy, question, focusSignal, context = 'draft', cycleId, entry = 'mic',
   onClose, onSubmit, onApply, onDiscard, onWantMore, isPending,
-  chrome = 'sheet', onOpenChanges,
+  chrome, onOpenChanges,
 }: {
   open: boolean;
   monthName: string;
@@ -189,7 +189,7 @@ export function VoiceSheet({
    *  surface. The thread, the composer and the whole apply lifecycle are unchanged — only the
    *  frame differs, and the ✕ goes with it: a region that is always there has nothing to close.
    *  See Panel.tsx. */
-  chrome?: Chrome;
+  chrome: PanelChrome;
   /**
    * The change items of every interpretation turn currently OPEN, whenever that set changes —
    * including to empty when one resolves, is discarded or is superseded.

@@ -35,7 +35,7 @@ import { cardText, realCaption } from './card-text';
 import { dayTitle } from './dates';
 import { isPostOnTheWay, isBanked, ON_THE_WAY_LABEL, ON_THE_WAY_BODY, BANKED_LABEL, BANKED_TEASER } from '@/lib/generation-state';
 import { Sheet } from './Sheet';
-import { Panel, type Chrome } from './Panel';
+import { Panel, type PanelChrome } from './Panel';
 import { ChevronL } from './icons';
 import { FormatControl } from './FormatControl';
 import { Skeleton } from './Skeleton';
@@ -75,7 +75,7 @@ const tabsFor = (format: string): { key: Tab; label: string }[] =>
 const SCRIPT_LENGTHS = [15, 30, 60, 90] as const;
 
 export function DetailSheet({
-  post, data, rationale, onClose, onMove, onDelete, chrome = 'sheet',
+  post, data, rationale, onClose, onMove, onDelete, chrome,
 }: {
   post: PlanPost | null;
   data: PlanData;
@@ -87,7 +87,7 @@ export function DetailSheet({
   onDelete: () => void;
   /** `panel` places this inline in the desktop day column instead of over the surface.
    *  Everything below the frame is identical — see Panel.tsx. */
-  chrome?: Chrome;
+  chrome: PanelChrome;
 }) {
   const [tab, setTab] = useState<Tab>('caption');
   const [insights, setInsights] = useState(false);

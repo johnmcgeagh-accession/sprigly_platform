@@ -380,7 +380,11 @@ export function CommittedSurface({ data, frame = 'mobile' }: { data: PlanData; f
       // names so the grid can ring them. On a phone it is a sheet the mic summons.
       {...(desktop
         ? { open: true, chrome: 'panel' as const, entry: 'docked' as const, onOpenChanges: setOpenChangeItems }
-        : { open: voiceOpen })} context="committed" monthName={monthTitle(month).split(' ')[0] ?? ''}
+        // `chrome: 'sheet'` was IMPLICIT here until the default was removed — the branch named
+        // the desktop frame and let the phone's fall out of the component. That asymmetry is
+        // what made the whole class of bug invisible: the half that mattered read as deliberate
+        // because the other half was silent.
+        : { open: voiceOpen, chrome: 'sheet' as const })} context="committed" monthName={monthTitle(month).split(' ')[0] ?? ''}
       cycleId={data.viewedCycleId}
       busy={data.agentBusy}
       onClose={() => setVoiceOpen(false)}

@@ -30,12 +30,12 @@
 import React, { useState } from 'react';
 import type { DraftBeatView } from '@/lib/types';
 import { Sheet } from './Sheet';
-import { Modal, type Chrome } from './Panel';
+import { Modal, type ModalChrome } from './Panel';
 import { CheckGlyph, CloseGlyph } from './icons';
 import { approvalCounts, approvalRows } from './approval-counts';
 
 export function ApprovalSheet({
-  open, monthLabel, beats, busy, error, onClose, onApprove, chrome = 'sheet',
+  open, monthLabel, beats, busy, error, onClose, onApprove, chrome,
 }: {
   open: boolean;
   monthLabel: string;
@@ -48,7 +48,7 @@ export function ApprovalSheet({
   onApprove: () => void;
   /** `modal` centres this at content width on desktop. A full-width bottom sheet is a phone
    *  shape; at 1764px it would be a wall carrying three counts. See Panel.tsx. */
-  chrome?: Chrome;
+  chrome: ModalChrome;
 }) {
   const rows = approvalRows(approvalCounts(beats));
 

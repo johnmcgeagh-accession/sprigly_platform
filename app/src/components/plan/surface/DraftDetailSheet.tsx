@@ -37,7 +37,7 @@
 import React, { useState } from 'react';
 import type { DraftBeatView, PostFormat } from '@/lib/types';
 import { Sheet } from './Sheet';
-import { Panel, type Chrome } from './Panel';
+import { Panel, type PanelChrome } from './Panel';
 import { ChevronL } from './icons';
 import { FormatControl } from './FormatControl';
 import { FormatTile, InfoGlyph, CalGlyph, BinGlyph } from './icons';
@@ -45,7 +45,7 @@ import { dayTitle } from './dates';
 import { groundingLines, slotLabel } from '@/lib/draft-rationale';
 
 export function DraftDetailSheet({
-  beat, editable, busy, onClose, onMove, onDelete, onFormat, chrome = 'sheet',
+  beat, editable, busy, onClose, onMove, onDelete, onFormat, chrome,
 }: {
   beat: DraftBeatView | null;
   editable: boolean;
@@ -55,7 +55,7 @@ export function DraftDetailSheet({
   onDelete: () => void;
   onFormat: (f: PostFormat) => void;
   /** `panel` places this inline in the desktop day column. See Panel.tsx. */
-  chrome?: Chrome;
+  chrome: PanelChrome;
 }) {
   const [insights, setInsights] = useState(false);
 

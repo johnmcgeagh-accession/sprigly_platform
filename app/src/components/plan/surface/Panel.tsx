@@ -72,8 +72,36 @@ export function Panel({ open, label, testid, children }: PanelProps) {
   );
 }
 
-/** Pick a frame. Callers take a `chrome` prop and pass it straight through. */
+/**
+ * Pick a frame. Callers take a `chrome` prop and pass it straight through.
+ *
+ * ── IT IS REQUIRED ON EVERY SHARED OVERLAY, AND HAS NO DEFAULT ───────────────────────
+ *
+ * `overlays` is the one slot both shells render into, so a component that does not choose a
+ * frame gets whatever its own default is — and the default was `'sheet'`, the phone's. That is
+ * five separate defects in this redesign, every one of them invisible until somebody opened the
+ * app at 2560: the surface renders, it is usable, it is simply the wrong shape. A silent
+ * fallback to the smaller form factor is the worst possible default, because nothing fails.
+ *
+ * So the defaults are gone. Omitting `chrome` on a shared overlay is a COMPILE error now, which
+ * turns "did anyone remember to gate this?" from a thing you check at 2560 into a thing tsc
+ * checks for you.
+ *
+ * ── AND EACH COMPONENT ACCEPTS ONLY THE FRAMES IT BUILDS ─────────────────────────────
+ *
+ * Requiring the prop is half of it. A component that implements `panel ? Panel : Sheet` and
+ * advertises the full `Chrome` union will silently render a Sheet when handed `'modal'` — the
+ * same class of failure one level down, and the same symptom. The two narrowed aliases are what
+ * each surface actually declares; `Chrome` itself is for code that handles all three.
+ */
 export type Chrome = 'sheet' | 'panel' | 'modal';
+
+/** A surface that is a sheet on a phone and a REGION of the desktop shell (a column, the dock). */
+export type PanelChrome = Extract<Chrome, 'sheet' | 'panel'>;
+
+/** A surface that is a sheet on a phone and a CENTRED DIALOG on desktop — a decision that
+ *  interrupts, rather than a region you work in. */
+export type ModalChrome = Extract<Chrome, 'sheet' | 'modal'>;
 
 
 /**

@@ -39,7 +39,7 @@ function sheet(over: Partial<React.ComponentProps<typeof VoiceSheet>> = {}) {
   const onClose = vi.fn();
   render(
     <VoiceSheet
-      open monthName="October" cycleId="cyc-1" busy={false} context="committed" entry="type"
+      open monthName="October" cycleId="cyc-1" busy={false} context="committed" entry="type" chrome="sheet"
       onClose={onClose} {...over}
       onSubmit={onSubmit} onApply={onApply} onDiscard={onDiscard}
     />,

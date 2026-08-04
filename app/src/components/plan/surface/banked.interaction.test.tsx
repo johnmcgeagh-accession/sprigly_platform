@@ -97,7 +97,7 @@ describe('X2c — a banked post never says "On its way"', () => {
 
   it('the detail sheet says the same thing, with room for the whole instruction', () => {
     const p = post();
-    render(<DetailSheet post={p} data={fakeData()} rationale="" onClose={() => {}} onMove={() => {}} onDelete={() => {}} />);
+    render(<DetailSheet post={p} data={fakeData()} rationale="" chrome="sheet" onClose={() => {}} onMove={() => {}} onDelete={() => {}} />);
 
     expect(screen.queryByTestId('detail-on-the-way')).toBeNull();
     const panel = screen.getByTestId('detail-banked').textContent ?? '';

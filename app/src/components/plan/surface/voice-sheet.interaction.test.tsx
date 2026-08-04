@@ -45,7 +45,7 @@ const speechSupported = () => { (window as unknown as { SpeechRecognition: unkno
 function open(over: Partial<React.ComponentProps<typeof VoiceSheet>> = {}) {
   const onSubmit = vi.fn(async () => ({ ok: true as const, message: 'ok' }));
   const onClose = vi.fn();
-  render(<VoiceSheet open monthName="October" cycleId="cyc-1" busy={false} onClose={onClose} onSubmit={onSubmit} {...over} />);
+  render(<VoiceSheet open monthName="October" cycleId="cyc-1" busy={false} chrome="sheet" onClose={onClose} onSubmit={onSubmit} {...over} />);
   return { onSubmit, onClose };
 }
 

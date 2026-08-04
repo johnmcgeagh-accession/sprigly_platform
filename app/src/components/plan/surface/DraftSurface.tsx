@@ -466,15 +466,17 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
             onMove={(d) => doMove(moveBeat, d)}
           />
         )}
+        {/* The desktop twin two hundred lines up says `chrome="modal"`; this one said nothing
+            and took the default. Both are explicit now. */}
         <ApprovalSheet
           open={approval.open} monthLabel={monthTitle(month)} beats={m.beats}
-          busy={approval.busy} error={approval.error}
+          busy={approval.busy} error={approval.error} chrome="sheet"
           onClose={() => approval.setOpen(false)}
           onApprove={() => void approval.approve()}
         />
         {voiceFor !== null && (
           <VoiceSheet
-            open context="draft" monthName={monthName} busy={m.busy}
+            open context="draft" monthName={monthName} busy={m.busy} chrome="sheet"
             cycleId={data.viewedCycleId}
             {...(voiceFor ? { question: voiceFor } : {})}
             // The phone gets the signal too. It does not NEED it — a summoned sheet mounts on
