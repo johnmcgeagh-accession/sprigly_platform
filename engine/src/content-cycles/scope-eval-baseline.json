@@ -1,20 +1,18 @@
 {
   "note": [
-    "BASELINE AT 9388e63, recorded 5 Aug 2026. This is the reference the next scope change is measured against.",
+    "RECORDED AT THE UNDATED-EMPHASIS CHANGE, 5 Aug 2026. This replaces the 3930c1e recording as the reference the NEXT change measures against; the previous one is not lost, it is `git show 3930c1e:engine/src/content-cycles/scope-eval-baseline.json`.",
     "",
-    "TWO KNOWN BLEMISHES, neither corrected after the fact — the numbers below are exactly what the pass produced.",
+    "Clean pass: 0 model_error rows, 0 non-unanimous cases, 258 calls. The 3930c1e recording carried three model_error rows and one genuinely unstable case; both are gone — the errors because the runner now retries them out, and the instability because `lean into founder content more` moved from 20/4 split to month_scoped 5/5.",
     "",
-    "1. THREE ROWS CARRY ONE evergreen/model_error EACH — cx-emphasis-month-less-founder-sept, cx-emphasis-undated-founder-lean, cx-emphasis-undated-founder-like-to-see. A model_error is Bedrock being unreachable, not a classification: the run did not happen. In this pass it was counted as a verdict, which made two of those three rows read as non-unanimous and escalate for no reason. Read them as 24/24, 24/24 and 24/24-with-4-month_scoped respectively. scope-eval-cli.ts now retries a model_error and records it outside the distribution, so a future pass will not contain these.",
+    "real 11 of 11 · constructed 25 of 29 · 11 unscored. Reported separately, always — see the corpus README for why a combined figure is refused.",
     "",
-    "2. THE ONLY GENUINELY UNSTABLE CASE IS cx-emphasis-undated-founder-lean — 20 evergreen, 4 month_scoped over 24 real runs (p(month_scoped) about 0.17). It is the one case that can show a change moving a probability rather than flipping a verdict. The other two escalations were the artefact described above.",
-    "",
-    "A THIRD PASS WAS ATTEMPTED with the fixed runner and abandoned: a long sequential run wedges on a hung Bedrock call (the model client sets no request timeout), twice, at different points. Anyone re-running should expect that and may need to restart. It is why this file is the second pass rather than the third."
+    "THE FOUR REMAINING CONSTRUCTED FAILURES ARE ONE THING, and it is not a scope problem: cx-event-birthday-this-month, cx-event-undated-popup, cx-event-school-holidays and cx-launch-undated-karen all assert `reason: ambiguous` and all return `classified_evergreen`. They are the honest-failure distinction — 'we read this as about your month and could not place it' versus 'we filed your idea' — and they need a day, not a month. cx-launch-month-no-day passes, so the distinction does work where the model emits a dated-kind intent without a date; these four fail earlier, at the scope call. Deliberately untouched here."
   ],
   "corpus": "/Users/johnmcgeagh/Workspaces/sprigly/dev/engine/src/content-cycles/scope-eval-corpus.json",
   "planMonth": "2026-09",
   "runs": 5,
   "model": "sonnet (default)",
-  "calls": 310,
+  "calls": 258,
   "results": [
     {
       "id": "real-emphasis-morning-routine",
@@ -25,10 +23,11 @@
         "kind": "emphasis"
       },
       "tally": {
-        "evergreen/classified_evergreen": 5
+        "month_scoped/emphasis": 5
       },
-      "hits": 0,
+      "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -46,6 +45,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -63,6 +63,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -76,13 +77,14 @@
         "kind": "launch"
       },
       "tally": {
-        "question/plan": 5
+        "month_scoped/launch": 5
       },
-      "hits": 0,
+      "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
-      "gateClaimed": true
+      "gateClaimed": false
     },
     {
       "id": "real-next-cycle-october-window-display",
@@ -94,6 +96,7 @@
       },
       "hits": 0,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -108,6 +111,7 @@
       },
       "hits": 0,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -122,6 +126,7 @@
       },
       "hits": 0,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -136,6 +141,7 @@
       },
       "hits": 0,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -150,6 +156,7 @@
       },
       "hits": 0,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -164,6 +171,7 @@
       },
       "hits": 0,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -178,6 +186,7 @@
       },
       "hits": 0,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -192,6 +201,7 @@
       },
       "hits": 0,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -206,6 +216,7 @@
       },
       "hits": 0,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -222,6 +233,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -238,6 +250,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -254,6 +267,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -270,6 +284,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -286,6 +301,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -302,6 +318,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -318,6 +335,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -332,6 +350,7 @@
       },
       "hits": 0,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -346,6 +365,7 @@
       },
       "hits": 0,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -363,6 +383,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -380,6 +401,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -397,6 +419,7 @@
       },
       "hits": 0,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -414,6 +437,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -431,6 +455,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -448,6 +473,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -465,6 +491,7 @@
       },
       "hits": 0,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -482,6 +509,7 @@
       },
       "hits": 0,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -499,6 +527,7 @@
       },
       "hits": 0,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -516,6 +545,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -529,12 +559,12 @@
         "kind": "emphasis"
       },
       "tally": {
-        "month_scoped/emphasis": 24,
-        "evergreen/model_error": 1
+        "month_scoped/emphasis": 5
       },
-      "hits": 24,
-      "runs": 25,
-      "unanimous": false,
+      "hits": 5,
+      "runs": 5,
+      "errors": 0,
+      "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
     },
@@ -551,6 +581,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -568,6 +599,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -585,6 +617,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -602,6 +635,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -615,10 +649,11 @@
         "kind": "emphasis"
       },
       "tally": {
-        "evergreen/classified_evergreen": 5
+        "month_scoped/emphasis": 5
       },
-      "hits": 0,
+      "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -632,10 +667,11 @@
         "kind": "emphasis"
       },
       "tally": {
-        "evergreen/classified_evergreen": 5
+        "month_scoped/emphasis": 5
       },
-      "hits": 0,
+      "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -649,10 +685,11 @@
         "kind": "emphasis"
       },
       "tally": {
-        "evergreen/classified_evergreen": 5
+        "month_scoped/emphasis": 5
       },
-      "hits": 0,
+      "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -666,10 +703,11 @@
         "kind": "emphasis"
       },
       "tally": {
-        "evergreen/classified_evergreen": 5
+        "month_scoped/emphasis": 5
       },
-      "hits": 0,
+      "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -683,13 +721,12 @@
         "kind": "emphasis"
       },
       "tally": {
-        "evergreen/classified_evergreen": 20,
-        "month_scoped/emphasis": 4,
-        "evergreen/model_error": 1
+        "month_scoped/emphasis": 5
       },
-      "hits": 4,
-      "runs": 25,
-      "unanimous": false,
+      "hits": 5,
+      "runs": 5,
+      "errors": 0,
+      "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
     },
@@ -702,12 +739,12 @@
         "kind": "emphasis"
       },
       "tally": {
-        "evergreen/classified_evergreen": 24,
-        "evergreen/model_error": 1
+        "month_scoped/emphasis": 5
       },
-      "hits": 0,
-      "runs": 25,
-      "unanimous": false,
+      "hits": 5,
+      "runs": 5,
+      "errors": 0,
+      "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
     },
@@ -723,6 +760,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -739,6 +777,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -755,6 +794,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -771,6 +811,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -787,6 +828,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -803,6 +845,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -819,6 +862,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false
@@ -835,6 +879,7 @@
       },
       "hits": 5,
       "runs": 5,
+      "errors": 0,
       "unanimous": true,
       "preParsed": false,
       "gateClaimed": false

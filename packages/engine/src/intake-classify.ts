@@ -465,15 +465,17 @@ MONTH_SCOPED — act on the current draft now:
 - a launch, restock, event or campaign with a time attached ("the navy edit drops on the 28th")
 - a REPEATING run of posts ("every Friday in August", "one post every 3 weeks", "a weekly series")
 - a change to a specific planned post ("move the Friday reel to Saturday", "make the 3rd a carousel")
-- a shift of emphasis for THIS month ("more product this month", "less founder stuff in September")
+- a shift of emphasis — MORE or LESS of something the plan already has ("more product this month", "less founder stuff", "lean into the morning routine more")
 
 EVERGREEN — a standing idea for the backlog:
-- a format or theme with no timing ("we should do more behind-the-scenes")
-- an idea for "sometime", "at some point", "in future", "next time"
-- an observation about what works, with no instruction attached
+- a NEW post or theme they might do one day ("we should do a founder story", "a post about why never to wear polyester")
+- an idea for "sometime", "at some point", "in future", "next time", "one day", or in another month
+- an observation about what works, or a line about what the brand stands for, with no instruction attached
 
 RULES:
-- If you are not sure, choose EVERGREEN. Being filed as an idea is easy to undo; changing a month the owner was happy with is not.
+- AN EMPHASIS NEEDS NO DATE. The owner writes this while looking at THIS month's draft, on a screen that says so. "More X", "less X", "lean into X more" is therefore a reweighting of THIS month even with no time attached — do not file it for later because they did not repeat the month back to you. File an emphasis as EVERGREEN only when they point somewhere else in time ("sometime", "in future", "next time", "one day", or another month by name).
+- THE LINE IS REWEIGHTING vs ADDING. "More of the morning routine" asks us to shift the balance of a plan that already exists, and is month-scoped. "We should do a founder story" asks for something NEW that is not there, and is a standing idea — as is a line about what the brand stands for, which is not an instruction at all. When an undated message is an ADDITION rather than a rebalance, it is still EVERGREEN.
+- If you are not sure, choose EVERGREEN. Being filed as an idea is easy to undo; changing a month the owner was happy with is not. This tie-break stands everywhere EXCEPT an undated emphasis, which the two rules above have already decided.
 - SERIES is any run of posts on a repeating pattern. "Every Friday", "one post every 3 weeks", "weekly", "monthly", "a mini-series" are ALWAYS kind=series and NEVER kind=launch. A series is a rhythm; a launch is one moment with a build-up. Do not turn a series into a launch because it has a start date.
 - For a series, prefer ENUMERATED dates. If the owner lists the dates ("7th, 14th, 21st, 28th"), return instances:[{date,subject}] with one entry per date, and put THAT DATE'S OWN subject on it (the specific product, theme or story they named for it). Only use recurrence:{startDate,intervalDays} when they give a cadence with no list ("every 3 weeks from the 1st"). If they give both a list and a cadence, the list wins — return instances and leave recurrence null.
 - CADENCE is a target NUMBER of posts, not a specific post: "we want 7 posts a week", "post daily", "at least 20 this month", "no more than 4 a week". Set kind=cadence, postsPerWeek for a weekly figure ("daily" = 7) and/or postsPerMonth for a monthly one. It carries no date and no title. "post more" or "we should post more often" with NO number is NOT cadence — that is an emphasis or an idea. The figure is a floor the owner is setting on the month; extract it, do not judge it.
