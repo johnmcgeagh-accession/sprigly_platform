@@ -15,14 +15,107 @@
  * queue, no React.
  */
 
+/**
+ * The one `beat_meta` shape this module reads.
+ *
+ * Structurally minimal ON PURPOSE: `BeatMeta` proper lives in the db package, and this file is
+ * imported by both the app and the worker precisely because it depends on neither. Anything
+ * wider than the two fields actually read would buy a dependency for nothing.
+ */
+export interface BeatSubjectSource {
+  rationaleEvidence?: { basis?: string; reason?: string } | null;
+}
+
+/**
+ * The basis whose `reason` is a SUBJECT rather than a preference.
+ *
+ * `client_input` is written by the four transforms that PLACE a beat from something the
+ * client wrote — `applyLaunchArc`, `applySeries`, `applyCadence`, `applyEvent`. On those the
+ * reason is what the post is about: "we're launching Molly on the 18th".
+ *
+ * The other two bases with a reason are deliberately excluded. `emphasis_reweight` carries a
+ * PLANNING PREFERENCE — "can we do more reels this month" — which the placement has already
+ * honoured; handing it to a caption writer as that post's subject is a category error, and on
+ * ivy-t's September it would have briefed three beats with a sentence about format mix.
+ * `client_added` carries no reason at all. `observed` and `template` are the assembler's own
+ * reasoning about history, not the client's words.
+ */
+const SUBJECT_BASIS = 'client_input';
+
+/**
+ * The client's own sentence for a beat their instruction placed, or null.
+ *
+ * Defensive against jsonb nobody validates, in the same spirit as `sweepAttemptsOf`: a
+ * malformed or absent beat_meta reads as "no subject" rather than throwing on the fan-out path.
+ */
+export function beatSubject(beatMeta: unknown): string | null {
+  if (!beatMeta || typeof beatMeta !== 'object') return null;
+  const ev = (beatMeta as BeatSubjectSource).rationaleEvidence;
+  if (!ev || typeof ev !== 'object') return null;
+  if (ev.basis !== SUBJECT_BASIS) return null;
+  const reason = typeof ev.reason === 'string' ? ev.reason.replace(/\s+/g, ' ').trim() : '';
+  return reason.length > 0 ? reason : null;
+}
+
 /** The caption instruction for a planned slot. `title` and `pillar` may be empty.
  *
  *  Deliberately spare. The beat already carries its date, format and pillar, and
  *  assembleShapeContext supplies voice, catalogue and competitor context. Restating those
  *  here would give the model two sources for the same facts and a chance to disagree with
- *  itself. The one thing it needs that the row does not carry is what this slot is FOR. */
-export function captionInstruction(title: string, pillar: string): string {
-  return `Write the caption for this post. It is the "${title}" slot in this month's plan${pillar ? `, under the ${pillar} pillar` : ''}. Keep it to that subject.`;
+ *  itself. The one thing it needs that the row does not carry is what this slot is FOR.
+ *
+ * ── `subject`: THE CLIENT'S OWN WORDS, AND WHY THEY ARE FRAMED THIS HARD ─────────────
+ *
+ * A beat placed by a client instruction stored that instruction in
+ * `beat_meta.rationaleEvidence.reason` and nothing downstream ever read it. The month's
+ * concrete facts — what is launching, what it is called, when — were held one table away from
+ * the only thing that needed them, so "Molly — Launch" was written by a model that had a slot
+ * title with no referent anywhere in its context. It reached for the one launch it COULD see,
+ * in month-wide free notes, and introduced a different product.
+ *
+ * THE FRAMING IS THE LOAD-BEARING PART, because these sentences are not clean subject lines.
+ * They are what a client actually types, and they carry ARC MECHANICS: "we need a launch post
+ * and 2 teasers on the lead up", "can we have two tease posts prior to the launch post and a
+ * follow up". That arrangement has ALREADY BEEN CARRIED OUT — it is why this beat exists, and
+ * why it sits on this date with this title. Passed as a brief to satisfy, it invites a caption
+ * that narrates the schedule ("we've got a launch and two teasers coming"), which is a post
+ * about the plan instead of a post from it.
+ *
+ * So the block says three things, and each is doing work: those words are the SUBJECT; the
+ * arrangement they ask for is already done and this post is one of its parts; and the schedule
+ * is never the subject. What survives is exactly the useful residue — the name, the date, the
+ * occasion.
+ *
+ * WHY IT HONOURS RATHER THAN DISCLAIMS, which is a correction to the obvious wording. The
+ * first draft opened "as BACKGROUND and not as a brief to carry out". Printed through the real
+ * assembly it lands inside `shape.ts`'s wrapper — `The client asked for this change: "…".
+ * Rewrite the caption to honour it` — so the prompt told the model to honour a block that
+ * described itself as not to be carried out. A contradiction the model has to resolve is a
+ * contradiction it may resolve the wrong way. The wording now RESOLVES it instead: honouring
+ * the instruction IS writing this post's share of the arrangement, which is both true and the
+ * behaviour wanted. That is also why this is fixed here rather than by branching the wrapper —
+ * see the note on `shape.ts` in the commit message.
+ *
+ * NOT TRUNCATED. `deriveTitle` exists because `subject` was unbounded prose and made unreadable
+ * titles, and its docblock notes the FULL text is kept here so nothing is lost. Cutting the
+ * client's brief mid-sentence on the way to the writer would re-open that in the one place the
+ * whole text is the point.
+ *
+ * NOTE FOR ANY CHECK DOWNSTREAM: `detectInstructionLeak` does NOT cover this. It matches
+ * bracketed placeholders (`[ITEM]`) and a fixed list of meta phrases ("leave blank", "see
+ * notes"); a caption that fluently narrates a posting schedule contains neither and passes the
+ * gate clean. Nothing mechanical catches it, which is why the prompt has to.
+ */
+export function captionInstruction(title: string, pillar: string, subject?: string | null): string {
+  const brief = `Write the caption for this post. It is the "${title}" slot in this month's plan${pillar ? `, under the ${pillar} pillar` : ''}. Keep it to that subject.`;
+  if (!subject) return brief;
+  return [
+    brief,
+    '',
+    "WHAT THIS POST IS ABOUT — the client's own words:",
+    `"${subject}"`,
+    'That is the SUBJECT: what is happening, what it is called, and when. Those words may also describe how the client wanted the month arranged (how many posts, which dates, teasers, follow-ups). That arrangement is ALREADY DONE — it is why this post exists, on this date, with this title — so honour it by writing THIS post\'s share of it and nothing else. The schedule is never the subject: do not mention the other posts, the running order, or the plan itself.',
+  ].join('\n');
 }
 
 /**

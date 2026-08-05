@@ -32,7 +32,7 @@
  */
 import { and, eq, isNull, ne } from 'drizzle-orm';
 import { db, contentCyclePosts, POST_STATUS_DRAFT } from '@sprigly/db';
-import { captionInstruction } from '@sprigly/engine/generation-recovery';
+import { captionInstruction, beatSubject } from '@sprigly/engine/generation-recovery';
 import { enqueueShape, enqueueHookJob } from '@/lib/queue';
 import { POST_STATUS_GENERATING } from '@/lib/draft-approval';
 import { recordPhase2Run, type Phase2Cost } from '@/lib/phase2-cost';
@@ -71,6 +71,10 @@ export async function startPhase2(clientId: string, cycleId: string): Promise<Ph
     .select({
       id: contentCyclePosts.id, format: contentCyclePosts.format,
       pillar: contentCyclePosts.pillar, sourceMeta: contentCyclePosts.sourceMeta,
+      // The beat's own evidence. `beatSubject` reads the client's sentence off it for the
+      // beats a client instruction PLACED — without this column the fan-out brief is a slot
+      // title with no referent, which is how a "Molly — Launch" caption introduced Karen.
+      beatMeta: contentCyclePosts.beatMeta,
     })
     .from(contentCyclePosts)
     .where(and(
@@ -85,7 +89,7 @@ export async function startPhase2(clientId: string, cycleId: string): Promise<Ph
 
   for (const post of posts) {
     const title = typeof post.sourceMeta?.['title'] === 'string' ? (post.sourceMeta['title'] as string) : '';
-    const instruction = captionInstruction(title, post.pillar ?? '');
+    const instruction = captionInstruction(title, post.pillar ?? '', beatSubject(post.beatMeta));
 
     const shape = await enqueueShape({
       type: 'shape', scope: 'post', clientId, cycleId, targetPostId: post.id,

@@ -50,7 +50,7 @@ import { and, or, eq, lt, isNull, gte, inArray, sql as dsql } from 'drizzle-orm'
 import type { Queue } from 'bullmq';
 import type { Logger } from 'pino';
 import { contentCyclePosts } from '@sprigly/db';
-import { captionInstruction, sweepAttemptsOf, sweepExhausted, MAX_SWEEP_ATTEMPTS, SWEEP_ATTEMPTS_KEY } from '@sprigly/engine/generation-recovery';
+import { captionInstruction, beatSubject, sweepAttemptsOf, sweepExhausted, MAX_SWEEP_ATTEMPTS, SWEEP_ATTEMPTS_KEY } from '@sprigly/engine/generation-recovery';
 import { classifyGenerationFailure, QUOTA_BANKED_KEY, type GenerationFailureClass } from '@sprigly/engine/ai-change-cap';
 import type { PlanningDeps } from './planning.js';
 import { GENERATION_JOB_OPTIONS } from './job-options.js';
@@ -67,13 +67,19 @@ export const shapeJobId = (cycleId: string, postId: string): string => `shape_${
 
 /** The instruction to re-run with: the one the post was created from, else the deterministic
  *  fan-out instruction for its slot. Never invents a new brief — a retry that changes the ask
- *  is not a retry. */
-export function instructionFor(post: { pillar: string | null; sourceMeta: unknown }): string {
+ *  is not a retry.
+ *
+ *  `pendingInstruction` STILL WINS, and the beat's subject is deliberately not merged into it.
+ *  That field is a client's own explicit reshape of THIS post ("make it softer"), and it is
+ *  the whole ask; appending background to it would change what the client asked for, which is
+ *  the one thing this function exists not to do. The subject enriches only the deterministic
+ *  fan-out brief — the branch that had no referent for its slot title in the first place. */
+export function instructionFor(post: { pillar: string | null; sourceMeta: unknown; beatMeta?: unknown }): string {
   const sm = (post.sourceMeta ?? {}) as Record<string, unknown>;
   const pending = sm['pendingInstruction'];
   if (typeof pending === 'string' && pending.trim()) return pending;
   const title = typeof sm['title'] === 'string' ? sm['title'] : '';
-  return captionInstruction(title, post.pillar ?? '');
+  return captionInstruction(title, post.pillar ?? '', beatSubject(post.beatMeta));
 }
 
 /**
@@ -206,6 +212,9 @@ export async function sweepFailedGenerations(
       id: contentCyclePosts.id, clientId: contentCyclePosts.clientId, cycleId: contentCyclePosts.cycleId,
       pillar: contentCyclePosts.pillar, sourceMeta: contentCyclePosts.sourceMeta,
       status: contentCyclePosts.status,
+      // Same reason as the fan-out's select (phase2.ts): a retry that rebuilds the brief
+      // without the beat's own subject would re-run the exact prompt that lost it.
+      beatMeta: contentCyclePosts.beatMeta,
     })
     .from(contentCyclePosts)
     .where(and(

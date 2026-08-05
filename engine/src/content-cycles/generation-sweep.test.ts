@@ -36,7 +36,17 @@ vi.mock('@sprigly/engine/generation-recovery', () => {
     return typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.trunc(v) : 0;
   };
   return {
-    captionInstruction: (title: string, pillar: string) => `caption:${title}:${pillar}`,
+    captionInstruction: (title: string, pillar: string, subject?: string | null) =>
+      `caption:${title}:${pillar}${subject ? `:about(${subject})` : ''}`,
+    // MIRRORS the real gate rather than passing everything through: what these fixtures are
+    // about is whether the sweep threads beat_meta at all and whether `pendingInstruction`
+    // still outranks it, and a stub that admitted every basis could not tell the difference.
+    beatSubject: (bm: unknown): string | null => {
+      const ev = (bm as { rationaleEvidence?: { basis?: string; reason?: string } } | null)?.rationaleEvidence;
+      if (!ev || ev.basis !== 'client_input') return null;
+      const r = (ev.reason ?? '').trim();
+      return r.length > 0 ? r : null;
+    },
     sweepAttemptsOf,
     sweepExhausted: (sm: unknown) => sweepAttemptsOf(sm) >= MAX_SWEEP_ATTEMPTS,
     MAX_SWEEP_ATTEMPTS,
@@ -330,5 +340,32 @@ describe('the instruction is a retry, not a new brief', () => {
   it('a blank pending instruction is not an instruction', () => {
     expect(instructionFor({ pillar: 'P', sourceMeta: { pendingInstruction: '   ', title: 'T' } }))
       .toBe('caption:T:P');
+  });
+
+  it('carries the beat subject into the fan-out brief a retry rebuilds', () => {
+    // Without this the sweep re-runs the exact prompt that lost the client's sentence, twice,
+    // and bills for both.
+    expect(instructionFor({
+      pillar: 'Product',
+      sourceMeta: { title: 'Molly — Launch' },
+      beatMeta: { rationaleEvidence: { basis: 'client_input', reason: 'launching Molly on the 18th' } },
+    })).toBe('caption:Molly — Launch:Product:about(launching Molly on the 18th)');
+  });
+
+  it('leaves an emphasis_reweight beat\'s brief alone — a preference is not a subject', () => {
+    expect(instructionFor({
+      pillar: 'Product',
+      sourceMeta: { title: 'T' },
+      beatMeta: { rationaleEvidence: { basis: 'emphasis_reweight', reason: 'can we do more reels this month' } },
+    })).toBe('caption:T:Product');
+  });
+
+  it('a pending instruction still wins, and is NOT enriched with the subject', () => {
+    // The client's own reshape is the whole ask. Appending background would change it.
+    expect(instructionFor({
+      pillar: 'Product',
+      sourceMeta: { pendingInstruction: 'make it softer', title: 'Molly — Launch' },
+      beatMeta: { rationaleEvidence: { basis: 'client_input', reason: 'launching Molly on the 18th' } },
+    })).toBe('make it softer');
   });
 });
