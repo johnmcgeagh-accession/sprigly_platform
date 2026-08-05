@@ -57,8 +57,12 @@ export interface ModelCompleteResult {
    * model's minimum cacheable length, fails SILENTLY and looks exactly like one that worked.
    * A zero read across repeated identical-prefix calls is the symptom to look for.
    *
-   * NOTE for costing: these are counted SEPARATELY from `inputTokens` by the provider, and
-   * `computeCostPence` prices `inputTokens` only. See docs/reports/conversational-cost.md.
+   * NOTE for costing: these are counted SEPARATELY from `inputTokens` by the provider — a turn
+   * that reads a 5,209-token prefix reports `inputTokens: 27` beside it — so they are ADDED to
+   * the bill, never subtracted from it. `computeCostPence` takes them as a fourth argument and
+   * prices them (0.1× the base input rate for a read, 1.25× for a five-minute write); the older
+   * note here saying it prices `inputTokens` alone described the bug that change fixed, not the
+   * behaviour. See docs/reports/conversational-cost.md.
    */
   cacheReadTokens?: number;
   cacheWriteTokens?: number;

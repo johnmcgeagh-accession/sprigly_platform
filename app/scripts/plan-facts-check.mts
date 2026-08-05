@@ -23,6 +23,7 @@ import { bucketCycleState } from '../src/lib/agent/cycle-state';
 import { answerQuery } from '../src/lib/agent/query';
 import { createModelClientFromEnv } from '@sprigly/model-client';
 import { createEmbeddingClientFromEnv } from '@sprigly/embedding-client';
+import { createAuditLogger } from '@sprigly/audit';
 import { db, contentCycles } from '@sprigly/db';
 import { eq } from 'drizzle-orm';
 
@@ -47,6 +48,17 @@ const QUESTIONS = [
  * the thing that gets measured.
  */
 const REPEAT = Math.max(1, Math.min(10, Number(arg('repeat') ?? 1) || 1));
+
+/**
+ * `--audit` writes the cost ledger rows this turn would write in production.
+ *
+ * OFF by default — a diagnostic that writes to a shared ledger every time it runs would put
+ * synthetic spend in the same table the real spend is read from. It is switched ON deliberately
+ * to verify prompt caching, because `cacheReadTokens` / `cacheWriteTokens` reach `audit_log`
+ * through this path and nowhere else, and a cache that silently is not working is exactly the
+ * thing a second-hand number would fail to reveal.
+ */
+const WRITE_AUDIT = process.argv.includes('--audit');
 
 const rule = (s: string) => console.log(`\n${'━'.repeat(78)}\n${s}\n${'━'.repeat(78)}`);
 
@@ -81,7 +93,7 @@ for (const question of QUESTIONS) {
   for (let i = 0; i < REPEAT; i++) {
     const res = await answerQuery(
       { clientId: row.clientId, cycleId: CYCLE, question, today: new Date(`${TODAY}T00:00:00`), context: ctx },
-      { model, embeddingClient },   // no `audit` — this writes nothing
+      { model, embeddingClient, ...(WRITE_AUDIT ? { audit: createAuditLogger(db) } : {}) },
     );
     if (REPEAT > 1) console.log(`\n── ask ${i + 1} ──`);
     console.log(res.text);

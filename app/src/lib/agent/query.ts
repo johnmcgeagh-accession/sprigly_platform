@@ -7,7 +7,7 @@
  * counts). Answers with Haiku. Empty knowledge is handled gracefully — the plan
  * state alone still answers "what's scheduled this week?".
  */
-import type { ModelClient } from '@sprigly/model-client';
+import type { MessagePart, ModelClient } from '@sprigly/model-client';
 import type { EmbeddingClient } from '@sprigly/embedding-client';
 import type { AuditLogger } from '@sprigly/audit';
 import { retrieveChunks } from '@sprigly/knowledge';
@@ -124,6 +124,77 @@ function postsInScope(ctx: PlanContext): PlanPost[] {
   return ctx.posts.filter((p) => inScope.has(p.date.slice(0, 7)));
 }
 
+/**
+ * THE ANSWERER'S MESSAGE, SPLIT AT THE CACHE BOUNDARY.
+ *
+ * ── What was being re-bought, and how often ──────────────────────────────────────────
+ *
+ * The parser has been split at a `cache_point` since 0988a39; this call never was. It passed a
+ * plain string, so every query turn re-processed the whole prompt at full input price —
+ * measured live at 5,240 input tokens with `cacheRead=0`, four times over for one question asked
+ * four times. The plan state is now the larger half of that and grew again when the counted facts
+ * landed, so the bill was rising with the fix.
+ *
+ * ── The order was ALREADY right; only the breakpoint was missing ─────────────────────
+ *
+ * This is the one thing that makes it a smaller change than the parser's. `task-parser.ts` had to
+ * be REORDERED — PENDING and the thread sat above the digest, so variable text was in front of the
+ * invariant bulk and nothing could ever have cached. Here the message was already written in
+ * stability order:
+ *
+ *   [ system prompt ]                    ← invariant for the life of the deploy   ~1,600 tok
+ *   PLAN STATE                           ← invariant until the plan changes       ~2,900 tok
+ *   ──────── cache_point ────────
+ *   KNOWLEDGE CONTEXT                    ← VARIES PER QUESTION (see below)
+ *   QUESTION                             ← always new
+ *
+ * so this inserts a marker and moves nothing. The parts either side read as one continuous
+ * message to the model — a cache_point is a billing marker, not a separator — so the prompt's
+ * meaning is byte-for-byte what it was.
+ *
+ * ── KNOWLEDGE IS BELOW THE LINE, AND THAT IS THE LOAD-BEARING DECISION ───────────────
+ *
+ * It looks invariant and is not. `retrieveChunks` is keyed on `queryText: args.question`, so the
+ * six chunks it returns are a function of what was ASKED — a different question retrieves
+ * different text, and the prefix ends at the first differing byte. Putting the breakpoint below
+ * knowledge would cache a longer prefix and would still have PASSED the obvious verification
+ * (ask one question three times, watch it hit), because one repeated question retrieves one
+ * repeated set of chunks. It would then have missed on every real conversation, where no two
+ * questions are the same. The boundary goes above it.
+ *
+ * ── ONE BREAKPOINT, NOT TWO, AND THE REASON IS THE MODEL'S MINIMUM ───────────────────
+ *
+ * The obvious refinement is a second breakpoint after the system prompt, so a turn whose PLAN
+ * STATE changed still reads the system half. It is not available here. Haiku 4.5's minimum
+ * cacheable prefix is 4,096 tokens; the system prompt alone is ~1,600, so that breakpoint would
+ * be below the floor — not cached, no error raised, and indistinguishable from one that worked.
+ * A prefix under the minimum is the silent failure this whole path is prone to, so the single
+ * breakpoint is placed as LATE in the stable region as it can go, which is what makes the prefix
+ * big enough to qualify at all (~4,550 tokens, measured).
+ *
+ * That margin is thin and worth stating: the post rows are ~2,000 of those tokens, so a client
+ * whose span holds materially fewer posts than Ivy T's 49 falls under the floor and this silently
+ * stops caching. `cacheReadTokens` on the audit row is what says whether it is still working —
+ * which is precisely why that field is recorded rather than assumed.
+ */
+function buildUserMessage(planState: string, knowledge: string, question: string): MessagePart[] {
+  return [
+    { type: 'text', text: `PLAN STATE:\n${planState}` },
+    { type: 'cache_point' },
+    { type: 'text', text: `\n\nKNOWLEDGE CONTEXT:\n${knowledge}\n\nQUESTION:\n${question}` },
+  ];
+}
+
+/** The message as one string — what the fixtures assert against, and what a provider with no
+ *  caching effectively receives. Keeps the split above from becoming untestable, and pins that
+ *  it changed the prompt's COST and not its text. */
+export function renderQueryMessage(planState: string, knowledge: string, question: string): string {
+  return buildUserMessage(planState, knowledge, question)
+    .filter((p): p is Extract<MessagePart, { type: 'text' }> => p.type === 'text')
+    .map((p) => p.text)
+    .join('');
+}
+
 export async function answerQuery(args: AnswerQueryArgs, deps: AnswerQueryDeps): Promise<QueryAnswer> {
   const cycleState = args.context
     ? bucketCycleState(postsInScope(args.context), args.today, args.context.months, args.context.beats)
@@ -146,19 +217,10 @@ export async function answerQuery(args: AnswerQueryArgs, deps: AnswerQueryDeps):
     knowledge = '(knowledge lookup unavailable)';
   }
 
-  const userMessage = `PLAN STATE:
-${cycleState.summary}
-
-KNOWLEDGE CONTEXT:
-${knowledge}
-
-QUESTION:
-${args.question}`;
-
   const res = await deps.model.complete({
     model: AGENT_MODEL,
     system: QUERY_SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: userMessage }],
+    messages: [{ role: 'user', content: buildUserMessage(cycleState.summary, knowledge, args.question) }],
     maxTokens: 600,
     temperature: 0,
   });
