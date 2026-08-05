@@ -32,14 +32,21 @@
  * classify call. Reads env from ../.env.local via the package.json script wrapper, same as
  * classify-check. Status chatter -> stderr; the report -> stdout.
  *
- * ── EXPECT IT TO WEDGE, AND KNOW WHY ─────────────────────────────────────────────
+ * ── A LONG PASS CAN LOOK WEDGED. IT IS NOT ───────────────────────────────────────
  *
- * A long sequential pass can hang indefinitely on one Bedrock call: @sprigly/model-client sets
- * no request timeout, so a connection that stops responding is waited on forever rather than
- * failing into the retry above. Observed twice while recording the first baseline, at different
- * cases, after ~110 and ~180 calls. There is no resume — kill it and start the pass again. Not
- * fixed here because a timeout belongs in the model client, where every caller would get it,
- * and this commit adds a corpus and a runner and nothing else.
+ * Recording the first baseline stalled twice, at ~110 and ~180 calls, and the commit that added
+ * this file said the model client "sets no request timeout". THAT WAS WRONG, and the correction
+ * belongs here because it is the note someone will read next time a pass goes quiet.
+ *
+ * `complete()` has been bounded since it was written — bedrock-client.ts wraps every send in an
+ * AbortController at DEFAULT_TIMEOUT_MS (180s). What was actually observed is arithmetic, not a
+ * hang: one stalled call costs 180s, this runner then retries a model_error twice, so a single
+ * bad case sits silently for up to nine minutes. Both stalls were given one to two minutes
+ * before being killed — inside the first window.
+ *
+ * So: a quiet pass is not necessarily a dead one. Watch the call count rather than the clock.
+ * (The real gap the investigation did find was on the STREAMING path, which this runner never
+ * touches, and it is fixed — stream initiation is now bounded too.)
  */
 import pino from 'pino';
 import { readFile, writeFile } from 'node:fs/promises';

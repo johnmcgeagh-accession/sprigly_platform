@@ -18,6 +18,43 @@ const THROTTLE_BASE_DELAY = 1_000; // 1s, doubles each attempt
 const DEFAULT_TIMEOUT_MS  = 180_000;
 const STREAM_IDLE_MS      = 30_000; // abort stream if no chunk arrives for 30s
 
+/**
+ * Wall clock for OPENING a stream — not for the generation that follows.
+ *
+ * `sendStreamWithRetry` had no abort at all, and `STREAM_IDLE_MS` guards only the chunks that
+ * arrive AFTER the stream exists. So a send that never returns a stream — a dead peer, a
+ * response that never begins — waited forever, and every caller of `completeStreaming` waited
+ * with it: the month generation call (planning.ts), lean-line, voice-batch-merge. On a worker
+ * that is a BullMQ job held open with no end.
+ *
+ * 60s, and the number matters less than what it bounds. `client.send` for a stream command
+ * resolves when the response STARTS, so the only thing inside this window is connect plus
+ * time-to-first-token — seconds even on the platform's largest prompt (28k chars). 60s is
+ * generous for that and still short enough to be told apart from a hang, which 180s is not.
+ *
+ * The timer is cleared the instant the stream is returned, so this can never abort a long
+ * generation mid-flight. Once the stream is open, STREAM_IDLE_MS owns it.
+ */
+const STREAM_OPEN_TIMEOUT_MS = 60_000;
+
+/**
+ * Socket-level guard, applied to the client rather than the request, because it is the only
+ * one that fails FAST and the only one that covers every command — stream initiation and the
+ * SDK's own internal retries included.
+ *
+ * TCP+TLS to a regional Bedrock endpoint is normally sub-second; 10s is around twenty times
+ * that, and nothing legitimate takes ten seconds to CONNECT.
+ *
+ * `requestTimeout` is deliberately NOT set alongside it. In @smithy/node-http-handler that is a
+ * socket-IDLE timeout, and for a non-streaming Converse the socket is idle for the whole
+ * generation — so any value low enough to be useful would cut off a legitimately slow
+ * completion. That is the worst failure available here: `regeneratePost` throwing is caught by
+ * the repair loop, which BREAKS and keeps the unrepaired post (plan-validation.ts:457), so a
+ * too-eager timeout is not a loud failure but silent quality loss behind a warn log. The 180s
+ * AbortController already bounds that path.
+ */
+const CONNECT_TIMEOUT_MS = 10_000;
+
 function isThrottlingError(err: unknown): boolean {
   if (err == null || typeof err !== 'object') return false;
   const name = (err as { name?: string }).name ?? '';
@@ -112,8 +149,51 @@ export class BedrockClient implements ModelClient {
     this.client = new BedrockRuntimeClient({
       region,
       ...(credentials !== undefined && { credentials }),
+      // Passed as options rather than a constructed NodeHttpHandler so this package does not
+      // reach into @smithy/node-http-handler, which it depends on only transitively.
+      requestHandler: { connectionTimeout: CONNECT_TIMEOUT_MS },
     });
     this.timeoutMs = timeoutMs;
+  }
+
+  /**
+   * Run one `client.send` under a wall clock, and report an abort as an abort.
+   *
+   * Shared by both send paths because they had drifted: the non-streaming one has bounded every
+   * call since it was written, and the streaming one bounded nothing. A timeout that exists on
+   * one path and not the other is not a policy, it is an oversight with a comment.
+   *
+   * NOT RETRIED, on purpose. Only throttling retries here. A timeout has already spent its whole
+   * budget, and the caller above decides what a spent budget means — `classifyIntake` files the
+   * input, the repair loop keeps the previous post, planning fails the cycle. Retrying three
+   * times at 180s inside a repair loop that itself runs up to MAX_PLAN_RETRIES per post, for
+   * every post in a month, would turn one slow call into a stalled cycle.
+   */
+  private async sendUnderClock<T>(
+    send: (signal: AbortSignal) => Promise<T>,
+    timeoutMs: number,
+    timeoutMessage: string,
+  ): Promise<T> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await send(controller.signal);
+    } catch (err) {
+      if ((controller.signal as AbortSignal & { reason?: unknown }).reason !== undefined ||
+          (err as { name?: string }).name === 'AbortError') {
+        // Both messages contain "timed out", which is not decoration: `classifyGenerationFailure`
+        // (ai-change-cap.ts) matches that substring to class the failure TRANSIENT, and the
+        // generation sweep then retries it under MAX_SWEEP_ATTEMPTS. That bounded retry one layer
+        // up is the other half of why this layer does not retry a timeout itself.
+        throw new Error(timeoutMessage);
+      }
+      throw err;
+    } finally {
+      // Cleared on EVERY exit, including the success path. For a stream that is the load-bearing
+      // line: the signal stays attached to the in-flight request, so leaving the timer armed
+      // would abort a perfectly healthy generation the moment it passed the open timeout.
+      clearTimeout(timer);
+    }
   }
 
   // Retry wraps only stream initiation — ThrottlingException (HTTP 429) manifests
@@ -129,7 +209,11 @@ export class BedrockClient implements ModelClient {
         await sleep(delay);
       }
       try {
-        const response = await this.client.send(command);
+        const response = await this.sendUnderClock(
+          (abortSignal) => this.client.send(command, { abortSignal }),
+          STREAM_OPEN_TIMEOUT_MS,
+          `Bedrock stream timed out after ${STREAM_OPEN_TIMEOUT_MS / 1000}s opening for model ${command.input?.modelId}`,
+        );
         if (!response.stream) throw new Error('Bedrock stream was undefined');
         return response.stream;
       } catch (err) {
@@ -149,21 +233,13 @@ export class BedrockClient implements ModelClient {
         await sleep(delay);
       }
 
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-
       try {
-        const result = await this.client.send(command, { abortSignal: controller.signal });
-        clearTimeout(timer);
-        return result;
+        return await this.sendUnderClock(
+          (abortSignal) => this.client.send(command, { abortSignal }),
+          this.timeoutMs,
+          `Bedrock request timed out after ${this.timeoutMs / 1000}s for model ${command.input?.modelId}`,
+        );
       } catch (err) {
-        clearTimeout(timer);
-        if ((controller.signal as AbortSignal & { reason?: unknown }).reason !== undefined ||
-            (err as { name?: string }).name === 'AbortError') {
-          throw new Error(
-            `Bedrock request timed out after ${this.timeoutMs / 1000}s for model ${command.input?.modelId}`,
-          );
-        }
         if (isThrottlingError(err) && attempt < THROTTLE_RETRIES) {
           lastErr = err;
           continue;
