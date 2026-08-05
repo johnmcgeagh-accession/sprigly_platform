@@ -1,18 +1,20 @@
 {
   "note": [
-    "RECORDED AT THE UNDATED-EMPHASIS CHANGE, 5 Aug 2026. This replaces the 3930c1e recording as the reference the NEXT change measures against; the previous one is not lost, it is `git show 3930c1e:engine/src/content-cycles/scope-eval-baseline.json`.",
+    "RECORDED AT THE EMPHASIS-EXTRACTION FIX, 5 Aug 2026. Replaces the 9eaa2b5 recording; that one is `git show 9eaa2b5:engine/src/content-cycles/scope-eval-baseline.json`.",
     "",
-    "Clean pass: 0 model_error rows, 0 non-unanimous cases, 258 calls. The 3930c1e recording carried three model_error rows and one genuinely unstable case; both are gone — the errors because the runner now retries them out, and the instability because `lean into founder content more` moved from 20/4 split to month_scoped 5/5.",
+    "real 13 of 13 · constructed 25 of 29 · 11 unscored · 0 model_error · 0 non-unanimous · 267 calls.",
     "",
-    "real 11 of 11 · constructed 25 of 29 · 11 unscored. Reported separately, always — see the corpus README for why a combined figure is refused.",
+    "SCOPE IS UNCHANGED, and had to be: the classify prompt was not touched. All eleven real cases that existed at 9eaa2b5 return the same routing, the seven verbatim standing preferences are 7 of 7 unchanged, and the four remaining constructed failures are the same four. The two new real cases — 'can we do more reels this month' and the Karen/school-run sentence, both verbatim from receipts — take real from 11 of 11 to 13 of 13.",
     "",
-    "THE FOUR REMAINING CONSTRUCTED FAILURES ARE ONE THING, and it is not a scope problem: cx-event-birthday-this-month, cx-event-undated-popup, cx-event-school-holidays and cx-launch-undated-karen all assert `reason: ambiguous` and all return `classified_evergreen`. They are the honest-failure distinction — 'we read this as about your month and could not place it' versus 'we filed your idea' — and they need a day, not a month. cx-launch-month-no-day passes, so the distinction does work where the model emits a dated-kind intent without a date; these four fail earlier, at the scope call. Deliberately untouched here."
+    "FIVE CASES NOW ASSERT A RESOLVED VALUE, not just scope and kind. Their tally strings carry the resolution after an arrow (month_scoped/emphasis→pillar:Simplify Your Morning). Compare tooling should split on the arrow before comparing routings, so that this reporting change cannot read as a behaviour change.",
+    "",
+    "THE FOUR REMAINING CONSTRUCTED FAILURES ARE STILL ONE THING: cx-event-birthday-this-month, cx-event-undated-popup, cx-event-school-holidays and cx-launch-undated-karen all assert reason=ambiguous and all return classified_evergreen. The honest-failure distinction, untouched here and unrelated to extraction."
   ],
   "corpus": "/Users/johnmcgeagh/Workspaces/sprigly/dev/engine/src/content-cycles/scope-eval-corpus.json",
   "planMonth": "2026-09",
   "runs": 5,
   "model": "sonnet (default)",
-  "calls": 258,
+  "calls": 267,
   "results": [
     {
       "id": "real-emphasis-morning-routine",
@@ -20,10 +22,16 @@
       "surface": "reshape",
       "expect": {
         "scope": "month_scoped",
-        "kind": "emphasis"
+        "kind": "emphasis",
+        "resolves": {
+          "emphasis": {
+            "kind": "pillar",
+            "name": "Simplify Your Morning"
+          }
+        }
       },
       "tally": {
-        "month_scoped/emphasis": 5
+        "month_scoped/emphasis→pillar:Simplify Your Morning": 5
       },
       "hits": 5,
       "runs": 5,
@@ -41,7 +49,7 @@
         "kind": "emphasis"
       },
       "tally": {
-        "month_scoped/emphasis": 5
+        "month_scoped/emphasis→format:reel": 5
       },
       "hits": 5,
       "runs": 5,
@@ -56,10 +64,62 @@
       "surface": "reshape",
       "expect": {
         "scope": "month_scoped",
-        "kind": "emphasis"
+        "kind": "emphasis",
+        "resolves": {
+          "emphasis": {
+            "kind": "none"
+          }
+        }
       },
       "tally": {
-        "month_scoped/emphasis": 5
+        "month_scoped/emphasis→none": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "errors": 0,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-emphasis-more-reels-undated",
+      "origin": "real",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis",
+        "resolves": {
+          "emphasis": {
+            "kind": "format",
+            "name": "reel"
+          }
+        }
+      },
+      "tally": {
+        "month_scoped/emphasis→format:reel": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "errors": 0,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-emphasis-school-run",
+      "origin": "real",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis",
+        "resolves": {
+          "emphasis": {
+            "kind": "none"
+          }
+        }
+      },
+      "tally": {
+        "month_scoped/emphasis→none": 5
       },
       "hits": 5,
       "runs": 5,
@@ -197,7 +257,7 @@
       "surface": "reshape",
       "expect": null,
       "tally": {
-        "month_scoped/emphasis": 5
+        "month_scoped/emphasis→none": 5
       },
       "hits": 0,
       "runs": 5,
@@ -541,7 +601,7 @@
         "kind": "emphasis"
       },
       "tally": {
-        "month_scoped/emphasis": 5
+        "month_scoped/emphasis→none": 5
       },
       "hits": 5,
       "runs": 5,
@@ -559,7 +619,7 @@
         "kind": "emphasis"
       },
       "tally": {
-        "month_scoped/emphasis": 5
+        "month_scoped/emphasis→none": 5
       },
       "hits": 5,
       "runs": 5,
@@ -577,7 +637,7 @@
         "kind": "emphasis"
       },
       "tally": {
-        "month_scoped/emphasis": 5
+        "month_scoped/emphasis→pillar:Simplify Your Morning": 5
       },
       "hits": 5,
       "runs": 5,
@@ -595,7 +655,7 @@
         "kind": "emphasis"
       },
       "tally": {
-        "month_scoped/emphasis": 5
+        "month_scoped/emphasis→none": 5
       },
       "hits": 5,
       "runs": 5,
@@ -613,7 +673,7 @@
         "kind": "emphasis"
       },
       "tally": {
-        "month_scoped/emphasis": 5
+        "month_scoped/emphasis→none": 5
       },
       "hits": 5,
       "runs": 5,
@@ -631,7 +691,7 @@
         "kind": "emphasis"
       },
       "tally": {
-        "month_scoped/emphasis": 5
+        "month_scoped/emphasis→none": 5
       },
       "hits": 5,
       "runs": 5,
@@ -649,7 +709,7 @@
         "kind": "emphasis"
       },
       "tally": {
-        "month_scoped/emphasis": 5
+        "month_scoped/emphasis→pillar:Simplify Your Morning": 5
       },
       "hits": 5,
       "runs": 5,
@@ -667,7 +727,7 @@
         "kind": "emphasis"
       },
       "tally": {
-        "month_scoped/emphasis": 5
+        "month_scoped/emphasis→pillar:Simplify Your Morning": 5
       },
       "hits": 5,
       "runs": 5,
@@ -685,7 +745,7 @@
         "kind": "emphasis"
       },
       "tally": {
-        "month_scoped/emphasis": 5
+        "month_scoped/emphasis→pillar:Simplify Your Morning": 5
       },
       "hits": 5,
       "runs": 5,
@@ -700,10 +760,16 @@
       "surface": "reshape",
       "expect": {
         "scope": "month_scoped",
-        "kind": "emphasis"
+        "kind": "emphasis",
+        "resolves": {
+          "emphasis": {
+            "kind": "pillar",
+            "name": "Simplify Your Morning"
+          }
+        }
       },
       "tally": {
-        "month_scoped/emphasis": 5
+        "month_scoped/emphasis→pillar:Simplify Your Morning": 5
       },
       "hits": 5,
       "runs": 5,
@@ -721,7 +787,7 @@
         "kind": "emphasis"
       },
       "tally": {
-        "month_scoped/emphasis": 5
+        "month_scoped/emphasis→none": 5
       },
       "hits": 5,
       "runs": 5,
@@ -739,7 +805,7 @@
         "kind": "emphasis"
       },
       "tally": {
-        "month_scoped/emphasis": 5
+        "month_scoped/emphasis→none": 5
       },
       "hits": 5,
       "runs": 5,

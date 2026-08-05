@@ -805,6 +805,69 @@ function emphasisWords(text: string): Set<string> {
   );
 }
 
+/**
+ * What an emphasis INTENT names — `resolveEmphasisTarget` applied to the intent's fields in the
+ * order that survives a bad extraction.
+ *
+ * ── WHY THIS EXISTS AT ALL ───────────────────────────────────────────────────────────
+ *
+ * The classifier puts the QUANTIFIER in `emphasis` and the TOPIC in `subject`. Measured live,
+ * 5 runs each: "can we lean into the morning routine more" → emphasis "more", subject "morning
+ * routine"; "can we do more reels this month" → emphasis "more"/"increase", subject "more
+ * reels". And `more` is in EMPHASIS_STOPWORDS, so it normalises to the empty set and can match
+ * no pillar and no format — the client names a pillar and the month does not move.
+ *
+ * `applyEmphasis` already tried to cover this with `intent.emphasis ?? intent.subject`. `??`
+ * guards against ABSENT, not against MEANINGLESS: "more" is present, so the fallback never
+ * fired. A value can satisfy a schema, satisfy a null check, and still carry nothing.
+ *
+ * ── WHY IT IS ITS OWN FUNCTION, AND NOT THE TWO OBVIOUS PLACES ───────────────────────
+ *
+ * Not inside `resolveEmphasisTarget`, which answers "what does THIS PHRASE name". Giving it an
+ * intent would change that question to "what does this INTENT name" and put intent-shape
+ * knowledge inside a string matcher, whose twelve tests all read as phrase-level facts.
+ *
+ * Not inlined in `applyEmphasis` either, and this is the reason that matters: the scope-eval
+ * harness has to assert what PRODUCTION resolves, and a harness that reimplements the rule it
+ * is checking checks nothing. Inlined, the corpus would have had to copy this loop. Named, it
+ * calls it. The blind spot the corpus had — asserting scope and kind but never a field's VALUE
+ * — is closed by asserting through this function, so this function has to be reachable.
+ *
+ * ── THE ORDER, AND THE FILTER BEFORE IT ──────────────────────────────────────────────
+ *
+ * `emphasis` is still tried FIRST. When the model writes a real instruction there it is the
+ * better phrase, and the back-to-school brief — 124 characters of what the captions should say
+ * — still wins on its own merits. Only when it names nothing does `subject` get a turn.
+ *
+ * Candidates with NO significant words are dropped before any of that. "more" can only ever
+ * return `none`, so trying it wastes nothing — but it would then be quoted back to the client
+ * in the receipt as *Noted for this month: "more"*, and that is the sentence this whole path
+ * exists to avoid. The test is `emphasisWords`, the same normalisation the matcher uses, so a
+ * word is "insignificant" here for exactly the reason it cannot match there.
+ *
+ * `ambiguous` STOPS the search. It is a real match against two pillars, and falling through to
+ * `subject` would silently resolve an ambiguity that belongs to the client.
+ */
+export function resolveEmphasisIntent(
+  intent: Pick<MonthScopedIntent, 'emphasis' | 'subject'>,
+  pillars: readonly string[],
+): { target: EmphasisTarget; phrase: string } {
+  const candidates = [intent.emphasis, intent.subject]
+    .map((s) => (s ?? '').trim())
+    .filter((s) => s.length > 0 && emphasisWords(s).size > 0);
+
+  if (candidates.length === 0) return { target: { kind: 'none', candidates: [] }, phrase: '' };
+
+  for (const phrase of candidates) {
+    const target = resolveEmphasisTarget(phrase, pillars);
+    if (target.kind !== 'none') return { target, phrase };
+  }
+  // Nothing named a pillar or a format. That is a legitimate answer — the caller keeps the
+  // sentence as month context — and the phrase it quotes is the first candidate, which is the
+  // client's own instruction when they gave one and their topic when they did not.
+  return { target: resolveEmphasisTarget(candidates[0]!, pillars), phrase: candidates[0]! };
+}
+
 /** The format families a phrase can name, so "more reels" and "more video" both land. */
 const FORMAT_WORDS: Record<string, string> = {
   reel: 'reel', reels: 'reel', video: 'reel', videos: 'reel',
@@ -879,14 +942,13 @@ export function applyEmphasis(
   /** The client's configured pillar names. Unioned with the month's own — see above. */
   clientPillars: readonly string[] = [],
 ): TransformResult {
-  const phrase = (intent.emphasis ?? intent.subject).trim();
-  if (!phrase) return { ops: [], note: 'It wasn’t clear what to lean into, so nothing changed.' };
-
   const monthPillars = [...new Set([
     ...clientPillars.map((p) => p.trim()),
     ...beats.map((b) => b.pillar.trim()),
   ].filter(Boolean))].sort();
-  const resolved = resolveEmphasisTarget(phrase, monthPillars);
+
+  const { target: resolved, phrase } = resolveEmphasisIntent(intent, monthPillars);
+  if (!phrase) return { ops: [], note: 'It wasn’t clear what to lean into, so nothing changed.' };
 
   if (resolved.kind === 'ambiguous') {
     return { ops: [], note: `“${phrase}” could mean ${listPillars(resolved.candidates)} — which did you mean? Nothing has changed.` };

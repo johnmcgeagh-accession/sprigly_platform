@@ -16,411 +16,693 @@
     "",
     "UNSCORED CASES assert nothing and contribute to no pass/fail. They are findings, not labelling problems, and each says why in its own `unscored` field. They are run and reported so their behaviour is visible in every pass.",
     "",
-    "THIS FILE ASSERTS `reason` AS WELL AS SCOPE AND KIND. The distinction between evergreen/classified_evergreen ('we read this as a standing idea') and evergreen/ambiguous ('we read this as about your month and could not place it') is the honest-failure distinction, and it is one of the things being measured. A case that expects a reason fails if the scope is right and the reason is not."
+    "THIS FILE ASSERTS `reason` AS WELL AS SCOPE AND KIND. The distinction between evergreen/classified_evergreen ('we read this as a standing idea') and evergreen/ambiguous ('we read this as about your month and could not place it') is the honest-failure distinction, and it is one of the things being measured. A case that expects a reason fails if the scope is right and the reason is not.",
+    "",
+    "IT ALSO ASSERTS THE RESOLVED VALUE OF A FIELD, not only scope and kind. A case may carry `expect.resolves.emphasis`, which is compared against `resolveEmphasisIntent(intent, pillars)` — the SAME function applyEmphasis calls, so the corpus checks what production resolves rather than a copy of the rule.",
+    "",
+    "The literal string is deliberately NOT asserted. The model legitimately paraphrases: 'increase reels', 'increase reels content' and 'increase reels this month' are all the same answer, and pinning one would fail on wording. What must hold is what the phrase RESOLVES to, and that is a pure function of the phrase and the pillar list.",
+    "",
+    "This is the assertion the corpus did not have when it was built, and the gap it left: three real inputs routed month_scoped/emphasis correctly and produced emphasis=\"more\", which normalises to nothing and moved no beats. Every case passed. Scope and kind were right and the month did not change.",
+    "",
+    "`pillars` below is Ivy T's REAL configured list, read from client_planning_config — not a fixture. Resolution is meaningless against invented pillars."
+  ],
+  "pillars": [
+    "Simplify Your Morning",
+    "Born From Real Need",
+    "Stable Foundations",
+    "Ethical Without Compromise",
+    "Understands Real Women",
+    "Personal Relationships",
+    "A Supportive Friend, Always By Your Side"
   ],
   "cases": [
-
     {
       "id": "real-emphasis-morning-routine",
       "text": "can we lean into the morning routine more",
-      "origin": "real", "provenance": "receipt + plan_inputs (Ivy T, 4 Aug, 5 sends)", "surface": "reshape",
+      "origin": "real",
+      "provenance": "receipt + plan_inputs (Ivy T, 4 Aug, 5 sends)",
+      "surface": "reshape",
       "clause": "more of",
-      "expect": { "scope": "month_scoped", "kind": "emphasis" },
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis",
+        "resolves": {
+          "emphasis": {
+            "kind": "pillar",
+            "name": "Simplify Your Morning"
+          }
+        }
+      },
       "why": "Names a real configured pillar (Simplify Your Morning) on a surface that has just said 'This is your September draft'. Routes evergreen/classified_evergreen 35/35 at HEAD — the case this corpus was built to measure."
     },
     {
       "id": "real-emphasis-more-reels-this-month",
       "text": "more reels this month please",
-      "origin": "real", "provenance": "receipt (Ivy T, 4 Aug)", "surface": "reshape",
+      "origin": "real",
+      "provenance": "receipt (Ivy T, 4 Aug)",
+      "surface": "reshape",
       "clause": "more of",
-      "expect": { "scope": "month_scoped", "kind": "emphasis" },
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
       "why": "The same ask WITH a month marker. Applied 3 diff lines. Its job here is to fail loudly if a scope change breaks what already works."
     },
     {
       "id": "real-emphasis-back-to-school-september",
       "text": "One thing going on in September is the back to school element - we're photoshooting a new range called Karen and the back to school should talk about the juggle of the school run and working life",
-      "origin": "real", "provenance": "plan_inputs (Ivy T, 4 Aug 15:12)", "surface": "reshape",
+      "origin": "real",
+      "provenance": "plan_inputs (Ivy T, 4 Aug 15:12)",
+      "surface": "reshape",
       "clause": "more of",
-      "expect": { "scope": "month_scoped", "kind": "emphasis" },
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis",
+        "resolves": {
+          "emphasis": {
+            "kind": "none"
+          }
+        }
+      },
       "why": "Names the month explicitly. Routes month_scoped/emphasis; the emphasis phrase is 108-138 chars, which is why the field's bound became 200 (bf4bc97)."
+    },
+    {
+      "id": "real-emphasis-more-reels-undated",
+      "text": "can we do more reels this month",
+      "origin": "real",
+      "provenance": "receipt (Ivy T, 5 Aug — typed in UAT)",
+      "surface": "reshape",
+      "clause": "more of",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis",
+        "resolves": {
+          "emphasis": {
+            "kind": "format",
+            "name": "reel"
+          }
+        }
+      },
+      "why": "The clearest of the three: \"reels\" is a FORMAT word and needs no pillar match at all. Routed month_scoped/emphasis and still moved nothing, because the classifier put \"more\"/\"increase\" in `emphasis` and \"more reels\" in `subject`. Its resolution is the assertion that would have caught the bug on the first pass."
+    },
+    {
+      "id": "real-emphasis-school-run",
+      "text": "Karen lands mid-month. Can we lean into the school run more?",
+      "origin": "real",
+      "provenance": "receipt (Ivy T, 5 Aug — typed in UAT)",
+      "surface": "reshape",
+      "clause": "more of",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis",
+        "resolves": {
+          "emphasis": {
+            "kind": "none"
+          }
+        }
+      },
+      "why": "Resolves to `none` and SHOULD — \"school run\" is not one of Ivy T's seven pillars, so the month-context path is the right answer. It is here for the phrase, not the target: before resolveEmphasisIntent the receipt read Noted for this month: \"more\". The outcome is unchanged; the sentence the client is shown is not."
     },
     {
       "id": "real-launch-wilderness-relaunch",
       "text": "The Wilderness candle relaunches on the 24th, can we build up to it?",
-      "origin": "real", "provenance": "docs/reports (Earl of East)", "surface": "reshape",
+      "origin": "real",
+      "provenance": "docs/reports (Earl of East)",
+      "surface": "reshape",
       "clause": "launching",
-      "expect": { "scope": "month_scoped", "kind": "launch" },
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "launch"
+      },
       "why": "A dated launch asking for an arc. Different client, so it guards against the corpus becoming Ivy-T-shaped. HISTORY, because this case is why the corpus earned its keep: at the 3930c1e baseline it read question/plan 5/5 and never reached the classifier — parsePlanQuestion claimed it, and the register added in 9388e63 missed it because REQUEST_OPENER was anchored at ^ while the modal here is mid-sentence, after a statement clause. The corpus found that on its first pass. Anchoring the register at a clause boundary instead fixed it: month_scoped/launch 5/5. Kept as a scored case because the blocker it exposed was a GATE one, and a future regression there would look identical to a scope regression from the score alone."
     },
-
     {
       "id": "real-next-cycle-october-window-display",
       "text": "October idea: a Halloween window display post",
-      "origin": "real", "provenance": "receipt + plan_inputs (Ivy T, 4 Aug)", "surface": "reshape",
-      "clause": null, "expect": null,
+      "origin": "real",
+      "provenance": "receipt + plan_inputs (Ivy T, 4 Aug)",
+      "surface": "reshape",
+      "clause": null,
+      "expect": null,
       "unscored": "Names a SPECIFIC FUTURE MONTH. Filing it evergreen is not wrong for September, but it discards the October targeting — and plan_inputs.type already has 'next_cycle' while the classifier has only two scopes. This is a missing-third-scope finding, not a labelling question. Do not assert that evergreen is correct."
     },
     {
       "id": "real-next-cycle-october-halloween-products",
       "text": "I have an idea for October - a halloween themed post showcasing our best products",
-      "origin": "real", "provenance": "plan_inputs (Ivy T, 4 Aug 15:09)", "surface": "reshape",
-      "clause": null, "expect": null,
+      "origin": "real",
+      "provenance": "plan_inputs (Ivy T, 4 Aug 15:09)",
+      "surface": "reshape",
+      "clause": null,
+      "expect": null,
       "unscored": "See real-next-cycle-october-window-display. Same finding, a fourth phrasing of it."
     },
     {
       "id": "real-next-cycle-october-halloween-theme",
       "text": "I have an idea for October — Halloween theme",
-      "origin": "real", "provenance": "plan_inputs (Ivy T, 4 Aug 16:12)", "surface": "reshape",
-      "clause": null, "expect": null,
+      "origin": "real",
+      "provenance": "plan_inputs (Ivy T, 4 Aug 16:12)",
+      "surface": "reshape",
+      "clause": null,
+      "expect": null,
       "unscored": "See real-next-cycle-october-window-display."
     },
     {
       "id": "real-next-cycle-october-bare",
       "text": "October: Halloween theme.",
-      "origin": "real", "provenance": "plan_inputs (Ivy T, 4 Aug 16:28)", "surface": "reshape",
-      "clause": null, "expect": null,
+      "origin": "real",
+      "provenance": "plan_inputs (Ivy T, 4 Aug 16:28)",
+      "surface": "reshape",
+      "clause": null,
+      "expect": null,
       "unscored": "See real-next-cycle-october-window-display. The most compressed phrasing of the four, kept because a scope rule keyed on month words has to cope with a bare one."
     },
     {
       "id": "real-next-cycle-october-tv-hannah",
       "text": "October idea: TV Halloween theme, people-focused on Hannah.",
-      "origin": "real", "provenance": "plan_inputs (Ivy T, 4 Aug 13:43)", "surface": "reshape",
-      "clause": null, "expect": null,
+      "origin": "real",
+      "provenance": "plan_inputs (Ivy T, 4 Aug 13:43)",
+      "surface": "reshape",
+      "clause": null,
+      "expect": null,
       "unscored": "See real-next-cycle-october-window-display."
     },
     {
       "id": "real-cadence-15-reels",
       "text": "Can we have 15 reels",
-      "origin": "real", "provenance": "receipt (Ivy T, 5 Aug)", "surface": "reshape",
-      "clause": "more of", "expect": null,
+      "origin": "real",
+      "provenance": "receipt (Ivy T, 5 Aug)",
+      "surface": "reshape",
+      "clause": "more of",
+      "expect": null,
       "unscored": "UNEXPRESSIBLE by the contract. cadence carries postsPerWeek/postsPerMonth, which are TOTAL post counts; this is a PER-FORMAT count and no field holds it. Routed question/plan with a 31-line plan read-back before 9388e63; it reaches the classifier now. No passing outcome exists to assert."
     },
     {
       "id": "real-cadence-15-reels-this-month",
       "text": "Can we have 15 reels this month",
-      "origin": "real", "provenance": "receipt (Ivy T, 5 Aug)", "surface": "reshape",
-      "clause": "more of", "expect": null,
+      "origin": "real",
+      "provenance": "receipt (Ivy T, 5 Aug)",
+      "surface": "reshape",
+      "clause": "more of",
+      "expect": null,
       "unscored": "See real-cadence-15-reels. Same ask with a month marker — kept so a scope change can be seen to make no difference to a case whose blocker is the schema, not the scope."
     },
     {
       "id": "real-cadence-format-mix",
       "text": "Can we have an equal number of reels and carousels. No single image",
-      "origin": "real", "provenance": "receipt (Ivy T, 5 Aug)", "surface": "reshape",
-      "clause": "more of", "expect": null,
+      "origin": "real",
+      "provenance": "receipt (Ivy T, 5 Aug)",
+      "surface": "reshape",
+      "clause": "more of",
+      "expect": null,
       "unscored": "UNEXPRESSIBLE. A format MIX plus a format EXCLUSION. No intent kind carries either — emphasis names one format to weight up, not a ratio and not a ban."
     },
     {
       "id": "real-asset-june-heatwave",
       "text": "the June heatwave footage would be nice to use",
-      "origin": "real", "provenance": "receipt + plan_inputs (Ivy T, 4 Aug 19:12)", "surface": "reshape",
-      "clause": null, "expect": null,
+      "origin": "real",
+      "provenance": "receipt + plan_inputs (Ivy T, 4 Aug 19:12)",
+      "surface": "reshape",
+      "clause": null,
+      "expect": null,
       "unscored": "GENUINELY AMBIGUOUS, both readings live. Reads standing because June is past — but plan_inputs holds a real July idea, 'A throwback post using the video of Sally fitting the pre-production long sleeve Ivy tee during the June heatwave', with lifecycle='used'. So the client may be asking to use an existing ASSET this month rather than filing an idea about June. Not ours to decide."
     },
-
     {
       "id": "real-standing-founder-story",
       "text": "We should do a founder story",
-      "origin": "real", "provenance": "plan_inputs (Ivy T, 21 Jul)", "surface": "other",
+      "origin": "real",
+      "provenance": "plan_inputs (Ivy T, 21 Jul)",
+      "surface": "other",
       "clause": null,
-      "expect": { "scope": "evergreen" },
+      "expect": {
+        "scope": "evergreen"
+      },
       "why": "A standing preference with NO time marker at all — the hardest evergreen shape, and real. This is the population a month-default would wrongly capture, and it is the reason this corpus can say anything at all about that risk."
     },
     {
       "id": "real-standing-sweatshirt-breakdown",
       "text": "It's just a sweatshirt (or is it)' — a post breaking down what makes our sweatshirts superior",
-      "origin": "real", "provenance": "plan_inputs (Ivy T, 21 Jul)", "surface": "other",
+      "origin": "real",
+      "provenance": "plan_inputs (Ivy T, 21 Jul)",
+      "surface": "other",
       "clause": null,
-      "expect": { "scope": "evergreen" },
+      "expect": {
+        "scope": "evergreen"
+      },
       "why": "Brand positioning with no timing. Real client text, no time disclaimer — exactly what a naive 'undated means this month' rule would misfile."
     },
     {
       "id": "real-standing-life-is-busy",
       "text": "Life is busy — make decision-making easy with a simple set of quality wardrobe staples.",
-      "origin": "real", "provenance": "plan_inputs (Ivy T, 21 Jul)", "surface": "other",
+      "origin": "real",
+      "provenance": "plan_inputs (Ivy T, 21 Jul)",
+      "surface": "other",
       "clause": null,
-      "expect": { "scope": "evergreen" },
+      "expect": {
+        "scope": "evergreen"
+      },
       "why": "See real-standing-sweatshirt-breakdown."
     },
     {
       "id": "real-standing-hardworking-wardrobe",
       "text": "A hard-working wardrobe of incredible organic cotton staples makes life easier.",
-      "origin": "real", "provenance": "plan_inputs (Ivy T, 21 Jul)", "surface": "other",
+      "origin": "real",
+      "provenance": "plan_inputs (Ivy T, 21 Jul)",
+      "surface": "other",
       "clause": null,
-      "expect": { "scope": "evergreen" },
+      "expect": {
+        "scope": "evergreen"
+      },
       "why": "See real-standing-sweatshirt-breakdown."
     },
     {
       "id": "real-standing-simple-things",
       "text": "We bring you simple things that work — from work presentations to hugs at the school gate.",
-      "origin": "real", "provenance": "plan_inputs (Ivy T, 21 Jul)", "surface": "other",
+      "origin": "real",
+      "provenance": "plan_inputs (Ivy T, 21 Jul)",
+      "surface": "other",
       "clause": null,
-      "expect": { "scope": "evergreen" },
+      "expect": {
+        "scope": "evergreen"
+      },
       "why": "See real-standing-sweatshirt-breakdown. Note it mentions the school gate — near-neighbour vocabulary to the school-run emphasis cases, which is the point of keeping it."
     },
     {
       "id": "real-standing-no-polyester",
       "text": "Why never to wear polyester or synthetics, especially in summer.",
-      "origin": "real", "provenance": "plan_inputs (Ivy T, 21 Jul)", "surface": "other",
+      "origin": "real",
+      "provenance": "plan_inputs (Ivy T, 21 Jul)",
+      "surface": "other",
       "clause": null,
-      "expect": { "scope": "evergreen" },
+      "expect": {
+        "scope": "evergreen"
+      },
       "why": "A season word ('summer') but no month and no date. Guards against a rule that treats any temporal noun as month-scoping."
     },
     {
       "id": "real-standing-unboxing-sometime",
       "text": "Saw a lovely unboxing reel idea we should try sometime",
-      "origin": "real", "provenance": "plan_inputs (Ivy T, 21 Jul)", "surface": "other",
+      "origin": "real",
+      "provenance": "plan_inputs (Ivy T, 21 Jul)",
+      "surface": "other",
       "clause": null,
-      "expect": { "scope": "evergreen" },
+      "expect": {
+        "scope": "evergreen"
+      },
       "why": "The EASY evergreen — explicitly time-disclaimed. Included as the floor: if this ever routes month_scoped the change is plainly wrong."
     },
     {
       "id": "real-standing-linen-restock",
       "text": "mention the linen restock",
-      "origin": "real", "provenance": "plan_inputs (Ivy T, 6 Jul)", "surface": "other",
-      "clause": null, "expect": null,
+      "origin": "real",
+      "provenance": "plan_inputs (Ivy T, 6 Jul)",
+      "surface": "other",
+      "clause": null,
+      "expect": null,
       "unscored": "AMBIGUOUS. An imperative with no date. A restock is a thing that happens in a month, so 'mention the linen restock' typed into a reshape composer plausibly means this month — but it arrived by another surface and there is a separate plan_inputs row, 'Linen restock arrives on 2026-07-20.', that dates it to July. Both readings live."
     },
     {
       "id": "real-standing-hot-weather",
       "text": "Add something about the hot weather",
-      "origin": "real", "provenance": "plan_inputs (Ivy T, 6 Jul)", "surface": "other",
-      "clause": null, "expect": null,
+      "origin": "real",
+      "provenance": "plan_inputs (Ivy T, 6 Jul)",
+      "surface": "other",
+      "clause": null,
+      "expect": null,
       "unscored": "AMBIGUOUS, same shape as real-standing-linen-restock — an undated imperative about a condition that is true now. Marked rather than decided."
     },
-
     {
       "id": "cx-launch-dated-navy-edit",
       "text": "the Navy Edit launches on the 28th",
-      "origin": "constructed", "provenance": "constructed (compressed from Ivy T's real brief)", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed (compressed from Ivy T's real brief)",
+      "surface": "reshape",
       "clause": "launching",
-      "expect": { "scope": "month_scoped", "kind": "launch" },
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "launch"
+      },
       "why": "The 'what's launching' clause, DATED — the one form of the surface promise that works today."
     },
     {
       "id": "cx-launch-dated-karen",
       "text": "the Karen range drops on the 12th",
-      "origin": "constructed", "provenance": "constructed", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed",
+      "surface": "reshape",
       "clause": "launching",
-      "expect": { "scope": "month_scoped", "kind": "launch" },
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "launch"
+      },
       "why": "A second dated launch on different vocabulary ('drops'), so the clause is not pinned to one verb."
     },
     {
       "id": "cx-launch-undated-karen",
       "text": "we're launching the Karen range",
-      "origin": "constructed", "provenance": "constructed", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed",
+      "surface": "reshape",
       "clause": "launching",
-      "expect": { "scope": "evergreen", "reason": "ambiguous" },
+      "expect": {
+        "scope": "evergreen",
+        "reason": "ambiguous"
+      },
       "why": "The 'what's launching' clause, UNDATED. A launch with no date has no anchor for an arc, so routeFromParsed:431 is right to refuse it — but the refusal must read as 'we could not place this', not 'we filed your idea'. Asserts the REASON: classified_evergreen here would be the dishonest failure."
     },
     {
       "id": "cx-launch-month-no-day",
       "text": "the new range is launching this month",
-      "origin": "constructed", "provenance": "constructed", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed",
+      "surface": "reshape",
       "clause": "launching",
-      "expect": { "scope": "evergreen", "reason": "ambiguous" },
+      "expect": {
+        "scope": "evergreen",
+        "reason": "ambiguous"
+      },
       "why": "A month marker but no day. Establishes that a month word alone must not manufacture a date — the honest answer is still 'which day?'."
     },
-
     {
       "id": "cx-event-dated-popup",
       "text": "we've got a pop-up in the shop on the 16th",
-      "origin": "constructed", "provenance": "constructed", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed",
+      "surface": "reshape",
       "clause": "on",
-      "expect": { "scope": "month_scoped", "kind": "event" },
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "event"
+      },
       "why": "The 'what's on' clause, DATED — works today."
     },
     {
       "id": "cx-event-dated-market",
       "text": "we're at a market on the 12th",
-      "origin": "constructed", "provenance": "constructed", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed",
+      "surface": "reshape",
       "clause": "on",
-      "expect": { "scope": "month_scoped", "kind": "event" },
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "event"
+      },
       "why": "A second dated event, different vocabulary."
     },
     {
       "id": "cx-event-birthday-this-month",
       "text": "it's our birthday this month",
-      "origin": "constructed", "provenance": "constructed", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed",
+      "surface": "reshape",
       "clause": "on",
-      "expect": { "scope": "evergreen", "reason": "ambiguous" },
+      "expect": {
+        "scope": "evergreen",
+        "reason": "ambiguous"
+      },
       "why": "NAMES A MONTH, NEEDS A DAY. Routes evergreen/classified_evergreen 3/3 at HEAD — filed as a standing idea, which is the dishonest failure: the client said 'this month' in as many words. The intended behaviour is the refusal at routeFromParsed:431, surfaced as ambiguous. This case exists to measure the REASON, not the scope."
     },
     {
       "id": "cx-event-undated-popup",
       "text": "we've got a pop-up in the shop",
-      "origin": "constructed", "provenance": "constructed", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed",
+      "surface": "reshape",
       "clause": "on",
-      "expect": { "scope": "evergreen", "reason": "ambiguous" },
+      "expect": {
+        "scope": "evergreen",
+        "reason": "ambiguous"
+      },
       "why": "The 'what's on' clause, fully undated. Same honest-failure assertion."
     },
     {
       "id": "cx-event-school-holidays",
       "text": "the school holidays are on all month",
-      "origin": "constructed", "provenance": "constructed", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed",
+      "surface": "reshape",
       "clause": "on",
-      "expect": { "scope": "evergreen", "reason": "ambiguous" },
+      "expect": {
+        "scope": "evergreen",
+        "reason": "ambiguous"
+      },
       "why": "A period rather than a day. Deliberately awkward: 'all month' is month-scoping with no placeable date, and it should not become a beat on the 1st."
     },
-
     {
       "id": "cx-emphasis-month-more-product",
       "text": "more product this month",
-      "origin": "constructed", "provenance": "the classify prompt's own month_scoped example (:357)", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "the classify prompt's own month_scoped example (:357)",
+      "surface": "reshape",
       "clause": "more of",
-      "expect": { "scope": "month_scoped", "kind": "emphasis" },
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
       "why": "The prompt's own worked example. If this ever stops routing, the prompt has been broken outright."
     },
     {
       "id": "cx-emphasis-month-less-founder-sept",
       "text": "less founder stuff in September",
-      "origin": "constructed", "provenance": "the classify prompt's own month_scoped example (:357)", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "the classify prompt's own month_scoped example (:357)",
+      "surface": "reshape",
       "clause": "more of",
-      "expect": { "scope": "month_scoped", "kind": "emphasis" },
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
       "why": "The prompt's second worked example. Both of them carry a time marker, which is the observation this whole corpus turns on."
     },
     {
       "id": "cx-emphasis-month-lean-morning-sept",
       "text": "lean into the morning routine more in September",
-      "origin": "constructed", "provenance": "constructed (the real input plus a month word)", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed (the real input plus a month word)",
+      "surface": "reshape",
       "clause": "more of",
-      "expect": { "scope": "month_scoped", "kind": "emphasis" },
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
       "why": "The failing real input with the month made explicit. Routes month_scoped/emphasis 5/5 at HEAD — the control that shows the pillar and the verb are not the blocker."
     },
     {
       "id": "cx-emphasis-undated-less-founder",
       "text": "less founder stuff",
-      "origin": "constructed", "provenance": "constructed", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed",
+      "surface": "reshape",
       "clause": "more of",
-      "expect": { "scope": "month_scoped", "kind": "emphasis" },
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
       "why": "Undated and PASSES at HEAD, 3/3. Half the value of this corpus is the undated cases that already work: a scope change must not be credited for them."
     },
     {
       "id": "cx-emphasis-undated-more-product",
       "text": "we want more product content",
-      "origin": "constructed", "provenance": "constructed", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed",
+      "surface": "reshape",
       "clause": "more of",
-      "expect": { "scope": "month_scoped", "kind": "emphasis" },
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
       "why": "Undated, passes at HEAD 3/3."
     },
     {
       "id": "cx-emphasis-undated-school-run",
       "text": "more of the school run stuff please",
-      "origin": "constructed", "provenance": "constructed", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed",
+      "surface": "reshape",
       "clause": "more of",
-      "expect": { "scope": "month_scoped", "kind": "emphasis" },
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
       "why": "Undated, passes at HEAD 3/3 — and its near-twin below fails. The pair is the clearest evidence that the boundary is per-string noise rather than a rule."
     },
     {
       "id": "cx-emphasis-undated-morning-please",
       "text": "more of the morning routine please",
-      "origin": "constructed", "provenance": "constructed", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed",
+      "surface": "reshape",
       "clause": "more of",
-      "expect": { "scope": "month_scoped", "kind": "emphasis" },
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
       "why": "Undated, FAILS at HEAD 3/3. Same shape and same topic class as cx-emphasis-undated-school-run, opposite outcome, each reproducible. This pair is the noise floor."
     },
     {
       "id": "cx-emphasis-undated-morning-content",
       "text": "more morning routine content",
-      "origin": "constructed", "provenance": "constructed", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed",
+      "surface": "reshape",
       "clause": "more of",
-      "expect": { "scope": "month_scoped", "kind": "emphasis" },
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
       "why": "Undated, fails at HEAD 3/3."
     },
     {
       "id": "cx-emphasis-undated-morning-like-to-see",
       "text": "I'd like to see more morning routine content",
-      "origin": "constructed", "provenance": "constructed", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed",
+      "surface": "reshape",
       "clause": "more of",
-      "expect": { "scope": "month_scoped", "kind": "emphasis" },
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
       "why": "Undated, fails at HEAD 3/3. A politer register than the bare comparative."
     },
     {
       "id": "cx-emphasis-undated-morning-lean",
       "text": "lean into the morning routine more",
-      "origin": "constructed", "provenance": "constructed (the real input as a statement)", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed (the real input as a statement)",
+      "surface": "reshape",
       "clause": "more of",
-      "expect": { "scope": "month_scoped", "kind": "emphasis" },
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis",
+        "resolves": {
+          "emphasis": {
+            "kind": "pillar",
+            "name": "Simplify Your Morning"
+          }
+        }
+      },
       "why": "The real input stripped of 'can we', so the question gate is provably not involved. Fails at HEAD 5/5."
     },
     {
       "id": "cx-emphasis-undated-founder-lean",
       "text": "lean into founder content more",
-      "origin": "constructed", "provenance": "constructed", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed",
+      "surface": "reshape",
       "clause": "more of",
-      "expect": { "scope": "month_scoped", "kind": "emphasis" },
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
       "why": "The only case observed to be genuinely UNSTABLE at HEAD — 1 of 3 month_scoped. It is the one case that can show a change moving a probability rather than flipping a verdict, and it is why non-unanimous cases are escalated rather than rounded."
     },
     {
       "id": "cx-emphasis-undated-founder-like-to-see",
       "text": "I'd like to see more founder content",
-      "origin": "constructed", "provenance": "constructed", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed",
+      "surface": "reshape",
       "clause": "more of",
-      "expect": { "scope": "month_scoped", "kind": "emphasis" },
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
       "why": "Undated, fails at HEAD 3/3 — while 'less founder stuff', same topic, passes."
     },
-
     {
       "id": "cx-evergreen-behind-the-scenes-sometime",
       "text": "we should do more behind-the-scenes content at some point",
-      "origin": "constructed", "provenance": "classify-check-fixtures.json", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "classify-check-fixtures.json",
+      "surface": "reshape",
       "clause": null,
-      "expect": { "scope": "evergreen" },
+      "expect": {
+        "scope": "evergreen"
+      },
       "why": "Carried over from the old fixture so the two files do not disagree."
     },
     {
       "id": "cx-evergreen-sally-story-sometime",
       "text": "maybe we could share Sally's story sometime, could be nice",
-      "origin": "constructed", "provenance": "classify-check-fixtures.json", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "classify-check-fixtures.json",
+      "surface": "reshape",
       "clause": null,
-      "expect": { "scope": "evergreen" },
+      "expect": {
+        "scope": "evergreen"
+      },
       "why": "Carried over from the old fixture."
     },
     {
       "id": "cx-evergreen-mill-visit",
       "text": "at some point we should do a mill visit post",
-      "origin": "constructed", "provenance": "constructed", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed",
+      "surface": "reshape",
       "clause": null,
-      "expect": { "scope": "evergreen" },
+      "expect": {
+        "scope": "evergreen"
+      },
       "why": "Time-disclaimed. Guards the easy direction."
     },
     {
       "id": "cx-evergreen-more-video-future",
       "text": "in future I'd like more video",
-      "origin": "constructed", "provenance": "constructed", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed",
+      "surface": "reshape",
       "clause": null,
-      "expect": { "scope": "evergreen" },
+      "expect": {
+        "scope": "evergreen"
+      },
       "why": "A COMPARATIVE that must stay evergreen. Deliberately adversarial to any rule keyed on 'more' — 'in future' outranks it."
     },
     {
       "id": "cx-evergreen-next-launch-teasers",
       "text": "next time we do a launch, more teasers",
-      "origin": "constructed", "provenance": "constructed", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed",
+      "surface": "reshape",
       "clause": null,
-      "expect": { "scope": "evergreen" },
+      "expect": {
+        "scope": "evergreen"
+      },
       "why": "A comparative plus a conditional about a future occasion. Same adversarial job as cx-evergreen-more-video-future."
     },
     {
       "id": "cx-evergreen-winter-next-month",
       "text": "save the winter fabric piece for next month",
-      "origin": "constructed", "provenance": "plan-question.test.ts statement fixture", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "plan-question.test.ts statement fixture",
+      "surface": "reshape",
       "clause": null,
-      "expect": { "scope": "evergreen" },
+      "expect": {
+        "scope": "evergreen"
+      },
       "why": "Explicitly defers to ANOTHER month. A scope rule that reads 'next month' as this month is the worst version of the change being contemplated."
     },
     {
       "id": "cx-evergreen-autumn-think",
       "text": "something to think about for the autumn",
-      "origin": "constructed", "provenance": "constructed", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed",
+      "surface": "reshape",
       "clause": null,
-      "expect": { "scope": "evergreen" },
+      "expect": {
+        "scope": "evergreen"
+      },
       "why": "A season rather than a month, pointed forwards. Pairs with real-standing-no-polyester, which points at a season with no forward intent."
     },
     {
       "id": "cx-evergreen-factory-tour-oneday",
       "text": "one day we should do a factory tour",
-      "origin": "constructed", "provenance": "constructed", "surface": "reshape",
+      "origin": "constructed",
+      "provenance": "constructed",
+      "surface": "reshape",
       "clause": null,
-      "expect": { "scope": "evergreen" },
+      "expect": {
+        "scope": "evergreen"
+      },
       "why": "Time-disclaimed on different vocabulary from 'sometime' and 'at some point'."
     }
   ]

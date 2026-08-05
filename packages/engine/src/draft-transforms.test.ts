@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   applyLaunchArc, applyEvent, applyEmphasis, applyBeatEdit, applyIntent,
   replacementCandidates, isReplaceable, replacementTier, resolveBeatRef, resolveEmphasisTarget,
+  resolveEmphasisIntent,
   type TransformBeat,
 } from './draft-transforms.js';
 import type { MonthScopedIntent } from './intake-classify.js';
@@ -326,6 +327,83 @@ describe('applyEmphasis', () => {
  * transform now turns on, and a rule only observable through a database and a model call is
  * a rule nobody will check.
  */
+/**
+ * ── THE FIELD THE CLASSIFIER FILLS WITH A QUANTIFIER ─────────────────────────────────
+ *
+ * Measured live against the September draft, 5 runs each, every value below observed verbatim:
+ *
+ *   "can we lean into the morning routine more"   emphasis "more"      subject "morning routine"
+ *   "can we do more reels this month"             emphasis "more"      subject "more reels"
+ *                                                 emphasis "increase"  subject "more reels"
+ *   "Karen lands mid-month. Can we lean into
+ *    the school run more?"                        emphasis "more"      subject "school run"
+ *
+ * `more` is in EMPHASIS_STOPWORDS, so it normalises to nothing and matches nothing. The topic
+ * was in `subject` the whole time. `intent.emphasis ?? intent.subject` did not help, because
+ * `??` guards against absent and "more" is present.
+ */
+describe('resolveEmphasisIntent — the quantifier does not get to be the answer', () => {
+  const IVY = [
+    'Simplify Your Morning', 'Born From Real Need', 'Stable Foundations',
+    'Ethical Without Compromise', 'Understands Real Women', 'Personal Relationships',
+    'A Supportive Friend, Always By Your Side',
+  ];
+  const intent = (emphasis: string | null, subject: string) =>
+    ({ emphasis, subject }) as Pick<MonthScopedIntent, 'emphasis' | 'subject'>;
+
+  it('falls through a quantifier to the topic — the three reported inputs', () => {
+    expect(resolveEmphasisIntent(intent('more', 'morning routine'), IVY).target)
+      .toEqual({ kind: 'pillar', name: 'Simplify Your Morning' });
+    expect(resolveEmphasisIntent(intent('more', 'more reels'), IVY).target)
+      .toEqual({ kind: 'format', name: 'reel' });
+    expect(resolveEmphasisIntent(intent('increase', 'more reels'), IVY).target)
+      .toEqual({ kind: 'format', name: 'reel' });
+  });
+
+  it('"increase" and "decrease" fall through too — they survive normalisation and match nothing', () => {
+    // Distinct from "more": these are NOT stopwords, so they are tried and lose on merit rather
+    // than being filtered before the attempt. Both routes have to reach the subject.
+    expect(resolveEmphasisIntent(intent('decrease', 'less founder stuff'), IVY).target.kind).toBe('none');
+    expect(resolveEmphasisIntent(intent('increase', 'morning routine'), IVY).target)
+      .toEqual({ kind: 'pillar', name: 'Simplify Your Morning' });
+  });
+
+  it('a real instruction in `emphasis` still WINS — the back-to-school brief', () => {
+    // The field is not always a quantifier, and when it carries the client's actual instruction
+    // it is the better phrase. It resolves to `none` here because the sentence names no pillar,
+    // which is correct and is what the month-context path is for — but it must be what gets
+    // quoted, not the shorter subject.
+    const real = 'back to school content should focus on the juggle of the school run and working life, tied to the new Karen range photoshoot';
+    const r = resolveEmphasisIntent(intent(real, 'back to school — juggle of the school run and working life'), IVY);
+    expect(r.target.kind).toBe('none');
+    expect(r.phrase).toBe(real);
+  });
+
+  it('quotes the TOPIC, not the quantifier, when neither names a pillar', () => {
+    // "school run" is not one of Ivy T's pillars, so the outcome is still `none` — the receipt
+    // is the thing that changes. Before this, the client was told: Noted for this month: "more".
+    const r = resolveEmphasisIntent(intent('more', 'school run'), IVY);
+    expect(r.target.kind).toBe('none');
+    expect(r.phrase).toBe('school run');
+  });
+
+  it('AMBIGUOUS stops the search — it is a match, not a miss', () => {
+    // Falling through to `subject` here would silently resolve an ambiguity that is the
+    // client's to resolve.
+    const r = resolveEmphasisIntent(intent('more real need women', 'morning routine'), IVY);
+    expect(r.target.kind).toBe('ambiguous');
+  });
+
+  it('an emphasis of only stopwords is dropped before it is tried', () => {
+    expect(resolveEmphasisIntent(intent('more of the', 'morning routine'), IVY).phrase).toBe('morning routine');
+    expect(resolveEmphasisIntent(intent(null, 'morning routine'), IVY).phrase).toBe('morning routine');
+  });
+
+  it('nothing usable at all yields no phrase, and the caller says so', () => {
+    expect(resolveEmphasisIntent(intent('more', 'the'), IVY)).toEqual({ target: { kind: 'none', candidates: [] }, phrase: '' });
+  });
+});
+
 describe('resolveEmphasisTarget', () => {
   const IVY = [
     'Simplify Your Morning', 'Born From Real Need', 'Stable Foundations',

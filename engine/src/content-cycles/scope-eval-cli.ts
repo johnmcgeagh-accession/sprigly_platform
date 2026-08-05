@@ -53,9 +53,16 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createModelClientFromEnv } from '@sprigly/model-client';
-import { classifyIntake, parseBeatSpec, parsePlanQuestion, type IntakeRouting } from '@sprigly/engine';
+import { classifyIntake, parseBeatSpec, parsePlanQuestion, resolveEmphasisIntent, type IntakeRouting } from '@sprigly/engine';
 
-interface Expect { scope: 'month_scoped' | 'evergreen'; kind?: string; reason?: string }
+interface ResolvedExpect { kind: string; name?: string }
+interface Expect {
+  scope: 'month_scoped' | 'evergreen';
+  kind?: string;
+  reason?: string;
+  /** Assert what a FIELD resolves to downstream, not what string it holds. See the corpus README. */
+  resolves?: { emphasis?: ResolvedExpect };
+}
 interface Case {
   id: string;
   text: string;
@@ -68,7 +75,7 @@ interface Case {
   why?: string;
   planMonth?: string;
 }
-interface Corpus { planMonth?: string; readme: string[]; cases: Case[] }
+interface Corpus { planMonth?: string; readme: string[]; pillars?: string[]; cases: Case[] }
 
 const args = process.argv.slice(2);
 const flag = (name: string): string | undefined => {
@@ -103,21 +110,58 @@ try {
 }
 
 const defaultMonth = corpus.planMonth ?? '2026-09';
+/** The client's REAL configured pillars. Resolution against invented ones proves nothing, so a
+ *  corpus that asserts `resolves` without supplying them is a corpus error, not a soft default. */
+const pillars = corpus.pillars ?? [];
+if (!pillars.length && corpus.cases.some((c) => c.expect?.resolves)) {
+  console.error('scope-eval: corpus asserts `resolves` but supplies no `pillars`');
+  process.exit(1);
+}
 const model = createModelClientFromEnv();
 
-/** The routing collapsed to one comparable string. */
+/**
+ * The routing collapsed to one comparable string.
+ *
+ * An emphasis carries its RESOLUTION as well, because scope and kind were never the interesting
+ * part of an emphasis and reading a pass rate could not tell you the month had not moved. It is
+ * appended after an arrow so a reader — and `compare.py` — can still see the routing alone.
+ */
 function verdictOf(r: IntakeRouting): string {
   if (r.scope === 'evergreen') return `evergreen/${r.reason}`;
   if (r.scope === 'question') return `question/${r.kind}`;
+  if (r.intent.kind === 'emphasis' && pillars.length) {
+    const t = resolveEmphasisIntent(r.intent, pillars).target;
+    return `month_scoped/emphasis→${t.kind}${'name' in t ? ':' + t.name : ''}`;
+  }
   return `month_scoped/${r.intent.kind}`;
 }
 
-/** Does one routing satisfy the case's expectation? `reason` is asserted when the case names
- *  one — the honest-failure distinction is a thing this corpus measures, not a detail. */
+/**
+ * Does one routing satisfy the case's expectation?
+ *
+ * `reason` is asserted when the case names one — the honest-failure distinction is a thing this
+ * corpus measures, not a detail.
+ *
+ * `resolves` asserts a FIELD'S VALUE, and does it through the function production calls rather
+ * than against a literal. The model paraphrases freely — 'increase reels', 'increase reels
+ * content' and 'increase reels this month' are one answer in three wordings — so pinning a
+ * string would fail on wording and pass on meaning, which is exactly backwards. What has to hold
+ * is what the phrase resolves to, and `resolveEmphasisIntent` is a pure function of the phrase
+ * and the pillar list. Asserting through it is why the corpus can now see a field that satisfies
+ * its schema and carries nothing.
+ */
 function satisfies(r: IntakeRouting, e: Expect): boolean {
   if (r.scope !== e.scope) return false;
   if (e.kind !== undefined && !(r.scope === 'month_scoped' && r.intent.kind === e.kind)) return false;
   if (e.reason !== undefined && !(r.scope === 'evergreen' && r.reason === e.reason)) return false;
+
+  const want = e.resolves?.emphasis;
+  if (want !== undefined) {
+    if (r.scope !== 'month_scoped') return false;
+    const got = resolveEmphasisIntent(r.intent, pillars).target;
+    if (got.kind !== want.kind) return false;
+    if (want.name !== undefined && !('name' in got && got.name === want.name)) return false;
+  }
   return true;
 }
 
@@ -223,8 +267,10 @@ function section(title: string, rows: Result[], scored: boolean) {
   console.log(`\n\n══ ${title} — ${rows.length} case(s)`);
   for (const r of rows) {
     const mark = !scored ? '  ·' : r.hits === r.runs - r.errors ? '  ✓' : r.hits === 0 ? '  ✗' : '  ~';
+    const wr = r.expect?.resolves?.emphasis;
     const want = r.expect
       ? `${r.expect.scope}${r.expect.kind ? `/${r.expect.kind}` : ''}${r.expect.reason ? ` reason=${r.expect.reason}` : ''}`
+        + (wr ? ` resolves=${wr.kind}${wr.name ? ':' + wr.name : ''}` : '')
       : '—';
     const tag = r.preParsed ? ' [pre-parse]' : r.gateClaimed ? ' [question gate]' : '';
     console.log(`${mark} ${r.id}${tag}`);
