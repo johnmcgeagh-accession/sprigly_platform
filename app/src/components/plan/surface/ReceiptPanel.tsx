@@ -25,6 +25,7 @@ import React, { useState } from 'react';
 import type { DraftReceipt, BriefItem } from '../DraftPlanView';
 import { ChevronD, ChevronR, CheckGlyph } from './icons';
 import { rollupHeadline, countItems } from './receipt-summary';
+import { scrollPad } from './frame';
 
 export function ReceiptPanel({
   receipt, monthName, editable, rescuing, onRescue, onClear,
@@ -37,7 +38,15 @@ export function ReceiptPanel({
   onClear: () => void;
 }) {
   return (
-    <div data-testid="receipt-panel" className="flex-1 overflow-y-auto px-5 pb-[104px] pt-4 [scrollbar-width:none]">
+    // The fifth scrolling panel, and the one that had the pill's reservation written out as a
+    // literal instead of taking it from `scrollPad`. Routed through the same function so the
+    // inset arithmetic reaches it too — identical output today at a zero inset, correct on the
+    // day `viewport-fit=cover` is enabled. It still passes 'mobile' unconditionally, which is
+    // the PRE-EXISTING behaviour of the literal it replaces: this panel takes no `frame` prop,
+    // so on the desktop draft surface it reserves 104px it does not need. That is a separate
+    // and much smaller defect (dead space, not hidden content) and is deliberately left alone
+    // here rather than threaded through two call sites on a surface this fix was not about.
+    <div data-testid="receipt-panel" className={`flex-1 overflow-y-auto px-5 pt-4 [scrollbar-width:none] ${scrollPad('mobile')}`}>
       {receipt.items ? (
         <Rollup receipt={receipt} items={receipt.items} editable={editable} rescuing={rescuing} onRescue={onRescue} />
       ) : (

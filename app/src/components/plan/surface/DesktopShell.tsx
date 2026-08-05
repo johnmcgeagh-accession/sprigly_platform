@@ -111,7 +111,12 @@ export function DesktopShell({
      * 680/420, the surplus is still balanced on both sides of them — W1's rule, unchanged in
      * substance — and it is now INSIDE the app instead of around it.
      */
-    <div data-testid="plan-desktop" className="relative flex h-[100dvh] w-full overflow-hidden bg-bg text-chrome">
+    // `svh`, for the reason written out in full on `PlanShell` — and it applies here too rather
+    // than only on the phone: the desktop frame is chosen at `min-width: 1024px` (`PlanRoot`),
+    // which an iPad in landscape Safari meets. That browser collapses its chrome exactly as the
+    // phone's does, so this line carried the same latent fault; on a real desktop browser there
+    // is no collapsing chrome and `svh`, `dvh` and `vh` are the same number.
+    <div data-testid="plan-desktop" className="relative flex h-[100svh] w-full overflow-hidden bg-bg text-chrome">
       <Rail
         clientName={clientName} subtitle={subtitle}
         view={view} onView={onView} tasksCount={tasksCount} tasksLate={tasksLate} ideasCount={ideasCount}

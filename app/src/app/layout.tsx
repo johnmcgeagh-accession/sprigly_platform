@@ -17,7 +17,27 @@ export const viewport: Viewport = { themeColor: CORAL_THEME_COLOR };
 export const dynamic = 'force-dynamic';
 
 /**
- * The canvas, painted all the way out to the hardware.
+ * The canvas, painted behind the whole document.
+ *
+ * ── IT DOES NOT REACH THE HARDWARE, AND THIS USED TO SAY IT DID ──────────────────────
+ *
+ * This block claimed the canvas was "painted all the way out to the hardware" and that "the
+ * shell is meant to bleed to every edge". Neither is in effect, and neither ever was: bleeding
+ * into the safe areas requires `viewport-fit=cover` in the viewport meta, and that is set
+ * nowhere — not in the `viewport` export below, not in `generateViewport` in page.tsx. Verified
+ * from what is actually emitted: `width=device-width, initial-scale=1`. Without it iOS lays the
+ * page out INSIDE the safe areas and `env(safe-area-inset-*)` resolves to 0, which is also why
+ * the inset arithmetic in `NavPill` and `frame.ts` has no observable effect today.
+ *
+ * ENABLING IT IS DELIBERATELY NOT DONE HERE. It is a real improvement and it is a bigger change
+ * than one attribute: `viewport-fit=cover` extends the layout into EVERY safe area, including
+ * the top, and `PlanShell` has no top inset handling — the wordmark at `pt-1.5` would slide
+ * under the status bar and the notch. Every sheet and overlay needs the same audit at the
+ * bottom. It wants its own pass with its own on-device check, not a ride along on a fix for a
+ * confirmed defect, where a regression could not be attributed to either.
+ *
+ * `frame.ts` has been made inset-aware in the meantime, so that pass is a one-line change here
+ * rather than a change that also has to remember to go and correct a padding constant.
  *
  * ── What the phone showed ────────────────────────────────────────────────────────────
  * Safari paints two bands the page does not own — the status bar above, the toolbar below —
@@ -32,9 +52,11 @@ export const dynamic = 'force-dynamic';
  * not asked to touch. `:has()` scopes it to the document that actually contains the redesign
  * root; where it is unsupported the page renders exactly as it does today.
  *
- * NO safe-area padding. Insetting the body would letterbox the surface and undo the seam this
- * closes — the shell is meant to bleed to every edge. The insets are consumed where content
- * would genuinely collide with the hardware: the floating nav's bottom offset, and the sheets'.
+ * NO safe-area padding on the body, and with `viewport-fit` unset there is nothing for it to
+ * pad against anyway. Where content genuinely could collide with the hardware — the floating
+ * nav's bottom offset, the sheets', the scroll reservation in `frame.ts` — the inset is already
+ * consumed in the arithmetic, so those are correct on the day the meta tag changes rather than
+ * needing to be found again.
  */
 const CANVAS_CSS = [
   // Both elements: iOS propagates the body's background to the viewport canvas only when html

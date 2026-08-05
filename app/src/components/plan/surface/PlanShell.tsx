@@ -72,8 +72,52 @@ export function PlanShell({
   overlays?: React.ReactNode | undefined;
   children: React.ReactNode;
 }) {
+  /**
+   * ── THE SHELL IS THE SMALL VIEWPORT, NOT THE DYNAMIC ONE ───────────────────────────
+   *
+   * Confirmed on device (iPhone, iOS Safari, August 2026 in PORTRAIT): the day list under
+   * the grid could not be reached and the panel would not scroll — while the SAME content in
+   * LANDSCAPE scrolled correctly. That asymmetry is what identifies the fault. If the panel's
+   * `overflow-y:auto` were the problem it would fail in both orientations; it fails in one
+   * because in portrait the content was not overflowing the panel at all. The panel was being
+   * laid out BELOW THE VISIBLE AREA.
+   *
+   * `100dvh` is the DYNAMIC viewport: the height for the browser chrome's CURRENT state. In
+   * portrait it was resolving to the LARGE viewport — the height with Safari's toolbar
+   * minimised — while the toolbar was in fact drawn. So the bottom ~80px of this element sat
+   * behind it, and that is exactly the band the nav pill and its reservation occupy. Nothing
+   * about the padding was wrong; it was being reserved off-screen.
+   *
+   * `100svh` is the SMALL viewport: the height with chrome at its LARGEST. It is the one value
+   * that is never behind the toolbar, whatever state the toolbar is in when we render.
+   *
+   * ── The cost, stated rather than assumed ────────────────────────────────────────────
+   *
+   * When the toolbar IS minimised, `svh` leaves the difference — about 80px on an iPhone 13 —
+   * as unused canvas below the shell. The pill then floats that much higher than its 22px.
+   * Three reasons that is the right trade here, and the first is the one that makes it cheap:
+   *
+   *   1. THIS SURFACE CANNOT CAUSE THE COLLAPSE. Safari minimises its chrome in response to
+   *      DOCUMENT scroll, and this element is `overflow-hidden` at a fixed height — the
+   *      document never scrolls. The large-viewport state was one the tab arrived in (a
+   *      rotation, a restored tab, a link from a page that had scrolled), not one this surface
+   *      can produce. So the strip is given up mainly in the states that were broken anyway.
+   *
+   *   2. A visualViewport-DRIVEN HEIGHT WOULD REGRESS THE KEYBOARD. `visualViewport.height`
+   *      also shrinks when the software keyboard opens — to roughly a third of the screen on a
+   *      phone. A shell sized from it would collapse the moment the conversation sheet's
+   *      textarea took focus, reflowing every panel inside it. iOS deliberately does NOT
+   *      resize the LAYOUT viewport for the keyboard, and `svh` inherits that for free.
+   *
+   *   3. NO MEASURE-THEN-CORRECT FRAME, AND NO LISTENER TO FORGET. A JS-measured height is
+   *      wrong for at least one paint, and re-opens this exact class of bug the first time a
+   *      path bypasses the listener.
+   *
+   * No new support floor: `svh` and `dvh` shipped together (Safari 15.4, Chrome 108), and this
+   * line already carried `dvh` with no fallback — so the token changes and the baseline does not.
+   */
   return (
-    <div data-testid="plan-shell" className="relative flex h-[100dvh] flex-col overflow-hidden bg-bg text-chrome">
+    <div data-testid="plan-shell" className="relative flex h-[100svh] flex-col overflow-hidden bg-bg text-chrome">
       {topSlot}
 
       {/* 2. Header — wordmark LEFT. The account chip is gone (G5): nothing sat behind it, and
