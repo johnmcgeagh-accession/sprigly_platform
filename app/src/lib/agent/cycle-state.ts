@@ -9,6 +9,7 @@ import { isEditableDate } from '../edit-scope';
 import type { DraftBeatView, PlanPost } from '../types';
 import { fmtDate, parseISO, postTitle } from './selectors';
 import { weekLines, weekWindows } from './weeks';
+import { daysInMonth, factLines, monthFacts, PLAN_FACTS_HEADING } from './plan-facts';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -131,13 +132,6 @@ export function monthNamedIn(text: string, anchorMonth: string): string | null {
 }
 
 export interface CycleRow { id: string; month: string; status: string }
-
-/** Days in the month of 'YYYY-MM'. Day 0 of the NEXT month is the last day of this one. */
-function daysInMonth(month: string): number {
-  const m = /^(\d{4})-(\d{2})/.exec(month);
-  if (!m) return 31;
-  return new Date(Number(m[1]), Number(m[2]), 0).getDate();
-}
 
 /**
  * ── THE PLAN'S BOUNDARY IS THE CALENDAR, NOT THE LAST POST (G2) ──────────────────────
@@ -404,19 +398,105 @@ export function bucketCycleState(
    */
   const weekCount = (label: string, list: PlanPost[]) =>
     `${label}: ${list.length} post${list.length === 1 ? '' : 's'}${list.length ? ` — ${list.map((p) => p.date).join(', ')}` : ''}.`;
+
+  /**
+   * ── THE MONTHS THIS STATE IS ABOUT ─────────────────────────────────────────────────
+   *
+   * The caller's months when it named any — which is the whole point: the state's window line,
+   * its counted facts and its row blocks then describe the SAME set, and cannot contradict each
+   * other the way "YOU CAN SEE 2 MONTHS" over a 78-row three-month list did.
+   *
+   * Falling back to the months the rows themselves fall in keeps the standalone and fixture
+   * callers working, and gives them the facts too rather than a bare list.
+   */
+  const months = monthsInScope(planMonth, byDate, beats);
+  const listed = new Set(months);
+
+  /**
+   * ── A DRAFT MONTH IS COUNTED AS WHAT IT HOLDS (F4) ─────────────────────────────────
+   *
+   * Counting only written posts would print *"0 posts. Every one of the month's 30 dates is
+   * EMPTY."* over September's thirty planned ones — reinstating, in the one block the model is
+   * told to trust above all others, exactly the lie the draft-month work removed. So a month
+   * with beats is counted twice under two headings, and the written-post line for a month with
+   * none of them says what it is instead of claiming the month is empty.
+   */
+  const factsFor = (m: string): string[] => {
+    const mBeats = beats.filter((b) => b.date.slice(0, 7) === m);
+    const written = monthFacts(m, posts);
+    if (!mBeats.length) return factLines(monthLabel(m), written);
+    const planned = factLines(`${monthLabel(m)} — PLANNED POSTS, not one of them written`, monthFacts(m, mBeats));
+    return written.total > 0
+      ? [...factLines(`${monthLabel(m)} — WRITTEN POSTS`, written), ...planned]
+      : [
+          `${monthLabel(m)} (${m}): 0 WRITTEN posts — this month is a DRAFT, and its content is the planned posts counted next. It is NOT empty.`,
+          ...planned,
+        ];
+  };
+
+  /**
+   * Rows under a heading per month, the way `spanDigest` already blocks them for the parser. A
+   * bare date-sorted run across three months is what made "count September" a search problem;
+   * a heading turns it into reading one block — and the block states its own size, so the two
+   * accounts of that month sit six lines apart and can be checked against each other.
+   */
+  const rowBlocks = months.flatMap((m) => {
+    const rows = byDate.filter((p) => p.date.slice(0, 7) === m);
+    return [
+      `${monthLabel(m)} (${m}) — ${rows.length} written post${rows.length === 1 ? '' : 's'}:`,
+      ...(rows.length ? rows.map(line) : ['  (no written posts on any date in this month)']),
+    ];
+  });
+
+  // Anything dated OUTSIDE the months in scope — a post moved across the boundary on the
+  // standalone path. Listed rather than dropped: silently losing a row from the state is how
+  // the agent comes to say a post does not exist.
+  const strays = byDate.filter((p) => !listed.has(p.date.slice(0, 7)));
+
+  /**
+   * THE TOTAL SAYS WHAT IT IS THE TOTAL OF.
+   *
+   * `Plan has N live posts` was the sentence the model quoted back as a single month's count
+   * while N covered three of them. With one month in scope it is unambiguous and unchanged; with
+   * several it names the scope and forbids the misreading outright, because the per-month figure
+   * it should have used is stated six lines above.
+   */
+  const statusTail = Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(', ') || 'none';
+  const totalLine = months.length > 1
+    ? `ACROSS ALL ${months.length} MONTHS IN VIEW, COMBINED: ${posts.length} live posts (${statusTail}).`
+      + ` This is the total for every month together. It is NOT any single month's count and must never be`
+      + ` given as one — each month's own count is on its PLAN FACTS line above.`
+    : `Plan has ${posts.length} live posts (${statusTail}).`;
+
   const summary = [
     `TODAY IS ${todayIso}. A date is in the FUTURE if it is later than that, and in the PAST only if it is earlier. Compare the ISO dates.`,
     weekLines(todayIso),
     weekCount('THIS WEEK holds', thisWeek),
     weekCount('NEXT WEEK holds', nextWeek),
     ...(window ? [window] : []),
-    `Plan has ${posts.length} live posts (${Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(', ') || 'none'}).`,
-    byDate.length ? 'Posts (by date):' : '(no written posts scheduled yet)',
-    ...byDate.map(line),
+    ...(months.length ? [PLAN_FACTS_HEADING, ...months.flatMap(factsFor)] : []),
+    totalLine,
+    ...(months.length ? ['Posts (by date):', ...rowBlocks] : byDate.length ? ['Posts (by date):', ...byDate.map(line)] : ['(no written posts scheduled yet)']),
+    ...(strays.length ? ['Posts dated OUTSIDE the months above (still yours, still changeable):', ...strays.map(line)] : []),
     ...beatLines(beats),
   ].join('\n');
 
   return { summary, thisWeek, nextWeek, counts };
+}
+
+/**
+ * The months a plan state describes: the caller's, or — when it named none — the ones its own
+ * rows fall in. Ascending, deduplicated, malformed values dropped.
+ */
+function monthsInScope(
+  planMonth: string | readonly string[] | null | undefined,
+  posts: readonly PlanPost[],
+  beats: readonly DraftBeatView[],
+): string[] {
+  const named = (typeof planMonth === 'string' ? [planMonth] : planMonth ?? [])
+    .filter((m): m is string => typeof m === 'string' && /^\d{4}-\d{2}$/.test(m));
+  if (named.length) return [...new Set(named)].sort();
+  return [...new Set([...posts, ...beats].map((r) => r.date.slice(0, 7)))].sort();
 }
 
 /** The draft block of the plan state — the same facts the digest states, in the one string the
