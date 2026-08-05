@@ -142,3 +142,121 @@ describe('the gates, each on its own', () => {
     expect(parsePlanQuestion('anything on the calendar for the 3rd?')).toBe('plan');
   });
 });
+
+/**
+ * ── THE REGISTER, AND WHY THE VERB LIST COULD NOT HAVE BEEN THE RULE ─────────────────
+ *
+ * The three gates composed to the opposite of the intent stated at the top of this file. Gate 1
+ * is broad, gate 2 is broad, and the request check was a narrow 29-verb ALLOWLIST ANDed in as the
+ * only exception — so the default outcome was "question" for every request whose verb was not on
+ * the list, and the gate that is documented as failing closed failed OPEN.
+ *
+ * The verbs came from the eight requests above, all of them STRUCTURAL edits, and inherited their
+ * vocabulary. The register they cannot cover is EMPHASIS, which is what the composer's own prompt
+ * asks for third ("…what's launching, what's on, what you want more of") and which has no bounded
+ * verb set: lean into, focus on, prioritise, feature, highlight, do, have, keep, include. `do` is
+ * absent and `redo` is present, so "can we do more reels this month" was ANSWERED five times out
+ * of five — the client asking most clearly for a change was the least likely to get one.
+ *
+ * These cases are the ones six more verbs would have fixed one at a time.
+ */
+describe('an emphasis asked as a question is a REQUEST, whatever its verb', () => {
+  const EMPHASIS_REQUESTS = [
+    'can we do more reels this month',                        // `do` absent, `redo` present
+    'can we lean into the morning routine more this month',   // the reported interception
+    'can we lean into the morning routine more in September',
+    'can we lean into the morning routine more',
+    'could we focus on the school run stuff this month?',
+    'can we prioritise reels in September?',
+    'would you feature the morning routine more this month?',
+    'can we highlight the founder content this month?',
+    'should we have more product posts in September?',
+    'can we include more behind-the-scenes this month?',
+    'can we keep the Friday reels going this month?',
+  ];
+
+  for (const r of EMPHASIS_REQUESTS) {
+    it(`"${r}" is not a question`, () => {
+      expect(parsePlanQuestion(r)).toBeNull();
+    });
+  }
+
+  it('not one of them carries a verb from the list — the register is what claims them', () => {
+    // If this ever fails it means someone widened ACTION_VERB, and the register stopped being
+    // the thing under test here. The list is evidence; it is not allowed to become the rule again.
+    const ACTION_VERBS = /\b(move|add|change|swap|switch|push|pull|delete|remove|drop|make|put|shift|reschedule|replace|rewrite|write|create|schedule|cancel|postpone|bring|turn|shorten|lengthen|redo|fix|update|edit)\b/i;
+    expect(EMPHASIS_REQUESTS.filter((r) => ACTION_VERBS.test(r))).toEqual([]);
+  });
+});
+
+describe('the same asks as statements — they were never questions and must not become them', () => {
+  // Every one of these routes month_scoped/emphasis or evergreen at the classifier, which is the
+  // NEXT piece of work. What matters here is only that this gate keeps its hands off them.
+  const STATED = [
+    'more reels this month please',
+    'less founder stuff',
+    'we want more product content',
+    'more of the school run stuff please',
+    'lean into the morning routine more',
+    'I’d like to see more morning routine content',
+    'more morning routine content',
+  ];
+
+  for (const s of STATED) {
+    it(`"${s}" is not a question`, () => {
+      expect(parsePlanQuestion(s)).toBeNull();
+    });
+  }
+});
+
+describe('a modal can still be asking — the two escapes', () => {
+  // The register would eat these, and they are questions. A modal wrapped round "tell me" or
+  // round a wh-complement is politeness, not an instruction.
+  it('"tell me" / "show me" / "list" after the modal is an indirect question', () => {
+    expect(parsePlanQuestion('can you tell me what’s planned for September?')).toBe('plan');
+    expect(parsePlanQuestion('could you show me which ideas you used?')).toBe('ideas');
+    expect(parsePlanQuestion('can you list the posts in this month?')).toBe('plan');
+  });
+
+  it('a wh-word AFTER the opener is an embedded question', () => {
+    expect(parsePlanQuestion('can we see what’s planned for the 14th?')).toBe('plan');
+  });
+
+  it('the wh-word must be after the opener, not be the opener', () => {
+    // "How about we add a post" opens on a wh-word and is a request. If the escape looked at the
+    // whole sentence it would excuse every "how about", which is the commonest way to suggest one.
+    expect(parsePlanQuestion('How about we add a post on the 20th?')).toBeNull();
+  });
+
+  it('the verb list still catches what the escape would let through', () => {
+    // "when" is embedded here, so the register alone would call this a question. It is not — and
+    // this is why ACTION_VERB is kept as evidence rather than deleted along with its primacy.
+    expect(parsePlanQuestion('Can we move the launch to when the stock lands?')).toBeNull();
+  });
+
+  it('an AUXILIARY opener is not the request register — the operator’s third phrasing', () => {
+    // is/are/do/does/did/has/have/had invert for a question ABOUT STATE. Putting `have` into the
+    // register to catch "have you moved it" would cost this sentence, and this sentence is one
+    // of the four that caused the gate to exist at all.
+    expect(parsePlanQuestion('Have any of the things I told you been used this month?')).toBe('ideas');
+    expect(parsePlanQuestion('Is there anything on the 14th?')).toBe('plan');
+    expect(parsePlanQuestion('Did you use my note about the restock?')).toBe('ideas');
+  });
+});
+
+describe('what the register gets wrong — pinned, not tuned away', () => {
+  // A genuine question wearing a modal, with no wh-complement and no "tell me". Both of these
+  // were ANSWERED before this commit and now fall through to the model, exactly as they did
+  // before the question gate existed at all.
+  //
+  // This is the direction the gate is documented to fail in: a false negative costs one model
+  // call, a false positive stops a client changing their month. It is still a real loss, and it
+  // is written down here so that the next person reads it as a known cost rather than finding it.
+  it('"Should I be worried about the gap in week 3?" is no longer answered', () => {
+    expect(parsePlanQuestion('Should I be worried about the gap in week 3?')).toBeNull();
+  });
+
+  it('"Would you say September is full?" is no longer answered', () => {
+    expect(parsePlanQuestion('Would you say September is full?')).toBeNull();
+  });
+});

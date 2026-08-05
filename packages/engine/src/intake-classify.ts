@@ -320,8 +320,98 @@ const INPUT_TOPIC = /\b(idea|ideas|input|inputs|note|notes|suggestion|suggestion
  *
  * 'plan' is here only as a transitive verb ("plan a reel for Friday"); "what's planned" is the
  * passive and must not match, which is why the list carries no participles.
+ *
+ * THIS LIST IS EVIDENCE, NOT THE RULE. It was derived from the eight requests-in-question-form
+ * in `plan-question.test.ts`, every one of which is a STRUCTURAL edit, and it inherited their
+ * vocabulary: move, add, swap, delete. The register it cannot cover is EMPHASIS — "lean into",
+ * "focus on", "prioritise", "feature", "highlight", "do", "have", "see", "keep", "run", "try" —
+ * which has no bounded verb set to enumerate. `do` is absent and `redo` is present, and that is
+ * not an oversight to patch but the shape of the mistake: "can we do more reels this month" was
+ * answered as a question 5 times out of 5. `isRequestForChange` is what the gate now asks; this
+ * stays as one of its two answers because it catches requests the register cannot (see there).
  */
 const ACTION_VERB = /\b(move|add|change|swap|switch|push|pull|delete|remove|drop|make|put|shift|reschedule|replace|rewrite|write|create|schedule|cancel|postpone|bring|turn|shorten|lengthen|redo|fix|update|edit)\b/i;
+
+/**
+ * ── THE REQUEST REGISTER ─────────────────────────────────────────────────────────────
+ *
+ * A MODAL aimed at us. "Can we…", "could you…", "would you…" is how an owner asks for a change
+ * to their month, and it is a register rather than a vocabulary: it is true of every request
+ * regardless of which verb follows, which is exactly what a verb list can never be.
+ *
+ * Measured on this file's own corpus, which is the only reason to prefer it to more verbs:
+ * all EIGHT requests-in-question-form open with a modal or "how about", and NONE of the four
+ * phrasings the operator really typed does — those open What / Which / Have / Show me.
+ *
+ * THE AUXILIARIES ARE DELIBERATELY ABSENT. `is/are/was/were/do/does/did/has/have/had/am` invert
+ * for a yes-no question ABOUT STATE — "is there anything on the 14th", "have any of the things I
+ * told you been used this month". Putting `have` in here to catch "have you moved it" would cost
+ * the third of the operator's four phrasings, and that phrasing is the whole reason this gate
+ * exists. A modal asks us to act; an auxiliary asks us what is so.
+ */
+const REQUEST_OPENER = /^(?:can|could|would|will|shall|should)\b|^how\s+about\b/i;
+
+/**
+ * A modal that is asking to be TOLD, not asking us to act — "can you tell me what's planned",
+ * "could you list the posts". The indirect-question frame outranks the register: the modal here
+ * is politeness wrapped round a question, and answering it is right.
+ *
+ * Distinct from INDIRECT_QUESTION, which is anchored at the start of the sentence. This one is
+ * looked for AFTER the opener, because that is where a modal puts it.
+ */
+const ASKS_TO_BE_TOLD = /\b(?:tell|show|remind|let)\s+(?:me|us)\b|\blist\b/i;
+
+/**
+ * An embedded interrogative — "can we see WHAT's planned for the 14th". The wh-word is the
+ * complement of the modal, so the sentence asks even though it opens in the request register.
+ *
+ * Tested against the text AFTER the opener, so that "How about we add a post" — where the
+ * wh-word IS the opener — is not read as its own escape hatch.
+ */
+const EMBEDDED_WH = /\b(?:what|which|why|when|where|who|whose|whom|how)\b/i;
+
+/**
+ * Does this sentence ask us to CHANGE the month?
+ *
+ * ── Why this is not "more verbs" ─────────────────────────────────────────────────────
+ *
+ * The three gates used to compose to the opposite of their stated intent. Gate 1 is broad (every
+ * modal and wh-word), gate 2 is broad (~40 topic words, every weekday, month and ordinal), and
+ * the request check was a narrow 29-verb ALLOWLIST ANDed in as the only exception. Two wide gates
+ * plus one narrow exception means the default outcome is "question" for everything the exception
+ * misses — so a gate documented at `parsePlanQuestion` as failing closed in fact failed OPEN, and
+ * "can we lean into the morning routine more this month" was answered rather than applied, 5
+ * times out of 5. Adding six emphasis verbs would have fixed that sentence and left the property
+ * that produced it exactly where it was.
+ *
+ * So the check now has TWO answers and keeps the list as one of them:
+ *
+ *   the REGISTER   catches every request phrased as one, whatever its verb.
+ *   the VERB LIST  catches the requests the register cannot — a request that does not open with
+ *                  a modal ("how about we add a post on the 20th"), and one whose embedded
+ *                  wh-word would otherwise excuse it ("can we move the launch to when the stock
+ *                  lands"). It runs FIRST for that reason.
+ *
+ * ── What this gets wrong, stated rather than tuned away ──────────────────────────────
+ *
+ * A genuine question wearing a modal, with no wh-complement and no "tell me": "should I be
+ * worried about the gap in week 3?", "would you say September is full?". Those were answered
+ * before and now fall through to the model. That is the direction this gate is documented to
+ * fail in — a false negative costs one model call and the pre-existing behaviour, a false
+ * positive stops a client changing their month — but it is a real loss and it is pinned in the
+ * tests rather than hidden.
+ */
+function isRequestForChange(t: string): boolean {
+  if (ACTION_VERB.test(t)) return true;
+
+  const opener = REQUEST_OPENER.exec(t);
+  if (!opener) return false;
+
+  const rest = t.slice(opener[0].length);
+  if (ASKS_TO_BE_TOLD.test(rest)) return false;
+  if (EMBEDDED_WH.test(rest)) return false;
+  return true;
+}
 
 /**
  * The question kind, or null when this is not a question about the plan.
@@ -338,7 +428,7 @@ export function parsePlanQuestion(text: string): PlanQuestionKind | null {
   if (!interrogative) return null;
 
   // Gate 3 first, because it is the expensive mistake. A request in question form is a request.
-  if (ACTION_VERB.test(t)) return null;
+  if (isRequestForChange(t)) return null;
 
   // Gate 2 — is it about us at all?
   if (!PLAN_TOPIC.test(t)) return null;
