@@ -52,6 +52,24 @@ export default defineConfig({
       dependencies: ['setup'],
       use: { ...devices['Pixel 5'], viewport: { width: 390, height: 844 }, storageState: STATE },
     },
+    /**
+     * THE ENGINE THE CLIENT ACTUALLY USES, at the height it actually gets.
+     *
+     * Every other project here is Chromium at 390×844 — an iPhone's SCREEN, which is about
+     * 185px more than Safari leaves a page once its chrome is drawn. Two layout defects have
+     * now been reported from a phone, investigated, and recorded as not reproducing headless;
+     * the second one reproduces perfectly in WebKit at a real small-viewport height, and could
+     * not have failed in Chromium at any height (frame.ts → `scrollTail`).
+     *
+     * Deliberately ONE spec file. This is not a second full pass of the suite in a second
+     * engine — it is the geometry that only this combination can see, and it stays that size.
+     */
+    {
+      name: 'mobile-webkit',
+      testMatch: /pill-clearance\.spec\.ts/,
+      dependencies: ['setup'],
+      use: { ...devices['iPhone 13'], storageState: STATE },
+    },
     {
       name: 'tenant-b',
       testMatch: /(empty|security)\.spec\.ts/,

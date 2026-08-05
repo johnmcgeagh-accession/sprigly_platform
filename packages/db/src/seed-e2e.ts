@@ -126,10 +126,20 @@ async function main() {
   // for the switcher list (loadCycleList needs liveCount > 0).
   // Displays as AUGUST — the adjacent month desktop.spec's nav test round-trips to.
   await db.insert(contentCycles).values({ id: CYCLE_AUG, clientId: CLIENT, channel: 'instagram', cycleMonth: '2026-07', status: 'active' });
+  // ── A ONE-, A TWO- AND A THREE-POST DAY, in a SIX-ROW month ────────────────────────
+  //
+  // Not decoration. Every other day in this seed holds exactly one post, and that is why the
+  // month view's day summary could sit under the floating pill for as long as it did: the
+  // fixture had no day that produced enough content to reach the pill's band and not enough to
+  // overflow the panel. August 2026 is a six-row grid, which is the ~50px that puts a two-post
+  // day squarely in it. pill-clearance.spec.ts walks 4 → 12 → 21 for exactly that ladder.
   const AUG: [string, string, keyof typeof tpl, string, string][] = [
     [PA(1), '2026-08-04', 'single',   'Product', 'August opener — the linen restock is live.'],
     [PA(2), '2026-08-12', 'reel',     'Style',   'Three ways to wear the new midi.'],
+    [PA(4), '2026-08-12', 'single',   'Product', 'Second on the twelfth — the midi in the new colourway.'],
     [PA(3), '2026-08-21', 'carousel', 'Origin',  'Where the August fabrics come from.'],
+    [PA(5), '2026-08-21', 'single',   'Style',   'Second on the twenty-first — how the fabric wears.'],
+    [PA(6), '2026-08-21', 'reel',     'Origin',  'Third on the twenty-first — the mill, in sixty seconds.'],
   ];
   let augPos = 0;
   for (const [id, date, format, pillar, caption] of AUG) {

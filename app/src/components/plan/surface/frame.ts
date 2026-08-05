@@ -16,7 +16,7 @@
 export type SurfaceFrame = 'mobile' | 'desktop';
 
 /**
- * The bottom padding a scrolling panel takes in each shell.
+ * The reservation, as a length. Both mechanisms below are this same number.
  *
  * ── WHY THE MOBILE VALUE IS A calc AND NOT 104px ─────────────────────────────────────
  *
@@ -36,4 +36,49 @@ export type SurfaceFrame = 'mobile' | 'desktop';
  */
 export function scrollPad(frame: SurfaceFrame): string {
   return frame === 'desktop' ? 'pb-5' : 'pb-[calc(104px+env(safe-area-inset-bottom,0px))]';
+}
+
+/**
+ * The SAME reservation, as a SPACER ELEMENT instead of padding — for a scroll region that is
+ * also a flex container. `scrollPad` does not work on one, in the browser that matters.
+ *
+ * ── WHY THERE ARE TWO OF THESE ───────────────────────────────────────────────────────
+ *
+ * WebKit will not let a scroll container's own end padding CREATE scrollable overflow. It
+ * honours the padding once the content overflows on its own, and contributes nothing at all
+ * before that. Measured, both engines, 500px panel / 104px reservation:
+ *
+ *                                   content 450 (fits)          content 550 (overflows)
+ *   WebKit    flex-column scroller  sH 500, no scroll, 50px     sH 654, scrolls, 104px
+ *   WebKit    block scroller        sH 554, scrolls,   104px    sH 654, scrolls, 104px
+ *   Chromium  either                sH 554, scrolls,   104px    sH 654, scrolls, 104px
+ *
+ * The top-left cell is the defect: the panel reports `scrollHeight === clientHeight`, so
+ * `overflow-y:auto` has nothing to scroll, while the content's last pixel sits wherever the
+ * leftover slack happens to put it — which on a 2-post day in a 6-row month is 19px UNDER the
+ * floating pill, permanently. Three posts "works" only because it tips the content into real
+ * overflow, at which point the padding switches on and lands the last row 26px clear. The
+ * threshold is the padding turning on, not the scroller waking up.
+ *
+ * A LARGER CONSTANT CANNOT FIX THIS, and neither can `viewport-fit=cover`. Measured the same
+ * way: at `padding-bottom: 400px` WebKit still delivers 50px and still does not scroll. A
+ * reservation that contributes nothing contributes nothing at any size, and `viewport-fit`
+ * only adds the safe-area inset to the same dead constant — it would move the PILL up by the
+ * home indicator while the reservation stayed at zero, so it makes this worse, not better.
+ *
+ * A spacer is CONTENT. Content always counts toward scrollable overflow, in every engine and
+ * in both regimes — the bottom four rows of that table, which agree.
+ *
+ * `flex-none` is load-bearing: in a flex column a bare `h-[…]` div is `flex-shrink: 1` and the
+ * reservation is the first thing squeezed out, which is this bug again by another route.
+ *
+ * NOT USED BY THE OTHER FOUR PANELS, deliberately. `DayPanel`, `DraftDayPanel`, `IdeasPanel`,
+ * `TasksPanel` and `ReceiptPanel` are BLOCK scroll regions (`flex-1` makes them flex ITEMS,
+ * which is a different thing), and row 2 of that table says padding is correct on those. They
+ * also go multi-column on the desktop shell, where a spacer would be laid out as column
+ * content rather than as a foot. If one of them ever gains `flex` + `flex-col`, it needs this
+ * instead — that is the one change that silently reopens this.
+ */
+export function scrollTail(frame: SurfaceFrame): string {
+  return frame === 'desktop' ? 'h-5 flex-none' : 'h-[calc(104px+env(safe-area-inset-bottom,0px))] flex-none';
 }

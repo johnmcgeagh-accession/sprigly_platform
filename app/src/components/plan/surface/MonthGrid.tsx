@@ -26,7 +26,7 @@
  */
 import React from 'react';
 import { DOW_INITIAL, monthGrid, fromIso, MONTHS_FULL } from './dates';
-import { scrollPad, type SurfaceFrame } from './frame';
+import { scrollTail, type SurfaceFrame } from './frame';
 import type { DayMark } from './WeekStrip';
 
 export function MonthGrid({
@@ -89,7 +89,13 @@ export function MonthGrid({
   const desktop = frame === 'desktop';
 
   return (
-    <div data-testid="month-grid" className={`flex min-h-0 flex-1 flex-col overflow-y-auto px-[22px] pt-[18px] [scrollbar-width:none] ${scrollPad(frame)}`}>
+    // THE RESERVATION IS THE SPACER AT THE FOOT, not `scrollPad` — see `scrollTail` in
+    // frame.ts. This is the one scroll region on the surface that is also a FLEX CONTAINER,
+    // and WebKit will not let a scroll container's own end padding create the overflow that
+    // would let you reach past it. On a 2-post day in a 6-row month that left the summary row
+    // 19px under the floating pill with `scrollHeight === clientHeight`, so there was nothing
+    // for `overflow-y:auto` to scroll.
+    <div data-testid="month-grid" className="flex min-h-0 flex-1 flex-col overflow-y-auto px-[22px] pt-[18px] [scrollbar-width:none]">
       <div className="grid flex-none grid-cols-7 gap-0.5 pb-1.5" aria-hidden="true">
         {DOW_INITIAL.map((d, i) => (
           <span key={i} className="text-center text-[10.5px] font-semibold uppercase tracking-[.1em] text-muted">{d}</span>
@@ -160,6 +166,7 @@ export function MonthGrid({
       </div>
       <p data-testid="month-foot" className="flex-none px-1 pt-[18px] text-[13.5px] leading-normal text-muted">{footer}</p>
       {summary}
+      <div data-testid="scroll-tail" aria-hidden="true" className={scrollTail(frame)} />
     </div>
   );
 }
