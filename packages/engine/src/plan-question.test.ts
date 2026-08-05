@@ -244,6 +244,63 @@ describe('a modal can still be asking — the two escapes', () => {
   });
 });
 
+/**
+ * ── THE MODAL OPENS A CLAUSE, NOT ONLY A SENTENCE ────────────────────────────────────
+ *
+ * Anchoring REQUEST_OPENER at `^` missed the commonest shape a client types: the statement,
+ * then the ask. "The Wilderness candle relaunches on the 24th, can we build up to it?" is real
+ * client input from another client's brief, and it was claimed by this gate and never reached
+ * the classifier — because the modal is the eighth word rather than the first. The scope-eval
+ * corpus caught it on its first pass (3930c1e).
+ *
+ * The register is a property of the clause the modal opens. Where that clause sits is
+ * punctuation, not meaning.
+ */
+describe('a modal after a clause boundary is still the request register', () => {
+  const AFTER_A_CLAUSE: Array<[string, string]> = [
+    ['comma (the real one)',  'The Wilderness candle relaunches on the 24th, can we build up to it?'],
+    ['em dash',               'The Navy Edit drops on the 28th — can we build up to it?'],
+    ['spaced hyphen',         'The launch is on the 3rd - could you add a teaser?'],
+    ['full stop',             'Karen lands mid-month. Can we lean into the school run more?'],
+    ['semicolon',             'One more thing; would you make the 12th a reel?'],
+  ];
+
+  for (const [boundary, text] of AFTER_A_CLAUSE) {
+    it(`${boundary}: "${text}" is not a question`, () => {
+      expect(parsePlanQuestion(text)).toBeNull();
+    });
+  }
+
+  it('the escapes still apply to a mid-sentence modal', () => {
+    // The window the escapes read starts at the END OF THE MATCH, not at `opener[0].length` —
+    // slicing by length alone would offset it by whatever preceded the boundary and the escapes
+    // would be reading the wrong half of the sentence.
+    expect(parsePlanQuestion('The launch is on the 24th, can you tell me what’s planned?')).toBe('plan');
+    expect(parsePlanQuestion('September looks busy, can we see what’s planned for the 14th?')).toBe('plan');
+  });
+
+  it('a modal with NO boundary before it is not an opener', () => {
+    // "Which posts should I look at this week?" — 'should' is mid-sentence and mid-clause, so
+    // the register does not claim it and it stays a question.
+    expect(parsePlanQuestion('Which posts should I look at this week?')).toBe('plan');
+  });
+
+  it('a hyphenated word cannot supply the boundary', () => {
+    // `\s-{1,2}\s*` requires whitespace BEFORE the hyphen, so 'behind-the-scenes' and
+    // 'co-ordinated' can never open a clause.
+    expect(parsePlanQuestion('Is the behind-the-scenes shoot on this month?')).toBe('plan');
+    expect(parsePlanQuestion('what’s planned for the co-ordinated Sophie shoot?')).toBe('plan');
+  });
+
+  it('gate 1 bounds the blast radius — a STATEMENT with a mid-sentence modal is untouched', () => {
+    // This is what makes the widening safe, and it is not a property of the pattern: gate 3 only
+    // ever sees sentences that already passed gate 1, so a statement carrying a modal is rejected
+    // as non-interrogative long before the register is consulted.
+    expect(parsePlanQuestion('The candle relaunches on the 24th, we should build up to it')).toBeNull();
+    expect(parsePlanQuestion('Karen lands mid-month. We can talk about the school run')).toBeNull();
+  });
+});
+
 describe('what the register gets wrong — pinned, not tuned away', () => {
   // A genuine question wearing a modal, with no wh-complement and no "tell me". Both of these
   // were ANSWERED before this commit and now fall through to the model, exactly as they did
@@ -258,5 +315,24 @@ describe('what the register gets wrong — pinned, not tuned away', () => {
 
   it('"Would you say September is full?" is no longer answered', () => {
     expect(parsePlanQuestion('Would you say September is full?')).toBeNull();
+  });
+
+  it('and the cost now reaches mid-sentence too', () => {
+    // Widening the anchor to a clause boundary widens this cost with it: a genuine question
+    // wearing a modal after a comma is claimed as a request and falls to the model. Same family
+    // as the two above, one more place to land. Recorded rather than tuned around, because the
+    // alternative — narrowing the boundary until this passes — would take the real client input
+    // this commit exists for back out with it.
+    expect(parsePlanQuestion('September is full, can you confirm?')).toBeNull();
+  });
+});
+
+describe('a pre-existing limitation this work did not introduce and does not fix', () => {
+  it('"What ideas can we still add this month?" is claimed by ACTION_VERB, not the register', () => {
+    // Null before the register landed and null after — `add` is on the 29-verb list, so the
+    // list claims a genuine question. Surfaced while measuring the clause-boundary change and
+    // recorded here so it is not later mistaken for fallout from it. Fixing it means revisiting
+    // the verb list, which is its own decision.
+    expect(parsePlanQuestion('What ideas can we still add this month?')).toBeNull();
   });
 });

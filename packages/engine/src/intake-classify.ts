@@ -348,8 +348,26 @@ const ACTION_VERB = /\b(move|add|change|swap|switch|push|pull|delete|remove|drop
  * told you been used this month". Putting `have` in here to catch "have you moved it" would cost
  * the third of the operator's four phrasings, and that phrasing is the whole reason this gate
  * exists. A modal asks us to act; an auxiliary asks us what is so.
+ *
+ * ── IT OPENS A CLAUSE, NOT ONLY A SENTENCE ───────────────────────────────────────
+ *
+ * Anchored at `^` this missed the commonest shape a client actually types: a statement and
+ * then the ask. *"The Wilderness candle relaunches on the 24th, can we build up to it?"* —
+ * real client input, from another client's brief — was claimed by the question gate and never
+ * reached the classifier, because the modal is the eighth word rather than the first. The
+ * register is a property of the CLAUSE the modal opens; where that clause sits in the sentence
+ * is punctuation, not meaning.
+ *
+ * So the anchor is now a clause boundary: string start, a comma / semicolon / colon, a dash
+ * (em, en, or a spaced hyphen), a sentence-ending full stop, or a newline. `\s-{1,2}\s*` wants
+ * whitespace BEFORE the hyphen so that a hyphenated word can never supply the boundary.
+ *
+ * The blast radius is bounded by something already true rather than by this pattern's care:
+ * gate 3 only ever sees sentences that passed GATE 1, so a plain statement containing a
+ * mid-sentence modal is rejected as non-interrogative before this is consulted. Only a
+ * sentence already carrying a '?', an interrogative opener or an indirect frame can be moved.
  */
-const REQUEST_OPENER = /^(?:can|could|would|will|shall|should)\b|^how\s+about\b/i;
+const REQUEST_OPENER = /(?:^|[,;:]\s*|[—–]\s*|\s-{1,2}\s*|\.\s+|\n\s*)(?:can|could|would|will|shall|should|how\s+about)\b/i;
 
 /**
  * A modal that is asking to be TOLD, not asking us to act — "can you tell me what's planned",
@@ -407,7 +425,10 @@ function isRequestForChange(t: string): boolean {
   const opener = REQUEST_OPENER.exec(t);
   if (!opener) return false;
 
-  const rest = t.slice(opener[0].length);
+  // From the end of the MATCH, not from `opener[0].length` — the opener no longer starts at
+  // index 0, and slicing by length alone would hand the escapes a window offset by however
+  // much text preceded the clause boundary.
+  const rest = t.slice(opener.index + opener[0].length);
   if (ASKS_TO_BE_TOLD.test(rest)) return false;
   if (EMBEDDED_WH.test(rest)) return false;
   return true;

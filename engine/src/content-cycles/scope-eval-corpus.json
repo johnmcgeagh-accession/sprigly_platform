@@ -50,7 +50,7 @@
       "origin": "real", "provenance": "docs/reports (Earl of East)", "surface": "reshape",
       "clause": "launching",
       "expect": { "scope": "month_scoped", "kind": "launch" },
-      "why": "A dated launch asking for an arc. Different client, so it guards against the corpus becoming Ivy-T-shaped. FAILS AT BASELINE FOR A GATE REASON, NOT A SCOPE ONE — parsePlanQuestion claims it as question/plan and it never reaches the classifier. The register added in 9388e63 does not catch it because REQUEST_OPENER is anchored at ^ and the modal here is mid-sentence, after a statement clause ('…on the 24th, can we build up to it?'). Do not attempt to fix this with a prompt change; the runner marks it [question gate] so the blocker is visible."
+      "why": "A dated launch asking for an arc. Different client, so it guards against the corpus becoming Ivy-T-shaped. HISTORY, because this case is why the corpus earned its keep: at the 3930c1e baseline it read question/plan 5/5 and never reached the classifier — parsePlanQuestion claimed it, and the register added in 9388e63 missed it because REQUEST_OPENER was anchored at ^ while the modal here is mid-sentence, after a statement clause. The corpus found that on its first pass. Anchoring the register at a clause boundary instead fixed it: month_scoped/launch 5/5. Kept as a scored case because the blocker it exposed was a GATE one, and a future regression there would look identical to a scope regression from the score alone."
     },
 
     {
