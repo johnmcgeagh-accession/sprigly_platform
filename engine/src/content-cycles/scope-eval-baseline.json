@@ -1,0 +1,843 @@
+{
+  "note": [
+    "BASELINE AT 9388e63, recorded 5 Aug 2026. This is the reference the next scope change is measured against.",
+    "",
+    "TWO KNOWN BLEMISHES, neither corrected after the fact — the numbers below are exactly what the pass produced.",
+    "",
+    "1. THREE ROWS CARRY ONE evergreen/model_error EACH — cx-emphasis-month-less-founder-sept, cx-emphasis-undated-founder-lean, cx-emphasis-undated-founder-like-to-see. A model_error is Bedrock being unreachable, not a classification: the run did not happen. In this pass it was counted as a verdict, which made two of those three rows read as non-unanimous and escalate for no reason. Read them as 24/24, 24/24 and 24/24-with-4-month_scoped respectively. scope-eval-cli.ts now retries a model_error and records it outside the distribution, so a future pass will not contain these.",
+    "",
+    "2. THE ONLY GENUINELY UNSTABLE CASE IS cx-emphasis-undated-founder-lean — 20 evergreen, 4 month_scoped over 24 real runs (p(month_scoped) about 0.17). It is the one case that can show a change moving a probability rather than flipping a verdict. The other two escalations were the artefact described above.",
+    "",
+    "A THIRD PASS WAS ATTEMPTED with the fixed runner and abandoned: a long sequential run wedges on a hung Bedrock call (the model client sets no request timeout), twice, at different points. Anyone re-running should expect that and may need to restart. It is why this file is the second pass rather than the third."
+  ],
+  "corpus": "/Users/johnmcgeagh/Workspaces/sprigly/dev/engine/src/content-cycles/scope-eval-corpus.json",
+  "planMonth": "2026-09",
+  "runs": 5,
+  "model": "sonnet (default)",
+  "calls": 310,
+  "results": [
+    {
+      "id": "real-emphasis-morning-routine",
+      "origin": "real",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 0,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-emphasis-more-reels-this-month",
+      "origin": "real",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
+      "tally": {
+        "month_scoped/emphasis": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-emphasis-back-to-school-september",
+      "origin": "real",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
+      "tally": {
+        "month_scoped/emphasis": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-launch-wilderness-relaunch",
+      "origin": "real",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "launch"
+      },
+      "tally": {
+        "question/plan": 5
+      },
+      "hits": 0,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": true
+    },
+    {
+      "id": "real-next-cycle-october-window-display",
+      "origin": "real",
+      "surface": "reshape",
+      "expect": null,
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 0,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-next-cycle-october-halloween-products",
+      "origin": "real",
+      "surface": "reshape",
+      "expect": null,
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 0,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-next-cycle-october-halloween-theme",
+      "origin": "real",
+      "surface": "reshape",
+      "expect": null,
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 0,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-next-cycle-october-bare",
+      "origin": "real",
+      "surface": "reshape",
+      "expect": null,
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 0,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-next-cycle-october-tv-hannah",
+      "origin": "real",
+      "surface": "reshape",
+      "expect": null,
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 0,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-cadence-15-reels",
+      "origin": "real",
+      "surface": "reshape",
+      "expect": null,
+      "tally": {
+        "month_scoped/cadence": 5
+      },
+      "hits": 0,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-cadence-15-reels-this-month",
+      "origin": "real",
+      "surface": "reshape",
+      "expect": null,
+      "tally": {
+        "month_scoped/cadence": 5
+      },
+      "hits": 0,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-cadence-format-mix",
+      "origin": "real",
+      "surface": "reshape",
+      "expect": null,
+      "tally": {
+        "month_scoped/emphasis": 5
+      },
+      "hits": 0,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-asset-june-heatwave",
+      "origin": "real",
+      "surface": "reshape",
+      "expect": null,
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 0,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-standing-founder-story",
+      "origin": "real",
+      "surface": "other",
+      "expect": {
+        "scope": "evergreen"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-standing-sweatshirt-breakdown",
+      "origin": "real",
+      "surface": "other",
+      "expect": {
+        "scope": "evergreen"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-standing-life-is-busy",
+      "origin": "real",
+      "surface": "other",
+      "expect": {
+        "scope": "evergreen"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-standing-hardworking-wardrobe",
+      "origin": "real",
+      "surface": "other",
+      "expect": {
+        "scope": "evergreen"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-standing-simple-things",
+      "origin": "real",
+      "surface": "other",
+      "expect": {
+        "scope": "evergreen"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-standing-no-polyester",
+      "origin": "real",
+      "surface": "other",
+      "expect": {
+        "scope": "evergreen"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-standing-unboxing-sometime",
+      "origin": "real",
+      "surface": "other",
+      "expect": {
+        "scope": "evergreen"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-standing-linen-restock",
+      "origin": "real",
+      "surface": "other",
+      "expect": null,
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 0,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "real-standing-hot-weather",
+      "origin": "real",
+      "surface": "other",
+      "expect": null,
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 0,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-launch-dated-navy-edit",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "launch"
+      },
+      "tally": {
+        "month_scoped/launch": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-launch-dated-karen",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "launch"
+      },
+      "tally": {
+        "month_scoped/launch": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-launch-undated-karen",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "evergreen",
+        "reason": "ambiguous"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 0,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-launch-month-no-day",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "evergreen",
+        "reason": "ambiguous"
+      },
+      "tally": {
+        "evergreen/ambiguous": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-event-dated-popup",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "event"
+      },
+      "tally": {
+        "month_scoped/event": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-event-dated-market",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "event"
+      },
+      "tally": {
+        "month_scoped/event": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-event-birthday-this-month",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "evergreen",
+        "reason": "ambiguous"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 0,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-event-undated-popup",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "evergreen",
+        "reason": "ambiguous"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 0,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-event-school-holidays",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "evergreen",
+        "reason": "ambiguous"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 0,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-emphasis-month-more-product",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
+      "tally": {
+        "month_scoped/emphasis": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-emphasis-month-less-founder-sept",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
+      "tally": {
+        "month_scoped/emphasis": 24,
+        "evergreen/model_error": 1
+      },
+      "hits": 24,
+      "runs": 25,
+      "unanimous": false,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-emphasis-month-lean-morning-sept",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
+      "tally": {
+        "month_scoped/emphasis": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-emphasis-undated-less-founder",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
+      "tally": {
+        "month_scoped/emphasis": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-emphasis-undated-more-product",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
+      "tally": {
+        "month_scoped/emphasis": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-emphasis-undated-school-run",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
+      "tally": {
+        "month_scoped/emphasis": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-emphasis-undated-morning-please",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 0,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-emphasis-undated-morning-content",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 0,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-emphasis-undated-morning-like-to-see",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 0,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-emphasis-undated-morning-lean",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 0,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-emphasis-undated-founder-lean",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 20,
+        "month_scoped/emphasis": 4,
+        "evergreen/model_error": 1
+      },
+      "hits": 4,
+      "runs": 25,
+      "unanimous": false,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-emphasis-undated-founder-like-to-see",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "month_scoped",
+        "kind": "emphasis"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 24,
+        "evergreen/model_error": 1
+      },
+      "hits": 0,
+      "runs": 25,
+      "unanimous": false,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-evergreen-behind-the-scenes-sometime",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "evergreen"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-evergreen-sally-story-sometime",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "evergreen"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-evergreen-mill-visit",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "evergreen"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-evergreen-more-video-future",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "evergreen"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-evergreen-next-launch-teasers",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "evergreen"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-evergreen-winter-next-month",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "evergreen"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-evergreen-autumn-think",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "evergreen"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    },
+    {
+      "id": "cx-evergreen-factory-tour-oneday",
+      "origin": "constructed",
+      "surface": "reshape",
+      "expect": {
+        "scope": "evergreen"
+      },
+      "tally": {
+        "evergreen/classified_evergreen": 5
+      },
+      "hits": 5,
+      "runs": 5,
+      "unanimous": true,
+      "preParsed": false,
+      "gateClaimed": false
+    }
+  ]
+}
