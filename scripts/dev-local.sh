@@ -29,7 +29,13 @@ ensure_container() {
   "$ROOT/scripts/test-db.sh" up
 }
 reseed() {
-  export DATABASE_URL; pnpm --filter @sprigly/db build >/dev/null
+  # Name the target here rather than re-exporting whatever the caller happened to leave in
+  # DATABASE_URL. `export DATABASE_URL` (no value) used to be this line, which was correct
+  # only because line ~71 runs first — reorder the file and this truncates whatever the
+  # shell was pointed at. The seed refuses a non-container URL now, but a function that
+  # reads its destructive target from ambient state is the shape of the bug itself.
+  export DATABASE_URL="$("$ROOT/scripts/test-db.sh" url)"
+  pnpm --filter @sprigly/db build >/dev/null
   pnpm --filter @sprigly/db exec tsx src/seed-e2e.ts
 }
 lan_ip() {

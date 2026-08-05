@@ -7,9 +7,23 @@
  * Future planning runs populate content_cycle_posts directly via the dual-write in
  * planning.ts; this is only for catching up existing cycles.
  *
- * Usage: pnpm --filter @sprigly/worker backfill-posts <client-slug> <channel> [cycle-month]
+ * Usage:
+ *   pnpm --filter @sprigly/worker backfill-posts <client-slug> <channel> [cycle-month]
+ *   pnpm --filter @sprigly/worker backfill-posts <client-slug> <channel> [cycle-month] --confirm
+ *
  *   cycle-month (YYYY-MM, the cycle's DATA month) is optional — if omitted, the
  *   most recent cycle for that client/channel with a draft CSV is used.
+ *
+ * DRY RUN IS THE DEFAULT; --confirm is the only way to write. This deletes every
+ * content_cycle_post in the target cycle before reinserting from the CSV, and its
+ * connection comes from the package script's `. ../.env.local`, i.e. UAT — the same
+ * copied idiom every other engine CLI carries, chosen for none of them because it was
+ * safe. Worse, with cycle-month omitted the tool CHOOSES the cycle for you. A destructive
+ * tool that does the dangerous thing when you forget an argument is a bad tool, so the
+ * dry run prints the cycle it resolved and what it would delete, and stops.
+ *
+ * (No host assertion here, unlike the e2e seed: this one legitimately targets a remote
+ * database. The guard it needed was a confirmation, not an allowlist.)
  */
 import { eq, and, desc, isNotNull } from 'drizzle-orm';
 import { db, clients, contentCycles, contentCyclePosts } from '@sprigly/db';
@@ -44,10 +58,20 @@ function parseCsv(text: string): string[][] {
   return rows;
 }
 
-const [, , slug, channel, monthArg] = process.argv;
+// Flags are stripped before positional binding, so `backfill-posts ivy-t instagram
+// --confirm` cannot land "--confirm" in monthArg and silently retarget the cycle.
+const argv = process.argv.slice(2);
+const [slug, channel, monthArg] = argv.filter((a) => !a.startsWith('--'));
+const confirm = argv.includes('--confirm');
+
 if (!slug || !channel) {
-  console.error('Usage: pnpm --filter @sprigly/worker backfill-posts <client-slug> <channel> [cycle-month]');
+  console.error('Usage: pnpm --filter @sprigly/worker backfill-posts <client-slug> <channel> [cycle-month] [--confirm]');
+  console.error('       (default: DRY RUN — nothing is written)');
   process.exit(1);
+}
+if (argv.includes('--dry-run') && confirm) {
+  console.error('refusing: --dry-run and --confirm are contradictory');
+  process.exit(2);
 }
 
 const [client] = await db.select({ id: clients.id }).from(clients).where(eq(clients.slug, slug)).limit(1);
@@ -61,7 +85,11 @@ if (!cycle)             { console.error(`No matching cycle for ${slug}/${channel
 if (!cycle.draftCsvRef) { console.error(`Cycle ${cycle.id} (${cycle.cycleMonth}) has no draft_csv_ref — nothing to backfill.`); process.exit(1); }
 
 const targetMonth = nextMonth(cycle.cycleMonth);
-console.log(`Backfilling ${slug}/${channel} cycle ${cycle.id} — data ${cycle.cycleMonth} → plan ${targetMonth}`);
+// Print the RESOLVED cycle before doing anything. When cycle-month is omitted this tool
+// picks the target itself, so "which cycle" is the fact most worth seeing first.
+console.log(`client  ${slug}/${channel}`);
+console.log(`cycle   ${cycle.id} — data ${cycle.cycleMonth} → plan ${targetMonth}${monthArg ? '' : '  (resolved: most recent with a draft CSV)'}`);
+console.log(`mode    ${confirm ? 'CONFIRM — will delete and reinsert' : 'DRY RUN — no writes'}\n`);
 
 // ── Download + parse the plan CSV from Drive ──────────────────────────────────
 const encProvider = createEncryptionProvider();
@@ -127,10 +155,23 @@ for (let i = 1; i < grid.length; i++) {
   });
 }
 
+// Everything above this line is read-only (Drive download + CSV parse), so the dry run
+// reports the real numbers rather than a guess at them.
+const existing = await db.select({ id: contentCyclePosts.id }).from(contentCyclePosts)
+  .where(eq(contentCyclePosts.cycleId, cycle.id));
+
+console.log(`delete  ${existing.length} existing post(s) in this cycle`);
+console.log(`insert  ${rows.length} post(s) from the CSV${skipped ? ` (${skipped} undated rows skipped)` : ''}`);
+
+if (!confirm) {
+  console.log('\nDRY RUN — nothing was written. Re-run with --confirm to apply.');
+  process.exit(0);
+}
+
 await db.transaction(async (tx) => {
   await tx.delete(contentCyclePosts).where(eq(contentCyclePosts.cycleId, cycle.id));
   if (rows.length > 0) await tx.insert(contentCyclePosts).values(rows);
 });
 
-console.log(`Backfilled ${rows.length} posts for cycle ${cycle.id}${skipped ? ` (${skipped} undated rows skipped)` : ''}.`);
+console.log(`\nBackfilled ${rows.length} posts for cycle ${cycle.id}${skipped ? ` (${skipped} undated rows skipped)` : ''}.`);
 process.exit(0);

@@ -13,7 +13,10 @@
 #
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:55432/sprigly_test"
+# Derived from scripts/test-db.identity, never inlined: the seed now REFUSES any database that
+# is not exactly that container, so a literal here that drifts from the guard's copy would
+# break the harness — or, worse, agree with a guard that had drifted the other way.
+export DATABASE_URL="$("$ROOT/scripts/test-db.sh" url)"
 export PLAN_TODAY="2026-07-08"
 
 MODE="${1:-full}"; shift || true

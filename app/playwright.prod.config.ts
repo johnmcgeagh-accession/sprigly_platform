@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 import { join } from 'node:path';
+// From scripts/test-db.identity — see playwright.config.ts. Never a second literal.
+import { CONTAINER_DB } from './e2e/test-db';
 
 /**
  * Prod-mode smoke (Stage 5) — closes the next-dev gap. Runs `next build && next start`
@@ -7,7 +9,6 @@ import { join } from 'node:path';
  * Covers only fake-free flows: boot, magic-link session, month render + rings, caption
  * save, checklist tick, and that /api/e2e/* is 404. No agent/shape (they need the fake).
  */
-const CONTAINER_DB = 'postgresql://postgres:postgres@127.0.0.1:55432/sprigly_test';
 const STATE = join(__dirname, 'e2e', '.auth', 'state.json');
 
 export default defineConfig({

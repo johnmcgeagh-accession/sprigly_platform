@@ -1,0 +1,20 @@
+# test-db.identity — the identity of the disposable local e2e container, in ONE place.
+#
+# This file is the single source of truth for "which database is the test container".
+# It is read by:
+#   scripts/test-db.sh              — creates the container and derives the URL from it
+#   scripts/e2e.sh                  — exports DATABASE_URL (via `test-db.sh url`)
+#   scripts/dev-local.sh            — same, via `test-db.sh url`
+#   packages/db/src/assert-local-db.ts — REFUSES to run the destructive seed anywhere else
+#   app/e2e/test-db.ts              — pins DATABASE_URL for the harness + the app under test
+#
+# The guard and the thing it guards must agree on this value or the guard stops guarding,
+# so nothing below is allowed to be repeated as a literal anywhere in the repo.
+#
+# Plain KEY=value, no quotes, no expansion — it is `source`d by bash AND parsed by two
+# small TypeScript readers, so it has to stay parseable by the dumbest reader of the set.
+TESTDB_HOST=127.0.0.1
+TESTDB_PORT=55432
+TESTDB_NAME=sprigly_test
+TESTDB_USER=postgres
+TESTDB_PASS=postgres

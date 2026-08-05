@@ -27,15 +27,24 @@ set -euo pipefail
 
 CONTAINER="sprigly-testdb"
 IMAGE="pgvector/pgvector:pg17"
-PORT="55432"
-PGPASS="postgres"
-DBNAME="sprigly_test"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# The container's identity (host/port/dbname) lives in ONE file, because the destructive
+# seed now REFUSES to run against anything that is not exactly this database
+# (packages/db/src/assert-local-db.ts reads the same file). A second copy of these values
+# that drifts is how the guard stops guarding — so never inline them here.
+# shellcheck source=./test-db.identity
+. "${ROOT}/scripts/test-db.identity"
+HOST="$TESTDB_HOST"
+PORT="$TESTDB_PORT"
+PGPASS="$TESTDB_PASS"
+DBNAME="$TESTDB_NAME"
+
 DUMP="${ROOT}/.test-db/schema.sql"
 MIGRATIONS="${ROOT}/packages/db/migrations"
 DEV_ENV="${ROOT}/.env.local"
-URL="postgresql://postgres:${PGPASS}@127.0.0.1:${PORT}/${DBNAME}"
+URL="postgresql://${TESTDB_USER}:${PGPASS}@${HOST}:${PORT}/${DBNAME}"
 
 # ── The apply list ────────────────────────────────────────────────────────────────────
 #
@@ -120,14 +129,14 @@ SKIP=(
   0083_ivy_hook_script_prompt_v2
 )
 
-psql_run() { PGPASSWORD="$PGPASS" psql -v ON_ERROR_STOP=1 -q -h 127.0.0.1 -p "$PORT" -U postgres -d "$DBNAME" "$@"; }
+psql_run() { PGPASSWORD="$PGPASS" psql -v ON_ERROR_STOP=1 -q -h "$HOST" -p "$PORT" -U "$TESTDB_USER" -d "$DBNAME" "$@"; }
 
 # True if a public table exists (used to make `up` idempotent / self-healing).
 table_exists() { psql_run -tAc "SELECT to_regclass('public.$1') IS NOT NULL" 2>/dev/null | grep -qx t; }
 
 wait_ready() {
   for _ in $(seq 1 30); do
-    if docker exec "$CONTAINER" pg_isready -U postgres -d "$DBNAME" >/dev/null 2>&1; then return 0; fi
+    if docker exec "$CONTAINER" pg_isready -U "$TESTDB_USER" -d "$DBNAME" >/dev/null 2>&1; then return 0; fi
     sleep 1
   done
   echo "test-db: postgres did not become ready" >&2; return 1
@@ -299,7 +308,7 @@ MSG
   migrate:up)   apply_up ;;
   migrate:down) apply_down ;;
   url)          echo "$URL" ;;
-  psql)         PGPASSWORD="$PGPASS" psql -h 127.0.0.1 -p "$PORT" -U postgres -d "$DBNAME" ;;
+  psql)         PGPASSWORD="$PGPASS" psql -h "$HOST" -p "$PORT" -U "$TESTDB_USER" -d "$DBNAME" ;;
   destroy)      docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; echo "test-db: container removed (schema baseline kept — use 'destroy:all' to purge)" ;;
   destroy:all)  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; rm -f "$DUMP"; echo "test-db: destroyed (container + baseline)" ;;
   *) sed -n '2,25p' "${BASH_SOURCE[0]}" ;;

@@ -1,5 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 import { join } from 'node:path';
+// From scripts/test-db.identity, the file the seed's guard reads to decide what it refuses.
+// Not a literal: the app under test and the seeder must name the same database, and the
+// way that stops being true is two copies of it.
+import { CONTAINER_DB } from './e2e/test-db';
 
 /**
  * E2E config for the plan redesign (Stage 3). Two device projects (desktop 1440×900,
@@ -8,7 +12,6 @@ import { join } from 'node:path';
  * fakes activate — see design/DECISIONS.md) pointed at the disposable pg17 container; the
  * container + seed are provisioned by scripts/e2e.sh before Playwright runs.
  */
-const CONTAINER_DB = 'postgresql://postgres:postgres@127.0.0.1:55432/sprigly_test';
 const STATE = join(__dirname, 'e2e', '.auth', 'state.json');
 const STATE_B = join(__dirname, 'e2e', '.auth', 'state-b.json');
 const STATE_DRAFT = join(__dirname, 'e2e', '.auth', 'state-draft.json');

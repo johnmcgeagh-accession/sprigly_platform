@@ -1,14 +1,28 @@
 import { type Page, expect } from '@playwright/test';
 import { execSync } from 'node:child_process';
-import { join } from 'node:path';
+import { CONTAINER_DB, REPO_ROOT } from './test-db';
 
-const REPO_ROOT = join(__dirname, '..', '..');
-
-/** Reset the DB to the deterministic seed. Run in beforeEach so desktop and mobile
- *  projects (which share one container) never see each other's mutations. */
+/**
+ * Reset the DB to the deterministic seed. Run in beforeEach so desktop and mobile
+ * projects (which share one container) never see each other's mutations.
+ *
+ * DATABASE_URL is set EXPLICITLY. It used to be inherited from `process.env`, which meant
+ * the target depended on the shell: the container under `scripts/e2e.sh`, and UAT from any
+ * shell with `.env.local` sourced — where this function's first statement, `TRUNCATE TABLE
+ * clients CASCADE`, ran fourteen spec files' worth of times.
+ *
+ * The seed refuses a non-container URL on its own now (assert-local-db.ts), which is the
+ * guard. This pin is the other half: the guard makes the accident loud, this makes the
+ * suite correct from any shell rather than merely failing loudly in some of them.
+ */
 export function reseed(): void {
   execSync('pnpm --filter @sprigly/db exec tsx src/seed-e2e.ts', {
-    cwd: REPO_ROOT, stdio: 'ignore', env: process.env,
+    cwd: REPO_ROOT,
+    // stderr INHERITED, not ignored. A refusal that nobody can read is not a guard —
+    // silencing this channel turns "REFUSED: DATABASE_URL points at a remote database"
+    // into a bare "Command failed" at the call site.
+    stdio: ['ignore', 'ignore', 'inherit'],
+    env: { ...process.env, DATABASE_URL: CONTAINER_DB },
   });
 }
 

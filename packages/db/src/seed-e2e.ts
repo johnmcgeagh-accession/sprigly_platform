@@ -7,8 +7,12 @@
  * plan_inputs. All ids and dates are fixed and framed around a frozen "today" of
  * 2026-07-08 (injected into the app via PLAN_TODAY) so derivations are stable in CI.
  *
- * Run with DATABASE_URL pointed at the disposable e2e container. Writes the magic-link
- * token to app/e2e/.auth/token.txt for the Playwright auth setup.
+ * Runs ONLY against the disposable e2e container — `assertLocalDatabase()` below exits
+ * non-zero anywhere else, because the first thing this file does is TRUNCATE every
+ * tenant. That is a refusal, not a convention: this seed is called from `beforeEach` in
+ * fourteen spec files, and a call site that inherits its environment will eventually
+ * inherit the wrong one. Writes the magic-link token to app/e2e/.auth/token.txt for the
+ * Playwright auth setup.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +21,10 @@ import { dirname, join } from 'node:path';
 // so it runs under `pnpm --filter @sprigly/db exec tsx src/seed-e2e.ts` with the clean
 // db-package tsconfig — no root-tsconfig path-mapping quirks.
 import { eq } from 'drizzle-orm';
+// MUST STAY ABOVE './client.js'. Importing this refuses, non-zero, unless DATABASE_URL is
+// exactly the local test container — at import time, so the refusal lands before client.js
+// reads the environment and before the TRUNCATE below. Order here is load-bearing.
+import './assert-local-db.js';
 import { db, sql } from './client.js';
 import {
   DRAFT_CYCLE, DRAFT_CYCLE_MONTH, DRAFT_TOKEN, draftBeatRows, draftBacklogInput,
