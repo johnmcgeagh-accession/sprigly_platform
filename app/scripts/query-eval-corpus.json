@@ -123,7 +123,7 @@
           "text": "what's on next week?",
           "today": "2026-08-26",
           "assert": { "kind": "week", "which": "next" },
-          "note": "TODAY IS MOVED for this case, on purpose. From the corpus default of 5 August, 'next week' is 10-16 August and sits entirely inside one month, which does not test the thing this case is for. From 26 August it is Mon 31 August to Sun 6 September and crosses the boundary. Note what the window holds: written posts in August and PLANNED ones in September. bucketCycleState's NEXT WEEK line buckets written posts only, so the state may state a week count that omits the September side — the assertion is derived from the rows, not from that line, and will say so."
+          "note": "TODAY IS MOVED for this case, on purpose. From the corpus default of 5 August, 'next week' is 10-16 August and sits entirely inside one month, which does not test the thing this case is for. From 26 August it is Mon 31 August to Sun 6 September and crosses the boundary, and the window holds written posts in August and PLANNED ones in September. THIS CASE FOUND A DEFECT AND NOW GUARDS IT: bucketCycleState bucketed written posts into its week lines and not beats, so the state said 'NEXT WEEK holds: 1 post' over a window holding five, and the agent quoted it — 'Next week holds 1 post... The rest of the week is empty'. Fixed by counting both, with the unwritten ones marked. The assertion is derived from the rows rather than from that line, which is why it could see the disagreement at all."
         },
         {
           "id": "boundary-october",

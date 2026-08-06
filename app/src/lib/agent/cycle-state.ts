@@ -332,8 +332,19 @@ export function cycleDigest(posts: PlanPost[], today?: string, planMonth?: strin
 
 export interface CycleState {
   summary: string;
+  /** WRITTEN posts in each window. Committed rows only — a beat is never one of these. */
   thisWeek: PlanPost[];
   nextWeek: PlanPost[];
+  /**
+   * PLANNED POSTS in each window — the same two weeks, over the draft rows.
+   *
+   * Second pair rather than folded into the first, for `ContextCycle.beats`' reason: `PlanPost[]`
+   * is the shape a caller may resolve a reference against, and a beat has its own write path with
+   * its own gate. What the omission below cost was a week LINE that undercounted; widening the
+   * type to fix a sentence would have put a beat where a mutation could find it.
+   */
+  thisWeekBeats: DraftBeatView[];
+  nextWeekBeats: DraftBeatView[];
   counts: Record<string, number>;
 }
 
@@ -361,11 +372,27 @@ export function bucketCycleState(
   // Both windows from `weeks.ts` — the SAME function that prints them into the prompt below, so
   // the sentence the model reads and the posts it is given can never describe different weeks.
   const { thisWeek: tw, nextWeek: nw } = weekWindows(iso(today));
-  const inWeek = (w: { from: string; to: string }) => (p: PlanPost) => p.date >= w.from && p.date <= w.to;
+  // Typed on the DATE alone, so the same predicate buckets a written post and a planned one. It
+  // used to take a `PlanPost`, which is how the beats came to be missing from the week below:
+  // nothing rejected them, there was simply no second call.
+  const inWeek = (w: { from: string; to: string }) => (r: { date: string }) => r.date >= w.from && r.date <= w.to;
 
   const thisWeek = posts.filter(inWeek(tw));
   const nextWeek = posts.filter(inWeek(nw));
+  const thisWeekBeats = beats.filter(inWeek(tw));
+  const nextWeekBeats = beats.filter(inWeek(nw));
 
+  /**
+   * The status tally, over WRITTEN posts only — and unlike the week lines above, that is a
+   * decision rather than an oversight. Stated here because the two sit four lines apart and the
+   * next person auditing this function for the same omission should not have to re-derive it.
+   *
+   * Two reasons, either sufficient. A beat is not the plan: `draft-months.test.ts` pins *"beats
+   * do NOT inflate the live-post count"*, and `totalLine` below reads this tally. And every beat
+   * carries the status `draft`, which is the internal word spec §7 fences out of anything a
+   * client can read — folding them in would print it into the prompt, from where a model would
+   * repeat it back. The month's planned count is stated on its own PLAN FACTS line instead.
+   */
   const counts: Record<string, number> = {};
   for (const p of posts) counts[p.status] = (counts[p.status] ?? 0) + 1;
 
@@ -396,8 +423,42 @@ export function bucketCycleState(
    * the prose and the data cannot disagree. Same treatment as `TODAY IS` and the plan window: the
    * model reads the answer off the line rather than working it out.
    */
-  const weekCount = (label: string, list: PlanPost[]) =>
-    `${label}: ${list.length} post${list.length === 1 ? '' : 's'}${list.length ? ` — ${list.map((p) => p.date).join(', ')}` : ''}.`;
+  /**
+   * ── AND A DRAFT MONTH'S POSTS ARE IN THE WEEK TOO ──────────────────────────────────
+   *
+   * This line counted WRITTEN posts and nothing else, which is invisible until a week crosses
+   * into a draft month. Measured on 26 August: Mon 31 Aug to Sun 6 Sep holds five posts — one
+   * written in August and four planned in September — and the state said *"NEXT WEEK holds: 1
+   * post"*. The agent then answered *"Next week holds 1 post… The rest of the week is empty"*,
+   * quoting the state exactly as it is told to. Same class as the counting bug: not a model that
+   * reasoned wrongly, a number that was wrong before it was read.
+   *
+   * ── COUNTED TOGETHER, THE UNWRITTEN ONES MARKED ────────────────────────────────────
+   *
+   * A client asking what is on next week means everything on the calendar, so a flat five is the
+   * count they want; but four of those five have no copy, and a bare five invites "read me the
+   * Wednesday one". So the line states the total, then splits it. It is one sentence in every
+   * case and it stays one sentence — the dates were already listed here, and what is added is a
+   * clause, not a block.
+   *
+   * A window with NO planned posts renders exactly the sentence it always did, to the byte. That
+   * is what keeps this from being a change to every committed client's prompt.
+   */
+  const n = (c: number, word: string) => `${c} ${word}${c === 1 ? '' : 's'}`;
+  const listDates = (rows: readonly { date: string }[]) =>
+    [...rows].sort((a, b) => a.date.localeCompare(b.date)).map((r) => r.date).join(', ');
+  const weekCount = (label: string, written: readonly PlanPost[], planned: readonly DraftBeatView[]) => {
+    const total = written.length + planned.length;
+    if (!total) return `${label}: 0 posts.`;
+    if (!planned.length) return `${label}: ${n(total, 'post')} — ${listDates(written)}.`;
+    // "planned post", never the internal word — spec §7, and this string is prompt vocabulary,
+    // which is the one thing a model reliably repeats back into a reply the client reads.
+    if (!written.length) {
+      return `${label}: ${n(total, 'planned post')}, not one of them written yet — ${listDates(planned)}.`;
+    }
+    return `${label}: ${total} in total — ${n(written.length, 'written post')} (${listDates(written)})`
+      + ` and ${n(planned.length, 'planned post')}, not yet written (${listDates(planned)}).`;
+  };
 
   /**
    * ── THE MONTHS THIS STATE IS ABOUT ─────────────────────────────────────────────────
@@ -471,8 +532,8 @@ export function bucketCycleState(
   const summary = [
     `TODAY IS ${todayIso}. A date is in the FUTURE if it is later than that, and in the PAST only if it is earlier. Compare the ISO dates.`,
     weekLines(todayIso),
-    weekCount('THIS WEEK holds', thisWeek),
-    weekCount('NEXT WEEK holds', nextWeek),
+    weekCount('THIS WEEK holds', thisWeek, thisWeekBeats),
+    weekCount('NEXT WEEK holds', nextWeek, nextWeekBeats),
     ...(window ? [window] : []),
     ...(months.length ? [PLAN_FACTS_HEADING, ...months.flatMap(factsFor)] : []),
     totalLine,
@@ -481,7 +542,7 @@ export function bucketCycleState(
     ...beatLines(beats),
   ].join('\n');
 
-  return { summary, thisWeek, nextWeek, counts };
+  return { summary, thisWeek, nextWeek, thisWeekBeats, nextWeekBeats, counts };
 }
 
 /**
