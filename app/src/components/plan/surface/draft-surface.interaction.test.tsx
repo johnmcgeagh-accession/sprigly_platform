@@ -693,6 +693,76 @@ describe('the what-changed chip (spec §3)', () => {
   });
 });
 
+/**
+ * THE RECEIPT AND ITS OWN THREAD TURN ARE THE SAME SENTENCE.
+ *
+ * `threadMessage` and the panel body come from one function — that is what stopped them
+ * contradicting each other — and on the DOCKED layout both are on screen at once, so the client
+ * reads the reply twice:
+ *
+ *   thread   "We couldn't work this into October automatically, so we've saved it to your ideas."
+ *   heading  "We couldn't apply this"
+ *   body     "We couldn't work this into October automatically, so we've saved it to your ideas."
+ *
+ * A layout coincidence, not a copy fault: no word changes, the chip and panel simply stand down
+ * while the thread is already saying it.
+ */
+describe('a receipt does not repeat the thread turn that carried it', () => {
+  // `ideas` is read by DesktopShell and absent from the shared fixture — this file had never
+  // rendered the desktop frame, which is the one the stutter appears on.
+  const docked = (over: Partial<PlanData> = {}) => fakeData({ ideas: [], ...over });
+
+  const submit = async (application: Record<string, unknown>) => {
+    stubFetch({ application, beats: [beat()] });
+    render(<DraftSurface data={docked()} frame="desktop" />);
+    fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'move one of the posts to an empty day' } });
+    await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+  };
+
+  const UNNOTED = {
+    id: 'r-unnoted', at: '', sourceText: 'x', scope: 'evergreen', reason: 'couldnt_apply',
+    lines: [], changedIds: [],
+  };
+  const NOTED = {
+    id: 'r-noted', at: '', sourceText: 'x', scope: 'evergreen', reason: 'unclear',
+    lines: [], changedIds: [],
+    note: 'It wasn’t clear what to change about “one of the posts on 18th September”, so it was saved to your ideas.',
+  };
+
+  it('an UNNOTED receipt says it once — in the thread, not again in a chip', async () => {
+    await submit(UNNOTED);
+    const body = document.body.textContent ?? '';
+    expect(body).toContain('couldn’t work this into October');
+    // Once, not twice. And no chip to tap, because tapping it would show the same sentence.
+    expect(body.split('couldn’t work this into October').length - 1).toBe(1);
+    expect(screen.queryByTestId('summary-chip')).toBeNull();
+    expect(screen.queryByTestId('receipt-panel')).toBeNull();
+  });
+
+  it('a NOTED receipt says its note once, for the same reason', async () => {
+    await submit(NOTED);
+    const body = document.body.textContent ?? '';
+    expect(body).toContain('It wasn’t clear what to change about');
+    expect(body.split('It wasn’t clear what to change about').length - 1).toBe(1);
+    expect(screen.queryByTestId('summary-chip')).toBeNull();
+  });
+
+  /**
+   * The control, and the case that must not regress: a receipt read back from history was never
+   * in this session's thread, so the chip is exactly as it was. `VoiceSheet` empties its turns on
+   * every open ("a new open is a new session"), so a reload, a month change or a closed phone
+   * sheet all land here.
+   */
+  it('a receipt loaded from history keeps its chip and its panel', () => {
+    const data = docked();
+    (data.draft as { receipts: unknown[] }).receipts = [UNNOTED];
+    render(<DraftSurface data={data} frame="desktop" />);
+    expect(screen.getByTestId('summary-counts').textContent).toBe('We couldn’t apply that');
+    fireEvent.click(screen.getByTestId('summary-chip'));
+    expect(screen.getByTestId('receipt-panel').textContent).toContain('couldn’t work this into October');
+  });
+});
+
 describe('the itemised rollup (mockup 08)', () => {
   /** Sally's August brief, in shape: 14 segments, 8 applied, 6 filed. */
   const SALLY = {

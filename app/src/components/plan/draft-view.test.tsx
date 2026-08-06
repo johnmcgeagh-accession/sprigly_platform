@@ -356,6 +356,36 @@ describe('the brief rollup receipt — one itemised panel for a pasted document'
    * an operation, so the tap is withheld — while "we should do more behind-the-scenes", which is
    * a genuine idea, still carries it.
    */
+  /**
+   * NOTHING STANDS DOWN HERE, and it cannot.
+   *
+   * The docked surface suppresses a receipt's chip and panel while its own thread turn is on
+   * screen — the two are the same sentence by construction and were being read twice. This view
+   * has no thread: `DraftPlan.tsx` renders it with no `VoiceSheet`, no `SummaryChip` and no
+   * `ReceiptPanel`, so the condition is not merely false here, it is not in this tree. The
+   * receipt is the ONLY place the client is told, and it must say everything.
+   */
+  it('shows the receipt in full — heading and body — with no thread to defer to', () => {
+    const unnoted = {
+      id: 'r-unnoted', at: '', sourceText: 'x', scope: 'evergreen' as const, reason: 'couldnt_apply',
+      lines: [], changedIds: [],
+    };
+    const noted = {
+      id: 'r-noted', at: '', sourceText: 'x', scope: 'evergreen' as const, reason: 'unclear',
+      lines: [], changedIds: [],
+      note: 'It wasn’t clear what to change about “one of the posts on 18th September”, so it was saved to your ideas.',
+    };
+
+    const a = render([beat()], { receipts: [unnoted], editable: true });
+    expect(a).toContain('We couldn’t apply this');                       // the family label
+    expect(a).toContain('couldn’t work this into September');            // and where it went
+
+    const b = render([beat()], { receipts: [noted], editable: true });
+    expect(b).toContain('We couldn’t apply this');
+    expect(b).toContain('It wasn’t clear what to change about');         // the note is the body
+    expect(b).not.toContain('couldn’t work this into September');        // which it suppresses
+  });
+
   it('carries the rescue tap on an idea, and withholds it on an operational segment', () => {
     const html = render([beat()], { receipts: [rollup], editable: true, onAddToMonth: async () => ({ ok: true, beats: [] }) });
     const taps = html.split('data-testid="add-to-this-month"').length - 1;

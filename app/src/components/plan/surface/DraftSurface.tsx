@@ -232,9 +232,50 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
    * filed nothing, in which case there is no chip at all rather than one reading "0 changes".
    */
   const label = chipLabel(m.receipt);
+
+  /**
+   * ── THE RECEIPT AND ITS OWN THREAD TURN ARE THE SAME SENTENCE ──────────────────────
+   *
+   * `threadMessage` and the panel body come from one function, on purpose — that is what stopped
+   * them contradicting each other. The cost is that on the DOCKED layout they are on screen at
+   * once, and the client reads the reply twice:
+   *
+   *   thread   "We couldn't work this into September automatically, so we've saved it to your ideas."
+   *   heading  "We couldn't apply this"
+   *   body     "We couldn't work this into September automatically, so we've saved it to your ideas."
+   *
+   * It is a layout coincidence, not a copy fault, so nothing here changes a word. The panel body
+   * earns its place — a label plus where-it-went, and it is what a client reaches from the chip
+   * with the thread scrolled away, on a surface (`DraftPlanView`) that has no thread at all.
+   *
+   * ── THE CHIP GOES WITH IT, AND THAT IS NOT SCOPE CREEP ─────────────────────────────
+   *
+   * Suppressing only the expanded panel would leave a chip that invites a tap and then does
+   * nothing. While the turn is in the thread the chip has nothing to add either: for a change it
+   * counts diff lines the thread has already listed one by one, and for a filing it is the family
+   * label the turn already said. So the whole affordance stands down, and returns the moment the
+   * thread no longer carries it.
+   *
+   * ── "RENDERED", NOT "IN THE VIEWPORT" ──────────────────────────────────────────────
+   *
+   * A turn scrolled out of the dock is still the thing the client just read, and a scroll
+   * observer would make the chip flicker as they moved. Rendered is the honest test and the
+   * cheap one — but it does mean that on the desktop dock, which never closes, a turn stays
+   * rendered for the rest of the session. That is precisely why the chip has to stand down with
+   * the panel rather than be left dead, and it is bounded: `VoiceSheet` empties `turns` every
+   * time it opens ("a new open is a new session"), so a reload, a month change or a closed phone
+   * sheet all bring the chip straight back.
+   */
+  const [threadedReceiptId, setThreadedReceiptId] = useState<string | null>(null);
+  // The dock is always mounted on desktop; the phone's sheet is a state, and closing it empties
+  // the thread. `DraftPlanView` has neither, which is why this condition cannot reach that
+  // surface — it is not in that tree at all.
+  const threadRendered = desktop ? editable : voiceFor !== null;
+  const threadCarriesReceipt = threadRendered && !!m.receipt && m.receipt.id === threadedReceiptId;
+
   // The panel cannot outlive its chip: clearing the receipt while expanded would leave the
   // content region rendering a record that is no longer on screen anywhere.
-  const showingReceipt = receiptOpen && !!m.receipt && !!label;
+  const showingReceipt = receiptOpen && !!m.receipt && !!label && !threadCarriesReceipt;
 
   /**
    * The thin-month acknowledgement, at the FOOT of the day.
@@ -367,7 +408,7 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
           />
         ) : (
           <>
-            <SummaryChip label={label} expanded={receiptOpen} onToggle={() => setReceiptOpen((v) => !v)} />
+            {!threadCarriesReceipt && <SummaryChip label={label} expanded={receiptOpen} onToggle={() => setReceiptOpen((v) => !v)} />}
             <MonthGrid
               month={month} selected={selected} today={data.today} frame="desktop"
               marksFor={marksFor} onPick={(iso) => setSelected(iso, 'user:grid')}
@@ -396,10 +437,13 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
             cycleId={data.viewedCycleId} chrome="panel" entry="docked"
             {...(voiceFor ? { question: voiceFor } : {})}
             {...(voiceSignal ? { focusSignal: voiceSignal } : {})}
-            onClose={() => setVoiceFor(null)}
+            onClose={() => { setVoiceFor(null); setThreadedReceiptId(null); }}
             onSubmit={async (text, source) => {
               const r = await m.say(text, source);
               if (!r.ok) return { ok: false as const };
+              // The thread is about to carry this receipt's sentence; the chip and panel stand
+              // down for it until the thread no longer does.
+              setThreadedReceiptId(r.application?.id ?? null);
               return {
                 ok: true as const,
                 // THE THREAD SAYS WHAT THE RECEIPT SAYS. This branched on `scope` alone and never
@@ -475,7 +519,7 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
         agent={voiceFor !== null ? null : data.agentToast}
         agentWorking={voiceFor === null && (data.agentBusy || m.shaping)}
       />}
-      chip={<SummaryChip label={label} expanded={receiptOpen} onToggle={() => setReceiptOpen((v) => !v)} />}
+      chip={!threadCarriesReceipt ? <SummaryChip label={label} expanded={receiptOpen} onToggle={() => setReceiptOpen((v) => !v)} /> : undefined}
       overlays={<>
         {draftDetailNode}
         {moveBeat && (
@@ -504,7 +548,7 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
             // the same gesture and its mount effect already focuses — but passing it keeps one
             // behaviour across both frames instead of two paths that happen to agree.
             {...(voiceSignal ? { focusSignal: voiceSignal } : {})}
-            onClose={() => setVoiceFor(null)}
+            onClose={() => { setVoiceFor(null); setThreadedReceiptId(null); }}
             // NO interpretation turns on a draft month, and that is not an omission. A reshape
             // here APPLIES directly and returns a receipt — so the agent's turn IS the receipt's
             // own lines, and the conversation continues. The summary chip on the surface still
@@ -512,6 +556,9 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
             onSubmit={async (text, source) => {
               const r = await m.say(text, source);
               if (!r.ok) return { ok: false as const };
+              // The thread is about to carry this receipt's sentence; the chip and panel stand
+              // down for it until the thread no longer does.
+              setThreadedReceiptId(r.application?.id ?? null);
               return {
                 ok: true as const,
                 // THE THREAD SAYS WHAT THE RECEIPT SAYS. This branched on `scope` alone and never
