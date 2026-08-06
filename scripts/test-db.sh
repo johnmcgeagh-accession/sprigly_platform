@@ -104,6 +104,9 @@ NEW=(
   # never named here, so the manifest guard refused every e2e run after it — which is the guard
   # doing its job.
   0092_agent_turn_outcome
+  # v2 of the two plan-ready bodies, carrying the waiting-on-you clause. A template row, not
+  # schema — applied here because the e2e database renders these emails.
+  0093_plan_ready_waiting
 )
 
 # Deliberately NOT applied, each for a stated reason. A migration is either in NEW or in

@@ -64,6 +64,7 @@ import type { AuditLogger } from '@sprigly/audit';
 import type { DbPromptResolver } from '@sprigly/prompts';
 import type { IntakeJson, CompetitorGatherData, StructuredBrief } from '@sprigly/engine';
 import { loadDurableInputs } from '@sprigly/engine';
+import { ungroundedEmailMerge } from '@sprigly/engine/generation-recovery';
 import { deliverTemplatedEmail } from './email-send.js';
 import type { Logger } from 'pino';
 import { transitionCycle } from './machine.js';
@@ -702,6 +703,10 @@ export async function sendAppReadyNotification(
    *  kind of small dishonesty that makes them distrust the rest of the message. */
   autoApproved = false,
   contactName = 'there',
+  /** How many launch beats were declined for want of a groundable product. The email must not
+   *  call a month ready without saying that some of it is waiting on the client. Defaults to 0,
+   *  so a caller that does not know renders exactly the email it renders today. */
+  waitingCount = 0,
 ): Promise<boolean> {
   // Returns whether the email actually WENT. deliverTemplatedEmail has always reported this
   // ("the caller decides whether to stamp a send-log column" — email-send.ts) and this
@@ -714,7 +719,7 @@ export async function sendAppReadyNotification(
     {
       key: autoApproved ? 'plan_ready_auto' : 'plan_ready',
       clientId,
-      merge: { clientName, monthLabel, appLink: appUrl, contactName },
+      merge: { clientName, monthLabel, appLink: appUrl, contactName, ...ungroundedEmailMerge(waitingCount) },
     },
   );
 }

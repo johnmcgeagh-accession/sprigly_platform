@@ -48,6 +48,7 @@ import { Feedback, type UndoState } from './Feedback';
 import { MonthDaySummary, rowsFromPosts } from './rows';
 import { defaultDayFor, monthOf, monthTitle, monthGrid, shortDate } from './dates';
 import { isPostOnTheWay } from '@/lib/generation-state';
+import { monthFooterParts } from '@/lib/month-footer';
 import { orphanPosts } from '@/lib/cycle-nav';
 import { lateCount } from '../derive';
 import { cardText } from './card-text';
@@ -273,8 +274,16 @@ export function CommittedSurface({ data, frame = 'mobile' }: { data: PlanData; f
    *  the ring says *no words on this one yet*, which is true of both. The difference between
    *  "coming" and "waiting for your changes to refresh" is a sentence with a date in it, and a
    *  5px dot cannot carry a sentence — the card and the sheet do, where the client can read it. */
+  /** A DECLINED post takes the ring too, and for the reason stated just above rather than a new
+   *  one: the ring says *no words on this one yet*, which is true of it. Without this it drew a
+   *  FILLED dot — status 'new' falls to the else branch — so the grid showed a finished post on
+   *  a day holding a blank one. The difference between "coming", "waiting for your changes" and
+   *  "waiting on your answer" is again a sentence, and the footer, the card and the sheet carry
+   *  it; a 5px dot still cannot. */
   const marksFor = useCallback(
-    (iso: string): DayMark[] => postsOn(iso).map((p) => (p.status === 'generating' || p.status === 'generation_failed' ? 'onway' : 'committed')),
+    (iso: string): DayMark[] => postsOn(iso).map((p) => (
+      p.status === 'generating' || p.status === 'generation_failed' || p.ungrounded === true ? 'onway' : 'committed'
+    )),
     [postsOn],
   );
   const markFor = useCallback((iso: string): DayMark => marksFor(iso)[0] ?? 'none', [marksFor]);
@@ -354,10 +363,44 @@ export function CommittedSurface({ data, frame = 'mobile' }: { data: PlanData; f
   // in this number — "3 are still being written" over a post nothing is touching is the same
   // untruth the card state exists to remove.
   const inFlight = monthPosts.filter((p) => isPostOnTheWay(p)).length;
-  const monthFooter = monthPosts.length === 0
-    ? `Nothing planned across ${monthTitle(month).split(' ')[0]} yet.`
-    : `${monthPosts.length} post${monthPosts.length === 1 ? '' : 's'} across ${monthTitle(month).split(' ')[0]}.`
-      + (inFlight === 0 ? ' Tap a day to open it.' : inFlight === 1 ? ' One is still being written.' : ` ${inFlight} are still being written.`);
+
+  /**
+   * ── THE MONTH SAYS WHEN IT IS WAITING ON THE CLIENT ────────────────────────────────
+   *
+   * A declined launch beat asks its question on its own card, which is no use to a client who
+   * never opens that card. On ivy-t's September that is three posts of twenty-seven, findable
+   * only by opening each one — a question nobody opens is the same dead end one layer up.
+   *
+   * The COUNT is unchanged and deliberately so: a declined post exists and is scheduled, it
+   * simply has no words yet, so it belongs in "27 posts across September" exactly as a banked
+   * one does. Only the clause after it is state-aware, which is the rule this sentence already
+   * followed for posts in flight.
+   *
+   * The clause is a CONTROL, because it replaces the surface's only "tap a day" instruction and
+   * would otherwise name a problem with no route to it. It goes to the first waiting post, in
+   * date order, and opens it — landing on the question rather than near it.
+   */
+  const waitingPosts = monthPosts.filter((p) => p.ungrounded === true);
+  const foot = monthFooterParts({
+    total: monthPosts.length,
+    monthWord: monthTitle(month).split(' ')[0] ?? '',
+    inFlight,
+    waiting: waitingPosts.length,
+  });
+  const firstWaiting = waitingPosts[0];
+  const monthFooter = !foot.ask || !firstWaiting ? foot.before : (
+    <>
+      {foot.before}
+      <button
+        type="button" data-testid="month-waiting"
+        onClick={() => { setSelected(firstWaiting.date, 'user:waiting-footer'); setOpenId(firstWaiting.id); }}
+        className="rounded-[6px] font-semibold text-coral-800 underline decoration-coral-800/40 underline-offset-2"
+      >
+        {foot.ask}
+      </button>
+      {foot.after}
+    </>
+  );
 
   const outside = useMemo(
     () => orphanPosts(data.posts, data.cycles.map((c) => c.displayMonth)),

@@ -44,6 +44,7 @@ import { and, eq, isNull, isNotNull, sql as dsql } from 'drizzle-orm';
 import type { Queue } from 'bullmq';
 import { contentCycles, contentCyclePosts, clients, claimPlanReadySend, releasePlanReadySend } from '@sprigly/db';
 import { ensureAppLink, monthLabelOf, nextMonth, sendAppReadyNotification, type PlanningDeps } from './planning.js';
+import { UNGROUNDED_KEY } from '@sprigly/engine/generation-recovery';
 
 export { claimPlanReadySend, releasePlanReadySend };
 
@@ -101,6 +102,19 @@ export async function isCycleSettled(
 ): Promise<boolean> {
   if (await hasGeneratingPosts(db, cycleId)) return false;
   return !(await hasPendingGenerationJobs(queue, cycleId, excludeJobId));
+}
+
+/** Declined launch beats in a cycle: live rows carrying the ungrounded flag. */
+export async function countUngroundedPosts(db: PlanningDeps['db'], cycleId: string): Promise<number> {
+  const [row] = await db
+    .select({ n: dsql<number>`count(*)::int` })
+    .from(contentCyclePosts)
+    .where(and(
+      eq(contentCyclePosts.cycleId, cycleId),
+      dsql`${contentCyclePosts.sourceMeta} ->> ${UNGROUNDED_KEY} = 'true'`,
+      isNull(contentCyclePosts.deletedAt),
+    ));
+  return row?.n ?? 0;
 }
 
 export type SettleOutcome =
@@ -162,7 +176,19 @@ export async function settlePlanReady(
   // not turn into a delivery is GIVEN BACK. Before this the send's result was discarded and
   // the next line logged 'settled and sent' unconditionally — for earl-of-east it logged
   // exactly that, one line after 'No Gmail tokens for client'.
-  const sent = await sendAppReadyNotification(deps, cycle.clientId, client?.name ?? '', monthLabel, appUrl, autoApproved);
+  /**
+   * How much of this month is waiting on the client.
+   *
+   * Read HERE rather than passed in, because settlement is the one place that knows the month is
+   * finished — every other caller of the notification is mid-arc. Counted off the same flag the
+   * card reads, so the email and the plan can never disagree about how many there are.
+   *
+   * Soft-deleted rows are excluded for the reason `hasGeneratingPosts` excludes them: a post the
+   * client has deleted is not waiting on anybody.
+   */
+  const waitingCount = await countUngroundedPosts(db, cycleId);
+
+  const sent = await sendAppReadyNotification(deps, cycle.clientId, client?.name ?? '', monthLabel, appUrl, autoApproved, 'there', waitingCount);
   if (!sent) {
     await releasePlanReadySend(db, cycleId);
     logger.warn({ cycleId, autoApproved, monthLabel }, 'plan-ready: send failed — claim released, will retry');

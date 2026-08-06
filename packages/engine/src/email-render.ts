@@ -23,6 +23,8 @@ export const MERGE_FIELDS = {
   questionsBlock: 'The numbered brief questions (base + this channel’s extras).',
   leanLine:       'The data-led opener paragraph (blank until the source is wired).',
   beatsSummary:   'A summary of the month’s dated beats (blank until wired).',
+  waitingClause:  'Qualifies “is ready” when posts await the client, e.g. “, with 3 posts waiting on you”. Blank when none.',
+  waitingNote:    'The paragraph explaining what those posts need. Blank when none.',
 } as const;
 
 export const KNOWN_MERGE_FIELDS = Object.keys(MERGE_FIELDS) as MergeField[];

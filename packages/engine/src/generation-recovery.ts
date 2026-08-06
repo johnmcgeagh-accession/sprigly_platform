@@ -198,6 +198,41 @@ export function ungroundedLaunch(
 }
 
 /**
+ * What the plan-ready email says when a month is carrying declined posts.
+ *
+ * ── WHY THE EMAIL HAS TO SAY ANYTHING AT ALL ────────────────────────────────────────
+ *
+ * Because it is the message that tells a client the month is done. Declining three posts and
+ * then sending "your content plan for September is ready" unqualified would make the email the
+ * last place the omission could have been noticed and the place it was actively papered over.
+ *
+ * TWO FIELDS, NOT ONE, and the split is about safety rather than tidiness. `waitingClause` sits
+ * INSIDE the sentence — "…is ready{{waitingClause}}." — so the claim is never made unqualified;
+ * the full stop stays in the template, because a merge field that must supply punctuation
+ * renders a sentence with no end the first time it blanks. `waitingNote` is the paragraph after
+ * it, on its own line, so an empty value collapses to exactly the spacing the template has today.
+ *
+ * DIGITS, not words, because `{{daysToCutoff}} days` is the convention every other Sprigly email
+ * already uses. The app's own month footer spells "One" — that is its neighbour's convention, in
+ * a sentence sitting beside other app copy, and matching each surface locally beats importing
+ * one of them into the other.
+ *
+ * "rather than guess" is carried over from the card verbatim. It is the phrase that makes a
+ * blank post read as a decision taken on the client's behalf instead of as something broken,
+ * and it should be the same sentence wherever the client meets this.
+ */
+export function ungroundedEmailMerge(count: number): { waitingClause: string; waitingNote: string } {
+  if (count <= 0) return { waitingClause: '', waitingNote: '' };
+  const one = count === 1;
+  return {
+    waitingClause: `, with ${count} post${one ? '' : 's'} waiting on you`,
+    waitingNote: one
+      ? "\nIt's a launch. We've left it blank rather than guess at a product we don't know — tell us what it is, and we'll write it.\n"
+      : "\nThey're launches. We've left them blank rather than guess at a product we don't know — open one and tell us what it is, and we'll write it.\n",
+  };
+}
+
+/**
  * Passes the daily sweep will spend on one post before it becomes an operator item.
  *
  * Each pass is up to three paid Bedrock attempts (GENERATION_JOB_OPTIONS), so the ceiling is

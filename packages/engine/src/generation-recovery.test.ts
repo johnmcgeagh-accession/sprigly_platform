@@ -6,7 +6,7 @@
  * what stops the three drifting into disagreement about how many goes a post gets.
  */
 import { describe, it, expect } from 'vitest';
-import { captionInstruction, beatSubject, ungroundedLaunch, sweepAttemptsOf, sweepExhausted, MAX_SWEEP_ATTEMPTS, SWEEP_ATTEMPTS_KEY } from './generation-recovery.js';
+import { captionInstruction, beatSubject, ungroundedLaunch, ungroundedEmailMerge, sweepAttemptsOf, sweepExhausted, MAX_SWEEP_ATTEMPTS, SWEEP_ATTEMPTS_KEY } from './generation-recovery.js';
 import { launchArcSubject } from './draft-transforms.js';
 
 /** ivy-t's September, verbatim — the two sentences the observed failure was written without. */
@@ -129,6 +129,54 @@ describe('ungroundedLaunch — the decline, and the four reasons not to', () => 
     expect(ungroundedLaunch(launch('The Heather, restyled — Launch'), CAT)).toBeNull();
     // A name that merely CONTAINS a family name as a substring is not that family.
     expect(ungroundedLaunch(launch('Janet — Launch'), CAT)).toBe('Janet');
+  });
+});
+
+describe('ungroundedEmailMerge — the month is not called ready without qualification', () => {
+  it('renders both fields blank when nothing is waiting, so the email is v1 verbatim', () => {
+    for (const n of [0, -1]) {
+      expect(ungroundedEmailMerge(n)).toEqual({ waitingClause: '', waitingNote: '' });
+    }
+  });
+
+  it('qualifies the sentence rather than adding a claim after it', () => {
+    // The clause sits INSIDE "…is ready{{waitingClause}}." so the assertion is never made bare.
+    // It carries no full stop: the template keeps that, or a blank render ends mid-sentence.
+    const { waitingClause } = ungroundedEmailMerge(3);
+    expect(waitingClause).toBe(', with 3 posts waiting on you');
+    expect(waitingClause.endsWith('.')).toBe(false);
+    expect(waitingClause.startsWith(',')).toBe(true);
+  });
+
+  it('has a singular form for every part of it', () => {
+    const one = ungroundedEmailMerge(1);
+    expect(one.waitingClause).toBe(', with 1 post waiting on you');
+    expect(one.waitingNote).toContain("It's a launch.");
+    expect(one.waitingNote).toContain('left it blank');
+    expect(one.waitingNote).not.toContain('open one and');   // there is only one
+    expect(ungroundedEmailMerge(3).waitingNote).toContain("They're launches.");
+    expect(ungroundedEmailMerge(3).waitingNote).toContain('left them blank');
+  });
+
+  it('carries "rather than guess" over from the card, and never says anything failed', () => {
+    for (const n of [1, 3]) {
+      const { waitingNote } = ungroundedEmailMerge(n);
+      expect(waitingNote).toContain('rather than guess');
+      // "yet" is deliberately absent: it implies the system expects to find out on its own,
+      // when the client is the only one who can say.
+      expect(waitingNote).not.toMatch(/don't know yet/);
+      expect(waitingNote.toLowerCase()).not.toMatch(/fail|error|couldn|problem|sorry/);
+      // Own paragraph: the leading and trailing newlines are what collapse to v1's exact
+      // spacing when the field is blank.
+      expect(waitingNote.startsWith('\n')).toBe(true);
+      expect(waitingNote.endsWith('\n')).toBe(true);
+    }
+  });
+
+  it('uses digits, the convention the other Sprigly emails already use', () => {
+    // {{daysToCutoff}} days, in the nudge and last-call bodies.
+    expect(ungroundedEmailMerge(3).waitingClause).toContain('3 posts');
+    expect(ungroundedEmailMerge(12).waitingClause).toContain('12 posts');
   });
 });
 

@@ -62,7 +62,10 @@ export function MonthGrid({
    */
   lockToMonth?: boolean | undefined;
   /** One sentence under the grid — the count, and the exception if there is one. */
-  footer: string;
+  /** One sentence under the grid. A NODE rather than a string because part of it is a control:
+   *  when the month is waiting on the client, the clause that says so is what reaches the post
+   *  (see `month-footer.ts`). Every caller that passes a plain string still works. */
+  footer: React.ReactNode;
   /** What the selected day holds (round 6, P6). Rendered under the footer; the move picker
    *  passes nothing, because a picker's job ends at the date. */
   summary?: React.ReactNode | undefined;

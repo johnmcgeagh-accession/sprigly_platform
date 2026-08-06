@@ -7,7 +7,7 @@ export { AUTO_RUN_ENABLED_ENV, isAutoRunEnabled } from './auto-run-flag.js';
 // on how many passes a stuck post gets. Shared by the fan-out (app), the daily sweep (worker)
 // and the operator list (admin) so none of the three can disagree about them.
 export {
-  captionInstruction, beatSubject, ungroundedLaunch,
+  captionInstruction, beatSubject, ungroundedLaunch, ungroundedEmailMerge,
   isSubjectUngrounded, ungroundedSubjectOf, UNGROUNDED_KEY, UNGROUNDED_SUBJECT_KEY,
   sweepAttemptsOf, sweepExhausted, MAX_SWEEP_ATTEMPTS, SWEEP_ATTEMPTS_KEY,
 } from './generation-recovery.js';
