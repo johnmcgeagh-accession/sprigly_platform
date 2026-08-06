@@ -44,7 +44,11 @@ import { and, eq, isNull, isNotNull, sql as dsql } from 'drizzle-orm';
 import type { Queue } from 'bullmq';
 import { contentCycles, contentCyclePosts, clients, claimPlanReadySend, releasePlanReadySend } from '@sprigly/db';
 import { ensureAppLink, monthLabelOf, nextMonth, sendAppReadyNotification, type PlanningDeps } from './planning.js';
-import { UNGROUNDED_KEY } from '@sprigly/engine/generation-recovery';
+import { UNGROUNDED_KEY, ungroundedEmailMerge } from '@sprigly/engine/generation-recovery';
+// The preview renders through the SAME two functions the delivery path uses, so what it shows
+// is what would be sent rather than a second opinion about it.
+import { getPublishedTemplate } from './email-send.js';
+import { renderEmailTemplate } from '@sprigly/engine';
 
 export { claimPlanReadySend, releasePlanReadySend };
 
@@ -197,6 +201,103 @@ export async function settlePlanReady(
 
   logger.info({ cycleId, autoApproved, monthLabel }, 'plan-ready: settled and sent');
   return 'sent';
+}
+
+/**
+ * THE SAME DECISION AND THE SAME WORDS, WITHOUT CLAIMING OR SENDING.
+ *
+ * `settlePlanReady` is claim-first: it stamps `plan_ready_sent_at` BEFORE the send, trading a
+ * lost email for never a double one. That is the right trade and it makes the live path
+ * unusable for looking — you cannot ask "what would this say?" without either sending it or
+ * burning the cycle's one claim.
+ *
+ * So this walks the identical reads in the identical order and stops at the edge: it resolves
+ * the same app link, counts the same declined posts through the same `countUngroundedPosts`, and
+ * renders the same published template through the same `renderEmailTemplate`. What it does not
+ * do is call `claimPlanReadySend` or hand anything to Gmail.
+ *
+ * It reports `wouldSend` rather than deciding for the reader. A cycle that is `not_settled` or
+ * `already_sent` still renders — seeing the copy for a month that is not ready yet is a normal
+ * thing to want, and refusing would make this useful only when it is least needed.
+ *
+ * The one thing it CANNOT tell you is whether the transport works. `send_failed` is invisible
+ * from here by construction, because not sending is the point.
+ */
+export interface PlanReadyPreview {
+  cycleId:       string;
+  /** What `settlePlanReady` would return if it ran right now — `sent` meaning it would try. */
+  wouldSend:     SettleOutcome;
+  monthLabel:    string;
+  autoApproved:  boolean;
+  /** Declined launch beats, the count that drives the waiting copy. */
+  waitingCount:  number;
+  appUrl:        string | null;
+  merge:         Record<string, string>;
+  templateKey:   string;
+  subject:       string | null;
+  body:          string | null;
+  /** Why there is no rendered body, when there is none. */
+  note?:         string;
+}
+
+export async function previewPlanReady(
+  deps: PlanningDeps, queue: Queue, cycleId: string,
+): Promise<PlanReadyPreview | null> {
+  const { db, logger } = deps;
+
+  const [cycle] = await db
+    .select({
+      id: contentCycles.id, clientId: contentCycles.clientId, cycleMonth: contentCycles.cycleMonth,
+      approvedAt: contentCycles.approvedAt, approvedBy: contentCycles.approvedBy,
+      planReadySentAt: contentCycles.planReadySentAt,
+    })
+    .from(contentCycles)
+    .where(eq(contentCycles.id, cycleId))
+    .limit(1);
+  if (!cycle) return null;
+
+  const wouldSend: SettleOutcome =
+    cycle.approvedAt == null ? 'not_approved'
+    : cycle.planReadySentAt != null ? 'already_sent'
+    : !(await isCycleSettled(db, queue, cycleId)) ? 'not_settled'
+    : 'sent';
+
+  const appBaseUrl = deps.appBaseUrl ?? process.env['APP_BASE_URL'] ?? '';
+  const appUrl = await ensureAppLink(db, cycle.clientId, cycleId, appBaseUrl, logger);
+
+  const [client] = await db
+    .select({ name: clients.name })
+    .from(clients)
+    .where(eq(clients.id, cycle.clientId))
+    .limit(1);
+
+  const autoApproved = cycle.approvedBy === 'auto';
+  const monthLabel   = monthLabelOf(nextMonth(cycle.cycleMonth));
+  const waitingCount = await countUngroundedPosts(db, cycleId);
+  const templateKey  = autoApproved ? 'plan_ready_auto' : 'plan_ready';
+
+  // The SAME merge object `sendAppReadyNotification` builds, field for field. Written here
+  // rather than exported from there because that function's job is to deliver, and giving it a
+  // "build but do not send" mode is how a send path acquires a branch that can be taken by
+  // accident in production.
+  const merge: Record<string, string> = {
+    clientName: client?.name ?? '',
+    monthLabel,
+    appLink: appUrl ?? '',
+    contactName: 'there',
+    ...ungroundedEmailMerge(waitingCount),
+  };
+
+  const base = { cycleId, wouldSend, monthLabel, autoApproved, waitingCount, appUrl, merge, templateKey };
+
+  const tpl = await getPublishedTemplate(db, templateKey);
+  if (!tpl) return { ...base, subject: null, body: null, note: `no published template for "${templateKey}"` };
+  try {
+    const { subject, body } = renderEmailTemplate(tpl, merge as never);
+    return { ...base, subject, body };
+  } catch (err) {
+    return { ...base, subject: null, body: null, note: `template render failed: ${String(err)}` };
+  }
 }
 
 /**

@@ -36,6 +36,7 @@
     "draft-assemble": "sh -c 'set -a && . ../.env.local && set +a && tsx src/content-cycles/draft-assemble-cli.ts \"$@\"' --",
     "classify-check": "sh -c 'set -a && . ../.env.local && set +a && tsx src/content-cycles/classify-check-cli.ts \"$@\"' --",
     "scope-eval": "sh -c 'set -a && . ../.env.local && set +a && tsx src/content-cycles/scope-eval-cli.ts \"$@\"' --",
+    "plan-ready-preview": "sh -c 'set -a && . ../.env.local && set +a && tsx src/content-cycles/plan-ready-preview-cli.ts \"$@\"' --",
     "client-health-measure": "sh -c 'set -a && . ../.env.local && set +a && tsx src/client-health-measure-cli.ts \"$@\"' --",
     "extract-voice-cycle": "sh -c 'set -a && . ../.env.local && set +a && tsx src/extract-voice-cycle.ts \"$@\"' --",
     "approve-voice-cycle": "sh -c 'set -a && . ../.env.local && set +a && tsx src/approve-voice-cycle.ts \"$@\"' --",
