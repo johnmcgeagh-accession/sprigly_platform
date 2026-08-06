@@ -1,0 +1,143 @@
+{
+  "cycle": "0b9677e5-d06d-4de5-9207-527cd837333a",
+  "today": "2026-08-05",
+  "readme": [
+    "query-eval-corpus — for judging the QUERY ANSWERER, and nothing else.",
+    "",
+    "WHY IT EXISTS. Every defect found in the answerer so far was found by typing into the app. That is slow, and it is single-shot: it cannot see the failure mode that has produced the most of them, which is an answer that MOVES rather than an answer that is wrong. September was asked for four times and came back 27, then 15, then 26, then 30, then 28, against a month that had not changed between any two of those turns. One correct answer is not evidence of a fix. So every case here runs N times and the runner reports whether the answer held still.",
+    "",
+    "NOTHING BELOW IS AN EXPECTED VALUE. The `assert` block names a KIND of fact and a month; the runner derives what that fact IS by reading the rows out of the database and running them through plan-facts.ts — the same arithmetic the prompt block is built from. That is deliberate: a corpus carrying '27' would be wrong the first time somebody adds a post to September, and would then be a corpus that fails for a reason that is not a defect. It also means this file says nothing about any one client's data and can be pointed at another cycle with --cycle.",
+    "",
+    "THE DERIVATION IS INDEPENDENT OF THE CONTEXT BUILDER. The expected values come from ONE query over content_cycle_posts, keyed by scheduled_date and filtered only on client + not-deleted. The answerer's own numbers arrive through loadPlanPosts / loadDraftBeats, which are cycle-keyed and apply the draft fence. The runner compares the two before it asserts anything and prints a DIVERGENCE block if they disagree — if those two disagree then one of them is wrong and no score below is worth reading.",
+    "",
+    "WHAT IS ASSERTED AND WHAT IS NOT. A count, a set of empty dates, a per-pillar or per-format tally and a week's contents all have one deterministic right answer, so they are checked. Register, phrasing, and whether a reply reads as an answer or as a menu do not, so those cases assert NOTHING — they are run and printed for a human to read, and they contribute to no score. A group that is printed rather than scored is not a weaker case; it is a case whose defect a string comparison cannot see.",
+    "",
+    "MATCHING IS DELIBERATELY LENIENT, AND HERE IS WHERE IT LEAKS. A number matches as digits or as an English word up to twenty. A date matches as ISO, as an ordinal ('the 18th') or as day-plus-month — and the BARE ORDINAL FORM DOES NOT CHECK THE MONTH, so with August and September both in view, 'the 18th' satisfies a September assertion even if the answer meant August. A tally pair matches when the key and its number fall within sixty characters of each other on one line. Every one of those can pass an answer a human would fail. The answer text is printed under every case for exactly that reason: the assertion is there to stop you eyeballing thirty numbers, not to replace reading the ones it flags.",
+    "",
+    "EXPECTED-FAIL IS RECORDED, NOT HIDDEN. A case carrying `knownFail` is one we already know the agent gets wrong for a stated structural reason. It is scored, but reported under KNOWN GAPS instead of as a failure, and if it ever PASSES the runner says so loudly — a gap that closes by accident is worth knowing about, and a corpus that quietly kept calling it a gap would never tell you.",
+    "",
+    "READ-ONLY. The runner writes nothing: no posts, no proposals, no ledger rows unless --audit is passed explicitly. It SPENDS Bedrock — one Haiku answer and one Titan embed per run."
+  ],
+  "groups": [
+    {
+      "id": "facts",
+      "title": "FACTS THAT MUST BE EXACT",
+      "note": "Every one of these has a right answer that can be computed. plan-facts.ts states them in the prompt already; what is in question is whether the model reads them off the block or counts the rows underneath.",
+      "cases": [
+        {
+          "id": "facts-september",
+          "text": "what's in September?",
+          "assert": { "kind": "count", "months": ["2026-09"] },
+          "note": "The original defect. September is a DRAFT month — its content is planned posts, not written ones — so the count that must come back is the planned count, and 'nothing scheduled' is a failure however confidently it is phrased."
+        },
+        {
+          "id": "facts-empty-dates",
+          "text": "how many empty dates are there in September?",
+          "assert": { "kind": "empty", "month": "2026-09" },
+          "note": "Answered once by subtracting posts from days in the month, which is only valid if no date holds two. Several September dates do. The EMPTY DATES line is the answer; anything arrived at by arithmetic is a coincidence."
+        },
+        {
+          "id": "facts-pillar-balance",
+          "text": "what's the balance of the pillars?",
+          "assert": { "kind": "tally", "month": "2026-09", "field": "pillar" },
+          "note": "Names no month, and two months are in view. Asserted against the VIEWED month, which is what the client looking at September means. An answer that covers August instead is a real finding, not a corpus error — read the text."
+        },
+        {
+          "id": "facts-format-mix",
+          "text": "what's the format mix in September?",
+          "assert": { "kind": "tally", "month": "2026-09", "field": "format" }
+        },
+        {
+          "id": "facts-doubled-dates",
+          "text": "are there any dates with more than one post?",
+          "assert": { "kind": "doubled", "month": "2026-09" },
+          "note": "Names no month. August holds doubled dates too, so an answer naming both months is correct and satisfies this — the assertion only requires September's to be among them."
+        },
+        {
+          "id": "facts-august-count",
+          "text": "how many posts do I have in August?",
+          "assert": { "kind": "count", "months": ["2026-08"] },
+          "note": "The other month in view, and the one the combined-total line is most likely to be quoted for. August's own figure is on its own PLAN FACTS line."
+        },
+        {
+          "id": "facts-both-months",
+          "text": "how many posts across August and September?",
+          "assert": { "kind": "count", "months": ["2026-08", "2026-09"] },
+          "note": "The one case where the plan state does not carry the answer as a single number: its combined-total line counts WRITTEN posts only, so September's planned ones are not in it. The assertion accepts either the true total or both component figures stated separately — but not the written-only total on its own."
+        }
+      ]
+    },
+    {
+      "id": "shape",
+      "title": "SHAPE AND REGISTER — previously answered with a list or a menu",
+      "note": "NOT ASSERTED. The facts behind these are not in doubt; what is in doubt is whether the reply answers the question or offers a menu of things it could tell you. No string comparison sees that. Read the text.",
+      "cases": [
+        {
+          "id": "shape-image-post",
+          "text": "which post in September is just an image?",
+          "assert": null,
+          "note": "There is a single deterministic answer in the data. If the reply is a list, the failure is register, not arithmetic."
+        },
+        { "id": "shape-the-18th", "text": "what's on the 18th?", "assert": null },
+        { "id": "shape-the-3rd", "text": "is there anything on the 3rd?", "assert": null },
+        { "id": "shape-second-half-reels", "text": "which reels are in the second half of the month?", "assert": null }
+      ]
+    },
+    {
+      "id": "declines-correct",
+      "title": "DECLINES THAT SHOULD STAY DECLINES",
+      "note": "Classes of information the plan state and the knowledge bank do not carry at all. The right answer is to say so. Asserted on the answerer's OWN outcome tag rather than on the wording, because the tag is the thing production records.",
+      "cases": [
+        { "id": "decline-competitors", "text": "what's resonating with my competitors?", "assert": { "kind": "outcome", "value": "declined" } },
+        { "id": "decline-performance", "text": "how did last month's posts perform?", "assert": { "kind": "outcome", "value": "declined" } },
+        { "id": "decline-engagement", "text": "what's my engagement rate?", "assert": { "kind": "outcome", "value": "declined" } }
+      ]
+    },
+    {
+      "id": "declines-wrong",
+      "title": "DECLINES THAT SHOULD NOT BE — the ideas gap",
+      "note": "KNOWN FAILING. Ideas and durable client inputs (plan_inputs, notes) are not in the answerer's context at all — it is handed the plan state and the knowledge bank and nothing else — so it declines a question it has the data to answer somewhere else in the system. These are scored so that closing the gap shows up as a change, and reported apart so they never read as a regression.",
+      "cases": [
+        {
+          "id": "gap-ideas",
+          "text": "do I have any ideas I could use?",
+          "assert": { "kind": "outcome", "value": "answered" },
+          "knownFail": "plan_inputs / saved notes are not in the query answerer's context — see AnswerQueryArgs: it receives PlanContext and retrieved knowledge chunks, neither of which carries the backlog."
+        },
+        {
+          "id": "gap-what-i-told-you",
+          "text": "what did I tell you about September?",
+          "assert": null,
+          "knownFail": "Same gap, from the other side: the client's own filed inputs for the month are durable and reachable, and the answerer cannot see them.",
+          "note": "NOT ASSERTED, and the reason is worth stating because it was asserted first and the assertion was wrong. On outcome=answered this scored a pass: asked what the client had TOLD it, the agent described the plan instead — 27 planned posts, the empty dates, the format mix — and tagged itself answered, which it honestly was. The tag records whether it could help, not whether it answered the question that was asked, so it cannot see an adjacent answer standing in for the real one. That IS this gap's failure mode, so scoring it on the tag would report the gap as closed on the strength of the behaviour that proves it is open."
+        }
+      ]
+    },
+    {
+      "id": "boundary",
+      "title": "CROSS-MONTH AND BOUNDARY",
+      "note": "Where new defects are most likely. A date question is about the date, whichever month is on screen, and the plan state carries explicit Monday-to-Sunday week lines — so a week answer should be exact rather than approximately right.",
+      "cases": [
+        {
+          "id": "boundary-next-week",
+          "text": "what's on next week?",
+          "today": "2026-08-26",
+          "assert": { "kind": "week", "which": "next" },
+          "note": "TODAY IS MOVED for this case, on purpose. From the corpus default of 5 August, 'next week' is 10-16 August and sits entirely inside one month, which does not test the thing this case is for. From 26 August it is Mon 31 August to Sun 6 September and crosses the boundary. Note what the window holds: written posts in August and PLANNED ones in September. bucketCycleState's NEXT WEEK line buckets written posts only, so the state may state a week count that omits the September side — the assertion is derived from the rows, not from that line, and will say so."
+        },
+        {
+          "id": "boundary-october",
+          "text": "is anything scheduled for October?",
+          "assert": { "kind": "months-named" },
+          "note": "There is no October cycle. The prompt's rule for a date outside every window is to say so plainly AND name the months it can see, so what is asserted is that both visible months are named. Whether it also invents October content is for the reader — check the text."
+        },
+        {
+          "id": "boundary-changed-since",
+          "text": "what changed since last month?",
+          "assert": null,
+          "note": "Not asserted: 'changed' has no definition in the context — there is no history in the plan state, only a current shape. Printed to see whether it declines honestly or narrates a comparison it cannot make."
+        }
+      ]
+    }
+  ]
+}
