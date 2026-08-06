@@ -1058,6 +1058,13 @@ export function applyEmphasis(
  * Resolution must be UNAMBIGUOUS. If the reference matches zero beats or more than one,
  * the caller routes the input to the backlog with a receipt instead of picking one —
  * changing the wrong post is worse than not changing a post.
+ *
+ * ── THERE IS A SECOND DATE READER IN THIS FILE. READ BOTH TOGETHER ──────────────────
+ *
+ * `beatsOnNamedDate` is the correction path's, and it is deliberately STRICTER: it requires an
+ * ordinal suffix on a bare day where this one does not. The difference is the caller's guard,
+ * not an oversight — `applyBeatEdit` refuses ambiguity, `applyCorrection` moves every match, so
+ * a loose reader is safe here and is not there. Change one and check the other.
  */
 export function resolveBeatRef(ref: string, beats: TransformBeat[]): TransformBeat[] {
   const needle = ref.toLowerCase().trim();
@@ -1127,6 +1134,70 @@ export function resolveBeatSubject(subject: string, beats: TransformBeat[]): Tra
   return beats.filter((b) => { const h = haystack(b); return words.every((w) => h.includes(w)); });
 }
 
+/** Month names as a client writes them, and their numbers. Only used to CHECK a named month
+ *  against a beat's own — never to guess one. */
+const MONTH_WORD = 'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?'
+  + '|aug(?:ust)?|sep(?:t)?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?';
+const MONTH_NUM: Record<string, number> = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+};
+
+/** 'YYYY-MM-DD', anywhere in the phrase. */
+const ISO_IN = /\b(\d{4})-(\d{2})-(\d{2})\b/;
+/** A day that CARRIES ITS ORDINAL SUFFIX, with an optional month after it: "the 22nd", "22nd Sep". */
+const ORDINAL_IN = new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)\\b(?:\\s+(?:of\\s+)?(${MONTH_WORD})\\b)?`, 'i');
+/** A month leading its day, where the suffix is redundant: "September 22", "Sep 22nd". */
+const MONTH_DAY_IN = new RegExp(`\\b(${MONTH_WORD})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`, 'i');
+
+/**
+ * The beats sitting on the date a phrase NAMES — the correction path's fallback resolver.
+ *
+ * ── A BARE NUMBER IS NEVER A DATE HERE, AND THAT IS DELIBERATE ──────────────────────
+ *
+ * `resolveBeatRef` reads `/\b(\d{1,2})(?:st|nd|rd|th)?\b/` — the suffix optional — and it can
+ * afford to, because `applyBeatEdit` REFUSES on zero or more than one match. `applyCorrection`
+ * has no such guard: it moves every beat it matched. So a reader that turned "the top 5 tips
+ * post" into "whatever is on the 5th" would silently reschedule an unrelated post out of a
+ * sentence that named no date at all.
+ *
+ * The suffix is therefore REQUIRED for a bare day. "22 September" is not accepted and "the 22nd"
+ * is; "September 22" is, because a month leading its day is unambiguous without one. That costs
+ * the unsuffixed "move 22 September to the 25th" and it is the right side to fail on. DO NOT
+ * "improve" this by making the suffix optional — `draft-corrections.test.ts` pins the bare-digit
+ * case for that reason.
+ *
+ * A NAMED month is checked against the beat's own, so "the 22nd of October" finds nothing in a
+ * September plan rather than moving September's 22nd.
+ *
+ * ── WHY THIS IS NOT SHARED WITH `resolveBeatRef` ─────────────────────────────────────
+ *
+ * Two readers, two callers, two different guarantees — and the divergence is recorded here
+ * rather than carried in somebody's head. `resolveBeatRef` identifies ONE post and its caller
+ * refuses ambiguity; this one may legitimately return several (a date holding two posts) and
+ * its caller moves them together. Collapsing them would mean picking one of those two
+ * semantics for both, which is a change to what `move the Meadow launch` does — a redesign of
+ * the intent taxonomy, not this fix. If either reader is changed, read the other.
+ */
+export function beatsOnNamedDate(ref: string, beats: TransformBeat[]): TransformBeat[] {
+  const t = (ref ?? '').trim();
+  if (!t) return [];
+
+  const iso = ISO_IN.exec(t);
+  if (iso) return beats.filter((b) => b.date === `${iso[1]}-${iso[2]}-${iso[3]}`);
+
+  const monthOf = (word: string | undefined): number | null =>
+    word ? MONTH_NUM[word.slice(0, 3).toLowerCase()] ?? null : null;
+
+  const ord = ORDINAL_IN.exec(t);
+  const md = ord ? null : MONTH_DAY_IN.exec(t);
+  const day = ord ? Number(ord[1]) : md ? Number(md[2]) : null;
+  const month = ord ? monthOf(ord[2]) : md ? monthOf(md[1]) : null;
+  if (day === null || day < 1 || day > 31) return [];
+
+  return beats.filter((b) =>
+    Number(b.date.slice(8, 10)) === day && (month === null || Number(b.date.slice(5, 7)) === month));
+}
+
 /**
  * Apply a correction: move (or reformat) what is already on the plan.
  *
@@ -1144,7 +1215,27 @@ export function resolveBeatSubject(subject: string, beats: TransformBeat[]): Tra
  */
 export function applyCorrection(intent: MonthScopedIntent, beats: TransformBeat[], month: string): TransformResult {
   const subject = intent.correctionOf ?? intent.subject;
-  const matches = resolveBeatSubject(subject, beats);
+  /**
+   * ── SUBJECT FIRST, THEN THE DATE ────────────────────────────────────────────────────
+   *
+   * "can we move the 22nd to the 25th?" came back *"We couldn't find 'the 22nd' on this
+   * month's plan, so it was saved to your ideas instead"* over a September holding a post on
+   * the 22nd. `resolveBeatSubject` searches `title + rationale reason` and no date in any
+   * form, so a bare ordinal could never match it — while `resolveBeatRef`, forty lines above,
+   * has read dates since it was written. Which resolver ran was decided by whether the model
+   * said `correction` or `beat_edit`, a choice the client cannot see, and CLASSIFY_SYSTEM
+   * steers "move …" to `correction`. Referring to a post by its date is the most ordinary
+   * thing a client does here, so it must work either way.
+   *
+   * The ORDER is the whole safety argument. Subject matching runs first and unchanged, so
+   * every correction that resolves today resolves identically — this cannot reroute a working
+   * case, only rescue one that is currently filed as an idea. Date-first would hijack exactly
+   * the sentence this function exists for: "the Meadow candle launch is the 10th not the 1st"
+   * would resolve on the OLD date and move whatever sits there instead of the arc.
+   */
+  const matches = resolveBeatSubject(subject, beats).length
+    ? resolveBeatSubject(subject, beats)
+    : beatsOnNamedDate(subject, beats);
   if (matches.length === 0) {
     return { ops: [], note: `We couldn’t find “${subject}” on this month’s plan, so it was saved to your ideas instead.` };
   }

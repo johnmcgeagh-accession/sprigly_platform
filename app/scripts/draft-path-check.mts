@@ -29,8 +29,9 @@
  * product reads. Operator-invoked only; it lives in scripts/, so Vitest never collects it.
  */
 import { applyIntakeToDraft } from '../src/lib/draft-apply';
-import { parsePlanQuestion } from '@sprigly/engine';
+import { parsePlanQuestion, classifyIntake, applyIntent, type TransformBeat } from '@sprigly/engine';
 import { getModelClient } from '../src/lib/agent/model';
+import { loadDraftBeats } from '../src/lib/plan';
 import { db, contentCycles } from '@sprigly/db';
 import { eq } from 'drizzle-orm';
 
@@ -40,6 +41,7 @@ for (const level of ['info', 'warn', 'debug'] as const) {
 
 const args = process.argv.slice(2);
 const arg = (k: string) => args.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3);
+const has = (k: string) => args.includes(`--${k}`);
 
 const CYCLE = arg('cycle') ?? '0b9677e5-d06d-4de5-9207-527cd837333a';
 const TODAY = arg('today') ?? '2026-08-05';
@@ -66,6 +68,49 @@ console.log(`${'─'.repeat(96)}`);
 console.log(`THE DRAFT SURFACE'S OWN PATH — applyIntakeToDraft, receipt suppressed`);
 console.log(`cycle ${CYCLE} · client ${row.clientId} · today ${TODAY}`);
 console.log(`${'─'.repeat(96)}`);
+
+/**
+ * `--resolve` — CLASSIFY AND RESOLVE A CHANGE, AND STOP BEFORE THE WRITE.
+ *
+ * A move is the one thing this file cannot run end to end: `applyIntakeToDraft` would reach
+ * `writeOps` and reschedule a real post in a month that must not be touched. So this mode runs
+ * everything up to that point and prints what WOULD happen — the real classifier on the real
+ * sentence (which is the part nobody can predict: whether the model says `correction` or
+ * `beat_edit` decides which resolver runs), against the month's real beats, through the real
+ * transform. Only the database write is withheld.
+ *
+ * Say what it is when reporting it: this is the production path minus its last step, not a
+ * live edit. The pure resolution rules are pinned in draft-corrections.test.ts.
+ */
+const RESOLVE = args.filter((a) => !a.startsWith('--') && a.trim());
+if (has('resolve')) {
+  const beats: TransformBeat[] = (await loadDraftBeats(row.clientId, CYCLE)).map((b) => ({
+    id: b.id, date: b.date, format: b.format, pillar: b.pillar, title: b.title, position: b.position,
+    // Reconstructed so `resolveBeatSubject` sees the same evidence text production gives it —
+    // without it, a subject that matches on the rationale would silently look unmatchable here.
+    beatMeta: { slotType: b.slotType, rationaleEvidence: b.evidence } as never,
+  }));
+  const planMonth = `${TODAY.slice(0, 4)}-09`;
+
+  console.log(`\nRESOLVE ONLY — classify + transform, the write withheld. ${beats.length} planned posts loaded.`);
+  for (const text of RESOLVE) {
+    console.log(`\n\n══ ${JSON.stringify(text)}`);
+    const routing = await classifyIntake({ text, planMonth, model: getModelClient() });
+    console.log(`   parsePlanQuestion → ${parsePlanQuestion(text) ?? 'null'}`);
+    console.log(`   classifyIntake    → scope=${routing.scope}`
+      + (routing.scope === 'month_scoped' ? ` kind=${routing.intent.kind} correctionOf=${JSON.stringify(routing.intent.correctionOf ?? null)} beatRef=${JSON.stringify(routing.intent.beatRef ?? null)} dateRange=${JSON.stringify(routing.intent.dateRange ?? null)}` : '')
+      + (routing.scope === 'evergreen' ? ` reason=${routing.reason}` : ''));
+    if (routing.scope !== 'month_scoped') { console.log(`   → filed, no ops`); continue; }
+    const res = applyIntent(routing.intent, beats, planMonth, TODAY);
+    console.log(`   applyIntent       → ${res.ops.length} op(s)${res.note ? ` · note: ${res.note}` : ''}`);
+    for (const op of res.ops) {
+      const b = 'id' in op ? beats.find((x) => x.id === op.id) : undefined;
+      console.log(`     ${op.op} ${b ? `“${b.title}” ${b.date}` : ''} → ${JSON.stringify('changes' in op ? op.changes : op)}`);
+    }
+  }
+  console.log(`\n\nNothing was written — no ops executed, no receipt persisted.`);
+  process.exit(0);
+}
 
 for (const text of QUESTIONS) {
   // Printed because it decides everything: the gate claims the question INSIDE classifyIntake,
