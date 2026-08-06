@@ -35,6 +35,9 @@ import type { MessagePart, ModelClient, ModelCompleteParams } from '@sprigly/mod
 const PLAN_STATE = 'TODAY IS 2026-08-05.\nSeptember 2026 (2026-09): 30 posts, on 26 of the month’s 30 dates.';
 const KNOWLEDGE  = '[1] Returns policy\nThirty days, unworn, tags on.';
 const QUESTION   = 'what’s in September?';
+/** The catalogue block. The db mock returns no cycle row, so the live path degrades to this —
+ *  which is the state a client with no catalogue is in, and the one the answerer had before. */
+const CATALOGUE  = '(no product catalogue available)';
 
 /** The message shape the answerer sends, captured whole. */
 function capturingModel(): { model: ModelClient; parts: () => MessagePart[] } {
@@ -69,13 +72,28 @@ const ask = async () => {
 describe('the split changes the cost, never the prompt', () => {
   it('concatenating the parts reproduces the message exactly as it was', () => {
     // The pre-split literal, kept verbatim. If the split ever alters the text, this fails.
-    const before = `PLAN STATE:\n${PLAN_STATE}\n\nKNOWLEDGE CONTEXT:\n${KNOWLEDGE}\n\nQUESTION:\n${QUESTION}`;
-    expect(renderQueryMessage(PLAN_STATE, KNOWLEDGE, QUESTION)).toBe(before);
+    const before = `PLAN STATE:\n${PLAN_STATE}\n\nPRODUCT CATALOGUE:\n${CATALOGUE}`
+      + `\n\nKNOWLEDGE CONTEXT:\n${KNOWLEDGE}\n\nQUESTION:\n${QUESTION}`;
+    expect(renderQueryMessage(PLAN_STATE, CATALOGUE, KNOWLEDGE, QUESTION)).toBe(before);
   });
 
-  it('sends text / cache_point / text — one breakpoint, not two', async () => {
+  it('sends text / text / cache_point / text — one breakpoint, not two', async () => {
+    // The catalogue is a SECOND text part above the breakpoint, not a second breakpoint. Haiku's
+    // minimum cacheable prefix is 4,096 tokens and the system prompt alone is well under it, so a
+    // breakpoint per block would sit below the floor, cache nothing, and raise no error.
     const parts = await ask();
-    expect(parts.map((p) => p.type)).toEqual(['text', 'cache_point', 'text']);
+    expect(parts.map((p) => p.type)).toEqual(['text', 'text', 'cache_point', 'text']);
+    expect(parts.filter((p) => p.type === 'cache_point')).toHaveLength(1);
+  });
+
+  it('the catalogue is ABOVE the breakpoint — it is the most invariant thing here', async () => {
+    const parts = await ask();
+    const cut = parts.findIndex((p) => p.type === 'cache_point');
+    const above = parts.slice(0, cut).map((p) => ('text' in p ? p.text : '')).join('');
+    expect(above).toContain('PRODUCT CATALOGUE:');
+    // Knowledge stays BELOW: retrieveChunks is keyed on the question, so it varies per turn and
+    // would end the cached prefix at the first differing byte.
+    expect(above).not.toContain('KNOWLEDGE CONTEXT:');
   });
 });
 

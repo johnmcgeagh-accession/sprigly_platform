@@ -13,6 +13,9 @@ import type { AuditLogger } from '@sprigly/audit';
 import { retrieveChunks } from '@sprigly/knowledge';
 import { AGENT_MODEL } from './model';
 import { bucketCycleState, readCycleState } from './cycle-state';
+import { loadProductIndex } from './catalogue';
+import { db, contentCycles } from '@sprigly/db';
+import { and, eq } from 'drizzle-orm';
 import type { PlanPost } from '../types';
 import type { PlanContext } from './plan-context';
 
@@ -33,8 +36,10 @@ export const QUERY_SYSTEM_PROMPT = `You are a clothing brand's content-plan assi
 - A DRAFT MONTH IS REAL CONTENT WITH NO WORDS YET. The plan state may hold a DRAFT MONTH block: a month the client has been sent for review, holding proposed SLOTS ('planned posts') rather than written posts. Two rules, and they pull in opposite directions on purpose.
   · That month is NOT EMPTY. It has that many planned posts, on those dates, in those formats, under those pillars, with those working titles. Never say such a month has "nothing scheduled", is "empty", or is "not in the plan" — count them and name them exactly as you would written posts. Call them planned posts.
   · That month has NO CAPTIONS. Not one of them has copy written. If the question is about what a post SAYS — its caption, its wording, its tone, its opening line, what it "talks about" beyond its title, or asks you to quote or summarise it — SAY THE CAPTIONS ARE NOT WRITTEN YET and say what you do have (the date, format, pillar and working title). NEVER answer a caption question out of a planned post's title: a title is a slot's label, not its copy, and expanding one into what the post "is about" is inventing the post.
-- ANSWER THE QUESTION THAT WAS ASKED, OR SAY YOU CANNOT. If the question asks for a CLASS OF INFORMATION the plan state and knowledge context do not carry at all — products, prices, stock, performance, engagement, competitors, analytics, who created a plan or when — say plainly that you do not have that on file. Do NOT answer an adjacent question instead and let it stand as the answer: a question about products is not a question about posts, and an answer about posts does not address it. Name what you can see, and stop.
+- ANSWER THE QUESTION THAT WAS ASKED, OR SAY YOU CANNOT. If the question asks for a CLASS OF INFORMATION the plan state and knowledge context do not carry at all — prices, stock, performance, engagement, competitors, analytics, who created a plan or when — say plainly that you do not have that on file. Do NOT answer an adjacent question instead and let it stand as the answer: a question about performance is not a question about posts, and an answer about posts does not address it. Name what you can see, and stop.
 - HOW TO DECLINE, WHEN YOU MUST. The rule above says WHAT you cannot answer. This is the shape the answer takes, and it has three parts in order: NAME the thing you do not have, say it is not something you can do YET, and stop there. Do NOT tell the client to look somewhere else. Do not name another tool, a website, a database, a dashboard or another person, and never suggest they ask someone who does this kind of work for them — they are asking you because this IS the work we do for them, and sending them away to buy it twice is the worst answer available. "I can't tell you how those posts performed yet" is right. "You'd need to check your analytics" is wrong, and "you'd need to discuss that with whoever develops your content strategy" is worse: the first sends them away, the second sends them away and implies they bought the wrong thing. The word "yet" is doing real work — it is true, it commits to no date, and it marks the difference between something we have not built and something that was never ours to answer. Use it, and promise nothing beyond it.
+- THE PRODUCT CATALOGUE IS YOURS TO READ. The context carries a PRODUCT CATALOGUE block: every product family the brand sells, with its garment type and its colourways. Asked what they sell, which colours a piece comes in, or whether something is in the range, ANSWER FROM IT — that is a question about the brand's own products and you have the brand's own list. Do not decline it and do not send them to a website. Two limits, and they are limits on the block, not on the answer: it carries names, types and colourways and NOTHING ELSE, so prices, stock, sizes and what is selling are still things you cannot tell them yet; and a product ABSENT from the list is a product you have no record of — say so plainly rather than deciding it does not exist.
+  · ANSWER THE QUESTION, DO NOT RECITE THE LIST. The block runs to dozens of families. Asked what they sell, say how many there are and describe the range — the garment types, the shape of it — and offer to go deeper. Asked about ONE product, answer about that one. Reproduce the whole catalogue only if they ask for the whole catalogue. A reply that enumerates every family is not an answer, it is the block read aloud, and it will be cut off before you finish.
 - NUMBERS ARE READ, NEVER COUNTED. The plan state carries a PLAN FACTS block: for each month, how many posts it holds, how many dates are occupied, WHICH dates are empty, which dates hold more than one post, and the counts by format, by pillar and by status. Those numbers are computed from the plan and are exact.
   · If the question asks for a figure that is on that block, QUOTE THE BLOCK. Do not count the rows, do not tally them, and do not check the block against your own count — where they differ the block is right and you are wrong. Counting a list of thirty rows is the one thing you reliably get wrong, and it is why the numbers are given to you.
   · EMPTY DATES ARE LISTED, NOT CALCULATED. Never work them out by subtracting posts from days in the month: a date can hold TWO posts, and the block says which ones do. That subtraction is wrong whenever any date is doubled, and the EMPTY DATES line is the answer in every case.
@@ -180,9 +185,14 @@ function postsInScope(ctx: PlanContext): PlanPost[] {
  * stops caching. `cacheReadTokens` on the audit row is what says whether it is still working —
  * which is precisely why that field is recorded rather than assumed.
  */
-function buildUserMessage(planState: string, knowledge: string, question: string): MessagePart[] {
+function buildUserMessage(planState: string, catalogue: string, knowledge: string, question: string): MessagePart[] {
   return [
     { type: 'text', text: `PLAN STATE:\n${planState}` },
+    // ABOVE THE BREAKPOINT, because it is the most invariant thing here: a catalogue changes
+    // when the client's range changes, which is far less often than the plan does. It is ~800
+    // tokens paid once per cache write rather than once per question, and it lifts the prefix
+    // further clear of Haiku's 4,096-token minimum, which this file already flags as thin.
+    { type: 'text', text: `\n\nPRODUCT CATALOGUE:\n${catalogue}` },
     { type: 'cache_point' },
     { type: 'text', text: `\n\nKNOWLEDGE CONTEXT:\n${knowledge}\n\nQUESTION:\n${question}` },
   ];
@@ -191,14 +201,57 @@ function buildUserMessage(planState: string, knowledge: string, question: string
 /** The message as one string — what the fixtures assert against, and what a provider with no
  *  caching effectively receives. Keeps the split above from becoming untestable, and pins that
  *  it changed the prompt's COST and not its text. */
-export function renderQueryMessage(planState: string, knowledge: string, question: string): string {
-  return buildUserMessage(planState, knowledge, question)
+export function renderQueryMessage(planState: string, catalogue: string, knowledge: string, question: string): string {
+  return buildUserMessage(planState, catalogue, knowledge, question)
     .filter((p): p is Extract<MessagePart, { type: 'text' }> => p.type === 'text')
     .map((p) => p.text)
     .join('');
 }
 
+/**
+ * THE CATALOGUE, LOADED HERE RATHER THAN PASSED IN.
+ *
+ * ── The failure ─────────────────────────────────────────────────────────────────────
+ *
+ * Asked "what products do I have", the agent said it did not have that on file and suggested
+ * the client check "your product database or website". `client_product_catalogue` holds 49
+ * families for that client, 53KB, refreshed 2026-07-01 — and `loadProductIndex` already renders
+ * it into the TASK PARSER's context on the same turn (`turn.ts`). Two calls, one holding the
+ * answer, and the one the client was talking to did not get it.
+ *
+ * ── Why it is not a parameter ───────────────────────────────────────────────────────
+ *
+ * Because that is precisely how it came to be missing. The parser gets it because its caller
+ * remembered to load it; the answerer did not, and nothing failed — the context object simply
+ * had no field for it. Making it an argument would leave the next caller (the draft surface
+ * reaches this through `draft-apply.ts`, not through `turn.ts`) free to omit it in the same
+ * silent way. Loading it here means every path that answers a question has it.
+ *
+ * The cost is one indexed read on a path that already makes two Bedrock calls, and the channel
+ * comes off the cycle row rather than being threaded through `AnswerQueryArgs` for the same
+ * reason. Best-effort throughout: a failure degrades to `NO_CATALOGUE`, which reads as "no
+ * catalogue on file" and returns the answerer to exactly the behaviour it had before.
+ */
+async function loadCatalogueFor(clientId: string, cycleId: string): Promise<string> {
+  try {
+    const [row] = await db
+      .select({ channel: contentCycles.channel })
+      .from(contentCycles)
+      .where(and(eq(contentCycles.id, cycleId), eq(contentCycles.clientId, clientId)))
+      .limit(1);
+    if (!row) return NO_CATALOGUE_FALLBACK;
+    return await loadProductIndex(clientId, row.channel);
+  } catch {
+    return NO_CATALOGUE_FALLBACK;
+  }
+}
+
+/** What the block says when there is nothing to say. Matches `catalogue.ts`'s own wording so the
+ *  model meets one sentence for this state rather than two. */
+const NO_CATALOGUE_FALLBACK = '(no product catalogue available)';
+
 export async function answerQuery(args: AnswerQueryArgs, deps: AnswerQueryDeps): Promise<QueryAnswer> {
+  const catalogue = await loadCatalogueFor(args.clientId, args.cycleId);
   const cycleState = args.context
     ? bucketCycleState(postsInScope(args.context), args.today, args.context.months, args.context.beats)
     : await readCycleState(args.clientId, args.cycleId, args.today);
@@ -223,7 +276,7 @@ export async function answerQuery(args: AnswerQueryArgs, deps: AnswerQueryDeps):
   const res = await deps.model.complete({
     model: AGENT_MODEL,
     system: QUERY_SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: buildUserMessage(cycleState.summary, knowledge, args.question) }],
+    messages: [{ role: 'user', content: buildUserMessage(cycleState.summary, catalogue, knowledge, args.question) }],
     /**
      * 600 was enough until the state told the model more, and then it was not.
      *

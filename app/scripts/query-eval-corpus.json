@@ -27,42 +27,72 @@
         {
           "id": "facts-september",
           "text": "what's in September?",
-          "assert": { "kind": "count", "months": ["2026-09"] },
+          "assert": {
+            "kind": "count",
+            "months": [
+              "2026-09"
+            ]
+          },
           "note": "The original defect. September is a DRAFT month — its content is planned posts, not written ones — so the count that must come back is the planned count, and 'nothing scheduled' is a failure however confidently it is phrased."
         },
         {
           "id": "facts-empty-dates",
           "text": "how many empty dates are there in September?",
-          "assert": { "kind": "empty", "month": "2026-09" },
+          "assert": {
+            "kind": "empty",
+            "month": "2026-09"
+          },
           "note": "Answered once by subtracting posts from days in the month, which is only valid if no date holds two. Several September dates do. The EMPTY DATES line is the answer; anything arrived at by arithmetic is a coincidence."
         },
         {
           "id": "facts-pillar-balance",
           "text": "what's the balance of the pillars?",
-          "assert": { "kind": "tally", "month": "2026-09", "field": "pillar" },
+          "assert": {
+            "kind": "tally",
+            "month": "2026-09",
+            "field": "pillar"
+          },
           "note": "Names no month, and two months are in view. Asserted against the VIEWED month, which is what the client looking at September means. An answer that covers August instead is a real finding, not a corpus error — read the text."
         },
         {
           "id": "facts-format-mix",
           "text": "what's the format mix in September?",
-          "assert": { "kind": "tally", "month": "2026-09", "field": "format" }
+          "assert": {
+            "kind": "tally",
+            "month": "2026-09",
+            "field": "format"
+          }
         },
         {
           "id": "facts-doubled-dates",
           "text": "are there any dates with more than one post?",
-          "assert": { "kind": "doubled", "month": "2026-09" },
+          "assert": {
+            "kind": "doubled",
+            "month": "2026-09"
+          },
           "note": "Names no month. August holds doubled dates too, so an answer naming both months is correct and satisfies this — the assertion only requires September's to be among them."
         },
         {
           "id": "facts-august-count",
           "text": "how many posts do I have in August?",
-          "assert": { "kind": "count", "months": ["2026-08"] },
+          "assert": {
+            "kind": "count",
+            "months": [
+              "2026-08"
+            ]
+          },
           "note": "The other month in view, and the one the combined-total line is most likely to be quoted for. August's own figure is on its own PLAN FACTS line."
         },
         {
           "id": "facts-both-months",
           "text": "how many posts across August and September?",
-          "assert": { "kind": "count", "months": ["2026-08", "2026-09"] },
+          "assert": {
+            "kind": "count",
+            "months": [
+              "2026-08",
+              "2026-09"
+            ]
+          },
           "note": "The one case where the plan state does not carry the answer as a single number: its combined-total line counts WRITTEN posts only, so September's planned ones are not in it. The assertion accepts either the true total or both component figures stated separately — but not the written-only total on its own."
         }
       ]
@@ -78,19 +108,61 @@
           "assert": null,
           "note": "There is a single deterministic answer in the data. If the reply is a list, the failure is register, not arithmetic."
         },
-        { "id": "shape-the-18th", "text": "what's on the 18th?", "assert": null },
-        { "id": "shape-the-3rd", "text": "is there anything on the 3rd?", "assert": null },
-        { "id": "shape-second-half-reels", "text": "which reels are in the second half of the month?", "assert": null }
+        {
+          "id": "shape-the-18th",
+          "text": "what's on the 18th?",
+          "assert": null
+        },
+        {
+          "id": "shape-the-3rd",
+          "text": "is there anything on the 3rd?",
+          "assert": null
+        },
+        {
+          "id": "shape-second-half-reels",
+          "text": "which reels are in the second half of the month?",
+          "assert": null
+        }
       ]
     },
     {
       "id": "declines-correct",
       "title": "DECLINES THAT SHOULD STAY DECLINES",
-      "note": "Classes of information the plan state and the knowledge bank do not carry at all. The right answer is to say so. Asserted on the answerer's OWN outcome tag rather than on the wording, because the tag is the thing production records.",
+      "note": "Classes of information the plan state and the knowledge bank do not carry at all. The right answer is to say so. Asserted on the answerer's OWN outcome tag rather than on the wording, because the tag is the thing production records. One case here is the inverse: a question that LOOKED like this class and never was.",
       "cases": [
-        { "id": "decline-competitors", "text": "what's resonating with my competitors?", "assert": { "kind": "outcome", "value": "declined" } },
-        { "id": "decline-performance", "text": "how did last month's posts perform?", "assert": { "kind": "outcome", "value": "declined" } },
-        { "id": "decline-engagement", "text": "what's my engagement rate?", "assert": { "kind": "outcome", "value": "declined" } }
+        {
+          "id": "catalogue-products",
+          "text": "what products do I have",
+          "assert": {
+            "kind": "outcome",
+            "value": "answered"
+          },
+          "note": "NOT A DECLINE, and it sits in this group deliberately — it was one until the catalogue reached the answerer. client_product_catalogue holds 49 families and loadProductIndex already rendered them into the TASK PARSER's context on the same turn; the answerer, which is what the client is talking to, never got them, and the prompt named `products` first in its decline list. The agent told a client to check 'your product database or website' about the client's own products. Asserted on the outcome tag rather than on a product name: which families the catalogue holds is the client's business and changes, and a corpus that pinned one would fail the next time the range does."
+        },
+        {
+          "id": "decline-competitors",
+          "text": "what's resonating with my competitors?",
+          "assert": {
+            "kind": "outcome",
+            "value": "declined"
+          }
+        },
+        {
+          "id": "decline-performance",
+          "text": "how did last month's posts perform?",
+          "assert": {
+            "kind": "outcome",
+            "value": "declined"
+          }
+        },
+        {
+          "id": "decline-engagement",
+          "text": "what's my engagement rate?",
+          "assert": {
+            "kind": "outcome",
+            "value": "declined"
+          }
+        }
       ]
     },
     {
@@ -101,7 +173,10 @@
         {
           "id": "gap-ideas",
           "text": "do I have any ideas I could use?",
-          "assert": { "kind": "outcome", "value": "answered" },
+          "assert": {
+            "kind": "outcome",
+            "value": "answered"
+          },
           "knownFail": "plan_inputs / saved notes are not in the query answerer's context — see AnswerQueryArgs: it receives PlanContext and retrieved knowledge chunks, neither of which carries the backlog."
         },
         {
@@ -122,19 +197,28 @@
           "id": "boundary-next-week",
           "text": "what's on next week?",
           "today": "2026-08-26",
-          "assert": { "kind": "week", "which": "next" },
+          "assert": {
+            "kind": "week",
+            "which": "next"
+          },
           "note": "TODAY IS MOVED for this case, on purpose. From the corpus default of 5 August, 'next week' is 10-16 August and sits entirely inside one month, which does not test the thing this case is for. From 26 August it is Mon 31 August to Sun 6 September and crosses the boundary, and the window holds written posts in August and PLANNED ones in September. THIS CASE FOUND A DEFECT AND NOW GUARDS IT: bucketCycleState bucketed written posts into its week lines and not beats, so the state said 'NEXT WEEK holds: 1 post' over a window holding five, and the agent quoted it — 'Next week holds 1 post... The rest of the week is empty'. Fixed by counting both, with the unwritten ones marked. The assertion is derived from the rows rather than from that line, which is why it could see the disagreement at all."
         },
         {
           "id": "boundary-last-week-of-august",
           "text": "whats happening in the last week of august",
-          "assert": { "kind": "week", "monday": "2026-08-24" },
+          "assert": {
+            "kind": "week",
+            "monday": "2026-08-24"
+          },
           "note": "PHONE-TYPED ON PURPOSE — no apostrophe, no question mark, which is how it was typed live. It was rejected at the GRAMMAR gate, not the topic gate: `\\b` after `what` matches \"what's\" and not \"whats\". Once claimed, the answer was still wrong — \"Mon 26 August to Sun 1 September, 6 posts\" against a week running Mon 24 to Sun 30 and holding 7. Both halves are asserted here: it has to be claimed AND it has to name the right week."
         },
         {
           "id": "boundary-week-after-next",
           "text": "whats happening the week after next",
-          "assert": { "kind": "week", "monday": "2026-08-17" },
+          "assert": {
+            "kind": "week",
+            "monday": "2026-08-17"
+          },
           "note": "Also phone-typed. This one the model got right by deriving it from the stated NEXT WEEK line — which is exactly why it is asserted: an answer that happened to survive arithmetic is not the same as one read off a stated line, and only the assertion can tell them apart."
         },
         {
@@ -146,7 +230,9 @@
         {
           "id": "boundary-october",
           "text": "is anything scheduled for October?",
-          "assert": { "kind": "months-named" },
+          "assert": {
+            "kind": "months-named"
+          },
           "note": "There is no October cycle. The prompt's rule for a date outside every window is to say so plainly AND name the months it can see, so what is asserted is that both visible months are named. Whether it also invents October content is for the reader — check the text."
         },
         {
