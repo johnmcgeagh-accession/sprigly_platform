@@ -266,16 +266,37 @@ export function createContentCycleConsumer(
         }
 
         /**
-         * THE FAST RETRY TICK (X2e). Same two arms as the daily pass and deliberately the same
-         * functions — a second implementation of "what should be retried" is a second answer to
-         * it. What differs is only how often they run.
+         * THE FAST RETRY TICK (X2e). The same THREE arms as the daily pass, deliberately the
+         * same functions and the same deps — a second implementation of "what should be retried"
+         * is a second answer to it. What differs is only how often they run.
+         *
+         * It said "two arms" and ran two while the daily ran three; the missing one was
+         * `sweepPlanReady`, which is the arm whose absence is least visible, because a cycle that
+         * never settles looks exactly like a cycle nobody has approved.
          */
         case 'generation-retry-tick': {
           logger.info(logCtx, 'content-cycles: starting generation-retry-tick job');
-          const retryDeps = { db, logger };
-          try { await sweepFailedGenerations(retryDeps, queue); }
+          /**
+           * THE COMMENT ABOVE WAS TRUE OF TWO ARMS AND THE DAILY PASS HAS THREE.
+           *
+           * `sweepPlanReady` was the missing one, so a plan-ready send that failed — or a
+           * settlement that never got its last event — waited for the DAILY tick. Measured on
+           * Ivy T's September: approved 14:47, generation finished 14:55, the cycle settled and
+           * unsent, and the next opportunity to notice was 05:00 the following morning. Thirteen
+           * hours in which the client is not told their month is ready, and not told that two
+           * posts are waiting on a word from them.
+           *
+           * `planReadyDeps`, not the old `retryDeps` of `{ db, logger }`. That narrower object is
+           * why this arm could not simply be added: a plan-ready sweep SENDS, and sending needs
+           * the encryption provider and the Google credentials. The daily pass already hands all
+           * three sweeps `planReadyDeps`, so using it here is what makes the two ticks the same
+           * functions with the same inputs rather than the same names.
+           */
+          try { await sweepUnsentPlanReady(planReadyDeps, queue); }
+          catch (err) { logger.warn({ err: String(err) }, 'generation-retry-tick: plan-ready sweep failed (non-fatal)'); }
+          try { await sweepFailedGenerations(planReadyDeps, queue); }
           catch (err) { logger.warn({ err: String(err) }, 'generation-retry-tick: sweep failed (non-fatal)'); }
-          try { await releaseBankedChanges(retryDeps, queue); }
+          try { await releaseBankedChanges(planReadyDeps, queue); }
           catch (err) { logger.warn({ err: String(err) }, 'generation-retry-tick: banked release failed (non-fatal)'); }
           break;
         }
