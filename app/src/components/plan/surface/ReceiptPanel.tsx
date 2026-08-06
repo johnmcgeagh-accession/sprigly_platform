@@ -27,7 +27,8 @@ import { ChevronD, ChevronR, CheckGlyph } from './icons';
 // The same stripper the thread renders the agent's prose through (agent-prose.ts). Shared so a
 // `**bold**` marker cannot survive in one surface and not the other.
 import { stripMarkdown } from './agent-prose';
-import { rollupHeadline, countItems, evergreenCopy } from './receipt-summary';
+import { rollupHeadline, countItems } from './receipt-summary';
+import { evergreenCopy } from '@/lib/receipt-copy';
 import { scrollPad } from './frame';
 
 export function ReceiptPanel({

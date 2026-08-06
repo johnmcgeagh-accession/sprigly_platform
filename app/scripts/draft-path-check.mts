@@ -29,6 +29,7 @@
  * product reads. Operator-invoked only; it lives in scripts/, so Vitest never collects it.
  */
 import { applyIntakeToDraft, readAsIdea } from '../src/lib/draft-apply';
+import { evergreenCopy, evergreenChip, threadMessage } from '../src/lib/receipt-copy';
 import { parsePlanQuestion, classifyIntake, applyIntent, type TransformBeat } from '@sprigly/engine';
 import { getModelClient } from '../src/lib/agent/model';
 import { loadDraftBeats } from '../src/lib/plan';
@@ -82,6 +83,37 @@ console.log(`${'─'.repeat(96)}`);
  * Say what it is when reporting it: this is the production path minus its last step, not a
  * live edit. The pure resolution rules are pinned in draft-corrections.test.ts.
  */
+/**
+ * `--copy` — every surface's words for every evergreen family, from the REAL modules.
+ *
+ * The reason is what the live path produces (see `--resolve`); the four strings are then a pure
+ * function of it. All five emitters read `receipt-copy.ts`, so printing that one module's output
+ * IS what the client sees — there is no second implementation left to diverge from it.
+ */
+if (has('copy')) {
+  const M = 'September';
+  const FAMILIES: Array<[string, string | undefined]> = [
+    ['read_as_idea', undefined],
+    ['couldnt_apply', undefined],
+    ['validation_failed', undefined],
+    ['not_applicable', 'Recorded 7 posts a week as your floor. You have 9 posts this month'],
+    ['model_error', undefined],
+    ['classified_evergreen', undefined],
+  ];
+  for (const [reason, note] of FAMILIES) {
+    const c = evergreenCopy(reason, M);
+    console.log(`\n══ ${reason}${note ? '  (carries a transform note)' : ''}`);
+    console.log(`   thread turn   ${JSON.stringify(threadMessage({ scope: 'evergreen', reason, lines: [], ...(note ? { note } : {}) }, M))}`);
+    console.log(`   panel heading ${JSON.stringify(c.heading)}`);
+    console.log(`   panel body    ${JSON.stringify(c.body)}`);
+    console.log(`   chip label    ${JSON.stringify(evergreenChip(reason))}`);
+    console.log(`   transcript    ${JSON.stringify(threadMessage({ scope: 'evergreen', reason, lines: [], ...(note ? { note } : {}) }, M))}`);
+    console.log(`   rescue tap    ${c.rescue ? 'offered' : 'WITHHELD'}`);
+  }
+  console.log(`\n\nNothing was read from or written to the database.`);
+  process.exit(0);
+}
+
 const RESOLVE = args.filter((a) => !a.startsWith('--') && a.trim());
 if (has('resolve')) {
   const beats: TransformBeat[] = (await loadDraftBeats(row.clientId, CYCLE)).map((b) => ({

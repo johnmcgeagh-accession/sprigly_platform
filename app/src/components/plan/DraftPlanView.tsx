@@ -21,7 +21,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import type { DraftBeatView, PostFormat } from '@/lib/types';
 import { rationaleFor, slotLabel, assumptionPrompt } from '@/lib/draft-rationale';
-import { evergreenCopy } from './surface/receipt-summary';
+import { evergreenCopy } from '@/lib/receipt-copy';
 
 /** One segment of a decomposed brief, and what became of it. */
 export interface BriefItem {
@@ -317,7 +317,7 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
             brief renders as a rollup (receipt.items): one line per segment, each applied line
             expandable to its diff, each idea/couldn't-apply line carrying the rescue tap. */}
         {receipt && (
-          <section aria-label={receipt.items ? 'What we found' : receipt.scope === 'evergreen' ? 'Saved to your ideas' : 'What changed'} style={{ background: C.navyLt, border: `1px solid ${C.line}`, borderRadius: 12, padding: '13px 14px', marginBottom: 16 }}>
+          <section aria-label={receipt.items ? 'What we found' : receipt.scope === 'evergreen' ? evergreenCopy(receipt.reason, monthLabel).heading : 'What changed'} style={{ background: C.navyLt, border: `1px solid ${C.line}`, borderRadius: 12, padding: '13px 14px', marginBottom: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
               <h2 style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: C.muted, margin: 0 }}>
                 {receipt.items ? 'What we found'

@@ -7,7 +7,8 @@
  * element whose job is to be trusted.
  */
 import { describe, it, expect } from 'vitest';
-import { countVerbs, countItems, chipLabel, rollupHeadline, evergreenCopy } from './receipt-summary';
+import { countVerbs, countItems, chipLabel, rollupHeadline } from './receipt-summary';
+import { evergreenCopy, threadMessage } from '@/lib/receipt-copy';
 import type { DraftReceipt, BriefItem } from '../DraftPlanView';
 
 const receipt = (over: Partial<DraftReceipt> = {}): DraftReceipt => ({
@@ -188,6 +189,39 @@ describe('evergreenCopy', () => {
     expect(heading).toBe('Saved to your ideas');
     expect(body).toBe('We’ve kept this for later rather than changing September. If you meant now, add it to this month.');
     expect(rescue).toBe(true);
+  });
+
+  /**
+   * THE THREAD IS THE FIFTH EMITTER, and it was the one that could not read the families.
+   *
+   * Live, one commit after the panel and chip were unified:
+   *   "Saved to your ideas — nothing on the month changed.Saved as an idea — not a change to
+   *    September"
+   * The first sentence came from DraftSurface's submit handler, which branched on `scope` alone.
+   * It prefixed FIVE of the six families; four contradicted the panel outright and
+   * `classified_evergreen` was doubled-but-agreeing, which is why it survived unnoticed.
+   */
+  it('the thread turn carries the family, not a sentence of its own', () => {
+    const ever = (reason: string, over: Partial<{ note: string }> = {}) =>
+      threadMessage({ scope: 'evergreen', reason, lines: [], ...over }, M);
+    expect(ever('read_as_idea')).toBe(evergreenCopy('read_as_idea', M).body);
+    expect(ever('couldnt_apply')).toBe(evergreenCopy('couldnt_apply', M).body);
+    expect(ever('model_error')).toBe(evergreenCopy('model_error', M).body);
+    // The generic sentence is gone from every family, including the one it happened to agree with.
+    for (const r of ['read_as_idea', 'couldnt_apply', 'validation_failed', 'not_applicable', 'model_error', 'classified_evergreen']) {
+      expect(ever(r)).not.toContain('nothing on the month changed');
+    }
+  });
+
+  it('NOTE-FIRST: not_applicable is the one family whose thread turn does not change', () => {
+    // A transform's own note is strictly more specific than any family sentence, and it already
+    // agrees with that family's heading. It is also why `not_applicable` was the one family the
+    // generic line never reached.
+    const note = 'Recorded 7 posts a week as your floor. You have 9 posts this month';
+    expect(threadMessage({ scope: 'evergreen', reason: 'not_applicable', lines: [], note }, M)).toBe(note);
+    // Diff lines still outrank everything — an applied change narrates itself.
+    expect(threadMessage({ scope: 'month_scoped', lines: ['Moved: a, Mon 3 Aug → Tue 4 Aug'] }, M))
+      .toBe('Moved: a, Mon 3 Aug → Tue 4 Aug');
   });
 
   it('every family the chip knows is a family the panel knows', () => {

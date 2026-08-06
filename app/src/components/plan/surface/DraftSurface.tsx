@@ -59,6 +59,7 @@ import { Feedback } from './Feedback';
 import { SummaryChip } from './SummaryChip';
 import { ReceiptPanel } from './ReceiptPanel';
 import { chipLabel } from './receipt-summary';
+import { threadMessage } from '@/lib/receipt-copy';
 import { MonthDaySummary } from './rows';
 import { useDraftMonth } from './useDraftMonth';
 import { defaultDayFor, monthOf, monthTitle, monthGrid } from './dates';
@@ -399,17 +400,15 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
             onSubmit={async (text, source) => {
               const r = await m.say(text, source);
               if (!r.ok) return { ok: false as const };
-              const lines = r.application?.lines ?? [];
               return {
                 ok: true as const,
-                // A month-scoped application with NO diff lines is not "nothing happened": it
-                // is context kept with the month's brief, and its note is the only thing that
-                // says so. Without this the fallback claimed "the month view shows what
-                // changed" over a calendar that had not moved.
-                message: lines.length ? lines.join('\n')
-                  : r.application?.note ? r.application.note
-                  : r.application?.scope === 'evergreen' ? 'Saved to your ideas — nothing on the month changed.'
-                  : 'Done — the month view shows what changed.',
+                // THE THREAD SAYS WHAT THE RECEIPT SAYS. This branched on `scope` alone and never
+                // read `reason`, so it narrated every evergreen family with one generic sentence
+                // — and rendered beside a panel heading that knew better: "Saved to your ideas —
+                // nothing on the month changed.Saved as an idea — not a change to September".
+                // `threadMessage` is the same rule the panel and the chip read, note-first, so
+                // the two cannot disagree again.
+                message: threadMessage(r.application, monthName),
               };
             }}
           />
@@ -513,17 +512,15 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
             onSubmit={async (text, source) => {
               const r = await m.say(text, source);
               if (!r.ok) return { ok: false as const };
-              const lines = r.application?.lines ?? [];
               return {
                 ok: true as const,
-                // A month-scoped application with NO diff lines is not "nothing happened": it
-                // is context kept with the month's brief, and its note is the only thing that
-                // says so. Without this the fallback claimed "the month view shows what
-                // changed" over a calendar that had not moved.
-                message: lines.length ? lines.join('\n')
-                  : r.application?.note ? r.application.note
-                  : r.application?.scope === 'evergreen' ? 'Saved to your ideas — nothing on the month changed.'
-                  : 'Done — the month view shows what changed.',
+                // THE THREAD SAYS WHAT THE RECEIPT SAYS. This branched on `scope` alone and never
+                // read `reason`, so it narrated every evergreen family with one generic sentence
+                // — and rendered beside a panel heading that knew better: "Saved to your ideas —
+                // nothing on the month changed.Saved as an idea — not a change to September".
+                // `threadMessage` is the same rule the panel and the chip read, note-first, so
+                // the two cannot disagree again.
+                message: threadMessage(r.application, monthName),
               };
             }}
           />

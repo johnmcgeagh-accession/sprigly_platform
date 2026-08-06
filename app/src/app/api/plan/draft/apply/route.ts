@@ -22,6 +22,8 @@ import { getSession } from '@/lib/auth';
 import { getModelClient } from '@/lib/agent/model';
 import { applyTextToDraft, addBacklogItemToMonth, loadReceipts } from '@/lib/draft-apply';
 import { ensureConversation, appendMessage } from '@/lib/agent/conversation';
+import { threadMessage } from '@/lib/receipt-copy';
+import { getCycleMonth, monthLabel } from '@/lib/agent/cycle-state';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -87,12 +89,18 @@ export async function POST(req: Request) {
     try {
       conversationId = await ensureConversation(session.clientId, session.cycleId);
       await appendMessage({ conversationId, role: 'user', content: text, source, writer: 'draft-apply', outcome: 'user' });
-      const lines = res.application?.lines ?? [];
+      // THE STORED TRANSCRIPT IS THE COPY THAT OUTLIVES THE SESSION, and it was the fifth
+      // emitter of the same sentence — hardcoded here, branching on `scope` alone, written into
+      // the conversation where it disagrees with the receipt permanently. It reads the same rule
+      // as the thread now. The month is fetched for it: a family sentence names the month, and
+      // "this month" in a transcript read back weeks later names nothing.
+      const planMonth = await getCycleMonth(session.clientId, session.cycleId).catch(() => null);
       await appendMessage({
         conversationId, role: 'assistant',
-        content: lines.length ? lines.join('\n')
-          : res.application?.scope === 'evergreen' ? 'Saved to your ideas — nothing on the month changed.'
-          : 'Done.',
+        // Bare month name, no year — `DraftSurface` renders `monthTitle(month).split(' ')[0]`,
+        // and "changing September 2026" in the transcript beside "changing September" in the
+        // thread is the same drift this commit exists to remove, one word smaller.
+        content: threadMessage(res.application, planMonth ? monthLabel(planMonth).split(' ')[0]! : 'this month'),
         // 'receipt', not 'answered' (0092): this row is the draft surface's applied-lines
         // receipt, not a plan-agent turn, and the two were previously the same shape.
         writer: 'draft-apply', outcome: 'receipt',
