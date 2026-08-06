@@ -66,7 +66,7 @@ import { buildPlanContext, type PlanContext } from '../src/lib/agent/plan-contex
 import { answerQuery, type QueryAnswer } from '../src/lib/agent/query';
 import { monthFacts, type DatedItem } from '../src/lib/agent/plan-facts';
 import { monthLabel } from '../src/lib/agent/cycle-state';
-import { weekWindows } from '../src/lib/agent/weeks';
+import { weekWindows, addDays } from '../src/lib/agent/weeks';
 
 // ── Corpus shape ─────────────────────────────────────────────────────────────────────
 
@@ -75,7 +75,9 @@ type Assertion =
   | { kind: 'empty';        month: string }
   | { kind: 'doubled';      month: string }
   | { kind: 'tally';        month: string; field: 'pillar' | 'format' }
-  | { kind: 'week';         which: 'this' | 'next' }
+  /** `which` names it relative to today; `monday` pins an arbitrary week by its Monday — the
+   *  form "the last week of August" needs, since it is neither this week nor next. */
+  | { kind: 'week';         which?: 'this' | 'next'; monday?: string }
   | { kind: 'outcome';      value: 'answered' | 'declined' }
   | { kind: 'months-named' };
 
@@ -372,7 +374,9 @@ function expectationFor(c: Case): Expectation | null {
     }
 
     case 'week': {
-      const w = weekWindows(c.today ?? TODAY)[a.which === 'next' ? 'nextWeek' : 'thisWeek'];
+      const w = a.monday
+        ? { from: a.monday, to: addDays(a.monday, 6) }
+        : weekWindows(c.today ?? TODAY)[a.which === 'next' ? 'nextWeek' : 'thisWeek'];
       const inWin = rows.filter((r) => r.date >= w.from && r.date <= w.to).sort((x, y) => x.date.localeCompare(y.date));
       const dates = [...new Set(inWin.map((r) => r.date))];
       // Stated because it is the gap this case exists to find: bucketCycleState buckets WRITTEN

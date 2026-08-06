@@ -28,6 +28,8 @@ export const QUERY_SYSTEM_PROMPT = `You are a clothing brand's content-plan assi
 - DATES. The plan state opens with today's date and gives every post its ISO date ('YYYY-MM-DD'). A date is PAST only if its ISO date is EARLIER than today's; today itself and everything after it is not past. Never call a date past unless the plan state marked it '[past — read-only]'. Do NOT reason about month names — compare the ISO dates. If you are about to say a date has passed, check that comparison first.
 - THE PLAN'S EXTENT IS THE CALENDAR WINDOW IT STATES, NOT ITS LAST POST. The plan state names the dates this plan covers. A month whose last post is the 28th still runs to the end of that month, and the dates after the last post are EMPTY, not outside the plan. Never say the plan "runs up to" the last scheduled post, and never tell the client a date inside the window is unavailable.
 - WEEKS. The plan state names THIS WEEK and NEXT WEEK as explicit Monday-to-Sunday date ranges. Use those ranges verbatim. "Next week" is that Monday-to-Sunday block — it is NEVER "seven days from today", and you must not count days forward from today's date to find it. If you are about to name a week's dates, read them off the WEEK lines instead.
+  · EVERY OTHER WEEK IS LISTED TOO. The state carries an EVERY WEEK IN VIEW block: every Monday-to-Sunday week the plan covers, with its dates and its post count, already computed. "The week after next", "the last week of August", "the first week of September" are all on that block. Find the line and read it. Do NOT work out where a week starts, do NOT name a weekday you have not read off a line, and do NOT count the posts yourself — the count is on the line and it is exact.
+  · NAME THE WINDOW YOU USED. Some phrases genuinely fit more than one of those lines — "the first week of September" can mean the week containing 1 September or the first week falling wholly inside it, and they are different weeks with different posts. There is no rule that settles it, so state the dates you answered from ("the first week of September — 31 August to 6 September — holds…"). Give one answer against one named window; never merge two, and never leave the client guessing which you meant.
 - A DRAFT MONTH IS REAL CONTENT WITH NO WORDS YET. The plan state may hold a DRAFT MONTH block: a month the client has been sent for review, holding proposed SLOTS ('planned posts') rather than written posts. Two rules, and they pull in opposite directions on purpose.
   · That month is NOT EMPTY. It has that many planned posts, on those dates, in those formats, under those pillars, with those working titles. Never say such a month has "nothing scheduled", is "empty", or is "not in the plan" — count them and name them exactly as you would written posts. Call them planned posts.
   · That month has NO CAPTIONS. Not one of them has copy written. If the question is about what a post SAYS — its caption, its wording, its tone, its opening line, what it "talks about" beyond its title, or asks you to quote or summarise it — SAY THE CAPTIONS ARE NOT WRITTEN YET and say what you do have (the date, format, pillar and working title). NEVER answer a caption question out of a planned post's title: a title is a slot's label, not its copy, and expanding one into what the post "is about" is inventing the post.
@@ -221,7 +223,28 @@ export async function answerQuery(args: AnswerQueryArgs, deps: AnswerQueryDeps):
     model: AGENT_MODEL,
     system: QUERY_SYSTEM_PROMPT,
     messages: [{ role: 'user', content: buildUserMessage(cycleState.summary, knowledge, args.question) }],
-    maxTokens: 600,
+    /**
+     * 600 was enough until the state told the model more, and then it was not.
+     *
+     * Caught by query-eval the moment the week block landed: "what's in September?" came back
+     * 1,833 characters long and ENDED MID-WORD — *"3 each of A Supportive Friend Always By Your
+     * Side, Personal Relationships an"*. Two things break at once there, and the second is the
+     * quiet one. The client sees a sentence cut in half; and the `[[outcome:…]]` tag is the LAST
+     * line of the reply, so truncation removes it entirely and the turn records `unknown` — the
+     * instrumentation that exists to say whether we could help goes dark on exactly the answers
+     * that got long enough to be worth measuring.
+     *
+     * Raised rather than solved by asking for brevity, because those are different problems. A
+     * cap is a guard against a runaway generation; it is not a way to ask for a shorter answer,
+     * and using it as one produces a truncated long answer instead of a complete short one. If
+     * the register is wrong — and a 27-row read-back of "what's in September?" is arguably wrong
+     * — that belongs in the prompt, where it can be stated, not in a number that cuts the reply
+     * off wherever it happens to land.
+     *
+     * Output tokens are billed as used, so the headroom costs nothing on the short answers that
+     * are most of the traffic.
+     */
+    maxTokens: 1200,
     temperature: 0,
   });
 

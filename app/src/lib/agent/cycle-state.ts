@@ -8,7 +8,7 @@ import { loadDraftBeats, loadPlanPosts } from '../plan';
 import { isEditableDate } from '../edit-scope';
 import type { DraftBeatView, PlanPost } from '../types';
 import { fmtDate, parseISO, postTitle } from './selectors';
-import { weekLines, weekWindows } from './weeks';
+import { weekLines, weekWindows, weeksInSpan, dayLabel } from './weeks';
 import { daysInMonth, factLines, monthFacts, PLAN_FACTS_HEADING } from './plan-facts';
 
 const MONTH_NAMES = [
@@ -461,6 +461,73 @@ export function bucketCycleState(
   };
 
   /**
+   * ── AND EVERY OTHER WEEK, BECAUSE A CLIENT ASKS FOR THOSE TOO ──────────────────────
+   *
+   * The two lines above state THIS WEEK and NEXT WEEK. Every other week reference — "the week
+   * after next", "the last week of august", "the first week of september" — had no stated line
+   * to read off, so it was derived. Measured live on 5 August: *"The last week of August (Mon
+   * 26 August to Sun 1 September) holds 6 posts"*, against a week that runs Mon 24 to Sun 30
+   * and holds 7. Wrong boundaries, wrong weekday names, wrong count, all stated fluently.
+   *
+   * So every week in the span is enumerated with its own count — boundaries from `weeksInSpan`,
+   * counts from the rows, on `plan-facts.ts`' rule that a quantity the model derives is one it
+   * gets wrong. Both halves of that sentence were wrong, and only stating both fixes both.
+   *
+   * THIS WEEK and NEXT WEEK are MARKED here rather than left to be matched against the lines
+   * above. Two blocks describing the same seven days is how they come to disagree, and a reader
+   * given "NEXT WEEK holds 5" and an unlabelled "2026-08-31 to 2026-09-06: 5 posts" has to do
+   * the join itself — which is the derivation this block exists to remove.
+   *
+   * Written and planned are split per week for the reason the week lines already split them: a
+   * flat five over a draft month invites "read me the Wednesday one".
+   */
+  const weekBlock = (): string[] => {
+    const inScope = monthsInScope(planMonth, byDate, beats);
+    const weeks = weeksInSpan(inScope);
+    if (!weeks.length) return [];
+    /**
+     * THE FIRST AND LAST WEEKS REACH OUTSIDE THE MONTHS THIS STATE DESCRIBES, and the line has
+     * to say so.
+     *
+     * A week is seven days whether or not the plan describes all of them: the week holding 1
+     * August begins on Monday 27 July, and clipping the boundary to the span would print a
+     * four-day "week" — reintroducing the wrong boundary this block exists to remove. But the
+     * COUNT beside it is drawn from `posts`, which is scoped to the described months
+     * (`query.ts` → postsInScope), so a post on 30 July is not in it. Stating a true boundary
+     * beside a partial count, with nothing to mark the difference, is how a client comes to be
+     * told a week holds two posts when it holds three.
+     *
+     * So the boundary stays whole and the LINE carries the caveat. Two of ten weeks wear it.
+     */
+    const spanFrom = `${inScope[0]}-01`;
+    const lastMonth = inScope[inScope.length - 1]!;
+    const spanTo = `${lastMonth}-${String(daysInMonth(lastMonth)).padStart(2, '0')}`;
+    const partial = (w: { from: string; to: string }) => w.from < spanFrom || w.to > spanTo;
+
+    return [
+      `EVERY WEEK IN VIEW — ALREADY COUNTED. Weeks run MONDAY TO SUNDAY. Read a week's dates and its`
+      + ` count off these lines: do not work out where a week begins, and do not count the rows yourself.`
+      + ` A week the client names ("the week after next", "the last week of August") is one of these blocks.`
+      + ` If the phrase could mean more than one of them, SAY WHICH DATES YOU USED.`,
+      ...weeks.map((w) => {
+        const wr = posts.filter(inWeek(w));
+        const pl = beats.filter(inWeek(w));
+        const total = wr.length + pl.length;
+        const mark = w.from === tw.from ? ' [THIS WEEK]' : w.from === nw.from ? ' [NEXT WEEK]' : '';
+        const edge = partial(w)
+          ? ` [part of this week falls outside the months described here — only its ${inScope.join('/')} dates are counted]`
+          : '';
+        const head = `  ${w.from} to ${w.to} (${dayLabel(w.from)} to ${dayLabel(w.to)})${mark}${edge}:`;
+        if (!total) return `${head} 0 posts.`;
+        const mix = !pl.length ? 'all written'
+          : !wr.length ? `none written yet — ${pl.length} planned post${pl.length === 1 ? '' : 's'}`
+          : `${wr.length} written + ${pl.length} planned (not yet written)`;
+        return `${head} ${n(total, 'post')}, ${mix} — ${listDates([...wr, ...pl])}.`;
+      }),
+    ];
+  };
+
+  /**
    * ── THE MONTHS THIS STATE IS ABOUT ─────────────────────────────────────────────────
    *
    * The caller's months when it named any — which is the whole point: the state's window line,
@@ -534,6 +601,7 @@ export function bucketCycleState(
     weekLines(todayIso),
     weekCount('THIS WEEK holds', thisWeek, thisWeekBeats),
     weekCount('NEXT WEEK holds', nextWeek, nextWeekBeats),
+    ...weekBlock(),
     ...(window ? [window] : []),
     ...(months.length ? [PLAN_FACTS_HEADING, ...months.flatMap(factsFor)] : []),
     totalLine,

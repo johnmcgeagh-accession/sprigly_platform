@@ -83,7 +83,19 @@ const ask = async (context: PlanContext) => {
 describe('the plan state describes the months it claims to describe', () => {
   it('drops the months the digest does not name — July is reachable, not described', async () => {
     const sent = await ask(ctx());
-    expect(sent).not.toContain('2026-07-');
+    // No July POST is described — which is what this invariant is about. The assertion was a
+    // blanket "no 2026-07- anywhere", and that stopped being the same thing when the week block
+    // landed: the week holding 1 August genuinely begins on Monday 27 July, and clipping that
+    // boundary to the span would print a four-day week. The boundary may name July; the ROWS
+    // may not, and the line that names it says outright that only the described months are
+    // counted in it.
+    for (const l of sent.split('\n')) {
+      if (l.trim().startsWith('2026-07-27 to')) {
+        expect(l).toContain('falls outside the months described here');
+        continue;
+      }
+      expect(l).not.toContain('2026-07-');
+    }
     expect(sent).toContain('2026-09-');
     expect(sent).toContain('2026-08-');
   });

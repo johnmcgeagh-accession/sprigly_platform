@@ -17,7 +17,7 @@ import { describe, it, expect, vi } from 'vitest';
 // here is pure. This stands in for the module-scope DATABASE_URL parse.
 vi.mock('@sprigly/db', () => ({ db: {}, contentCycles: {}, contentCyclePosts: {} }));
 vi.mock('@sprigly/knowledge', () => ({ retrieveChunks: async () => [] }));
-import { mondayOf, weekWindows, weekLines, dayLabel, addDays } from './weeks';
+import { mondayOf, weekWindows, weekLines, dayLabel, addDays, weeksInSpan } from './weeks';
 import { bucketCycleState } from './cycle-state';
 import { TASK_PARSER_SYSTEM_PROMPT, renderUserMessage } from './task-parser';
 import { QUERY_SYSTEM_PROMPT } from './query';
@@ -213,6 +213,76 @@ describe('a week that crosses into a draft month counts the planned posts too', 
     // every beat carries the internal status `draft` and a beat is not the plan.
     expect(state().summary).toMatch(/COMBINED: 1 live posts/);
     expect(state().counts).toEqual({ planned: 1 });
+  });
+});
+
+/**
+ * EVERY week, not two — the same failure one week further out.
+ *
+ * Measured live on 5 August 2026: "what's happening in the last week of august" came back
+ * *"The last week of August (Mon 26 August to Sun 1 September) holds 6 posts"*. 26 August 2026
+ * is a WEDNESDAY and 1 September is a Tuesday; the week is Mon 24 to Sun 30 and it holds 7 —
+ * the answer omitted the 24th and 25th and included the 31st. Wrong boundaries, wrong weekday
+ * names, wrong count, stated fluently. THIS WEEK and NEXT WEEK were the only weeks the state
+ * named, so every other week was arithmetic.
+ */
+describe('every week in the span is enumerated and counted', () => {
+  const TODAY = new Date('2026-08-05T00:00:00');    // Wed 5 Aug → this week Mon 3 – Sun 9
+  const AUG = [
+    post('a24', '2026-08-24'), post('a25', '2026-08-25'), post('a26', '2026-08-26'),
+    post('a27', '2026-08-27'), post('a28', '2026-08-28'), post('a29', '2026-08-29'),
+    post('a04', '2026-08-04'),
+  ];
+  const line = (summary: string, from: string) =>
+    summary.split('\n').find((l) => l.trim().startsWith(from))!;
+  const state = () => bucketCycleState(AUG as never, TODAY, ['2026-08']).summary;
+
+  it('weeksInSpan covers the month end to end, straddling both boundaries', () => {
+    const w = weeksInSpan(['2026-08']);
+    // The first week begins in July and the last ends in September: a week that crosses a
+    // boundary is ONE week, not two halves.
+    expect(w[0]).toEqual({ from: '2026-07-27', to: '2026-08-02' });
+    expect(w[w.length - 1]).toEqual({ from: '2026-08-31', to: '2026-09-06' });
+    expect(w.every((x, i) => i === 0 || x.from === addDays(w[i - 1]!.from, 7))).toBe(true);
+  });
+
+  it('states the last week of August correctly — the answer that was wrong live', () => {
+    const l = line(state(), '2026-08-24');
+    expect(l).toContain('2026-08-24 to 2026-08-30 (Mon 24 August to Sun 30 August)');
+    expect(l).toContain('6 posts');            // the six in this fixture's 24–30 window
+    // The boundaries the model invented must not be derivable from any line.
+    expect(state()).not.toContain('2026-08-26 to 2026-09-01');
+  });
+
+  it('marks THIS WEEK and NEXT WEEK so the two blocks cannot disagree', () => {
+    const s = state();
+    expect(line(s, '2026-08-03')).toContain('[THIS WEEK]');
+    expect(line(s, '2026-08-10')).toContain('[NEXT WEEK]');
+    // Exactly one of each, and no other week wears a marker.
+    expect(s.match(/\[THIS WEEK\]/g)).toHaveLength(1);
+    expect(s.match(/\[NEXT WEEK\]/g)).toHaveLength(1);
+    // And the marked line agrees with the counted line above it.
+    expect(s).toContain('THIS WEEK holds: 1 post — 2026-08-04.');
+    expect(line(s, '2026-08-03')).toContain('1 post');
+  });
+
+  it('splits written from planned per week, and says nothing about an empty one', () => {
+    const beat = (id: string, date: string) => ({
+      id, cycleId: 'c', date, format: 'reel', pillar: 'P', title: 'T',
+      position: 0, slotType: 'proven', evidence: { basis: 'template' }, assumptions: [],
+    });
+    const s = bucketCycleState(
+      [post('w1', '2026-09-07')] as never, new Date('2026-09-02T00:00:00'), ['2026-09'],
+      [beat('b1', '2026-09-08'), beat('b2', '2026-09-09')] as never,
+    ).summary;
+    expect(line(s, '2026-09-07')).toContain('3 posts, 1 written + 2 planned (not yet written)');
+    expect(line(s, '2026-09-14')).toContain('0 posts.');
+  });
+
+  it('tells the model to name its window when the phrase fits more than one line', () => {
+    expect(state()).toContain('SAY WHICH DATES YOU USED');
+    expect(QUERY_SYSTEM_PROMPT).toContain('NAME THE WINDOW YOU USED');
+    expect(QUERY_SYSTEM_PROMPT).toMatch(/first week of September/);
   });
 });
 

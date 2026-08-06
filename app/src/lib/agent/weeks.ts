@@ -33,6 +33,9 @@
  *
  * Pure — no db, no React. `today` is an ISO date, which is what every caller already holds.
  */
+// The one definition of how long a month is, borrowed rather than written again — a literal 31
+// is an invalid date in five months of the year and February moves.
+import { daysInMonth } from './plan-facts';
 
 /** A calendar week, Monday to Sunday, both ends inclusive, both ISO. */
 export interface WeekWindow {
@@ -80,6 +83,40 @@ export function weekWindows(today: string): { thisWeek: WeekWindow; nextWeek: We
     thisWeek: { from: mon, to: addDays(mon, 6) },
     nextWeek: { from: nextMon, to: addDays(nextMon, 6) },
   };
+}
+
+/**
+ * EVERY Monday-to-Sunday week that overlaps the span, ascending.
+ *
+ * ── Why two stated weeks were not enough ────────────────────────────────────────────
+ *
+ * `weekLines` states THIS WEEK and NEXT WEEK, and F1 closed the failure for exactly those two
+ * phrasings. Every other week reference was left as arithmetic, and a client asks for them:
+ * "the week after next", "the last week of august", "the first week of september". Measured
+ * live on 5 August — *"The last week of August (Mon 26 August to Sun 1 September) holds 6
+ * posts"*. 26 August 2026 is a WEDNESDAY and 1 September is a Tuesday; the week is Mon 24 to
+ * Sun 30 and it holds 7. Wrong boundaries, wrong weekday names, wrong count, stated fluently.
+ *
+ * That is F1 again one week further out, and the same rule closes it: state the answer instead
+ * of setting the exercise. The boundaries come from here; the counts come from the rows
+ * (`cycle-state.ts`), on the `plan-facts.ts` precedent that a quantity the model derives is a
+ * quantity it gets wrong.
+ *
+ * The span is bounded by the MONTHS IN VIEW, so the first week may begin in the previous month
+ * and the last may end in the next — which is correct and is the whole point: a week that
+ * straddles a boundary is one week, not two halves.
+ */
+export function weeksInSpan(months: readonly string[]): WeekWindow[] {
+  const valid = [...months].filter((m) => /^\d{4}-\d{2}$/.test(m)).sort();
+  if (!valid.length) return [];
+  const last = valid[valid.length - 1]!;
+  const end = `${last}-${String(daysInMonth(last)).padStart(2, '0')}`;
+
+  const out: WeekWindow[] = [];
+  for (let mon = mondayOf(`${valid[0]}-01`); mon <= end; mon = addDays(mon, 7)) {
+    out.push({ from: mon, to: addDays(mon, 6) });
+  }
+  return out;
 }
 
 /** 'YYYY-MM-DD' → 'Mon 3 August'. */

@@ -126,6 +126,24 @@
           "note": "TODAY IS MOVED for this case, on purpose. From the corpus default of 5 August, 'next week' is 10-16 August and sits entirely inside one month, which does not test the thing this case is for. From 26 August it is Mon 31 August to Sun 6 September and crosses the boundary, and the window holds written posts in August and PLANNED ones in September. THIS CASE FOUND A DEFECT AND NOW GUARDS IT: bucketCycleState bucketed written posts into its week lines and not beats, so the state said 'NEXT WEEK holds: 1 post' over a window holding five, and the agent quoted it — 'Next week holds 1 post... The rest of the week is empty'. Fixed by counting both, with the unwritten ones marked. The assertion is derived from the rows rather than from that line, which is why it could see the disagreement at all."
         },
         {
+          "id": "boundary-last-week-of-august",
+          "text": "whats happening in the last week of august",
+          "assert": { "kind": "week", "monday": "2026-08-24" },
+          "note": "PHONE-TYPED ON PURPOSE — no apostrophe, no question mark, which is how it was typed live. It was rejected at the GRAMMAR gate, not the topic gate: `\\b` after `what` matches \"what's\" and not \"whats\". Once claimed, the answer was still wrong — \"Mon 26 August to Sun 1 September, 6 posts\" against a week running Mon 24 to Sun 30 and holding 7. Both halves are asserted here: it has to be claimed AND it has to name the right week."
+        },
+        {
+          "id": "boundary-week-after-next",
+          "text": "whats happening the week after next",
+          "assert": { "kind": "week", "monday": "2026-08-17" },
+          "note": "Also phone-typed. This one the model got right by deriving it from the stated NEXT WEEK line — which is exactly why it is asserted: an answer that happened to survive arithmetic is not the same as one read off a stated line, and only the assertion can tell them apart."
+        },
+        {
+          "id": "boundary-first-week-of-september",
+          "text": "whats happening in the first week of september",
+          "assert": null,
+          "note": "NOT ASSERTED, and the ambiguity is the finding rather than a gap in the corpus. \"The first week of September\" can mean the week containing 1 September (Mon 31 Aug – Sun 6 Sep, 5 posts), the first week wholly inside the month (Mon 7–13, 4 posts), or the calendar days 1–7 (4 posts). Three defensible readings, three different answers, and no rule settles it — so the state and the prompt require the answer to NAME the window it used, and what is checked here is by reading it."
+        },
+        {
           "id": "boundary-october",
           "text": "is anything scheduled for October?",
           "assert": { "kind": "months-named" },
