@@ -40,12 +40,38 @@
  * world.
  */
 
+// The subpath, not the root: this module is imported by three CLIENT components, and a root
+// `@sprigly/engine` import would pull the whole engine into the browser bundle.
+import { namesAnOperation } from '@sprigly/engine/operations';
+
 export interface EvergreenCopy {
   heading: string;
   body: string;
-  /** Does "Add to this month" belong on this receipt? */
-  rescue: boolean;
+  /**
+   * Does this FAMILY permit the rescue tap at all?
+   *
+   * Not the whole answer, and never call it directly — use `offersRescue`, which also asks the
+   * SENTENCE. A family may veto (`model_error`: retrying is the right move, not promoting), but
+   * it can never grant, because the hazard is not a property of the family.
+   */
+  familyRescue: boolean;
 }
+
+/**
+ * EVERY REASON THAT CAN REACH A RECEIPT. Exported so the exhaustiveness test can walk it.
+ *
+ * Five come from `EvergreenReason` in intake-classify; `not_applicable`, `unclear` and
+ * `read_as_idea` are added by draft-apply. Two of these have now fallen through to the wrong copy
+ * in production — `ambiguous` silently since the families were introduced, and `unclear` while it
+ * was still folded into `not_applicable` — because the map is a switch with a default and an
+ * unlisted reason RENDERS rather than failing. The set is small, closed and typed; the test walks
+ * this list and asserts each one hits an explicit case.
+ */
+export const RECEIPT_REASONS = [
+  'classified_evergreen', 'ambiguous', 'validation_failed', 'couldnt_apply', 'model_error',
+  'not_applicable', 'unclear', 'read_as_idea',
+] as const;
+export type ReceiptReason = (typeof RECEIPT_REASONS)[number];
 
 /**
  * ── THE FAMILIES ────────────────────────────────────────────────────────────────────
@@ -75,33 +101,42 @@ export function evergreenCopy(reason: string | undefined, monthName: string): Ev
         heading: `Saved as an idea — not a change to ${monthName}`,
         body: `This read as something for later, so nothing in ${monthName} changed.`
           + ` If you meant it now, tell me which post and which date — like “move the 21st to the 30th”.`,
-        rescue: false,
+        familyRescue: false,
       };
+    // FOUR WAYS OF NOT UNDERSTANDING, one sentence. `ambiguous` is here because it means the
+    // model's intent failed validation — we could not establish what was wanted — which is the
+    // same event as the other three from the client's side. It had been falling to the default
+    // and reading as a filing they asked for.
     case 'couldnt_apply':
     case 'validation_failed':
+    case 'ambiguous':
+    case 'unclear':
       return {
         heading: 'We couldn’t apply this',
         body: `We couldn’t work this into ${monthName} automatically, so we’ve saved it to your ideas.`,
-        rescue: true,
+        familyRescue: true,
       };
+    // UNDERSTOOD, AND THERE WAS NOTHING TO DO. Only that, now `unclear` has been split out of it:
+    // a cadence floor already met, an emphasis the month already satisfies, a series whose every
+    // date falls next month, no room left to displace anything.
     case 'not_applicable':
       return {
         heading: `Nothing changed in ${monthName}`,
         body: `We’ve saved this to your ideas.`,
-        rescue: true,
+        familyRescue: true,
       };
     case 'model_error':
       return {
         heading: 'We couldn’t read this just now',
         body: `Something went wrong on our side, so nothing in ${monthName} changed.`
           + ` It’s saved — try saying it again.`,
-        rescue: false,
+        familyRescue: false,
       };
     default:
       return {
         heading: 'Saved to your ideas',
         body: `We’ve kept this for later rather than changing ${monthName}. If you meant now, add it to this month.`,
-        rescue: true,
+        familyRescue: true,
       };
   }
 }
@@ -123,7 +158,10 @@ export function evergreenChip(reason: string | undefined): string {
     case 'not_applicable':     return 'Nothing needed changing';
     case 'model_error':        return 'We couldn’t read that';
     case 'couldnt_apply':
-    case 'validation_failed':  return 'We couldn’t apply that';
+    case 'validation_failed':
+    case 'ambiguous':
+    case 'unclear':            return 'We couldn’t apply that';
+    case 'classified_evergreen':
     default:                   return 'Saved to your ideas';
   }
 }
@@ -162,4 +200,28 @@ export function threadMessage(app: ReceiptLike | null | undefined, monthName: st
   // A month-scoped application with NO diff lines is not "nothing happened": it is context kept
   // with the month's brief, and this is the sentence that says the calendar did not move.
   return 'Done — the month view shows what changed.';
+}
+
+/**
+ * IS "ADD TO THIS MONTH" SAFE ON THIS RECEIPT?
+ *
+ * ── Why this is not a property of the family ────────────────────────────────────────
+ *
+ * It was, and that was wrong. `read_as_idea` withheld the tap because promoting a misread
+ * instruction is destructive, and every other family offered it — so the SAME hazard shipped
+ * under a different reason. Live: "move one of the posts from the 18th September to the next
+ * empty day" resolved its subject, failed on the date, landed on a zero-op reason, and was
+ * offered the button.
+ *
+ * `addBacklogItemToMonth` re-routes the filed row as `kind: 'event'` with its first 80 characters
+ * as the SUBJECT, and displaces the weakest beat to make room. On any operational sentence that
+ * means a post titled with the client's instruction evicting a real one — and it does that
+ * whatever reason put the text in the backlog. The hazard belongs to the SENTENCE.
+ *
+ * So the sentence decides, and a family may only ever VETO on top of it (`model_error`: saying
+ * the same words again is the right move, not promoting them). Never call `familyRescue` alone.
+ */
+export function offersRescue(receipt: ReceiptLike & { sourceText?: string }, ): boolean {
+  if (!evergreenCopy(receipt.reason, '').familyRescue) return false;
+  return !namesAnOperation(receipt.sourceText ?? '');
 }

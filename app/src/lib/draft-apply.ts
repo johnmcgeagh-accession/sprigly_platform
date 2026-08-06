@@ -718,7 +718,12 @@ export async function applyIntakeToDraft(params: {
     const deferred0 = await saveDeferredInstances(clientId, result.deferred ?? [], source);
     const planInputId = await saveToBacklog(clientId, cycleId, sourceText, source, backlogWindow(routing, sourceText, today));
     const application: DraftApplication = {
-      ...base, scope: 'evergreen', reason: 'not_applicable', lines: [], changedIds: [],
+      // TWO EVENTS, TWO REASONS. A zero-op result is either "understood, nothing to do" — a
+      // cadence floor already met — or "could not work out what you meant", and they had been
+      // sharing `not_applicable` and therefore one heading. `unresolved` is the transform saying
+      // which; see TransformResult. The note's wording is deliberately NOT the signal.
+      ...base, scope: 'evergreen', reason: result.unresolved ? 'unclear' : 'not_applicable',
+      lines: [], changedIds: [],
       ...(result.note ? { note: result.note } : {}),
       ...(planInputId ? { planInputId } : {}),
       ...(deferred0 > 0 ? { deferredCount: deferred0 } : {}),

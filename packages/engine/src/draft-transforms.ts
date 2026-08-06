@@ -80,6 +80,33 @@ export interface TransformResult {
   /** Why nothing (or less than asked) happened. Surfaced to the client, never swallowed. */
   note?: string;
   /**
+   * DID THE TRANSFORM UNDERSTAND WHAT WAS ASKED?
+   *
+   * A NEW SIGNAL, and the reason it had to be added rather than inferred: twenty-five returns in
+   * this file report zero ops, and they are two entirely different events wearing one shape.
+   *
+   *   understood, nothing to do   "Recorded 7 posts a week as your floor. You have 9 posts this
+   *                               month" · "The rest of the month is already yours or already
+   *                               leaning toward X" · every post in the series falls next month ·
+   *                               there is no room to displace anything.
+   *   NOT understood              "It wasn't clear what to change about X" · "It wasn't clear
+   *                               which post you meant" · "We couldn't find X in this month" ·
+   *                               "No date was given" · "X could be N different posts".
+   *
+   * Both landed on `reason: 'not_applicable'` and therefore on one heading. Live: "move one of
+   * the posts from the 18th September to the next empty day" — the subject resolved, the date did
+   * not, and the client was told *"Nothing changed in September"*, which reads as a success over a
+   * failure to understand them.
+   *
+   * The note's WORDING is not the signal. It is prose written for a client, it is edited, and
+   * matching on it would make the copy depend on a phrase nobody would think to keep stable. The
+   * transform knows which of the two happened at the moment it returns; this is it saying so.
+   *
+   * Absent means understood — every zero-op return that is a legitimate no-change stays as it
+   * was, and only the fifteen that could not resolve the request set it.
+   */
+  unresolved?: boolean;
+  /**
    * Instances the transform deliberately did NOT place because they fall beyond the plan
    * month. These are not failures and must not be silently dropped: the client asked for a
    * September post and is entitled to have it survive somewhere they can see. The transform
@@ -391,7 +418,7 @@ export function launchArcSubject(title: string | null | undefined): string | nul
  * beat they cared about, and better than silence.
  */
 export function applyLaunchArc(intent: MonthScopedIntent, beats: TransformBeat[], month: string): TransformResult {
-  if (!intent.dateRange) return { ops: [], note: 'No date was given, so there was nothing to build the launch around.' };
+  if (!intent.dateRange) return { ops: [], note: 'No date was given, so there was nothing to build the launch around.', unresolved: true };
   const anchor = intent.dateRange.start;
 
   const pool = replacementCandidates(beats, anchor);
@@ -553,7 +580,7 @@ export function expandSeries(intent: MonthScopedIntent, month: string): Deferred
 export function applySeries(intent: MonthScopedIntent, beats: TransformBeat[], month: string): TransformResult {
   const all = expandSeries(intent, month);
   if (all.length === 0) {
-    return { ops: [], note: 'No dates were given for the series, so there was nothing to place.' };
+    return { ops: [], note: 'No dates were given for the series, so there was nothing to place.', unresolved: true };
   }
 
   const within  = all.filter((i) => inMonth(i.date, month));
@@ -648,9 +675,9 @@ function commonestFormat(beats: TransformBeat[]): string | undefined {
  * transform may quietly take the slot back.
  */
 export function applyBeatSpec(intent: MonthScopedIntent, beats: TransformBeat[], month: string): TransformResult {
-  if (!intent.dateRange) return { ops: [], note: 'No date was given, so there was nowhere to place the post.' };
+  if (!intent.dateRange) return { ops: [], note: 'No date was given, so there was nowhere to place the post.', unresolved: true };
   const title = intent.subject.trim();
-  if (!title) return { ops: [], note: 'No title was given for the post.' };
+  if (!title) return { ops: [], note: 'No title was given for the post.', unresolved: true };
 
   const date = clampToMonth(intent.dateRange.start, month);
   const named = intent.format && BEAT_SPEC_FORMATS.has(intent.format) ? intent.format : undefined;
@@ -777,7 +804,7 @@ export function applyCadence(intent: MonthScopedIntent, beats: TransformBeat[], 
 
 /** A single dated beat, same replacement rule. */
 export function applyEvent(intent: MonthScopedIntent, beats: TransformBeat[], month: string): TransformResult {
-  if (!intent.dateRange) return { ops: [], note: 'No date was given, so there was nowhere to put it.' };
+  if (!intent.dateRange) return { ops: [], note: 'No date was given, so there was nowhere to put it.', unresolved: true };
   const date = clampToMonth(intent.dateRange.start, month);
 
   const victim = replacementCandidates(beats, date)[0];
@@ -986,10 +1013,10 @@ export function applyEmphasis(
   ].filter(Boolean))].sort();
 
   const { target: resolved, phrase } = resolveEmphasisIntent(intent, monthPillars);
-  if (!phrase) return { ops: [], note: 'It wasn’t clear what to lean into, so nothing changed.' };
+  if (!phrase) return { ops: [], note: 'It wasn’t clear what to lean into, so nothing changed.', unresolved: true };
 
   if (resolved.kind === 'ambiguous') {
-    return { ops: [], note: `“${phrase}” could mean ${listPillars(resolved.candidates)} — which did you mean? Nothing has changed.` };
+    return { ops: [], note: `“${phrase}” could mean ${listPillars(resolved.candidates)} — which did you mean? Nothing has changed.`, unresolved: true };
   }
   if (resolved.kind === 'none') {
     /**
@@ -1086,11 +1113,11 @@ export function resolveBeatRef(ref: string, beats: TransformBeat[]): TransformBe
 }
 
 export function applyBeatEdit(intent: MonthScopedIntent, beats: TransformBeat[], month: string): TransformResult {
-  if (!intent.beatRef || !intent.edit) return { ops: [], note: 'It wasn’t clear which post you meant.' };
+  if (!intent.beatRef || !intent.edit) return { ops: [], note: 'It wasn’t clear which post you meant.', unresolved: true };
 
   const matches = resolveBeatRef(intent.beatRef, beats);
-  if (matches.length === 0) return { ops: [], note: `We couldn’t find “${intent.beatRef}” in this month.` };
-  if (matches.length > 1)  return { ops: [], note: `“${intent.beatRef}” could be ${matches.length} different posts, so nothing was changed.` };
+  if (matches.length === 0) return { ops: [], note: `We couldn’t find “${intent.beatRef}” in this month.`, unresolved: true };
+  if (matches.length > 1)  return { ops: [], note: `“${intent.beatRef}” could be ${matches.length} different posts, so nothing was changed.`, unresolved: true };
 
   const beat = matches[0]!;
   switch (intent.edit) {
@@ -1098,12 +1125,12 @@ export function applyBeatEdit(intent: MonthScopedIntent, beats: TransformBeat[],
       return { ops: [{ op: 'remove', id: beat.id }] };
     case 'swap_format': {
       const fmt = (intent.editValue ?? '').toLowerCase();
-      if (!['reel', 'carousel', 'single'].includes(fmt)) return { ops: [], note: 'That isn’t a format we can plan for.' };
+      if (!['reel', 'carousel', 'single'].includes(fmt)) return { ops: [], note: 'That isn’t a format we can plan for.', unresolved: true };
       return { ops: [{ op: 'update', id: beat.id, changes: { format: fmt } }] };
     }
     case 'move': {
       const to = (intent.editValue ?? intent.dateRange?.start ?? '').slice(0, 10);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(to)) return { ops: [], note: 'It wasn’t clear what date to move it to.' };
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(to)) return { ops: [], note: 'It wasn’t clear what date to move it to.', unresolved: true };
       return { ops: [{ op: 'update', id: beat.id, changes: { date: clampToMonth(to, month) } }] };
     }
     default:
@@ -1237,7 +1264,7 @@ export function applyCorrection(intent: MonthScopedIntent, beats: TransformBeat[
     ? resolveBeatSubject(subject, beats)
     : beatsOnNamedDate(subject, beats);
   if (matches.length === 0) {
-    return { ops: [], note: `We couldn’t find “${subject}” on this month’s plan, so it was saved to your ideas instead.` };
+    return { ops: [], note: `We couldn’t find “${subject}” on this month’s plan, so it was saved to your ideas instead.`, unresolved: true };
   }
 
   // A format correction applies to every matched beat of a launch? No — a format change is
@@ -1246,7 +1273,7 @@ export function applyCorrection(intent: MonthScopedIntent, beats: TransformBeat[
     const fmt = (intent.editValue ?? '').toLowerCase();
     if (['reel', 'carousel', 'single'].includes(fmt)) {
       if (matches.length > 1) {
-        return { ops: [], note: `“${subject}” is ${matches.length} posts this month, so it wasn’t clear which one to change the format of.` };
+        return { ops: [], note: `“${subject}” is ${matches.length} posts this month, so it wasn’t clear which one to change the format of.`, unresolved: true };
       }
       return { ops: [{ op: 'update', id: matches[0]!.id, changes: { format: fmt } }] };
     }
@@ -1254,7 +1281,7 @@ export function applyCorrection(intent: MonthScopedIntent, beats: TransformBeat[
 
   const to = intent.dateRange?.start;
   if (!to || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
-    return { ops: [], note: `It wasn’t clear what to change about “${subject}”, so it was saved to your ideas.` };
+    return { ops: [], note: `It wasn’t clear what to change about “${subject}”, so it was saved to your ideas.`, unresolved: true };
   }
 
   const sorted = [...matches].sort((a, b) => a.date.localeCompare(b.date));

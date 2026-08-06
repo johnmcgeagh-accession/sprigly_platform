@@ -19,7 +19,8 @@
  * request gate runs before the topic gate and fails closed, and most of this file is about it.
  */
 import { describe, it, expect } from 'vitest';
-import { parsePlanQuestion, namesAnOperation } from './intake-classify.js';
+import { parsePlanQuestion } from './intake-classify.js';
+import { namesAnOperation } from './operations.js';
 
 describe('the four phrasings the operator tried, verbatim', () => {
   const ASKED = [

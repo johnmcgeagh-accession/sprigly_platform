@@ -8,7 +8,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { countVerbs, countItems, chipLabel, rollupHeadline } from './receipt-summary';
-import { evergreenCopy, threadMessage } from '@/lib/receipt-copy';
+import { evergreenChip } from '@/lib/receipt-copy';
+import { evergreenCopy, threadMessage, offersRescue, RECEIPT_REASONS } from '@/lib/receipt-copy';
 import type { DraftReceipt, BriefItem } from '../DraftPlanView';
 
 const receipt = (over: Partial<DraftReceipt> = {}): DraftReceipt => ({
@@ -152,15 +153,31 @@ describe('chipLabel', () => {
 describe('evergreenCopy', () => {
   const M = 'September';
 
-  it('withholds the rescue tap on a suspected misread, and only there', () => {
-    // Not a copy decision. `addBacklogItemToMonth` re-routes the filed row as kind:'event' with
-    // its first 80 characters as the subject and displaces the weakest beat, so the one button
-    // offered would title a post with the client's instruction and evict a real one.
-    expect(evergreenCopy('read_as_idea', M).rescue).toBe(false);
-    expect(evergreenCopy('model_error', M).rescue).toBe(false);
-    for (const r of ['classified_evergreen', 'ambiguous', 'couldnt_apply', 'validation_failed', 'not_applicable']) {
-      expect(evergreenCopy(r, M).rescue).toBe(true);
+  /**
+   * THE HAZARD IS THE SENTENCE'S, NOT THE FAMILY'S.
+   *
+   * It was keyed to the family, so `read_as_idea` withheld the tap and every other reason offered
+   * it — shipping the same hazard under a different name. Live: "move one of the posts from the
+   * 18th September to the next empty day" resolved its subject, failed on the date, landed on a
+   * zero-op reason and was offered the button. `addBacklogItemToMonth` would have titled a post
+   * with that instruction and evicted a real September post.
+   */
+  it('withholds the tap for an operational sentence in EVERY family', () => {
+    const op = 'move one of the posts from the 18th September to the next empty day';
+    for (const reason of RECEIPT_REASONS) {
+      expect(offersRescue({ scope: 'evergreen', reason, sourceText: op })).toBe(false);
     }
+  });
+
+  it('still offers it for a real idea, in every family that permits one', () => {
+    const idea = 'a post about winter layering';
+    for (const reason of RECEIPT_REASONS) {
+      const permitted = evergreenCopy(reason, M).familyRescue;
+      expect(offersRescue({ scope: 'evergreen', reason, sourceText: idea })).toBe(permitted);
+    }
+    // And the two families that veto do so regardless of how harmless the sentence is.
+    expect(offersRescue({ scope: 'evergreen', reason: 'model_error', sourceText: idea })).toBe(false);
+    expect(offersRescue({ scope: 'evergreen', reason: 'read_as_idea', sourceText: idea })).toBe(false);
   });
 
   it('states rather than asks — a question would be answered through the classifier that failed', () => {
@@ -185,10 +202,43 @@ describe('evergreenCopy', () => {
   });
 
   it('leaves the common case exactly as it was', () => {
-    const { heading, body, rescue } = evergreenCopy('classified_evergreen', M);
+    const { heading, body, familyRescue } = evergreenCopy('classified_evergreen', M);
     expect(heading).toBe('Saved to your ideas');
     expect(body).toBe('We’ve kept this for later rather than changing September. If you meant now, add it to this month.');
-    expect(rescue).toBe(true);
+    expect(familyRescue).toBe(true);
+    expect(offersRescue({ scope: 'evergreen', reason: 'classified_evergreen', sourceText: 'a post about winter layering' })).toBe(true);
+  });
+
+  /**
+   * THE THIRD TIME A REASON FELL THROUGH IS THE ONE THIS PREVENTS.
+   *
+   * `ambiguous` had been landing on the default — "Saved to your ideas" for an input whose intent
+   * failed validation — silently since the families were introduced. `unclear` was worse: folded
+   * into `not_applicable`, so a failure to understand read as "Nothing changed in September".
+   * Neither failed a test, because a switch with a default RENDERS an unlisted reason instead of
+   * refusing it. The set is small, closed and typed, so it is walked.
+   */
+  it('every reason that can reach a receipt has an EXPLICIT family — no default', () => {
+    // If this list and EvergreenReason ever drift, the draft-apply additions are the ones to check:
+    // not_applicable, unclear and read_as_idea are minted there, not in the engine.
+    expect([...RECEIPT_REASONS].sort()).toEqual([
+      'ambiguous', 'classified_evergreen', 'couldnt_apply', 'model_error',
+      'not_applicable', 'read_as_idea', 'unclear', 'validation_failed',
+    ]);
+
+    const GENERIC = evergreenCopy('classified_evergreen', M).heading;
+    for (const reason of RECEIPT_REASONS) {
+      // Only the one reason that MEANS "a filing they asked for" may wear the generic copy.
+      const generic = evergreenCopy(reason, M).heading === GENERIC;
+      expect(generic).toBe(reason === 'classified_evergreen');
+      expect(evergreenChip(reason) === 'Saved to your ideas').toBe(reason === 'classified_evergreen');
+    }
+  });
+
+  it('an unknown reason still renders rather than crashing — but is not silently generic', () => {
+    // The default is a safety net for a value from an older receipt, not a home for a new reason.
+    // It is the test above that stops a new reason living here.
+    expect(evergreenCopy('something_new_from_2027', M).heading).toBe('Saved to your ideas');
   });
 
   /**

@@ -29,7 +29,7 @@
  * product reads. Operator-invoked only; it lives in scripts/, so Vitest never collects it.
  */
 import { applyIntakeToDraft, readAsIdea } from '../src/lib/draft-apply';
-import { evergreenCopy, evergreenChip, threadMessage } from '../src/lib/receipt-copy';
+import { evergreenCopy, evergreenChip, threadMessage, offersRescue, RECEIPT_REASONS } from '../src/lib/receipt-copy';
 import { parsePlanQuestion, classifyIntake, applyIntent, type TransformBeat } from '@sprigly/engine';
 import { getModelClient } from '../src/lib/agent/model';
 import { loadDraftBeats } from '../src/lib/plan';
@@ -92,23 +92,27 @@ console.log(`${'─'.repeat(96)}`);
  */
 if (has('copy')) {
   const M = 'September';
-  const FAMILIES: Array<[string, string | undefined]> = [
-    ['read_as_idea', undefined],
-    ['couldnt_apply', undefined],
-    ['validation_failed', undefined],
-    ['not_applicable', 'Recorded 7 posts a week as your floor. You have 9 posts this month'],
-    ['model_error', undefined],
-    ['classified_evergreen', undefined],
-  ];
-  for (const [reason, note] of FAMILIES) {
+  /** A note only reaches a receipt from a zero-op transform; these are the two reasons that carry
+   *  one, with a real note from each side of the split. */
+  const NOTE: Record<string, string> = {
+    not_applicable: 'Recorded 7 posts a week as your floor. You have 9 posts this month',
+    unclear: 'It wasn’t clear what to change about “one of the posts on 18th September”, so it was saved to your ideas.',
+  };
+  /** An operational sentence and a harmless one, run through EVERY family. */
+  const OPERATIONAL = 'move one of the posts from the 18th September to the next empty day';
+  const IDEA = 'a post about winter layering';
+
+  for (const reason of RECEIPT_REASONS) {
     const c = evergreenCopy(reason, M);
+    const note = NOTE[reason];
+    const app = { scope: 'evergreen', reason, lines: [], ...(note ? { note } : {}) };
     console.log(`\n══ ${reason}${note ? '  (carries a transform note)' : ''}`);
-    console.log(`   thread turn   ${JSON.stringify(threadMessage({ scope: 'evergreen', reason, lines: [], ...(note ? { note } : {}) }, M))}`);
-    console.log(`   panel heading ${JSON.stringify(c.heading)}`);
-    console.log(`   panel body    ${JSON.stringify(c.body)}`);
-    console.log(`   chip label    ${JSON.stringify(evergreenChip(reason))}`);
-    console.log(`   transcript    ${JSON.stringify(threadMessage({ scope: 'evergreen', reason, lines: [], ...(note ? { note } : {}) }, M))}`);
-    console.log(`   rescue tap    ${c.rescue ? 'offered' : 'WITHHELD'}`);
+    console.log(`   heading       ${JSON.stringify(c.heading)}`);
+    console.log(`   thread turn   ${JSON.stringify(threadMessage(app, M))}`);
+    console.log(`   panel body    ${JSON.stringify(note ?? c.body)}${note ? '   ← note SUPPRESSES the family sentence' : ''}`);
+    console.log(`   chip          ${JSON.stringify(evergreenChip(reason))}`);
+    console.log(`   rescue · idea        ${offersRescue({ ...app, sourceText: IDEA }) ? 'offered' : 'WITHHELD'}`);
+    console.log(`   rescue · operational ${offersRescue({ ...app, sourceText: OPERATIONAL }) ? 'offered' : 'WITHHELD'}`);
   }
   console.log(`\n\nNothing was read from or written to the database.`);
   process.exit(0);

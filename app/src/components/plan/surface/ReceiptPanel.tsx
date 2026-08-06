@@ -28,7 +28,9 @@ import { ChevronD, ChevronR, CheckGlyph } from './icons';
 // `**bold**` marker cannot survive in one surface and not the other.
 import { stripMarkdown } from './agent-prose';
 import { rollupHeadline, countItems } from './receipt-summary';
-import { evergreenCopy } from '@/lib/receipt-copy';
+import { evergreenCopy, offersRescue } from '@/lib/receipt-copy';
+// A rollup segment carries the same hazard as a whole receipt; its text is `span`.
+import { namesAnOperation } from '@sprigly/engine/operations';
 import { scrollPad } from './frame';
 
 export function ReceiptPanel({
@@ -109,9 +111,11 @@ function Single({
           ))}
         </div>
       ) : evergreen ? (
-        // Every word of this — and whether the rescue tap appears below — comes from
-        // `evergreenCopy`, so the chip, this panel and the legacy view cannot drift apart.
-        <p className="text-[15px] leading-[1.5] text-chrome">{copy.body}</p>
+        // THE NOTE SUPPRESSES THE FAMILY SENTENCE, exactly as it does in the thread. A
+        // transform's own note is strictly more specific, and stacking them printed the same
+        // fact twice: "We've saved this to your ideas." above "…so it was saved to your ideas."
+        // The HEADING stays either way — it is the family label, not a second sentence.
+        <p className="text-[15px] leading-[1.5] text-chrome">{receipt.note ?? copy.body}</p>
       ) : receipt.lines.length > 0 ? (
         <ul className="flex flex-col gap-2">
           {receipt.lines.map((line) => (
@@ -125,13 +129,13 @@ function Single({
         <p className="text-[15px] leading-[1.5] text-chrome">Nothing needed changing.</p>
       )}
 
-      {receipt.note && <p className="mt-3 text-[13.5px] leading-normal text-muted">{receipt.note}</p>}
+      {receipt.note && !evergreen && <p className="mt-3 text-[13.5px] leading-normal text-muted">{receipt.note}</p>}
       {/* THE RESCUE TAP IS WITHHELD ON A SUSPECTED MISREAD, and that is not a copy decision.
           `addBacklogItemToMonth` re-routes the filed row as kind:'event' with its first 80
           characters as the SUBJECT, displacing the weakest beat to make room — so on "can you
           move one of the posts to the next available empty day?" the one button we offer would
           create a post titled with the instruction and evict a real one. */}
-      {evergreen && copy.rescue && receipt.planInputId && editable && (
+      {evergreen && offersRescue(receipt) && receipt.planInputId && editable && (
         <RescueBtn busy={rescuing} onClick={() => onRescue(receipt.planInputId!)} />
       )}
     </>
@@ -219,7 +223,7 @@ function Item({
         <p className="ml-[25px] mt-1.5 text-[12.5px] leading-normal text-muted">{item.note}</p>
       )}
 
-      {(item.outcome === 'idea' || item.outcome === 'couldnt_apply' || item.outcome === 'nothing_to_do') && item.planInputId && editable && (
+      {(item.outcome === 'idea' || item.outcome === 'couldnt_apply' || item.outcome === 'nothing_to_do') && !namesAnOperation(item.span) && item.planInputId && editable && (
         <div className="ml-[25px]">
           <RescueBtn busy={rescuing} onClick={() => onRescue(item.planInputId!)} />
         </div>

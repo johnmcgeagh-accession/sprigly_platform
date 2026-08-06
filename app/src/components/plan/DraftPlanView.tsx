@@ -21,7 +21,9 @@
 import React, { useMemo, useRef, useState } from 'react';
 import type { DraftBeatView, PostFormat } from '@/lib/types';
 import { rationaleFor, slotLabel, assumptionPrompt } from '@/lib/draft-rationale';
-import { evergreenCopy } from '@/lib/receipt-copy';
+import { evergreenCopy, offersRescue } from '@/lib/receipt-copy';
+// A rollup segment carries the same hazard as a whole receipt; its text is `span`.
+import { namesAnOperation } from '@sprigly/engine/operations';
 
 /** One segment of a decomposed brief, and what became of it. */
 export interface BriefItem {
@@ -366,7 +368,7 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
                       {item.note && item.outcome !== 'applied' && (
                         <p style={{ fontSize: 12.5, color: C.muted, margin: '5px 0 0 20px' }}>{item.note}</p>
                       )}
-                      {(item.outcome === 'idea' || item.outcome === 'couldnt_apply' || item.outcome === 'nothing_to_do') && item.planInputId && onAddToMonth && editable && (
+                      {(item.outcome === 'idea' || item.outcome === 'couldnt_apply' || item.outcome === 'nothing_to_do') && !namesAnOperation(item.span) && item.planInputId && onAddToMonth && editable && (
                         <button
                           type="button" disabled={rescuing}
                           data-testid="add-to-this-month"
@@ -388,8 +390,9 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
             {receipt.scope === 'evergreen' ? (
               <p style={{ fontSize: 14, lineHeight: 1.5, margin: '8px 0 0' }}>
                 {/* One rule, read from `evergreenCopy`, so this view and the redesigned panel
-                    cannot say different things about the same receipt. */}
-                {evergreenCopy(receipt.reason, monthLabel).body}
+                    cannot say different things about the same receipt. The note wins over the
+                    family sentence, as it does in the thread and the panel. */}
+                {receipt.note ?? evergreenCopy(receipt.reason, monthLabel).body}
               </p>
             ) : receipt.lines.length > 0 ? (
               <ul style={{ margin: '8px 0 0', paddingLeft: 18, display: 'grid', gap: 5 }}>

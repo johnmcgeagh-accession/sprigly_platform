@@ -41,6 +41,10 @@
     "./caption-overlap": {
       "import": "./dist/caption-overlap.js",
       "types": "./dist/caption-overlap.d.ts"
+    },
+    "./operations": {
+      "import": "./dist/operations.js",
+      "types": "./dist/operations.d.ts"
     }
   },
   "scripts": {

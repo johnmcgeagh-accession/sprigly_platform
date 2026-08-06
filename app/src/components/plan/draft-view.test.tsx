@@ -346,11 +346,23 @@ describe('the brief rollup receipt — one itemised panel for a pasted document'
     expect(html).toContain('1 saved for next month.');                 // the deferral
   });
 
-  it('carries the rescue tap on each idea / couldn’t-apply line', () => {
+  /**
+   * The tap follows the SENTENCE, not the outcome — and this fixture is why that matters.
+   *
+   * It used to appear on both unapplied segments. The `couldnt_apply` one is "pull the DMs from
+   * last week", and `addBacklogItemToMonth` re-routes a rescued row as `kind: 'event'` with its
+   * first 80 characters as the subject, displacing the weakest beat: tapping it would have put a
+   * post titled "pull the DMs from last week" on the calendar and evicted a real one. `pull` is
+   * an operation, so the tap is withheld — while "we should do more behind-the-scenes", which is
+   * a genuine idea, still carries it.
+   */
+  it('carries the rescue tap on an idea, and withholds it on an operational segment', () => {
     const html = render([beat()], { receipts: [rollup], editable: true, onAddToMonth: async () => ({ ok: true, beats: [] }) });
     const taps = html.split('data-testid="add-to-this-month"').length - 1;
-    expect(taps).toBe(2);   // the idea and the couldn't-apply, NOT the two applied ones
+    expect(taps).toBe(1);   // the idea only — not the two applied ones, and not "pull the DMs"
+    // The segment is still listed and still says what happened to it; only the tap is gone.
     expect(html).toContain('We couldn’t apply this.');
+    expect(html).toContain('pull the DMs from last week');
   });
 
   it('shows no rescue tap when the surface is not editable', () => {
