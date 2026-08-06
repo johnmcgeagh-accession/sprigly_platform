@@ -24,6 +24,9 @@
 import React, { useState } from 'react';
 import type { DraftReceipt, BriefItem } from '../DraftPlanView';
 import { ChevronD, ChevronR, CheckGlyph } from './icons';
+// The same stripper the thread renders the agent's prose through (agent-prose.ts). Shared so a
+// `**bold**` marker cannot survive in one surface and not the other.
+import { stripMarkdown } from './agent-prose';
 import { rollupHeadline, countItems } from './receipt-summary';
 import { scrollPad } from './frame';
 
@@ -74,14 +77,36 @@ function Single({
   receipt: DraftReceipt; monthName: string; editable: boolean; rescuing: boolean; onRescue: (id: string) => void;
 }) {
   const evergreen = receipt.scope === 'evergreen';
+  /**
+   * AN ANSWER IS NOT A CHANGE, AND MUST NOT WEAR ITS CHROME.
+   *
+   * A question receipt has always been persisted here — it carries `changedIds: []` precisely
+   * because nothing changed — and it has always rendered under *"What changed"* with a tick
+   * beside every line. That was survivable while the lines were a terse read-back of the beats.
+   * It is not survivable now the lines are the agent's prose: a paragraph explaining that four
+   * of next week's five posts have no captions yet, ticked off as though we had just written
+   * them, tells the client the opposite of what it says.
+   *
+   * So the question scope gets its own heading and no glyph. It keeps the quoted question above
+   * it, which is what makes the panel readable as a Q and an A rather than a log.
+   */
+  const answered = receipt.scope === 'question';
   return (
     <>
       <h2 className="mb-2 text-[20px] font-bold tracking-[-.025em] text-chrome">
-        {evergreen ? (receipt.reason === 'couldnt_apply' ? 'We couldn’t apply this' : 'Saved to your ideas') : 'What changed'}
+        {evergreen ? (receipt.reason === 'couldnt_apply' ? 'We couldn’t apply this' : 'Saved to your ideas')
+          : answered ? 'You asked'
+          : 'What changed'}
       </h2>
       <p data-testid="receipt-source" className="mb-3 break-words text-[13.5px] italic leading-normal text-muted">“{receipt.sourceText}”</p>
 
-      {evergreen ? (
+      {answered ? (
+        <div data-testid="receipt-answer" className="flex flex-col gap-2">
+          {receipt.lines.map((line) => (
+            <p key={line} className="text-[15px] leading-[1.5] text-chrome">{stripMarkdown(line)}</p>
+          ))}
+        </div>
+      ) : evergreen ? (
         <p className="text-[15px] leading-[1.5] text-chrome">
           {/* `couldnt_apply` is NOT a filing the client asked for. Saying "saved to your ideas"
               for a failed extraction is the silent demotion the copy exists to prevent. */}

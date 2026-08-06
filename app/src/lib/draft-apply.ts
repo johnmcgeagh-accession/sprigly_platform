@@ -31,6 +31,9 @@ import { loadDraftBeats } from '@/lib/plan';
 import { monthLabel, monthWindow, monthNamedIn } from '@/lib/agent/cycle-state';
 import { listIdeas } from '@/lib/agent/ideas';
 import { answerIdeasQuestion, answerPlanQuestion, datesNamedIn } from '@/lib/plan-answers';
+import { buildPlanContext } from '@/lib/agent/plan-context';
+import { answerQuery } from '@/lib/agent/query';
+import { getEmbeddingClient, getModelClient } from '@/lib/agent/model';
 import type { DraftBeatView } from '@/lib/types';
 
 /** How many receipts a cycle keeps. Enough to see the session's history, not a ledger. */
@@ -418,6 +421,87 @@ async function saveDeferredInstances(
   } catch { return 0; }
 }
 
+/**
+ * THE DRAFT MONTH'S QUESTIONS, ANSWERED BY THE ANSWERER THE COMMITTED MONTH USES.
+ *
+ * ── What this closes ─────────────────────────────────────────────────────────────────
+ *
+ * On a draft month `PlanRoot` renders `DraftSurface`, whose only send path is
+ * `POST /api/plan/draft/apply` — this file. `answerQuery` is reachable only through
+ * `runPlanAgentTurn`, which that surface cannot reach. So for the whole review window, the one
+ * stretch in which the client is actually asking questions, every grounded fact the answerer
+ * was given was invisible to them: the PLAN FACTS block, the stated week windows, the
+ * cross-month span, the prompt cache. Measured live on September:
+ *
+ *   "what's on next week?"          → a 27-line dump of the whole month
+ *   "what's in September?"          → the same dump
+ *   "which post is just an image?"  → the same dump again
+ *
+ * and the harness, calling `answerQuery` against the SAME cycle, answered the first one exactly
+ * (five posts, 31 Aug – 6 Sep, split written from planned). Two paths, one plan, different
+ * answers — which is the divergence that hid all of this.
+ *
+ * ── `answerPlanQuestion` IS NOT DELETED, IT IS THE FLOOR ─────────────────────────────
+ *
+ * It stays, and it stays as the fallback, because it is the one answerer here that cannot be
+ * wrong: it reads the beats back. A Bedrock outage must not turn a question into an error on a
+ * surface whose entire job this month is to be asked questions, and "the whole month, listed"
+ * is a worse answer than the model's but a far better one than a failure. So the model is
+ * tried, and its floor is the behaviour that shipped before it.
+ *
+ * The 'ideas' half of the branch is untouched. `answerIdeasQuestion` derives its answer from
+ * lifecycle rows — *"None of your ideas went into September. One is still waiting"* — and a
+ * model has nothing to add to a fact that is already exact.
+ *
+ * ── COST, STATED ────────────────────────────────────────────────────────────────────
+ *
+ * This branch was free: `parsePlanQuestion` claims the question inside `classifyIntake` BEFORE
+ * its model call, so a question spent nothing at all. It now costs one Titan embed and one
+ * Haiku answer — measured at ~2.5s per question against this cycle, with the prompt prefix
+ * caching (cacheRead 5,889 tokens observed). That is a pause on a path the client is typing
+ * into, and it is covered: `useDraftMonth.say()` already raises `shaping`, which is what the
+ * shell renders the agent's working dots from. No new loading state, because the one that
+ * exists already wraps this call.
+ */
+/*
+ * It takes NO model argument, and that is a type telling the truth rather than a shortcut.
+ * `params.model` on this path is typed off `classifyIntake`, which asks only for `complete()`;
+ * `answerQuery` requires the full `ModelClient`, streaming included. Threading the narrower
+ * value in and widening it would be a claim the caller never made. `getModelClient()` is the
+ * same value the route already passes (apply/route.ts:78) and is also the e2e-fake seam, so
+ * nothing about test isolation changes.
+ */
+async function answerAboutThePlan(a: {
+  clientId: string; cycleId: string; sourceText: string; today: string;
+  planMonth: string; monthName: string;
+}): Promise<string[]> {
+  const floor = async () => answerPlanQuestion({
+    beats: await loadDraftBeats(a.clientId, a.cycleId),
+    monthLabel: a.monthName,
+    dates: datesNamedIn(a.sourceText, a.planMonth),
+  });
+
+  try {
+    const context = await buildPlanContext(a.clientId, a.cycleId, a.today);
+    const res = await answerQuery(
+      { clientId: a.clientId, cycleId: a.cycleId, question: a.sourceText, today: new Date(`${a.today}T00:00:00`), context },
+      // The auditor is passed, unlike the diagnostics in scripts/: this is the product path, and
+      // a query turn here spends exactly what a query turn on the committed surface spends. A
+      // path that spends without a ledger row is how the draft surface's classify call went
+      // unbilled for a month (:470).
+      { model: getModelClient(), embeddingClient: getEmbeddingClient(), audit: createAuditLogger(db) },
+    );
+    // Split on the model's own newlines. `agentLines` (agent-prose.ts) re-splits and strips the
+    // markdown when the thread renders it, so this is lossless in both directions — and it is
+    // what makes the answer a list of lines for the receipt without inventing a shape for it.
+    const lines = res.text.split('\n').map((l) => l.trim()).filter(Boolean);
+    return lines.length ? lines : await floor();
+  } catch {
+    // Retrieval, Bedrock, or the context builder. The question still gets an answer.
+    return floor();
+  }
+}
+
 /** A stable-enough id for a receipt without pulling in a uuid dep on this path. */
 const receiptId = (at: number, sourceText: string): string =>
   `r-${at.toString(36)}-${Math.abs([...sourceText].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7)).toString(36)}`;
@@ -485,11 +569,7 @@ export async function applyIntakeToDraft(params: {
     const monthName = monthLabel(planMonth);
     const lines = routing.kind === 'ideas'
       ? answerIdeasQuestion({ ideas: await listIdeas(clientId), cycleId, monthLabel: monthName })
-      : answerPlanQuestion({
-          beats: await loadDraftBeats(clientId, cycleId),
-          monthLabel: monthName,
-          dates: datesNamedIn(sourceText, planMonth),
-        });
+      : await answerAboutThePlan({ clientId, cycleId, sourceText, today, planMonth, monthName });
     const application: DraftApplication = {
       ...base, scope: 'question', lines, changedIds: [],
     };
