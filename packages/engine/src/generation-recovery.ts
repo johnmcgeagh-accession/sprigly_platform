@@ -22,6 +22,8 @@
  * imported by both the app and the worker precisely because it depends on neither. Anything
  * wider than the two fields actually read would buy a dependency for nothing.
  */
+import { launchArcSubject } from './draft-transforms.js';
+
 export interface BeatSubjectSource {
   rationaleEvidence?: { basis?: string; reason?: string } | null;
 }
@@ -116,6 +118,83 @@ export function captionInstruction(title: string, pillar: string, subject?: stri
     `"${subject}"`,
     'That is the SUBJECT: what is happening, what it is called, and when. Those words may also describe how the client wanted the month arranged (how many posts, which dates, teasers, follow-ups). That arrangement is ALREADY DONE — it is why this post exists, on this date, with this title — so honour it by writing THIS post\'s share of it and nothing else. The schedule is never the subject: do not mention the other posts, the running order, or the plan itself.',
   ].join('\n');
+}
+
+// ─── THE UNGROUNDABLE LAUNCH ──────────────────────────────────────────────────
+//
+// A launch post whose product is in no catalogue is the one beat that CANNOT be written
+// honestly. Its whole job is to name the thing launching, and nothing in the pipeline can tell
+// that the name is fiction: the code gate has no product logic, the critic is never given the
+// catalogue, and `validateText` returns [] the moment no known name is hit — it validates
+// PAIRINGS of names it already knows, so an absent name is invisible to it by construction.
+//
+// So it is caught BEFORE the spend, at enqueue, or not at all.
+
+/** `source_meta` flag: this post was not sent to be written, because its subject is ungroundable.
+ *  The FACT, kept separate from the copy for the reason `quotaBanked` is — a state anything has
+ *  to act on must not be inferred from a sentence that will be reworded. */
+export const UNGROUNDED_KEY = 'subjectUngrounded';
+
+/** `source_meta`: the subject we could not ground ("Molly"), for the question the card asks. */
+export const UNGROUNDED_SUBJECT_KEY = 'ungroundedSubject';
+
+export function isSubjectUngrounded(sourceMeta: unknown): boolean {
+  if (!sourceMeta || typeof sourceMeta !== 'object') return false;
+  return (sourceMeta as Record<string, unknown>)[UNGROUNDED_KEY] === true;
+}
+
+export function ungroundedSubjectOf(sourceMeta: unknown): string | null {
+  if (!sourceMeta || typeof sourceMeta !== 'object') return null;
+  const v = (sourceMeta as Record<string, unknown>)[UNGROUNDED_SUBJECT_KEY];
+  return typeof v === 'string' && v.trim().length > 0 ? v.trim() : null;
+}
+
+/**
+ * The subject of a launch beat that cannot be grounded, or null to let it generate.
+ *
+ * FOUR conditions, and every one of them is a reason NOT to decline. The default is to write
+ * the post: this refuses to bill for a caption only when it can say precisely why.
+ *
+ *   1. IT IS A LAUNCH BEAT. Read off the arc suffix its own transform wrote. A beat that is not
+ *      a launch is never declined, whatever it names — naming a product is not its purpose, and
+ *      it can write around one. That is why September's back-to-school beat is out of scope
+ *      even though "Karen" is uncatalogued too: it now carries the client's own sentence, and a
+ *      back-to-school post does not have to name a product to be a good post.
+ *   2. ITS SUBJECT CAME FROM THE CLIENT. `beatSubject` is `client_input`-only, which is exactly
+ *      the set whose subject never met the catalogue. The assembler's own beats take their
+ *      product FROM the catalogue (`assignCoverage` → `coverageTitle`), so they are grounded by
+ *      construction and cannot be the thing this looks for.
+ *   3. THERE IS A CATALOGUE TO BE ABSENT FROM. No catalogue is not evidence of absence. With no
+ *      names to check against, every launch in the month would decline at once.
+ *   4. THE SUBJECT NAMES NO FAMILY IN IT.
+ *
+ * ── WHY `catalogueNames` IS PASSED IN, AND WHY IT MUST NOT BE indexCatalogue's `names` ──
+ *
+ * `indexCatalogue` EXCLUDES ambiguous names — the client's own brand tokens — from `names`, so
+ * that `validateText` cannot read the brand as a product. That exclusion is right for a
+ * PRESENCE test and wrong for an ABSENCE test, and the two are not the same question:
+ * ivy-t's catalogue really does have a family called "Ivy", and it is missing from that index BY
+ * DESIGN. An absence check reusing it would conclude the brand's own name is uncatalogued.
+ *
+ * This takes the FULL family-name set, exclusions and all, from a reader that does no filtering
+ * (`loadProductNames`). Passing it in rather than loading it keeps this pure, and keeps the one
+ * decision that matters — which set of names counts as "the catalogue" — at the call site,
+ * where the comment above it can be read.
+ */
+export function ungroundedLaunch(
+  post: { title?: string | null; beatMeta?: unknown },
+  catalogueNames: ReadonlySet<string>,
+): string | null {
+  const subject = launchArcSubject(post.title);
+  if (!subject) return null;                          // 1
+  if (!beatSubject(post.beatMeta)) return null;       // 2
+  if (catalogueNames.size === 0) return null;         // 3
+  const haystack = ` ${subject.toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `;
+  for (const name of catalogueNames) {
+    const n = name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    if (n.length > 0 && haystack.includes(` ${n} `)) return null;   // 4 — grounded
+  }
+  return subject;
 }
 
 /**

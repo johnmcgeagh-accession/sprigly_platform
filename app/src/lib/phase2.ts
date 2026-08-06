@@ -31,8 +31,12 @@
  * (docs/reports/wrong-month-generated.md §5c).
  */
 import { and, eq, isNull, ne } from 'drizzle-orm';
-import { db, contentCyclePosts, POST_STATUS_DRAFT } from '@sprigly/db';
-import { captionInstruction, beatSubject } from '@sprigly/engine/generation-recovery';
+import { db, contentCycles, contentCyclePosts, POST_STATUS_DRAFT } from '@sprigly/db';
+import {
+  captionInstruction, beatSubject, ungroundedLaunch,
+  UNGROUNDED_KEY, UNGROUNDED_SUBJECT_KEY,
+} from '@sprigly/engine/generation-recovery';
+import { loadProductNames } from '@/lib/agent/catalogue';
 import { enqueueShape, enqueueHookJob } from '@/lib/queue';
 import { POST_STATUS_GENERATING } from '@/lib/draft-approval';
 import { recordPhase2Run, type Phase2Cost } from '@/lib/phase2-cost';
@@ -56,6 +60,9 @@ export interface Phase2Result {
   captionsQueued: number;
   hooksQueued:    number;
   failed:         Array<{ postId: string; reason: string }>;
+  /** Launch beats not sent to be written because their product is in no catalogue. NOT a
+   *  failure: nothing went wrong, and the client has a question waiting they can answer. */
+  declined:       number;
 }
 
 /**
@@ -85,10 +92,44 @@ export async function startPhase2(clientId: string, cycleId: string): Promise<Ph
     ))
     .orderBy(contentCyclePosts.scheduledDate);
 
-  const result: Phase2Result = { captionsQueued: 0, hooksQueued: 0, failed: [] };
+  const result: Phase2Result = { captionsQueued: 0, hooksQueued: 0, failed: [], declined: 0 };
+
+  /**
+   * ── THE ONE BEAT THAT CANNOT BE WRITTEN HONESTLY ──────────────────────────────────
+   *
+   * A launch post whose product is in no catalogue. Its whole job is to name the thing
+   * launching, and NOTHING downstream can tell that the name is fiction — the code gate has no
+   * product logic, the critic is never handed the catalogue, and `validateText` returns [] the
+   * moment no known name is hit. Left to run, "Molly — Launch" is billed for, passes every
+   * check, and ships a confident paragraph about a product nobody can confirm exists. It is
+   * caught here, before the spend, or it is not caught.
+   *
+   * The FULL name set, not `indexCatalogue`'s — see `loadProductNames` for why an absence check
+   * cannot reuse a presence check's exclusions. Read ONCE for the month: 30 beats must not be
+   * 30 catalogue reads, and an empty set (no catalogue, or a failed read) declines nothing.
+   */
+  const [cycleRow] = await db
+    .select({ channel: contentCycles.channel })
+    .from(contentCycles)
+    .where(and(eq(contentCycles.id, cycleId), eq(contentCycles.clientId, clientId)))
+    .limit(1);
+  const catalogueNames = cycleRow ? await loadProductNames(clientId, cycleRow.channel) : new Set<string>();
 
   for (const post of posts) {
     const title = typeof post.sourceMeta?.['title'] === 'string' ? (post.sourceMeta['title'] as string) : '';
+
+    // DECLINE BEFORE THE SPEND. Deterministic, no Bedrock call, and it does not stop the month's
+    // other beats: the loop continues, `plan-ready` settles on anything that is not 'generating'
+    // (its own docblock: "a month with one broken caption is still a month the client should be
+    // told about"), and the client is left with a question they can answer rather than a caption
+    // that overreaches.
+    const ungrounded = ungroundedLaunch({ title, beatMeta: post.beatMeta }, catalogueNames);
+    if (ungrounded) {
+      await markSubjectUngrounded(clientId, cycleId, post.id, ungrounded);
+      result.declined++;
+      continue;
+    }
+
     const instruction = captionInstruction(title, post.pillar ?? '', beatSubject(post.beatMeta));
 
     const shape = await enqueueShape({
@@ -127,6 +168,46 @@ export async function startPhase2(clientId: string, cycleId: string): Promise<Ph
   });
 
   return result;
+}
+
+/**
+ * Stand a launch beat down until the client says what its product is.
+ *
+ * ── WHY THE STATUS IS 'new' AND NOT 'generation_failed' ─────────────────────────────
+ *
+ * Nothing failed. `generation_failed` would be three separate untruths at once: `isOnTheWay`
+ * collapses it into "On its way", so the client would be promised words that are not coming
+ * (the exact untruth X2c had to undo for banked posts); `classifyGenerationFailure` would read
+ * it as `deterministic` and file it in admin's Failed Posts as an OPERATOR item, when the only
+ * person who can resolve it is the client; and `DetailSheet` hides Shape on both `!body` and
+ * `onWay`, so the state that most needs an action would offer the fewest.
+ *
+ * `new` is the honest one: the post exists, it has no words, and nothing is working on it.
+ * `plan-ready` settles on it (only 'generating' blocks), the sweep never sees it (it scans
+ * `generation_failed` and stale `generating`), and the card renders the question below.
+ *
+ * The FLAG carries the fact and the SUBJECT carries the question, for the reason `quotaBanked`
+ * splits the same way: copy gets reworded, and a state anything acts on must not be inferred
+ * from a sentence.
+ */
+export async function markSubjectUngrounded(clientId: string, cycleId: string, postId: string, subject: string): Promise<void> {
+  const [row] = await db
+    .select({ sourceMeta: contentCyclePosts.sourceMeta })
+    .from(contentCyclePosts)
+    .where(and(eq(contentCyclePosts.id, postId), eq(contentCyclePosts.clientId, clientId)))
+    .limit(1);
+  const meta = {
+    ...((row?.sourceMeta ?? {}) as Record<string, unknown>),
+    [UNGROUNDED_KEY]: true,
+    [UNGROUNDED_SUBJECT_KEY]: subject,
+  };
+  await db.update(contentCyclePosts)
+    .set({ status: 'new', sourceMeta: meta })
+    .where(and(
+      eq(contentCyclePosts.id, postId),
+      eq(contentCyclePosts.cycleId, cycleId),
+      eq(contentCyclePosts.clientId, clientId),
+    ));
 }
 
 /** Stamp one post as failed, with the reason where the surface can read it. */

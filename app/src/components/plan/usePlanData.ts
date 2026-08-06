@@ -597,6 +597,41 @@ export function usePlanData(init: PlanDataInit) {
     finally { setShapingIds((s) => { const n = new Set(s); n.delete(id); return n; }); }
   }, [readOnly, shapingIds, flash, pollJob, clearShapeError, track]);
 
+  /**
+   * Answer the question a DECLINED launch beat is asking, and let it be written.
+   *
+   * Its own call rather than a `shape` with different copy, because it is a different act on a
+   * different endpoint: `shape` REWRITES words that exist and is billed as an AI change against
+   * a caption; this supplies the fact that was missing and starts the FIRST generation, through
+   * `startPostGeneration` — the same door a retry uses.
+   *
+   * It borrows `shapingIds` deliberately: the sheet's `busy` flag, its spinner and its disabled
+   * controls are all keyed off that set, and a second in-flight set would be a second thing to
+   * remember to clear.
+   */
+  const answerSubject = useCallback(async (id: string, text: string) => {
+    if (readOnly || !text.trim() || shapingIds.has(id)) return;
+    clearShapeError(id);
+    track('ungrounded_answered', { postId: id });
+    setShapingIds((s) => new Set(s).add(id));
+    try {
+      const res = await fetch(`/api/posts/${id}/subject`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ subject: text }),
+      });
+      if (!res.ok) { setShapeErrors((m) => new Map(m).set(id, 'Couldn’t start that. Please try again.')); return; }
+      const r = (await res.json()) as { mode?: string; summary?: string; jobId?: string };
+      if (r.mode === 'blocked') { flash(r.summary ?? 'You’ve reached this month’s AI-change limit.'); return; }
+      if (r.mode === 'pending' && r.jobId) {
+        flash(r.summary ?? 'Thanks — we’re writing it now.');
+        const status = await pollJob(r.jobId);
+        if (status === 'error' || status === 'timeout') {
+          setShapeErrors((m) => new Map(m).set(id, status === 'timeout' ? 'That’s taking longer than expected.' : 'Couldn’t write it. Your answer is saved.'));
+        }
+      }
+    } catch { setShapeErrors((m) => new Map(m).set(id, 'Network error. Please try again.')); }
+    finally { setShapingIds((s) => { const n = new Set(s); n.delete(id); return n; }); }
+  }, [readOnly, shapingIds, flash, pollJob, clearShapeError, track]);
+
   /** Retry the last shape/refine instruction for a post (same target). */
   const retryShape = useCallback((id: string) => {
     const last = lastShapeInstruction.current.get(id);
@@ -968,7 +1003,7 @@ export function usePlanData(init: PlanDataInit) {
     scriptGenerating, scriptError, weather,
     // actions
     reschedule, saveCaption, revert, removePost, addPost, addShapedPost,
-    generateChecklist, addStep, toggleStep, renameStep, shape, retryShape, ask, decide, applyChanges, discardChanges, switchCycle,
+    generateChecklist, addStep, toggleStep, renameStep, shape, retryShape, answerSubject, ask, decide, applyChanges, discardChanges, switchCycle,
     refreshProposals, refreshNotes, refreshIdeas, setAgentReply, setAgentError, flash, track,
     saveHook, generateHooks, clearHookCandidates,
     saveScript, generateScript,

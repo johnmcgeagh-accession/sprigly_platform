@@ -66,3 +66,49 @@ export async function loadProductIndex(clientId: string, channel: string): Promi
 
   return lines.length ? lines.join('\n') : NO_CATALOGUE;
 }
+
+/**
+ * EVERY family name in the catalogue, lowercased. Empty when there is no catalogue.
+ *
+ * ── WHY THIS EXISTS BESIDE engine's `indexCatalogue`, WHICH ALREADY HAS `names` ──────
+ *
+ * Because that one is deliberately INCOMPLETE, and completeness is the whole point here.
+ * `indexCatalogue` drops the client's own brand tokens (`deriveBrandTokens`) so that
+ * `validateText` cannot read the brand as a product — a PRESENCE test, where a brand word
+ * colliding with a garment name would flag half a caption. This is an ABSENCE test, and the
+ * same exclusion inverts into a falsehood: ivy-t's catalogue genuinely contains a family called
+ * "Ivy", missing from that index BY DESIGN, so an absence check built on it would conclude the
+ * brand's own name is an unknown product and decline a post about it.
+ *
+ * The two questions need different lists. This one filters NOTHING: it is the catalogue's own
+ * answer to "is this a product of ours", and that is the only question asked of it.
+ *
+ * NO `MAX_FAMILIES` CAP EITHER, for the same reason. A cap is safe when the worst case is a
+ * thinner prompt; here a name past the cap reads as absent, and the post is declined for being
+ * the 81st product rather than for being unknown. Names are short and there are 49 of them.
+ *
+ * Never throws — a read failure returns an EMPTY set, and the caller must treat empty as "no
+ * catalogue, so nothing can be concluded" rather than as "nothing is catalogued".
+ */
+export async function loadProductNames(clientId: string, channel: string): Promise<Set<string>> {
+  const out = new Set<string>();
+  try {
+    const [row] = await db
+      .select({ catalogue: clientProductCatalogue.catalogue })
+      .from(clientProductCatalogue)
+      .where(and(
+        eq(clientProductCatalogue.clientId, clientId),
+        eq(clientProductCatalogue.channel, channel),
+      ))
+      .limit(1);
+    const families = (row?.catalogue as CatalogueBlob | undefined)?.families;
+    if (!Array.isArray(families)) return out;
+    for (const f of families) {
+      const name = typeof f?.name === 'string' ? f.name.trim().toLowerCase() : '';
+      if (name) out.add(name);
+    }
+  } catch {
+    return new Set();
+  }
+  return out;
+}

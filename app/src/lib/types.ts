@@ -98,6 +98,12 @@ export interface PlanPost {
    *  stored, and set to run by itself when the allowance resets. Distinct from any other empty
    *  post, because it is the one nothing is currently working on. */
   banked?:             boolean;
+  /** A launch beat we did not send to be written, because its product is in no catalogue and a
+   *  launch post's job is to name the thing launching. Not a failure and not in flight — the
+   *  one empty post that is waiting on an ANSWER, which only the client has. */
+  ungrounded?:         boolean;
+  /** What we could not ground ("Molly"), so the card can ask about it by name. */
+  ungroundedSubject?:  string | null;
   /**
    * When this post goes out, as a LABEL — '06:00', or 'Evening', or null.
    *

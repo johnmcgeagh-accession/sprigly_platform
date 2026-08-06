@@ -28,6 +28,7 @@
  */
 import { and, eq, gte, sql } from 'drizzle-orm';
 import { db, auditLog, contentCycles, contentCyclePosts } from '@sprigly/db';
+import { isSubjectUngrounded } from '@sprigly/engine/generation-recovery';
 
 /** Actions on the phase-2 path, as written by the code that makes the calls. */
 export const PHASE2_ACTIONS = [
@@ -42,6 +43,9 @@ export interface Phase2Cost {
   postsTotal:     number;
   postsGenerated: number;
   postsFailed:    number;
+  /** Launch beats stood down at enqueue because their product is in no catalogue. Not failures
+   *  and not generations — no model call was made for them. */
+  postsDeclined:  number;
   withHook:       number;
   withScript:     number;
   /** Model calls on the phase-2 path since approval, by action. */
@@ -92,7 +96,12 @@ export async function measurePhase2Cost(clientId: string, cycleId: string): Prom
   const since = cycle?.approvedAt ?? new Date(0);
 
   const posts = await db
-    .select({ status: contentCyclePosts.status, hook: contentCyclePosts.hook, script: contentCyclePosts.script })
+    .select({
+      status: contentCyclePosts.status, hook: contentCyclePosts.hook, script: contentCyclePosts.script,
+      // A declined launch beat is status 'new' with no caption — see below, where counting it
+      // as generated would divide the month's spend by posts nothing was ever spent on.
+      sourceMeta: contentCyclePosts.sourceMeta,
+    })
     .from(contentCyclePosts)
     .where(and(eq(contentCyclePosts.cycleId, cycleId), eq(contentCyclePosts.clientId, clientId)));
 
@@ -117,7 +126,19 @@ export async function measurePhase2Cost(clientId: string, cycleId: string): Prom
     outputTokens += row.outTok;
   }
 
-  const postsGenerated = posts.filter((p) => p.status === 'new' || p.status === 'edited').length;
+  /**
+   * A DECLINED launch beat is neither generated nor failed, and must be counted as neither.
+   *
+   * It carries status 'new' — deliberately, because nothing failed — so a plain status filter
+   * reads it as generated. It is not: no model call was ever made for it, and leaving it in the
+   * denominator makes `callsPerPost` report a month as cheaper per post than it was, by dividing
+   * the same spend across posts that never spent anything. It is reported on its own line
+   * instead, which is also the number worth watching: how often the decline actually fires.
+   */
+  const postsDeclined = posts.filter((p) => isSubjectUngrounded(p.sourceMeta)).length;
+  const postsGenerated = posts.filter(
+    (p) => (p.status === 'new' || p.status === 'edited') && !isSubjectUngrounded(p.sourceMeta),
+  ).length;
   const postsFailed = posts.filter((p) => p.status === 'generation_failed').length;
 
   return {
@@ -125,6 +146,7 @@ export async function measurePhase2Cost(clientId: string, cycleId: string): Prom
     postsTotal:     posts.length,
     postsGenerated,
     postsFailed,
+    postsDeclined,
     withHook:       posts.filter((p) => !!p.hook).length,
     withScript:     posts.filter((p) => !!p.script).length,
     callsByAction,

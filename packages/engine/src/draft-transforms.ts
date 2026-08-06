@@ -345,6 +345,44 @@ const LAUNCH_ARC: ReadonlyArray<{ offsetDays: number; label: string; format: str
   { offsetDays:  3, label: 'Follow-up', format: 'carousel' },
 ];
 
+/** The arc's part labels, for the readers that have to RECOGNISE one of its beats later.
+ *  Exported from here so the suffix a title carries and the suffix something looks for are
+ *  the same list — two copies of these three words is how a rename stops being detected. */
+export const LAUNCH_ARC_LABELS: readonly string[] = LAUNCH_ARC.map((p) => p.label);
+
+/** The em-dash join `applyLaunchArc` writes between a subject and its part label. */
+const ARC_JOIN = ' — ';
+
+/**
+ * The SUBJECT of a launch-arc beat, read back off the title it was given, or null when the
+ * title is not an arc beat's at all.
+ *
+ * `applyLaunchArc` writes `${deriveTitle(intent.subject)} — ${part.label}`, so "Molly — Launch"
+ * yields "Molly". Nothing else on the surface writes that suffix.
+ *
+ * ── THIS READS A STRING BECAUSE IT HAS TO, NOT BECAUSE IT SHOULD ────────────────────
+ *
+ * The right home for "this beat is a launch, and its subject is X" is a FIELD on `beat_meta`,
+ * written by `applyLaunchArc` at placement, beside the `client_input` basis it already writes.
+ * A field cannot be broken by re-titling a card, and this can.
+ *
+ * It is not that, because a field written at placement is blind to every beat ALREADY placed —
+ * including the three this exists for, which are sitting in a draft month that must not be
+ * regenerated. Parsing the title is what can see them. When those rows are gone (or a backfill
+ * is worth its own risk), the field is the change to make and this becomes its fallback.
+ */
+export function launchArcSubject(title: string | null | undefined): string | null {
+  const t = (title ?? '').trim();
+  for (const label of LAUNCH_ARC_LABELS) {
+    const suffix = ARC_JOIN + label;
+    if (t.length > suffix.length && t.endsWith(suffix)) {
+      const subject = t.slice(0, -suffix.length).trim();
+      return subject.length > 0 ? subject : null;
+    }
+  }
+  return null;
+}
+
 /**
  * Allocate a launch arc around the stated date, replacing the weakest beats to make room.
  *

@@ -33,7 +33,12 @@ import type { PlanPost, PlanBeat } from '@/lib/types';
 import { FormatTile, PlusGlyph } from './icons';
 import { dayTitle } from './dates';
 import { scrollPad, type SurfaceFrame } from './frame';
-import { isPostOnTheWay, isBanked, ON_THE_WAY_LABEL, ON_THE_WAY_TEASER, ON_THE_WAY_ARIA, BANKED_LABEL, BANKED_TEASER, BANKED_ARIA } from '@/lib/generation-state';
+import {
+  isPostOnTheWay, isBanked, isUngrounded,
+  ON_THE_WAY_LABEL, ON_THE_WAY_TEASER, ON_THE_WAY_ARIA,
+  BANKED_LABEL, BANKED_TEASER, BANKED_ARIA,
+  ungroundedLabel, ungroundedTeaser, UNGROUNDED_ARIA,
+} from '@/lib/generation-state';
 import { cardText } from './card-text';
 import { WeatherHeaderBadge } from '../pieces';
 import { BeatMarker, beatFlashText } from '../BeatMarker';
@@ -141,6 +146,7 @@ function PostCard({ post, time, changed = false, onOpen }: { post: PlanPost; tim
    */
   const banked = isBanked(post);
   const onWay = isPostOnTheWay(post);
+  const ungrounded = isUngrounded(post);
   const { heading, source, teaser } = cardText(post);
   return (
     <button
@@ -165,7 +171,23 @@ function PostCard({ post, time, changed = false, onOpen }: { post: PlanPost; tim
       <h4 className="mb-[5px] text-[16.5px] font-semibold leading-[1.3] tracking-[-.02em] text-chrome">
         {source === 'none' ? <span className="font-medium italic text-muted">Untitled</span> : heading}
       </h4>
-      {banked ? (
+      {ungrounded ? (
+        /* THE DECLINE (the ungrounded launch). Ordered FIRST because it is the only one of the
+           three empty states that asks the client for something, and a state that asks must
+           never be shadowed by one that reassures. The accent ring is the same non-text use as
+           the changed treatment: it marks the card that wants a hand without shouting. */
+        <>
+          <p data-testid="ungrounded-teaser" className="text-[13.5px] leading-normal text-muted">
+            {ungroundedTeaser(post.ungroundedSubject)}
+          </p>
+          <div className="mt-2.5 flex items-center gap-2">
+            <span aria-hidden="true" className="block h-[7px] w-[7px] flex-none rounded-full border-[1.5px] border-coral-600" />
+            <span data-testid="ungrounded" aria-label={UNGROUNDED_ARIA} className="text-[12.5px] font-semibold text-coral-800">
+              {ungroundedLabel(post.ungroundedSubject)}
+            </span>
+          </div>
+        </>
+      ) : banked ? (
         <>
           <p data-testid="banked-message" className="text-[13.5px] leading-normal text-muted">
             {post.generationError || BANKED_TEASER}

@@ -19,6 +19,8 @@ import { describe, it, expect } from 'vitest';
 import type { PostStatus } from '@/lib/types';
 import {
   isOnTheWay, ON_THE_WAY_LABEL, ON_THE_WAY_TEASER, ON_THE_WAY_BODY, ON_THE_WAY_ARIA,
+  isPostOnTheWay, isUngrounded, askableSubject,
+  ungroundedLabel, ungroundedTeaser, ungroundedBody, ungroundedCta,
 } from '@/lib/generation-state';
 
 const ALL_STATUSES: PostStatus[] = ['planned', 'edited', 'new', 'generating', 'generation_failed', 'draft'];
@@ -63,5 +65,49 @@ describe('the words', () => {
   it('are phrased as continuation, not as an outcome', () => {
     expect(ON_THE_WAY_LABEL).toBe('On its way');
     expect(ON_THE_WAY_TEASER).toContain('still writing');
+  });
+});
+
+describe('the ungrounded launch — a question, never a failure', () => {
+  const post = (subject: string | null) => ({ ungrounded: true, ungroundedSubject: subject });
+
+  it('is not collapsed into "On its way" — its status is `new`, and nothing is in flight', () => {
+    expect(isUngrounded(post('Molly'))).toBe(true);
+    expect(isPostOnTheWay({ status: 'new' as PostStatus })).toBe(false);
+    expect(isUngrounded({ ungrounded: false })).toBe(false);
+    expect(isUngrounded({})).toBe(false);
+  });
+
+  it('asks by name when the subject reads in a question', () => {
+    expect(ungroundedLabel('Molly')).toBe('What is Molly?');
+    expect(ungroundedCta('Molly')).toBe('Tell us about Molly');
+    // The duplicate arc's subject. Clumsy, but answerable — the bound is length, not grammar.
+    expect(ungroundedLabel('Molly launch')).toBe('What is Molly launch?');
+    expect(ungroundedLabel('the Navy Edit')).toBe('What is the Navy Edit?');
+  });
+
+  it('falls back rather than putting a sentence inside "What is …?"', () => {
+    // `deriveTitle` bounds a title on a word boundary, not to a noun phrase, so a launch subject
+    // CAN be prose — September's back-to-school beat is 54 characters of it.
+    const prose = 'One thing going on in September is the back to school';
+    expect(askableSubject(prose)).toBeNull();
+    expect(ungroundedLabel(prose)).toBe('What are we launching?');
+    expect(ungroundedCta(prose)).toBe('Tell us about this launch');
+    expect(ungroundedBody(prose)).toContain('what this launch is');
+    for (const empty of [null, undefined, '   ']) {
+      expect(ungroundedLabel(empty)).toBe('What are we launching?');
+    }
+  });
+
+  it('says why the post is blank, and never that anything failed', () => {
+    for (const s of [ungroundedLabel('Molly'), ungroundedTeaser('Molly'), ungroundedBody('Molly'), ungroundedCta('Molly')]) {
+      expect(s.toLowerCase()).not.toMatch(/fail|error|couldn|problem|sorry|retry|wrong/);
+    }
+    // "rather than guess" is the phrase that makes an empty post read as a decision we made
+    // rather than as something broken. It carries the whole state.
+    expect(ungroundedTeaser('Molly')).toContain('rather than guess');
+    expect(ungroundedBody('Molly')).toContain('rather than guess');
+    // The card asks; the sheet explains. The card must not repeat the explanation.
+    expect(ungroundedTeaser('Molly').length).toBeLessThan(ungroundedBody('Molly').length);
   });
 });

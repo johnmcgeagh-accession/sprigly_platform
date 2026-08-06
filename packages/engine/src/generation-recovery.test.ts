@@ -6,7 +6,8 @@
  * what stops the three drifting into disagreement about how many goes a post gets.
  */
 import { describe, it, expect } from 'vitest';
-import { captionInstruction, beatSubject, sweepAttemptsOf, sweepExhausted, MAX_SWEEP_ATTEMPTS, SWEEP_ATTEMPTS_KEY } from './generation-recovery.js';
+import { captionInstruction, beatSubject, ungroundedLaunch, sweepAttemptsOf, sweepExhausted, MAX_SWEEP_ATTEMPTS, SWEEP_ATTEMPTS_KEY } from './generation-recovery.js';
+import { launchArcSubject } from './draft-transforms.js';
 
 /** ivy-t's September, verbatim — the two sentences the observed failure was written without. */
 const MOLLY = 'In September we\'re launching Molly on the 18th September we need a launch post and 2 teasers on the lead up';
@@ -79,6 +80,68 @@ describe('beatSubject — which reasons are a SUBJECT', () => {
 
   it('collapses the whitespace a typed brief arrives with', () => {
     expect(beatSubject(meta('client_input', '  launching   Molly\n\non the 18th '))).toBe('launching Molly on the 18th');
+  });
+});
+
+describe('ungroundedLaunch — the decline, and the four reasons not to', () => {
+  // ivy-t's real catalogue, in the shape the check gets it: EVERY family name, brand
+  // collisions included. "ivy" is in here on purpose — see loadProductNames.
+  const CAT = new Set(['anna', 'claire', 'elle', 'hannah', 'heather', 'ivy', 'jane', 'jen', 'jules', 'lydia', 'maya', 'nicola', 'thia']);
+  const launch = (title: string, reason = MOLLY) => ({ title, beatMeta: meta('client_input', reason) });
+
+  it('declines a launch arc whose subject is in no catalogue', () => {
+    for (const part of ['Tease', 'Launch', 'Follow-up']) {
+      expect(ungroundedLaunch(launch(`Molly — ${part}`), CAT)).toBe('Molly');
+    }
+  });
+
+  it('lets a launch naming a catalogue family through', () => {
+    expect(ungroundedLaunch(launch('Heather — Launch'), CAT)).toBeNull();
+    expect(ungroundedLaunch(launch('Heather restock — Launch'), CAT)).toBeNull();
+  });
+
+  it('lets the BRAND\'s own family through — the exclusion that would have broken this', () => {
+    // `indexCatalogue` drops brand tokens from `names` so validateText cannot read the brand as
+    // a product. Reusing that list here would call ivy-t's own "Ivy" an unknown product.
+    expect(ungroundedLaunch(launch('Ivy — Launch'), CAT)).toBeNull();
+  });
+
+  it('never declines a beat that is not a launch arc, whatever it names', () => {
+    // September's back-to-school beat: uncatalogued subject, client_input, NOT an arc. Naming a
+    // product is not its purpose and it carries the client's own words, so it writes.
+    expect(ungroundedLaunch(launch('One thing going on in September is the back to school…'), CAT)).toBeNull();
+    expect(ungroundedLaunch(launch('Molly'), CAT)).toBeNull();
+    expect(ungroundedLaunch(launch('Weekend Style Guide'), CAT)).toBeNull();
+  });
+
+  it('never declines an assembler-placed beat — its product came FROM the catalogue', () => {
+    for (const basis of ['observed', 'template', 'emphasis_reweight', 'client_added']) {
+      expect(ungroundedLaunch({ title: 'Molly — Launch', beatMeta: meta(basis, 'x') }, CAT)).toBeNull();
+    }
+  });
+
+  it('declines nothing when there is no catalogue — absence is not evidence of absence', () => {
+    expect(ungroundedLaunch(launch('Molly — Launch'), new Set())).toBeNull();
+  });
+
+  it('is unmoved by case and punctuation around the name', () => {
+    expect(ungroundedLaunch(launch('HEATHER — Launch'), CAT)).toBeNull();
+    expect(ungroundedLaunch(launch('The Heather, restyled — Launch'), CAT)).toBeNull();
+    // A name that merely CONTAINS a family name as a substring is not that family.
+    expect(ungroundedLaunch(launch('Janet — Launch'), CAT)).toBe('Janet');
+  });
+});
+
+describe('launchArcSubject', () => {
+  it('reads the subject back off the title its transform wrote', () => {
+    expect(launchArcSubject('Molly — Tease')).toBe('Molly');
+    expect(launchArcSubject('Molly launch — Follow-up')).toBe('Molly launch');
+  });
+
+  it('is null for anything that is not an arc beat', () => {
+    for (const t of ['Molly', 'How Ivy began', 'WSG: easy mornings start with Thia', '', null, undefined, ' — Launch']) {
+      expect(launchArcSubject(t)).toBeNull();
+    }
   });
 });
 

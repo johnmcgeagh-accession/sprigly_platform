@@ -33,7 +33,11 @@ import type { PlanData, ShapeTarget } from '../usePlanData';
 import { FormatTile, InfoGlyph, CopyGlyph, PencilGlyph, CalGlyph, SparkleGlyph, BinGlyph, SendGlyph, FORMAT_WORD } from './icons';
 import { cardText, realCaption } from './card-text';
 import { dayTitle } from './dates';
-import { isPostOnTheWay, isBanked, ON_THE_WAY_LABEL, ON_THE_WAY_BODY, BANKED_LABEL, BANKED_TEASER } from '@/lib/generation-state';
+import {
+  isPostOnTheWay, isBanked, isUngrounded,
+  ON_THE_WAY_LABEL, ON_THE_WAY_BODY, BANKED_LABEL, BANKED_TEASER,
+  ungroundedLabel, ungroundedBody, ungroundedCta,
+} from '@/lib/generation-state';
 import { Sheet } from './Sheet';
 import { Panel, type PanelChrome } from './Panel';
 import { ChevronL } from './icons';
@@ -136,6 +140,7 @@ export function DetailSheet({
   // X2c: banked is its OWN state and outranks "on its way" — nothing is being written.
   const banked = isBanked(post);
   const onWay = isPostOnTheWay(post);
+  const ungrounded = isUngrounded(post);
   const written = !!(realCaption(post) || post.hook || post.script);
   const editable = data.canEdit(post.date);
   const body = fieldOf(post, tab);
@@ -152,7 +157,12 @@ export function DetailSheet({
 
   const submitShape = () => {
     if (!instruction.trim()) return;
-    void data.shape(post.id, instruction.trim(), openTab);
+    // The same input, two acts. On a declined launch the client is supplying the fact we were
+    // missing, which starts the FIRST generation; everywhere else they are rewriting words that
+    // already exist. Routing on the post's state rather than on a second input keeps the
+    // gesture single — see `answerSubject`.
+    if (ungrounded) void data.answerSubject(post.id, instruction.trim());
+    else void data.shape(post.id, instruction.trim(), openTab);
     setShaping(false);
     setInstruction('');
   };
@@ -313,6 +323,22 @@ export function DetailSheet({
                 </div>
               )}
             </>
+          ) : ungrounded ? (
+            /* THE DECLINE (the ungrounded launch). The one empty state with an ACTION, because
+               it is the one waiting on the client rather than on us. The button opens the same
+               `shape-input` a rewrite uses — a second instruction surface for the same gesture
+               is how two of them drift apart, and this one has nothing new to say. */
+            <div data-testid="detail-ungrounded" className="rounded-2xl border border-coral-600/40 bg-coral-100/60 px-4 py-5">
+              <p className="text-[15px] font-semibold text-chrome">{ungroundedLabel(post.ungroundedSubject)}</p>
+              <p className="mt-1.5 text-[13.5px] leading-normal text-muted">{ungroundedBody(post.ungroundedSubject)}</p>
+              <button
+                type="button" data-testid="ungrounded-tell" disabled={busy}
+                onClick={() => setShaping(true)}
+                className="mt-3.5 min-h-[44px] w-full rounded-[14px] bg-coral-650 px-4 text-[14px] font-bold text-white"
+              >
+                {ungroundedCta(post.ungroundedSubject)}
+              </button>
+            </div>
           ) : banked ? (
             /* THE CAP'S OWN STATE (X2c). The stored message names the reset date, and the
                instruction we are holding is shown BACK to the client — between them they say
