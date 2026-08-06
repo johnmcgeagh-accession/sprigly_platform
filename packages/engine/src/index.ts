@@ -94,7 +94,7 @@ export { approveDraftCore, POST_STATUS_GENERATING, APPROVAL_MESSAGES } from './d
 export type { ApprovalError, ApprovalResult, ApproveDraftParams, ApprovalDb } from './draft-approval-core.js';
 
 // ── Intake routing + reshaping (Build C) ─────────────────────────────────────
-export { classifyIntake, routeFromParsed, parseClassification, parseBeatSpec, parsePlanQuestion, monthScopedIntentSchema, CLASSIFY_SYSTEM, BRIEF_SEGMENT_FRAMING } from './intake-classify.js';
+export { classifyIntake, routeFromParsed, parseClassification, parseBeatSpec, parsePlanQuestion, namesAnOperation, monthScopedIntentSchema, CLASSIFY_SYSTEM, BRIEF_SEGMENT_FRAMING } from './intake-classify.js';
 export type { IntakeRouting, PlanQuestionKind, MonthScopedIntent, EvergreenReason, ClassifyParams } from './intake-classify.js';
 export {
   isDocumentShaped, decomposeInput, validateDecomposition, parseDecomposition,

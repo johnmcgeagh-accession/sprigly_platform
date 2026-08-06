@@ -19,7 +19,7 @@
  * request gate runs before the topic gate and fails closed, and most of this file is about it.
  */
 import { describe, it, expect } from 'vitest';
-import { parsePlanQuestion } from './intake-classify.js';
+import { parsePlanQuestion, namesAnOperation } from './intake-classify.js';
 
 describe('the four phrasings the operator tried, verbatim', () => {
   const ASKED = [
@@ -391,6 +391,50 @@ describe('an elided apostrophe is still a question', () => {
 
   it('gate 3 still runs first — an elided question asking for a change is still a request', () => {
     expect(parsePlanQuestion('whats the best day to move the 22nd to')).toBeNull();
+  });
+});
+
+/**
+ * THE SECOND READER, whose answer used to be thrown away.
+ *
+ * "can you move one of the posts to the next available empty day?" was classified evergreen and
+ * filed as an idea — one turn after the agent had offered exactly that. The gate did its job: it
+ * called the sentence a REQUEST and handed it to the classifier, which called it a standing idea.
+ * Nothing can prove which is right, but the disagreement itself is a signal, and it was discarded.
+ *
+ * `namesAnOperation` narrows it to sentences acting on a post that already exists — where a
+ * filing is almost certainly wrong AND where the rescue tap would do damage.
+ */
+describe('namesAnOperation — the disagreement worth surfacing', () => {
+  it('claims the sentences that act on a post already on the calendar', () => {
+    for (const t of [
+      'can you move one of the posts to the next available empty day?',
+      'move one of the September posts to an empty day',
+      'drop the Tuesday reel',
+      'swap the 3rd and the 4th',
+      'can we push everything back a week',
+    ]) expect(namesAnOperation(t)).toBe(true);
+  });
+
+  /**
+   * ADDITIVE VERBS ARE DELIBERATELY OUT. CLASSIFY_SYSTEM says in as many words that an undated
+   * ADDITION is evergreen — "we should do a founder story" is a standing idea — and the backlog
+   * rescue then does exactly the right thing with it. Hedging that copy would be telling the
+   * client we might have misunderstood them when we had not.
+   */
+  it('leaves an addition alone — filing one is correct, not a misread', () => {
+    for (const t of [
+      'we should do a founder story',
+      'add a post about winter layering',
+      'a carousel about the new packaging sometime',
+      'Why never to wear polyester or synthetics, especially in summer.',
+    ]) expect(namesAnOperation(t)).toBe(false);
+  });
+
+  it('reads the verb, not the register — politeness is not the signal', () => {
+    // A modal makes a sentence a request; it does not make it an operation on an existing post.
+    expect(namesAnOperation('could we share Sally’s story sometime, could be nice')).toBe(false);
+    expect(namesAnOperation('move the 22nd')).toBe(true);
   });
 });
 

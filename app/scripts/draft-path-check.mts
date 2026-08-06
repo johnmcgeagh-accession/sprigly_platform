@@ -28,7 +28,7 @@
  * — one Titan embed and one Haiku answer. That is spend, honestly recorded, on the ledger the
  * product reads. Operator-invoked only; it lives in scripts/, so Vitest never collects it.
  */
-import { applyIntakeToDraft } from '../src/lib/draft-apply';
+import { applyIntakeToDraft, readAsIdea } from '../src/lib/draft-apply';
 import { parsePlanQuestion, classifyIntake, applyIntent, type TransformBeat } from '@sprigly/engine';
 import { getModelClient } from '../src/lib/agent/model';
 import { loadDraftBeats } from '../src/lib/plan';
@@ -100,7 +100,14 @@ if (has('resolve')) {
     console.log(`   classifyIntake    → scope=${routing.scope}`
       + (routing.scope === 'month_scoped' ? ` kind=${routing.intent.kind} correctionOf=${JSON.stringify(routing.intent.correctionOf ?? null)} beatRef=${JSON.stringify(routing.intent.beatRef ?? null)} dateRange=${JSON.stringify(routing.intent.dateRange ?? null)}` : '')
       + (routing.scope === 'evergreen' ? ` reason=${routing.reason}` : ''));
-    if (routing.scope !== 'month_scoped') { console.log(`   → filed, no ops`); continue; }
+    if (routing.scope !== 'month_scoped') {
+      // The ROUTING reason is not what the client reads. `readAsIdea` is the rule that decides
+      // whether the receipt hedges, and it is imported rather than restated so this cannot drift.
+      const shown = routing.scope === 'evergreen' ? readAsIdea(routing.reason, text) : '—';
+      console.log(`   receipt reason    → ${shown}${shown === 'read_as_idea' ? '  (hedged copy, rescue tap withheld)' : ''}`);
+      console.log(`   → filed, no ops`);
+      continue;
+    }
     const res = applyIntent(routing.intent, beats, planMonth, TODAY);
     console.log(`   applyIntent       → ${res.ops.length} op(s)${res.note ? ` · note: ${res.note}` : ''}`);
     for (const op of res.ops) {

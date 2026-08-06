@@ -21,7 +21,7 @@ import {
 } from '@sprigly/db';
 import {
   classifyIntake, applyIntent, diffBeats, renderDiff, isNoOp,
-  isDocumentShaped, decomposeInput, orderIndices,
+  isDocumentShaped, decomposeInput, orderIndices, namesAnOperation,
   type IntakeRouting, type MonthScopedIntent, type TransformBeat, type BeatOp, type DiffBeat,
 } from '@sprigly/engine';
 import { createAuditLogger } from '@sprigly/audit';
@@ -95,10 +95,18 @@ export interface DraftApplication {
 export interface BriefItem {
   /** The segment, verbatim (trimmed). */
   span:        string;
-  /** applied = it changed the month · idea = filed to the backlog · couldnt_apply = tried,
-   *  couldn't, filed with a rescue tap · noop = recorded, nothing to change (e.g. a cadence
-   *  floor already met). */
-  outcome:     'applied' | 'idea' | 'couldnt_apply' | 'noop';
+  /**
+   * applied        it changed the month
+   * idea           filed to the backlog, as asked
+   * couldnt_apply  we tried and failed; filed with a rescue tap
+   * nothing_to_do  the transform RAN and there was nothing to change — a cadence floor already
+   *                met, an emphasis the month already satisfies — and the input was filed.
+   *                Split out of `couldnt_apply`, where it was giving a success the copy of a
+   *                failure: *"Recorded 7 posts a week as your floor. You have 9 posts this
+   *                month"* is not something we could not apply.
+   * noop           recorded, nothing to change, and nothing filed either.
+   */
+  outcome:     'applied' | 'idea' | 'couldnt_apply' | 'nothing_to_do' | 'noop';
   /** The intent kind, when it was month-scoped — drives the rollup summary ("1 launch"). */
   kind?:       string;
   lines:       string[];
@@ -502,6 +510,30 @@ async function answerAboutThePlan(a: {
   }
 }
 
+/**
+ * THE ONE PLACE THAT DECIDES A FILING MIGHT BE A MISREAD.
+ *
+ * `classified_evergreen` means the model actively called the sentence a standing idea, and
+ * `ambiguous` means its intent failed validation. Both file the input and both used to render
+ * as a filing the client had asked for. Neither can be PROVEN a misread — the classifier is the
+ * only reader of intent in the system and it is the one that failed.
+ *
+ * What is available is a second, deterministic reader that already ran on the same string:
+ * gate 3 in `parsePlanQuestion`. When it says REQUEST and the model says IDEA, they disagree,
+ * and `namesAnOperation` narrows that disagreement to sentences acting on a post that already
+ * exists — where a filing is almost certainly wrong and, more to the point, where the rescue tap
+ * would do damage. Measured: both reported misreads, none of the twenty genuinely-evergreen
+ * corpus inputs.
+ *
+ * Computed HERE rather than in the engine because it is a decision about what the RECEIPT says,
+ * not about where the input goes. The routing is untouched: the row is filed exactly as before,
+ * in the same place, with the same window. Only the sentence the client reads changes.
+ */
+export function readAsIdea(reason: string, sourceText: string): string {
+  const uncertain = reason === 'classified_evergreen' || reason === 'ambiguous';
+  return uncertain && namesAnOperation(sourceText) ? 'read_as_idea' : reason;
+}
+
 /** A stable-enough id for a receipt without pulling in a uuid dep on this path. */
 const receiptId = (at: number, sourceText: string): string =>
   `r-${at.toString(36)}-${Math.abs([...sourceText].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7)).toString(36)}`;
@@ -581,7 +613,7 @@ export async function applyIntakeToDraft(params: {
   if (routing.scope === 'evergreen') {
     const planInputId = await saveToBacklog(clientId, cycleId, sourceText, source, backlogWindow(routing, sourceText, today));
     const application: DraftApplication = {
-      ...base, scope: 'evergreen', reason: routing.reason, lines: [], changedIds: [],
+      ...base, scope: 'evergreen', reason: readAsIdea(routing.reason, sourceText), lines: [], changedIds: [],
       ...(planInputId ? { planInputId } : {}),
     };
     if (!params.suppressReceipt) await persistReceipt(cycleId, application);
@@ -750,8 +782,14 @@ function toBriefItem(span: string, routing: IntakeRouting, r: ApplyResult): Brie
   const a = r.application;
   const kind = routing.scope === 'month_scoped' ? routing.intent.kind : undefined;
   if (a.scope === 'evergreen') {
+    // `not_applicable` used to be folded in with `couldnt_apply` here, which is the inconsistency
+    // that gave one failure honest copy in a brief and dishonest copy in a sentence — and it was
+    // honest in the WRONG direction: a cadence floor already met is a success, not a failure. The
+    // two now say the same thing on both paths.
     const outcome: BriefItem['outcome'] =
-      a.reason === 'couldnt_apply' || a.reason === 'not_applicable' ? 'couldnt_apply' : 'idea';
+      a.reason === 'couldnt_apply' || a.reason === 'validation_failed' ? 'couldnt_apply'
+      : a.reason === 'not_applicable' ? 'nothing_to_do'
+      : 'idea';
     return {
       span: trimmed, outcome, ...(kind ? { kind } : {}),
       lines: [], changedIds: [],

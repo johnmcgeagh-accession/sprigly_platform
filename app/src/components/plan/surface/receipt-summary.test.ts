@@ -7,7 +7,7 @@
  * element whose job is to be trusted.
  */
 import { describe, it, expect } from 'vitest';
-import { countVerbs, countItems, chipLabel, rollupHeadline } from './receipt-summary';
+import { countVerbs, countItems, chipLabel, rollupHeadline, evergreenCopy } from './receipt-summary';
 import type { DraftReceipt, BriefItem } from '../DraftPlanView';
 
 const receipt = (over: Partial<DraftReceipt> = {}): DraftReceipt => ({
@@ -105,9 +105,97 @@ describe('chipLabel', () => {
     expect(chipLabel(receipt({ scope: 'evergreen', reason: 'couldnt_apply' }))).toBe('We couldn’t apply that');
   });
 
+  /**
+   * Six reasons reached an evergreen receipt and five said the same sentence: "Saved to your
+   * ideas", the copy for a filing the client ASKED FOR. The honest branch could only fire when
+   * classifyIntake threw twice, so it was unreachable from every failure that actually happens —
+   * including "can you move one of the posts to the next available empty day?", read as a
+   * standing idea and reported back as a deliberate filing.
+   */
+  it('tells a suspected misread apart from a filing the client asked for', () => {
+    expect(chipLabel(receipt({ scope: 'evergreen', reason: 'read_as_idea' })))
+      .toBe('Saved as an idea — not a change');
+    // The common case is unchanged: a real idea still reads as one.
+    expect(chipLabel(receipt({ scope: 'evergreen', reason: 'classified_evergreen' })))
+      .toBe('Saved to your ideas');
+  });
+
+  it('does not call a success a failure', () => {
+    // `not_applicable` means the transform RAN and had nothing to do — a cadence floor already
+    // met returns no ops with the note "Recorded 7 posts a week as your floor. You have 9 posts
+    // this month". Folding that in with couldnt_apply was giving a success the words of a failure.
+    expect(chipLabel(receipt({ scope: 'evergreen', reason: 'not_applicable' })))
+      .toBe('Nothing needed changing');
+    expect(chipLabel(receipt({ scope: 'evergreen', reason: 'validation_failed' })))
+      .toBe('We couldn’t apply that');
+  });
+
+  it('asks for a retry when the retry is the thing that will work', () => {
+    expect(chipLabel(receipt({ scope: 'evergreen', reason: 'model_error' })))
+      .toBe('We couldn’t read that');
+  });
+
   it('is EMPTY when nothing happened — a chip reading "0 changes" spends 48px to say nothing', () => {
     expect(chipLabel(receipt())).toBe('');
     expect(chipLabel(null)).toBe('');
+  });
+});
+
+/**
+ * THE COPY AND THE BUTTON COME FROM ONE PLACE.
+ *
+ * Three components carried their own `reason === 'couldnt_apply'` ternary, which is how the chip
+ * comes to say one thing over a panel saying another. `evergreenCopy` is the rule; `chipLabel`
+ * above is the same FAMILIES in the chip's register, and these pin the two together.
+ */
+describe('evergreenCopy', () => {
+  const M = 'September';
+
+  it('withholds the rescue tap on a suspected misread, and only there', () => {
+    // Not a copy decision. `addBacklogItemToMonth` re-routes the filed row as kind:'event' with
+    // its first 80 characters as the subject and displaces the weakest beat, so the one button
+    // offered would title a post with the client's instruction and evict a real one.
+    expect(evergreenCopy('read_as_idea', M).rescue).toBe(false);
+    expect(evergreenCopy('model_error', M).rescue).toBe(false);
+    for (const r of ['classified_evergreen', 'ambiguous', 'couldnt_apply', 'validation_failed', 'not_applicable']) {
+      expect(evergreenCopy(r, M).rescue).toBe(true);
+    }
+  });
+
+  it('states rather than asks — a question would be answered through the classifier that failed', () => {
+    const { heading, body } = evergreenCopy('read_as_idea', M);
+    expect(heading).toBe('Saved as an idea — not a change to September');
+    expect(heading).not.toContain('?');
+    // It names the shape that does work, which is the one thing that gets a client unstuck.
+    expect(body).toContain('which post and which date');
+  });
+
+  it('never calls a success a failure', () => {
+    expect(evergreenCopy('not_applicable', M).heading).toBe('Nothing changed in September');
+    expect(evergreenCopy('not_applicable', M).heading).not.toContain('couldn’t');
+  });
+
+  it('says a system failure is one, and asks for the retry that will fix it', () => {
+    expect(evergreenCopy('couldnt_apply', M).heading).toBe('We couldn’t apply this');
+    expect(evergreenCopy('validation_failed', M).heading).toBe('We couldn’t apply this');
+    expect(evergreenCopy('model_error', M).body).toContain('try saying it again');
+    // saveToBacklog runs for every evergreen reason, so this is a fact and not reassurance.
+    expect(evergreenCopy('model_error', M).body).toContain('It’s saved');
+  });
+
+  it('leaves the common case exactly as it was', () => {
+    const { heading, body, rescue } = evergreenCopy('classified_evergreen', M);
+    expect(heading).toBe('Saved to your ideas');
+    expect(body).toBe('We’ve kept this for later rather than changing September. If you meant now, add it to this month.');
+    expect(rescue).toBe(true);
+  });
+
+  it('every family the chip knows is a family the panel knows', () => {
+    for (const r of ['read_as_idea', 'not_applicable', 'model_error', 'couldnt_apply', 'validation_failed']) {
+      const chip = chipLabel({ id: 'r', at: '', sourceText: 'x', scope: 'evergreen', reason: r, lines: [], changedIds: [] } as DraftReceipt);
+      expect(chip).not.toBe('Saved to your ideas');       // none of these is a deliberate filing
+      expect(evergreenCopy(r, M).heading).not.toBe('Saved to your ideas');
+    }
   });
 });
 

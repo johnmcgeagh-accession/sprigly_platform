@@ -27,7 +27,7 @@ import { ChevronD, ChevronR, CheckGlyph } from './icons';
 // The same stripper the thread renders the agent's prose through (agent-prose.ts). Shared so a
 // `**bold**` marker cannot survive in one surface and not the other.
 import { stripMarkdown } from './agent-prose';
-import { rollupHeadline, countItems } from './receipt-summary';
+import { rollupHeadline, countItems, evergreenCopy } from './receipt-summary';
 import { scrollPad } from './frame';
 
 export function ReceiptPanel({
@@ -91,10 +91,11 @@ function Single({
    * it, which is what makes the panel readable as a Q and an A rather than a log.
    */
   const answered = receipt.scope === 'question';
+  const copy = evergreenCopy(receipt.reason, monthName);
   return (
     <>
       <h2 className="mb-2 text-[20px] font-bold tracking-[-.025em] text-chrome">
-        {evergreen ? (receipt.reason === 'couldnt_apply' ? 'We couldn’t apply this' : 'Saved to your ideas')
+        {evergreen ? copy.heading
           : answered ? 'You asked'
           : 'What changed'}
       </h2>
@@ -107,14 +108,9 @@ function Single({
           ))}
         </div>
       ) : evergreen ? (
-        <p className="text-[15px] leading-[1.5] text-chrome">
-          {/* `couldnt_apply` is NOT a filing the client asked for. Saying "saved to your ideas"
-              for a failed extraction is the silent demotion the copy exists to prevent. */}
-          {receipt.reason === 'couldnt_apply'
-            ? `We couldn’t work this into ${monthName} automatically, so we’ve saved it to your ideas.`
-            : `We’ve kept this for later rather than changing ${monthName}.`}
-          {' '}If you meant now, add it to this month.
-        </p>
+        // Every word of this — and whether the rescue tap appears below — comes from
+        // `evergreenCopy`, so the chip, this panel and the legacy view cannot drift apart.
+        <p className="text-[15px] leading-[1.5] text-chrome">{copy.body}</p>
       ) : receipt.lines.length > 0 ? (
         <ul className="flex flex-col gap-2">
           {receipt.lines.map((line) => (
@@ -129,7 +125,12 @@ function Single({
       )}
 
       {receipt.note && <p className="mt-3 text-[13.5px] leading-normal text-muted">{receipt.note}</p>}
-      {evergreen && receipt.planInputId && editable && (
+      {/* THE RESCUE TAP IS WITHHELD ON A SUSPECTED MISREAD, and that is not a copy decision.
+          `addBacklogItemToMonth` re-routes the filed row as kind:'event' with its first 80
+          characters as the SUBJECT, displacing the weakest beat to make room — so on "can you
+          move one of the posts to the next available empty day?" the one button we offer would
+          create a post titled with the instruction and evict a real one. */}
+      {evergreen && copy.rescue && receipt.planInputId && editable && (
         <RescueBtn busy={rescuing} onClick={() => onRescue(receipt.planInputId!)} />
       )}
     </>
@@ -217,7 +218,7 @@ function Item({
         <p className="ml-[25px] mt-1.5 text-[12.5px] leading-normal text-muted">{item.note}</p>
       )}
 
-      {(item.outcome === 'idea' || item.outcome === 'couldnt_apply') && item.planInputId && editable && (
+      {(item.outcome === 'idea' || item.outcome === 'couldnt_apply' || item.outcome === 'nothing_to_do') && item.planInputId && editable && (
         <div className="ml-[25px]">
           <RescueBtn busy={rescuing} onClick={() => onRescue(item.planInputId!)} />
         </div>

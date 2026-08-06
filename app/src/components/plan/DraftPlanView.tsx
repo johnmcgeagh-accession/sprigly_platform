@@ -21,11 +21,12 @@
 import React, { useMemo, useRef, useState } from 'react';
 import type { DraftBeatView, PostFormat } from '@/lib/types';
 import { rationaleFor, slotLabel, assumptionPrompt } from '@/lib/draft-rationale';
+import { evergreenCopy } from './surface/receipt-summary';
 
 /** One segment of a decomposed brief, and what became of it. */
 export interface BriefItem {
   span: string;
-  outcome: 'applied' | 'idea' | 'couldnt_apply' | 'noop';
+  outcome: 'applied' | 'idea' | 'couldnt_apply' | 'nothing_to_do' | 'noop';
   kind?: string;
   lines: string[]; changedIds: string[];
   note?: string; planInputId?: string; deferredCount?: number;
@@ -49,10 +50,11 @@ function kindLabel(kind: string | undefined, outcome: BriefItem['outcome'], n: n
   const base =
     outcome === 'idea' ? 'idea'
     : outcome === 'couldnt_apply' ? 'couldn’t apply'
+    : outcome === 'nothing_to_do' ? 'nothing to change'
     : kind === 'beat_spec' ? 'post'
     : kind === 'cadence' ? 'cadence change'
     : kind ?? 'change';
-  const plural = outcome === 'couldnt_apply' ? base : `${base}${n === 1 ? '' : 's'}`;
+  const plural = outcome === 'couldnt_apply' || outcome === 'nothing_to_do' ? base : `${base}${n === 1 ? '' : 's'}`;
   return `${n} ${plural}`;
 }
 
@@ -61,12 +63,12 @@ function summariseItems(items: BriefItem[]): string[] {
   const counts = new Map<string, number>();
   const order: string[] = [];
   for (const it of items) {
-    const key = it.outcome === 'idea' || it.outcome === 'couldnt_apply' ? it.outcome : (it.kind ?? 'change');
+    const key = it.outcome === 'idea' || it.outcome === 'couldnt_apply' || it.outcome === 'nothing_to_do' ? it.outcome : (it.kind ?? 'change');
     if (!counts.has(key)) order.push(key);
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   return order.map((key) => {
-    const sample = items.find((it) => (it.outcome === 'idea' || it.outcome === 'couldnt_apply' ? it.outcome : (it.kind ?? 'change')) === key)!;
+    const sample = items.find((it) => (it.outcome === 'idea' || it.outcome === 'couldnt_apply' || it.outcome === 'nothing_to_do' ? it.outcome : (it.kind ?? 'change')) === key)!;
     return kindLabel(sample.kind, sample.outcome, counts.get(key) ?? 0);
   });
 }
@@ -320,7 +322,7 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
               <h2 style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: C.muted, margin: 0 }}>
                 {receipt.items ? 'What we found'
                   : receipt.scope !== 'evergreen' ? 'What changed'
-                  : receipt.reason === 'couldnt_apply' ? 'We couldn’t apply this' : 'Saved to your ideas'}
+                  : evergreenCopy(receipt.reason, monthLabel).heading}
               </h2>
               <button type="button" onClick={() => setReceipt(null)} aria-label="Dismiss what changed"
                 style={{ font: 'inherit', fontSize: 13, color: C.faint, background: 'transparent', border: 0, cursor: 'pointer', minHeight: 28, padding: 0 }}>
@@ -364,7 +366,7 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
                       {item.note && item.outcome !== 'applied' && (
                         <p style={{ fontSize: 12.5, color: C.muted, margin: '5px 0 0 20px' }}>{item.note}</p>
                       )}
-                      {(item.outcome === 'idea' || item.outcome === 'couldnt_apply') && item.planInputId && onAddToMonth && editable && (
+                      {(item.outcome === 'idea' || item.outcome === 'couldnt_apply' || item.outcome === 'nothing_to_do') && item.planInputId && onAddToMonth && editable && (
                         <button
                           type="button" disabled={rescuing}
                           data-testid="add-to-this-month"
@@ -385,13 +387,9 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
             <p style={{ fontSize: 13, color: C.muted, fontStyle: 'italic', margin: '7px 0 0' }}>“{receipt.sourceText}”</p>
             {receipt.scope === 'evergreen' ? (
               <p style={{ fontSize: 14, lineHeight: 1.5, margin: '8px 0 0' }}>
-                {/* couldnt_apply is NOT a filing the client asked for. Saying "saved to your
-                    ideas" for a failed extraction is the silent demotion that cost a client
-                    their Meadow launch twice — the copy has to admit what happened. */}
-                {receipt.reason === 'couldnt_apply'
-                  ? <>We couldn’t apply this to {monthLabel} automatically, so we’ve saved it to your ideas.</>
-                  : <>We’ve kept this for later rather than changing {monthLabel}.</>}
-                {' '}If you meant now, add it to this month.
+                {/* One rule, read from `evergreenCopy`, so this view and the redesigned panel
+                    cannot say different things about the same receipt. */}
+                {evergreenCopy(receipt.reason, monthLabel).body}
               </p>
             ) : receipt.lines.length > 0 ? (
               <ul style={{ margin: '8px 0 0', paddingLeft: 18, display: 'grid', gap: 5 }}>
