@@ -327,6 +327,73 @@ describe('what the register gets wrong — pinned, not tuned away', () => {
   });
 });
 
+/**
+ * THE WAY A PHONE TYPES: no apostrophe, no question mark.
+ *
+ * `\b` after `what` matches "what's" and not "whats" — the apostrophe is a non-word character
+ * and supplies the boundary; the `s` is a word character and removes it. So gate 1, the GRAMMAR
+ * gate, rejected three questions the operator typed live, with `PLAN_TOPIC` matching "week" in
+ * every one of them. It was never the vocabulary.
+ *
+ * Measured on the 19-question query-eval corpus: 17 claimed as written, 17 with apostrophes
+ * stripped, 17 with the question mark stripped, 12 with BOTH gone. Every loss is a contraction,
+ * and every loss is silent — the client is told "Saved to your ideas" for something they asked.
+ */
+describe('an elided apostrophe is still a question', () => {
+  const OBSERVED = [
+    'whats happening the week after next',
+    'whats happening in the last week of august',
+    'whats happening in the first week of september',
+  ];
+
+  it('claims the three phrasings observed live on the draft surface', () => {
+    for (const t of OBSERVED) expect(parsePlanQuestion(t)).toBe('plan');
+  });
+
+  it('claims every wh-word that contracts, with or without its apostrophe', () => {
+    for (const t of [
+      'whats in September', 'what’s in September', "what's in September",
+      'whens the next reel', 'wheres the carousel this month',
+      'whos in the September posts', 'hows the month looking',
+      'whys there nothing on the 4th',
+    ]) expect(parsePlanQuestion(t)).toBe('plan');
+  });
+
+  it('the corpus phrasings survive losing BOTH marks — the five that used to be filed', () => {
+    for (const t of [
+      'whats in September', 'whats the balance of the pillars', 'whats the format mix in September',
+      'whats on the 18th', 'whats on next week',
+    ]) expect(parsePlanQuestion(t)).toBe('plan');
+  });
+
+  /**
+   * "theres" is the same elision and is deliberately NOT an opener.
+   *
+   * English does not form a question by fronting "there is" — the interrogative is "IS there
+   * anything on the 4th", which the auxiliary branch has always claimed. "Theres nothing on the
+   * 4th" is a statement, and admitting it here would claim statements as questions: the one
+   * false-positive surface this change is otherwise free of. If it is ever added, this test is
+   * the argument it has to beat.
+   */
+  it('does NOT treat "theres" as interrogative — that is a statement', () => {
+    expect(parsePlanQuestion('theres nothing on the 4th')).toBeNull();
+    expect(parsePlanQuestion('there’s nothing on the 4th')).toBeNull();
+    // The real interrogative form is unaffected, and always was.
+    expect(parsePlanQuestion('is there anything on the 4th')).toBe('plan');
+  });
+
+  it('does not loosen the auxiliary branch — a bare plural is not an opener', () => {
+    // The alternation is six named wh-forms, not an optional `s` across the whole list.
+    for (const t of ['cans of paint for the shoot', 'dos and donts for the caption', 'ams and pms for posting']) {
+      expect(parsePlanQuestion(t)).toBeNull();
+    }
+  });
+
+  it('gate 3 still runs first — an elided question asking for a change is still a request', () => {
+    expect(parsePlanQuestion('whats the best day to move the 22nd to')).toBeNull();
+  });
+});
+
 describe('a pre-existing limitation this work did not introduce and does not fix', () => {
   it('"What ideas can we still add this month?" is claimed by ACTION_VERB, not the register', () => {
     // Null before the register landed and null after — `add` is on the 29-verb list, so the

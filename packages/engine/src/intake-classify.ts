@@ -281,7 +281,35 @@ LAUNCH vs EVENT — read this before choosing kind=launch: launch means a PRODUC
  * before. A false positive stops a client changing their month. So every gate is written to
  * fail closed.
  */
-const INTERROGATIVE_OPENERS = /^(what|which|why|when|where|who|whose|whom|how|is|are|was|were|do|does|did|can|could|will|would|should|shall|has|have|had|am)\b/i;
+/**
+ * ── THE APOSTROPHE WAS LOAD-BEARING, AND NOBODY MEANT IT TO BE ──────────────────────
+ *
+ * `\b` after `what` matches "what's" — an apostrophe is a non-word character, so the boundary
+ * holds — and does NOT match "whats", where the `s` is a word character and there is no
+ * boundary at all. A client typing on a phone drops both the apostrophe and the question mark,
+ * and gate 1 then rejects the sentence as not a question. Measured on the 19-question corpus:
+ * 17 claimed as written, 17 with apostrophes stripped, 17 with the question mark stripped,
+ * and 12 with BOTH gone. All five losses are contractions — "whats in September",
+ * "whats on the 18th", "whats on next week" — and every one of them is filed as an idea,
+ * silently, under the words "Saved to your ideas".
+ *
+ * Observed live: "whats happening the week after next", "whats happening in the last week of
+ * august", "whats happening in the first week of september" — all three rejected HERE, at the
+ * grammar gate, with `PLAN_TOPIC` matching "week" in every one. It was never the vocabulary.
+ *
+ * The fix is a second branch rather than a looser boundary. Making the `s` optional across the
+ * whole list would admit "cans", "dos" and "ams"; these six tokens are the wh-words that
+ * contract with is/has, and none of them is an English word in any other reading at the start
+ * of a sentence.
+ *
+ * "theres" is deliberately NOT among them, though it is the same elision. English does not
+ * form a question by fronting "there is" — the interrogative is "IS there anything on the 4th",
+ * which the auxiliary branch already claims. "Theres nothing on the 4th" is a STATEMENT, and
+ * admitting it here would claim statements as questions, which is the one false-positive
+ * surface this change is otherwise free of. Pinned in plan-question.test.ts.
+ */
+const INTERROGATIVE_OPENERS =
+  /^(?:(?:what|which|why|when|where|who|whose|whom|how|is|are|was|were|do|does|did|can|could|will|would|should|shall|has|have|had|am)\b|(?:what|when|where|who|how|why)s\b)/i;
 
 /**
  * "tell me what…", "show me the ideas you used…" — a question wearing an imperative.
