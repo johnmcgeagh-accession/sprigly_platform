@@ -32,6 +32,7 @@ import { z } from 'zod';
 // Engine-local contracts, matching brief-extract.ts — keeps @sprigly/engine free of
 // @sprigly/model-client and pino deps. pino's Logger is structurally assignable.
 import type { ModelClient, AuditLogger } from './types.js';
+import { parseLastJsonObject } from './json-salvage.js';
 
 interface Logger { info(obj: unknown, msg?: string): void; warn(obj: unknown, msg?: string): void }
 
@@ -534,15 +535,16 @@ For a series with a cadence and no list:
 or
 {"scope":"evergreen"}`;
 
-/** Tolerant parse — fenced, prose-wrapped, or bare JSON. */
+/**
+ * Tolerant parse — fenced, prose-wrapped, bare, or SELF-CORRECTED JSON.
+ *
+ * Shares json-salvage.ts with the decomposer, where the self-correction shape was found. This
+ * is the hot path — every input the product takes runs through it — so the property that
+ * matters here is that widening the scan cannot narrow the result: a response carrying exactly
+ * one complete object parses to exactly what it did before. See json-salvage.ts.
+ */
 export function parseClassification(text: string): unknown {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  let raw = (fenced?.[1] ?? text).trim();
-  if (!raw.startsWith('{')) {
-    const a = raw.indexOf('{'); const b = raw.lastIndexOf('}');
-    if (a !== -1 && b > a) raw = raw.slice(a, b + 1);
-  }
-  return JSON.parse(raw) as unknown;
+  return parseLastJsonObject(text);
 }
 
 /**

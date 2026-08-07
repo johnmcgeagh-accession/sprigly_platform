@@ -78,6 +78,25 @@ describe('parseClassification', () => {
   it('throws on genuinely unparseable output (the caller converts this to evergreen)', () => {
     expect(() => parseClassification('no json here at all')).toThrow();
   });
+
+  // The shape nobody wrote down. Found on the decomposer (brief-decompose.test.ts pins the real
+  // UAT bytes), but this parser had the identical salvage and so the identical blind spot: a
+  // response that STARTS with '{' skipped the salvage branch entirely and went to JSON.parse.
+  it('takes the LAST object when the model self-corrects', () => {
+    const raw = '{"scope":"evergreen"}\n\nWait, that is month-scoped.\n\n{"scope":"month_scoped"}';
+    expect(() => JSON.parse(raw)).toThrow();                     // what the old parser did
+    expect(parseClassification(raw)).toEqual({ scope: 'month_scoped' });
+  });
+
+  it('falls back to the last COMPLETE object when the correction is truncated', () => {
+    const raw = '{"scope":"evergreen"}\n\nActually:\n\n{"scope":"month_sco';
+    expect(parseClassification(raw)).toEqual({ scope: 'evergreen' });
+  });
+
+  it('a brace inside a string does not split the scan', () => {
+    const raw = '{"scope":"evergreen","sourceText":"use the {brand} template"}';
+    expect(parseClassification(raw)).toEqual({ scope: 'evergreen', sourceText: 'use the {brand} template' });
+  });
 });
 
 describe('classifyIntake — end to end, never throws', () => {

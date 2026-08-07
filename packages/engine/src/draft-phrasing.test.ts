@@ -67,6 +67,20 @@ describe('parsePhrasing', () => {
   it('throws on a response with no titles array', () => {
     expect(() => parsePhrasing('{"nope":true}')).toThrow(/titles/);
   });
+
+  // Same salvage, same blind spot — see json-salvage.ts. Pinned here so this parser cannot
+  // regress to first-object-wins independently of the one the bug was found on.
+  it('takes the LAST object when the model self-corrects', () => {
+    const raw = '{"titles":[{"position":0,"title":"First go"}]}\n\nOn reflection:\n\n'
+              + '{"titles":[{"position":0,"title":"Better go"}]}';
+    expect(() => JSON.parse(raw)).toThrow();
+    expect(parsePhrasing(raw).get(0)).toBe('Better go');
+  });
+
+  it('falls back to the last COMPLETE object when the correction is truncated', () => {
+    const raw = '{"titles":[{"position":0,"title":"First go"}]}\n\nOn reflection:\n\n{"titles":[{"pos';
+    expect(parsePhrasing(raw).get(0)).toBe('First go');
+  });
 });
 
 describe('validatePhrasing — the model may only restate its evidence', () => {

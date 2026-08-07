@@ -45,6 +45,7 @@
  */
 import type { DraftBeat } from './draft-assembly.js';
 import { seriesMatchTerms, mentionsTerm } from './draft-recurring.js';
+import { parseLastJsonObject } from './json-salvage.js';
 
 export interface PhrasingModel {
   complete(params: {
@@ -126,15 +127,12 @@ export function isTitleFixed(beat: DraftBeat): boolean {
       && meta.rationaleEvidence.candidateRank?.origin === 'client';
 }
 
-/** Parse `{"titles":[{position,title}]}`, tolerant of fences and surrounding prose. */
+/**
+ * Parse `{"titles":[{position,title}]}`, tolerant of fences, surrounding prose and a model
+ * self-correction (the last complete object wins — see json-salvage.ts).
+ */
 export function parsePhrasing(text: string): Map<number, string> {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  let raw = (fenced?.[1] ?? text).trim();
-  if (!raw.startsWith('{')) {
-    const s = raw.indexOf('{'); const e = raw.lastIndexOf('}');
-    if (s !== -1 && e > s) raw = raw.slice(s, e + 1);
-  }
-  const parsed = JSON.parse(raw) as { titles?: unknown };
+  const parsed = parseLastJsonObject(text) as { titles?: unknown };
   if (!Array.isArray(parsed.titles)) throw new Error('phrasing response missing "titles" array');
 
   const out = new Map<number, string>();

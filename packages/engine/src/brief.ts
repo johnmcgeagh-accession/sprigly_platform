@@ -21,6 +21,7 @@
 import { z } from 'zod';
 import type { ModelClient, AuditLogger } from './types.js';
 import type { IntakeRouting } from './intake-classify.js';
+import { parseLastJsonObject } from './json-salvage.js';
 
 interface Logger { info(obj: unknown, msg?: string): void; warn(obj: unknown, msg?: string): void }
 
@@ -94,15 +95,16 @@ RULES:
 Return ONE JSON object, no markdown, no code fences:
 {"parts":[{"text":"<verbatim span>","keep":true},{"text":"<verbatim span>","keep":false}]}`;
 
-/** Tolerant parse — fenced, prose-wrapped, or bare JSON. */
+/**
+ * Tolerant parse — fenced, prose-wrapped, bare, or SELF-CORRECTED JSON.
+ *
+ * The fourth shape is the one that cost a real client brief. This model reliably splits a
+ * bulleted brief coarsely, writes "Wait, I need to re-examine this more carefully", and then
+ * emits a second, correct object. The last complete object wins; see json-salvage.ts, whose
+ * blind spot was found here.
+ */
 export function parseDecomposition(text: string): unknown {
-  const fenced = text.match(/\`\`\`(?:json)?\s*([\s\S]*?)\`\`\`/);
-  let raw = (fenced?.[1] ?? text).trim();
-  if (!raw.startsWith('{')) {
-    const a = raw.indexOf('{'); const b = raw.lastIndexOf('}');
-    if (a !== -1 && b > a) raw = raw.slice(a, b + 1);
-  }
-  return JSON.parse(raw) as unknown;
+  return parseLastJsonObject(text);
 }
 
 /** Collapse runs of whitespace so a gap-only check ignores how the model spaced its parts. */

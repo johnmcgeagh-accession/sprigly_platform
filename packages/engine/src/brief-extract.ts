@@ -21,6 +21,7 @@
 // can run extraction. Uses engine-local contracts to avoid cross-package deps; a minimal Logger
 // interface (pino's Logger is structurally assignable) keeps @sprigly/engine free of a pino dep.
 import type { ModelClient, AuditLogger } from './types.js';
+import { jsonObjectCandidates } from './json-salvage.js';
 import type {
   PlanContentAnswers,
   StructuredBrief,
@@ -127,29 +128,39 @@ export function buildBriefExtractUserMessage(planContent: PlanContentAnswers, pl
 
 // ── Tolerant parse (fences / surrounding prose) ──────────────────────────────
 
-/** Slice the model output to its outermost JSON object; one light repair pass
- *  (trailing commas, stray control chars). Returns the parsed value or throws. */
+/** Light, safe repair: drop trailing commas before } or ], strip stray control characters
+ *  (keeping \t \n \r) — the malformations a single stray char makes. */
+function repairJson(raw: string): string {
+  return raw
+    .replace(/,(\s*[}\]])/g, '$1')
+    .split('').filter((c) => { const n = c.charCodeAt(0); return n === 9 || n === 10 || n === 13 || n > 31; }).join('');
+}
+
+/**
+ * Parse the model's brief object, tolerant of fences, surrounding prose and a SELF-CORRECTION
+ * (the last complete object wins — see json-salvage.ts, where this parser's twin was found
+ * dropping a correct answer on the floor).
+ *
+ * The repair pass is kept and now runs PER CANDIDATE, newest-first: a final object that is
+ * merely malformed gets repaired rather than skipped, and only a candidate that survives
+ * neither parse nor repair falls back to the one before it. Returns the parsed value or throws.
+ */
 export function parseBriefResponse(text: string): unknown {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  let raw = (fenced?.[1] ?? text).trim();
-  if (!raw.startsWith('{')) {
-    const start = raw.indexOf('{');
-    const end = raw.lastIndexOf('}');
-    if (start !== -1 && end > start) raw = raw.slice(start, end + 1);
-  }
-  try {
-    return JSON.parse(raw);
-  } catch (firstErr) {
-    // Light, safe repair: drop trailing commas before } or ], strip stray control
-    // characters (keeping \t \n \r) — the malformations a single stray char makes.
-    const repaired = raw
-      .replace(/,(\s*[}\]])/g, '$1')
-      .split('').filter((c) => { const n = c.charCodeAt(0); return n === 9 || n === 10 || n === 13 || n > 31; }).join('');
-    if (repaired !== raw) {
-      try { return JSON.parse(repaired); } catch { /* fall through to throw */ }
+  const candidates = jsonObjectCandidates(text);
+  let lastErr: unknown;
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const raw = candidates[i]!;
+    try {
+      return JSON.parse(raw);
+    } catch (err) {
+      if (lastErr === undefined) lastErr = err;
+      const repaired = repairJson(raw);
+      if (repaired !== raw) {
+        try { return JSON.parse(repaired); } catch { /* try the candidate before this one */ }
+      }
     }
-    throw firstErr instanceof Error ? firstErr : new Error(String(firstErr));
   }
+  throw lastErr instanceof Error ? lastErr : new Error('no parseable JSON object in model output');
 }
 
 // ── Extract-gate (reject malformed / partial) ────────────────────────────────
