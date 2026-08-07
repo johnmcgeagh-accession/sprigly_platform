@@ -16,7 +16,7 @@
  * Build D. Keeping status out of this module means no edit can accidentally commit a plan
  * the client never approved.
  */
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import {
   db, contentCycles, contentCyclePosts, clientPlanningConfig,
   POST_STATUS_DRAFT, PRE_PLANNING_STATUSES, type BeatMeta,
@@ -43,25 +43,35 @@ export type DraftMutationResult =
   | { ok: false; error: DraftMutationError; message: string };
 
 /**
- * A dropped beat, complete enough to put back exactly as it was.
+ * A dropped beat — now just its id.
  *
- * Undo used to re-add with {date, format, pillar} and nothing else, which routed through
+ * ── The history this shape records ───────────────────────────────────────────────────
+ *
+ * Undo originally re-added with {date, format, pillar} and nothing else, which routed through
  * addBeat and manufactured a NEW beat: title = the pillar name, basis = 'client_added',
  * clientTouched = true, position at the end, and the rationale, sourceRef and assumptions
  * simply gone. Undoing a launch-arc beat therefore destroyed it rather than restoring it —
  * which is where the seven subjectless husks in cycle 040d6a1a came from
  * (docs/reports/uat-findings-fixes.md, Part 0).
  *
- * Returned by dropBeat so the caller can hold it and hand it straight back. It survives a
- * refetch between drop and undo because it is the caller's to keep, not a lookup.
+ * The fix was to send the WHOLE beat out to the client and take it back on undo, so nothing
+ * was reconstructed from too little. That was the right fix for a hard delete: the row was
+ * gone, so the client's copy was the only copy.
+ *
+ * ── Why it shrinks back to an id ─────────────────────────────────────────────────────
+ *
+ * The drop is a tombstone now, so the row IS the copy. Sending its contents to the client and
+ * trusting them back is no longer the cheapest way to restore it — it is just a trust boundary
+ * with nothing on the other side of it. Undo clears `deleted_at` on a row the server re-reads
+ * for itself, so the restored beat is not merely equal to the dropped one, it is the same row,
+ * same id, same evidence, and the husk failure above is structurally unavailable rather than
+ * defended against.
+ *
+ * It still survives a refetch between drop and undo, for the same reason as before: the id is
+ * the caller's to keep, not a lookup.
  */
 export interface DroppedBeat {
-  date:     string;
-  format:   string;
-  pillar:   string;
-  title:    string;
-  position: number;
-  beatMeta: BeatMeta | null;
+  id: string;
 }
 
 const MESSAGES: Record<DraftMutationError, string> = {
@@ -120,13 +130,21 @@ const titleOf = (sourceMeta: Record<string, unknown> | null, pillar: string | nu
   typeof sourceMeta?.['title'] === 'string' ? (sourceMeta['title'] as string) : (pillar ?? '');
 
 /** The (id, client, cycle) scope every write carries — defence in depth, so a foreign id
- *  cannot mutate another client's row even if a check is missed upstream. */
+ *  cannot mutate another client's row even if a check is missed upstream.
+ *
+ *  `deleted_at IS NULL` is part of the scope, not a nicety. A dropped beat is now a tombstone
+ *  rather than a deleted row, so without this clause every mutation here would still reach it:
+ *  a client holding a stale list could move, reformat or re-drop a beat they had already
+ *  removed, and the write would succeed silently against a row no reader can see. The draft
+ *  READS have always filtered it (plan.ts, draft-apply.ts); the writes had no need to until
+ *  the row started surviving. */
 function scopedDraft(clientId: string, cycleId: string, postId: string) {
   return and(
     eq(contentCyclePosts.id, postId),
     eq(contentCyclePosts.clientId, clientId),
     eq(contentCyclePosts.cycleId, cycleId),
     eq(contentCyclePosts.status, POST_STATUS_DRAFT),   // the guard, IN the write itself
+    isNull(contentCyclePosts.deletedAt),               // a tombstone is not a beat
   );
 }
 
@@ -269,97 +287,118 @@ export async function swapFormat(clientId: string, postId: string, format: strin
 }
 
 /**
- * Remove a beat. HARD delete, deliberately.
+ * Remove a beat. A TOMBSTONE, not a hard delete.
  *
- * Soft-delete exists on this table so a committed post can be restored and so post_edits
- * FKs survive. A draft beat has neither concern: it is uncommitted working state with no
- * edit history, and undo is handled by re-adding (see addBeat) rather than by resurrection.
- * Leaving tombstoned drafts around would mean every draft reader had to learn to skip them.
+ * This used to hard-delete, on the stated premise that "a draft beat is uncommitted working
+ * state with no edit history". That premise is false: caption generation writes `post_edits`
+ * for draft beats, and `post_edits.post_id` has no ON DELETE action, so the delete was refused
+ * outright — every one of the 27 beats on ivy-t's September draft was undeletable, and the
+ * client could not remove a beat they did not want.
+ *
+ * The FK is not the thing to change. `post_edits` is the billing ledger (one `passed` row is
+ * one paid AI change) and the backstop that stops a whole-plan regen destroying work the client
+ * chose — `planning.ts` hard-deletes during a regen and relies on it. Cascading it away would
+ * refund allowance nobody granted; dropping it would remove the protection to fix an unrelated
+ * path. So the delete gives way instead.
+ *
+ * The old objection to tombstoning — "every draft reader would have to learn to skip them" —
+ * had already been paid for: `loadDraftBeats` and `loadDraftTransformBeats` both filter
+ * `deleted_at IS NULL` today. What was missing was the WRITE side, which `scopedDraft` now
+ * carries.
+ *
+ * ALWAYS a tombstone, never a purge, even for a beat nothing references — because undo is
+ * "clear `deleted_at`" and a purged row has nothing to clear. Re-assembly makes the other
+ * choice (see `retireDraftPosts`): it is the whole month and it is not reversible.
  */
 export async function dropBeat(clientId: string, postId: string): Promise<DraftMutationResult> {
   const ctx = await requireDraftMutable(clientId, postId);
   if (isError(ctx)) return fail(ctx);
 
-  // Snapshot BEFORE the delete: this is a hard delete, so afterwards there is nothing left
-  // to reconstruct from. Handing it back is what makes undo a restore rather than a re-add.
-  const [row] = await db
-    .select({
-      scheduledDate: contentCyclePosts.scheduledDate, format: contentCyclePosts.format,
-      pillar: contentCyclePosts.pillar, position: contentCyclePosts.position,
-      beatMeta: contentCyclePosts.beatMeta, sourceMeta: contentCyclePosts.sourceMeta,
-    })
-    .from(contentCyclePosts)
-    .where(scopedDraft(clientId, ctx.cycleId, postId))
-    .limit(1);
-
-  await db.delete(contentCyclePosts).where(scopedDraft(clientId, ctx.cycleId, postId));
+  await db
+    .update(contentCyclePosts)
+    .set({ deletedAt: new Date() })
+    .where(scopedDraft(clientId, ctx.cycleId, postId));
 
   await recordBeatActivity({
-    clientId, cycleId: ctx.cycleId, postId: null,     // the row is gone; FK is ON DELETE SET NULL
+    clientId, cycleId: ctx.cycleId,
+    postId,                                   // the row survives now, so the ledger can name it
     action: 'beat_dropped',
-    title: titleOf(row?.sourceMeta ?? null, row?.pillar ?? null),
-    date: row?.scheduledDate ?? ctx.scheduledDate, beatMeta: row?.beatMeta ?? ctx.beatMeta,
+    title: titleOf(ctx.sourceMeta, ctx.pillar),
+    date: ctx.scheduledDate, beatMeta: ctx.beatMeta,
   });
 
-  const beats = await loadDraftBeats(clientId, ctx.cycleId);
-  if (!row) return { ok: true, beats };
-  const title = typeof row.sourceMeta?.['title'] === 'string' ? (row.sourceMeta['title'] as string) : (row.pillar ?? '');
-  return {
-    ok: true, beats,
-    dropped: {
-      date: row.scheduledDate, format: row.format, pillar: row.pillar ?? '',
-      title, position: row.position, beatMeta: row.beatMeta,
-    },
-  };
+  // The id is the whole undo. Nothing about the beat's CONTENT crosses to the client and back
+  // any more, which is what makes the restore below unforgeable — see DroppedBeat.
+  return { ok: true, beats: await loadDraftBeats(clientId, ctx.cycleId), dropped: { id: postId } };
 }
 
 /**
- * Put a dropped beat back, exactly as it was.
+ * Put a dropped beat back — by clearing its tombstone.
  *
- * Deliberately NOT addBeat with extra fields: addBeat's job is to create a beat the client
- * chose, and it stamps that provenance on purpose. Restoring is the opposite act — the row
- * should come back indistinguishable from the one that was removed, including the evidence
- * that justified it and the position it held.
+ * This used to re-INSERT the beat from a snapshot the client handed back, because the drop had
+ * genuinely deleted the row. That is no longer true, and the difference matters: the beat does
+ * not come back EQUAL to the one that was dropped, it comes back AS it, with the id every
+ * receipt, ledger row and post_edits row already names. A restore that mints a new id would
+ * orphan all three.
  *
- * The snapshot comes from the client, so everything that decides ACCESS is re-derived
- * server-side (client, cycle, channel, draft status) and the same guards addBeat applies are
- * applied here. What the snapshot is trusted for is its own content — title, evidence,
- * position — which the server handed to that client moments earlier. The trust boundary is
- * therefore no wider than the existing 'add' op, which already lets a client name a date,
- * format and pillar.
+ * ── What this removes, and why the guards go with it ─────────────────────────────────
+ *
+ * The old signature took the beat's date, format, pillar, title, position and evidence from the
+ * client. It re-derived access server-side and re-applied addBeat's validators to that payload
+ * — invalid_format, invalid_pillar, the date check — which was the right shape for input the
+ * client supplied. None of it is supplied any more. The row's own format and pillar were
+ * validated when it was created and have not been anywhere since, so re-validating them would
+ * be re-checking the database against itself.
+ *
+ * The date check stays, and is now the beat's OWN date rather than a claimed one: a beat whose
+ * day has passed while it sat dropped cannot be restored into a day the client can no longer
+ * edit, which is the same rule every other draft write obeys.
+ *
+ * ── Scoping ──────────────────────────────────────────────────────────────────────────
+ *
+ * The lookup carries (id, client, cycle, draft, deleted_at IS NOT NULL) — the mirror of
+ * `scopedDraft`, inverted on exactly one clause. So this can only ever un-drop a tombstone that
+ * belongs to this client on this cycle: not another client's row, not a committed post, and not
+ * a live beat (which would be a no-op that reported success).
  */
 export async function restoreBeat(
   clientId: string, cycleId: string, beat: DroppedBeat, today: string = editScopeToday(),
 ): Promise<DraftMutationResult> {
   if (!(await cycleIsPreCutoff(cycleId))) return fail('cutoff_passed');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(beat.date) || !isEditableDate(beat.date, today)) return fail('read_only_date');
-  if (!BEAT_FORMATS.has(beat.format as PostFormat)) return fail('invalid_format');
 
-  const [cycle] = await db
-    .select({ channel: contentCycles.channel })
-    .from(contentCycles)
-    .where(and(eq(contentCycles.id, cycleId), eq(contentCycles.clientId, clientId)))
+  const [row] = await db
+    .select({
+      scheduledDate: contentCyclePosts.scheduledDate,
+      pillar:        contentCyclePosts.pillar,
+      beatMeta:      contentCyclePosts.beatMeta,
+      sourceMeta:    contentCyclePosts.sourceMeta,
+    })
+    .from(contentCyclePosts)
+    .where(and(
+      eq(contentCyclePosts.id, beat.id),
+      eq(contentCyclePosts.clientId, clientId),
+      eq(contentCyclePosts.cycleId, cycleId),
+      eq(contentCyclePosts.status, POST_STATUS_DRAFT),
+      isNotNull(contentCyclePosts.deletedAt),          // only a tombstone can be un-dropped
+    ))
     .limit(1);
-  if (!cycle) return fail('not_found');
+  if (!row) return fail('not_found');
 
-  const vocab = await pillarVocab(clientId, cycle.channel);
-  if (vocab.length === 0 || !vocab.includes(beat.pillar)) return fail('invalid_pillar');
+  if (!isEditableDate(row.scheduledDate, today)) return fail('read_only_date');
 
-  const [restored] = await db.insert(contentCyclePosts).values({
-    clientId, cycleId, channel: cycle.channel,
-    scheduledDate: beat.date,
-    format:        beat.format,
-    pillar:        beat.pillar,
-    caption:       null,
-    status:        POST_STATUS_DRAFT,
-    position:      beat.position,          // its own slot back, not the end of the list
-    beatMeta:      beat.beatMeta,          // the evidence that justified it, intact
-    sourceMeta:    { title: beat.title },  // its subject, not its pillar's name
-  }).returning({ id: contentCyclePosts.id });
+  await db
+    .update(contentCyclePosts)
+    .set({ deletedAt: null })
+    .where(and(
+      eq(contentCyclePosts.id, beat.id),
+      eq(contentCyclePosts.clientId, clientId),
+      eq(contentCyclePosts.cycleId, cycleId),
+      eq(contentCyclePosts.status, POST_STATUS_DRAFT),
+    ));
 
   await recordBeatActivity({
-    clientId, cycleId, postId: restored?.id ?? null, action: 'beat_restored',
-    title: beat.title, date: beat.date, beatMeta: beat.beatMeta,
+    clientId, cycleId, postId: beat.id, action: 'beat_restored',
+    title: titleOf(row.sourceMeta, row.pillar), date: row.scheduledDate, beatMeta: row.beatMeta,
   });
 
   return { ok: true, beats: await loadDraftBeats(clientId, cycleId) };

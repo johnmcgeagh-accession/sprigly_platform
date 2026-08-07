@@ -64,7 +64,8 @@ vi.mock('drizzle-orm', () => ({
   desc:   (a: unknown) => ['desc', a],
   gte:    (a: unknown, b: unknown) => ['gte', a, b],
   lt:     (a: unknown, b: unknown) => ['lt', a, b],
-  isNull: (a: unknown) => ['isNull', a],
+  isNull:    (a: unknown) => ['isNull', a],
+  isNotNull: (a: unknown) => ['isNotNull', a],
   sql:    Object.assign(() => 'sql', { raw: () => 'sql' }),
 }));
 
@@ -165,14 +166,42 @@ describe('swapFormat', () => {
 });
 
 describe('dropBeat', () => {
-  it('HARD deletes the row — a draft has no history worth tombstoning', async () => {
+  // This asserted a HARD delete, on the premise that "a draft has no history worth
+  // tombstoning". The premise was false — caption generation writes post_edits for draft
+  // beats, and post_edits.post_id has no ON DELETE action — so the delete this test
+  // demanded was refused by the database for all 27 beats on ivy-t's September draft. The
+  // test passed throughout, because the db is mocked here and a mock has no constraints.
+  it('TOMBSTONES the row rather than deleting it — post_edits may reference it', async () => {
     results = [...mutableDraft(), ...reload];
     const { dropBeat } = await import('@/lib/draft-mutations');
     const res = await dropBeat('client-1', 'beat-1');
     expect(res.ok).toBe(true);
     expect(writes).toHaveLength(1);
-    expect(writes[0]!.kind).toBe('delete');
+    expect(writes[0]!.kind).toBe('update');
+    expect(writes.some((w) => w.kind === 'delete')).toBe(false);
+    expect((writes[0]!.payload as Record<string, unknown>)['deletedAt']).toBeInstanceOf(Date);
     expect(hasEq(writes[0]!.where, 'contentCyclePosts.status', 'draft')).toBe(true);
+  });
+
+  it('hands back the id, and nothing else, as the undo token', async () => {
+    results = [...mutableDraft(), ...reload];
+    const { dropBeat } = await import('@/lib/draft-mutations');
+    const res = await dropBeat('client-1', 'beat-1');
+    // The whole beat used to cross to the client and back on undo, because the row was gone
+    // and their copy was the only copy. Restoring by id makes the husk failure this shape was
+    // built to defend against (DroppedBeat) structurally unavailable instead.
+    expect(res).toMatchObject({ ok: true, dropped: { id: 'beat-1' } });
+    expect(Object.keys((res as { dropped: object }).dropped)).toEqual(['id']);
+  });
+
+  it('the write cannot reach a beat that is already tombstoned', async () => {
+    // scopedDraft carries `deleted_at IS NULL` now. Without it a client holding a stale list
+    // could re-drop, move or reformat a beat they had already removed, and the write would
+    // succeed silently against a row no reader can see.
+    results = [...mutableDraft(), ...reload];
+    const { dropBeat } = await import('@/lib/draft-mutations');
+    await dropBeat('client-1', 'beat-1');
+    expect(writes[0]!.where).toContainEqual(['isNull', 'contentCyclePosts.deletedAt']);
   });
 
   it('refuses to delete a committed post', async () => {

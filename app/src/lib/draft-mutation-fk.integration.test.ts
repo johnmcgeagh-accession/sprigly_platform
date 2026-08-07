@@ -130,8 +130,10 @@ describe.skipIf(!TEST_DB)('a ledger row never blocks the beat it describes', () 
 
       const res = await M.dropBeat(clientId, id);
       expect(res.ok).toBe(true);
-      const rows = await sql`SELECT id FROM content_cycle_posts WHERE id = ${id}`;
-      expect(rows).toHaveLength(0);
+      // The drop is a tombstone now (post_edits.post_id has no ON DELETE action), so what
+      // "dropped" means is: gone from every draft read, not gone from the table.
+      const live = await sql`SELECT id FROM content_cycle_posts WHERE id = ${id} AND deleted_at IS NULL`;
+      expect(live).toHaveLength(0);
     }, 60_000);
 
     it('the ledger row SURVIVES and still names the post', async () => {
@@ -140,9 +142,12 @@ describe.skipIf(!TEST_DB)('a ledger row never blocks the beat it describes', () 
       await arm(clientId, cycleId, id);
       await M.dropBeat(clientId, id);
 
-      const rows = await sql`SELECT post_id, action FROM plan_activity WHERE post_id = ${id}`;
-      expect(rows).toHaveLength(1);
-      expect(rows[0].action).toBe('beat_moved');
+      // TWO rows name it now, not one. The arming move is the first; the second is the drop
+      // itself, which used to be written with post_id NULL because the row it described was
+      // about to stop existing. A tombstoned beat is still there to point at.
+      const rows = await sql`SELECT post_id, action FROM plan_activity WHERE post_id = ${id} ORDER BY created_at`;
+      expect(rows.map((r: Any) => r.action)).toEqual(['beat_moved', 'beat_dropped']);
+      expect(rows.every((r: Any) => r.post_id === id)).toBe(true);
     }, 60_000);
 
     it('a beat armed by MANY ledger rows still drops', async () => {
@@ -207,7 +212,7 @@ describe.skipIf(!TEST_DB)('a ledger row never blocks the beat it describes', () 
 
       // The evidence came back intact — restore is a restore, not a re-add.
       const [row] = await sql`SELECT beat_meta, source_meta FROM content_cycle_posts
-                              WHERE cycle_id = ${cycleId} AND status = 'draft'`;
+                              WHERE cycle_id = ${cycleId} AND status = 'draft' AND deleted_at IS NULL`;
       expect(row.beat_meta).toEqual(meta);
       expect(row.source_meta).toEqual({ title: 'a beat' });
     }, 60_000);
@@ -216,7 +221,15 @@ describe.skipIf(!TEST_DB)('a ledger row never blocks the beat it describes', () 
   // ── revert-proof ───────────────────────────────────────────────────────────
 
   describe('REVERT-PROOF: the FK is what broke it', () => {
-    it('re-adding plan_activity_post_id_fkey reproduces the 500, and dropping it fixes it again', async () => {
+    // NOTE ON THE VEHICLE. This used to drive the conflict through dropBeat, because dropBeat
+    // hard-deleted. It tombstones now (post_edits.post_id has no ON DELETE action either), so
+    // no app path reaches the SET NULL any more and dropBeat can no longer demonstrate this.
+    //
+    // The conflict is still worth pinning, because 0090 is a manual migration that a restored
+    // snapshot or an un-migrated environment can silently lack — prod carried it for weeks
+    // after UAT was fixed. So this drives it with the raw DELETE the constraint acts on, which
+    // is what re-assembly's purge still issues for an unreferenced beat.
+    it('re-adding plan_activity_post_id_fkey makes a raw post DELETE fail again', async () => {
       const { clientId, cycleId } = await fixture();
       const id = await seed(clientId, cycleId, TOUCHED_TRANSFORM);
       await arm(clientId, cycleId, id);
@@ -232,15 +245,33 @@ describe.skipIf(!TEST_DB)('a ledger row never blocks the beat it describes', () 
         ADD CONSTRAINT plan_activity_post_id_fkey
         FOREIGN KEY (post_id) REFERENCES content_cycle_posts(id) ON DELETE SET NULL NOT VALID`);
       try {
-        await expect(M.dropBeat(clientId, id)).rejects.toThrow(/append-only/);
+        await expect(sql`DELETE FROM content_cycle_posts WHERE id = ${id}`).rejects.toThrow(/append-only/);
         // and the beat is still there — the transaction aborted, nothing was removed
         expect(await sql`SELECT id FROM content_cycle_posts WHERE id = ${id}`).toHaveLength(1);
       } finally {
         await sql.unsafe('ALTER TABLE plan_activity DROP CONSTRAINT IF EXISTS plan_activity_post_id_fkey');
       }
 
-      // 0090's state again: the identical drop now succeeds.
-      expect((await M.dropBeat(clientId, id)).ok).toBe(true);
+      // 0090's state again: the identical delete now succeeds.
+      await sql`DELETE FROM content_cycle_posts WHERE id = ${id}`;
+      expect(await sql`SELECT id FROM content_cycle_posts WHERE id = ${id}`).toHaveLength(0);
+    }, 60_000);
+
+    it('and dropBeat no longer reaches that constraint at all', async () => {
+      // The app path is out of the blast radius entirely now: a tombstone is an UPDATE of
+      // content_cycle_posts, which no referential action on plan_activity or post_edits fires on.
+      const { clientId, cycleId } = await fixture();
+      const id = await seed(clientId, cycleId, TOUCHED_TRANSFORM);
+      await arm(clientId, cycleId, id);
+
+      await sql.unsafe(`ALTER TABLE plan_activity
+        ADD CONSTRAINT plan_activity_post_id_fkey
+        FOREIGN KEY (post_id) REFERENCES content_cycle_posts(id) ON DELETE SET NULL NOT VALID`);
+      try {
+        expect((await M.dropBeat(clientId, id)).ok).toBe(true);
+      } finally {
+        await sql.unsafe('ALTER TABLE plan_activity DROP CONSTRAINT IF EXISTS plan_activity_post_id_fkey');
+      }
     }, 60_000);
 
     it('append-only is STILL enforced — 0090 removed the FK, not the guarantee', async () => {

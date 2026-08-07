@@ -9,6 +9,17 @@
  *
  * The three provenances below are exactly the three found in that cycle's data.
  *
+ * ── What changed, and what these now measure ─────────────────────────────────────────
+ *
+ * The drop is a TOMBSTONE now, not a hard delete: post_edits.post_id has no ON DELETE action,
+ * so the delete these tests were written around was refused by the database for any beat that
+ * had had a caption generated. Undo clears `deleted_at` on the row the server still holds.
+ *
+ * So "byte-identical" gets stronger rather than weaker. It used to mean a NEW row that matched
+ * the old one on every stored field, id excepted. It now means the SAME row — same id, which
+ * is what every receipt, ledger row and post_edits row already names. The assertions below
+ * check the id is preserved, where they used to permit it to differ.
+ *
  * Requires Postgres; skipped cleanly without TEST_DATABASE_URL.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -59,18 +70,26 @@ describe.skipIf(!TEST_DB)('undo restores a dropped beat byte-identically', () =>
     return { clientId, cycleId };
   }
 
-  /** The full row as stored, which is what "byte-identical" is measured against. */
+  /** The full row as stored, which is what "byte-identical" is measured against. `id` is IN
+   *  the projection now — a restore that minted a new one would orphan the ledger. */
   const readRow = async (id: string) => {
     const [r] = await sql`
-      SELECT scheduled_date, format, pillar, position, status, beat_meta, source_meta
+      SELECT id, scheduled_date, format, pillar, position, status, beat_meta, source_meta
       FROM content_cycle_posts WHERE id = ${id}`;
     return r;
   };
+  /** The one LIVE row on the cycle — a tombstone is not a beat, so it must not be counted. */
   const readOnly1 = async (cycleId: string) => {
     const [r] = await sql`
-      SELECT scheduled_date, format, pillar, position, status, beat_meta, source_meta
-      FROM content_cycle_posts WHERE cycle_id = ${cycleId}`;
+      SELECT id, scheduled_date, format, pillar, position, status, beat_meta, source_meta
+      FROM content_cycle_posts WHERE cycle_id = ${cycleId} AND deleted_at IS NULL`;
     return r;
+  };
+  const liveCount = async (cycleId: string) => {
+    const [r] = await sql`
+      SELECT count(*)::int n FROM content_cycle_posts
+      WHERE cycle_id = ${cycleId} AND deleted_at IS NULL`;
+    return r.n as number;
   };
 
   async function seed(clientId: string, cycleId: string, over: {
@@ -130,19 +149,20 @@ describe.skipIf(!TEST_DB)('undo restores a dropped beat byte-identically', () =>
 
     const dropped = await M.dropBeat(clientId, id);
     expect(dropped.ok).toBe(true);
-    expect(dropped.dropped).toBeTruthy();
+    expect(dropped.dropped).toEqual({ id });          // the undo token is the beat's own id
+    expect(await liveCount(cycleId)).toBe(0);          // gone from every draft read
+    // ...but the row survives, because post_edits may name it.
     expect(await sql`SELECT count(*)::int n FROM content_cycle_posts WHERE cycle_id = ${cycleId}`)
-      .toEqual([{ n: 0 }]);
+      .toEqual([{ n: 1 }]);
 
     const undone = await M.restoreBeat(clientId, cycleId, dropped.dropped);
     expect(undone.ok).toBe(true);
 
-    // Every stored field matches. The id is new — the row was genuinely deleted — and that
-    // is the only permitted difference.
+    // Every stored field matches, INCLUDING the id — it is the same row, not an equal one.
     expect(await readOnly1(cycleId)).toEqual(before);
   }, 60_000);
 
-  it('the snapshot survives a refetch between drop and undo', async () => {
+  it('the undo token survives a refetch between drop and undo', async () => {
     // The client holds `dropped` in a ref; a refetch replaces the beats list but not the
     // ref. Simulated here by reloading the list before restoring.
     const { clientId, cycleId } = await fixture();
@@ -158,23 +178,52 @@ describe.skipIf(!TEST_DB)('undo restores a dropped beat byte-identically', () =>
     expect(await readOnly1(cycleId)).toEqual(before);
   }, 60_000);
 
-  it('restore still refuses what addBeat refuses — a foreign pillar', async () => {
+  it('a beat that has had a caption GENERATED can still be dropped and undone', async () => {
+    // The case the old hard delete could not survive, and the reason the client could not
+    // remove a beat they did not want. A post_edits row is what caption generation leaves.
     const { clientId, cycleId } = await fixture();
     const id = await seed(clientId, cycleId, CASES[1]);
-    const dropped = await M.dropBeat(clientId, id);
+    await sql`INSERT INTO post_edits (post_id, cycle_id, scope, instruction, caption_before, caption_after, passed, actor)
+              VALUES (${id}, ${cycleId}, 'post', 'Write the caption for this post.', '', 'a generated caption', true, 'agent')`;
+    const before = await readRow(id);
 
-    const forged = { ...dropped.dropped, pillar: 'Not A Configured Pillar' };
-    const res = await M.restoreBeat(clientId, cycleId, forged);
-    expect(res).toMatchObject({ ok: false, error: 'invalid_pillar' });
+    const dropped = await M.dropBeat(clientId, id);
+    expect(dropped.ok).toBe(true);
+    expect(await liveCount(cycleId)).toBe(0);
+
+    // The ledger row still names it — the billing count and the regen's protection both hold.
+    expect(await sql`SELECT count(*)::int n FROM post_edits WHERE post_id = ${id}`).toEqual([{ n: 1 }]);
+
+    expect((await M.restoreBeat(clientId, cycleId, dropped.dropped)).ok).toBe(true);
+    expect(await readOnly1(cycleId)).toEqual(before);
   }, 60_000);
 
-  it('restore refuses a past date, like every other draft write', async () => {
+  it('restore refuses a beat whose date has passed while it sat dropped', async () => {
     const { clientId, cycleId } = await fixture();
     const id = await seed(clientId, cycleId, CASES[1]);
     const dropped = await M.dropBeat(clientId, id);
 
-    // Deliberately absolute: 2020 is past no matter when this runs — that is the assertion.
-    const res = await M.restoreBeat(clientId, cycleId, { ...dropped.dropped, date: '2020-01-01' });
+    // `today` is the gate's own parameter. Deliberately absolute: a date years after the
+    // beat's is past no matter when this runs — that is the assertion.
+    const res = await M.restoreBeat(clientId, cycleId, dropped.dropped, '2099-01-01');
     expect(res).toMatchObject({ ok: false, error: 'read_only_date' });
+  }, 60_000);
+
+  it('restore refuses an id that is not a tombstone on this cycle', async () => {
+    // The trust boundary the old snapshot needed guards for is simply gone: nothing about the
+    // beat crosses to the client, so the only thing to forge is the id, and that is scoped.
+    const { clientId, cycleId } = await fixture();
+    const live = await seed(clientId, cycleId, CASES[1]);
+
+    // a LIVE beat is not restorable — that would be a no-op reporting success
+    expect(await M.restoreBeat(clientId, cycleId, { id: live }))
+      .toMatchObject({ ok: false, error: 'not_found' });
+
+    // another client's tombstone is not reachable
+    const other = await fixture();
+    const foreign = await seed(other.clientId, other.cycleId, CASES[1]);
+    await M.dropBeat(other.clientId, foreign);
+    expect(await M.restoreBeat(clientId, cycleId, { id: foreign }))
+      .toMatchObject({ ok: false, error: 'not_found' });
   }, 60_000);
 });

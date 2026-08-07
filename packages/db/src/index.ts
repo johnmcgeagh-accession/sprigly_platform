@@ -7,6 +7,8 @@ export type { BriefInvalidationResult } from './structured-brief-invalidate.js';
 export { claimPlanReadySend, releasePlanReadySend } from './plan-ready-claim.js';
 export { readAiChangeUsage, monthWindowUtc, DEFAULT_AI_CHANGE_LIMIT } from './ai-change-usage.js';
 export type { AiChangeUsage } from './ai-change-usage.js';
+export { retireDraftPosts } from './retire-draft-posts.js';
+export type { RetireResult } from './retire-draft-posts.js';
 /**
  * The Playwright draft-month fixture. Exported from the package because TWO callers build the
  * same month from it — `seed-e2e.ts` and the e2e-gated restore route the destructive Generate

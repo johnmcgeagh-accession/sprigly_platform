@@ -98,16 +98,24 @@ describe.skipIf(!TEST_DB)('draft mutations write to the ledger', () => {
     });
   }, 60_000);
 
-  it('the dropped row survives its beat — post_id is SET NULL, the record is not', async () => {
+  it('the dropped row NAMES its beat — the drop is a tombstone, so the subject survives', async () => {
+    // This asserted `post_id IS NULL`, which was the honest reading when dropBeat hard-deleted:
+    // the row was gone, so the ledger could only record that something had been. The drop is a
+    // tombstone now, so the ledger names the beat it describes and the audit gets stronger —
+    // "this beat was dropped" rather than "something was dropped, we no longer know what".
     const { clientId, cycleId } = await fixture();
     const id = await seed(clientId, cycleId);
     await M.dropBeat(clientId, id);
 
     const rows = await sql`SELECT post_id, action FROM plan_activity WHERE cycle_id = ${cycleId}`;
     expect(rows).toHaveLength(1);
-    expect(rows[0].post_id).toBeNull();
+    expect(rows[0].post_id).toBe(id);
+    // Gone from every draft read...
+    expect(await sql`SELECT count(*)::int n FROM content_cycle_posts
+                     WHERE cycle_id = ${cycleId} AND deleted_at IS NULL`).toEqual([{ n: 0 }]);
+    // ...but still on the table, because post_edits may reference it.
     expect(await sql`SELECT count(*)::int n FROM content_cycle_posts WHERE cycle_id = ${cycleId}`)
-      .toEqual([{ n: 0 }]);
+      .toEqual([{ n: 1 }]);
   }, 60_000);
 
   it('restore writes exactly one beat_restored', async () => {

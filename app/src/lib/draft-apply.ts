@@ -17,7 +17,7 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import {
   db, contentCycles, contentCyclePosts, planInputs, clearStructuredBriefIfPrePlanning,
-  POST_STATUS_DRAFT, type BeatMeta, type NewContentCyclePostRow,
+  POST_STATUS_DRAFT, retireDraftPosts, type BeatMeta, type NewContentCyclePostRow,
 } from '@sprigly/db';
 import {
   classifyIntake, applyIntent, diffBeats, renderDiff, isNoOp,
@@ -169,7 +169,14 @@ async function writeOps(clientId: string, cycleId: string, channel: string, ops:
         eq(contentCyclePosts.status, POST_STATUS_DRAFT),
       );
       if (op.op === 'remove') {
-        await tx.delete(contentCyclePosts).where(and(eq(contentCyclePosts.id, op.id), scope));
+        // Purge if nothing references it, tombstone if post_edits does — the FK refuses a hard
+        // delete of a referenced post, and that FK is the billing ledger's and the regen's
+        // protection, not an obstacle to route around. See retireDraftPosts.
+        //
+        // Not dropBeat's rule, which always tombstones so its undo has a row to un-drop. A
+        // transform's remove has no undo, so an unreferenced beat is purged rather than left
+        // to accumulate.
+        await retireDraftPosts(tx, { cycleId, clientId, postIds: [op.id] });
       } else if (op.op === 'update') {
         const set: Record<string, unknown> = {};
         if (op.changes.date   !== undefined) set['scheduledDate'] = op.changes.date;

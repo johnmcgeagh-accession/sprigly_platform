@@ -119,17 +119,16 @@ async function runOp(op: string, body: Record<string, unknown>, session: { clien
       return respond(await dropBeat(session.clientId, postId));
     }
     case 'restore': {
+      // The undo payload is the dropped beat's id and nothing else. It used to carry the whole
+      // beat — date, format, pillar, title, position, evidence — because the drop hard-deleted
+      // the row and the client's copy was the only one left. The drop is a tombstone now, so
+      // the server re-reads the beat it already has; see DroppedBeat.
       const b = body['beat'];
-      if (!b || typeof b !== 'object') return NextResponse.json({ error: 'bad_request' }, { status: 400 });
-      const beat = b as Record<string, unknown>;
-      const date = String(beat['date'] ?? ''), format = String(beat['format'] ?? ''), pillar = String(beat['pillar'] ?? '');
-      if (!date || !format || !pillar) return NextResponse.json({ error: 'bad_request' }, { status: 400 });
-      return respond(await restoreBeat(session.clientId, cycleId, {
-        date, format, pillar,
-        title:    typeof beat['title'] === 'string' ? beat['title'] : pillar,
-        position: typeof beat['position'] === 'number' ? beat['position'] : 0,
-        beatMeta: (beat['beatMeta'] ?? null) as never,
-      }));
+      const id = b && typeof b === 'object'
+        ? String((b as Record<string, unknown>)['id'] ?? '')
+        : String(body['postId'] ?? '');
+      if (!id) return NextResponse.json({ error: 'bad_request' }, { status: 400 });
+      return respond(await restoreBeat(session.clientId, cycleId, { id }));
     }
     case 'add': {
       const date   = String(body['date'] ?? '');

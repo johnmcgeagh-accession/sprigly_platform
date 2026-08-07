@@ -17,8 +17,8 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import {
   clients, clientChannels, clientConfigs, clientPlanningConfig, clientProductCatalogue,
   contentCycles, contentCyclePosts, igPosts, voiceSnapshots, excludeDraftPosts,
-  POST_STATUS_DRAFT, PRE_PLANNING_STATUSES,
-  type NewContentCyclePostRow,
+  POST_STATUS_DRAFT, PRE_PLANNING_STATUSES, retireDraftPosts,
+  type NewContentCyclePostRow, type RetireResult,
 } from '@sprigly/db';
 import {
   assembleDraft, applyPhrasing, phraseDraftTitles, loadDurableInputs, readDraftFlowFlag,
@@ -386,16 +386,24 @@ export async function assembleAndPersistDraft(
     sourceMeta:    { ...(b.sourceMeta ?? {}), title: b.title },
   }));
 
+  let retired: RetireResult = { purged: 0, tombstoned: 0 };
   await db.transaction(async (tx) => {
-    await tx.delete(contentCyclePosts).where(and(
-      eq(contentCyclePosts.cycleId, cycle.id),
-      eq(contentCyclePosts.status, POST_STATUS_DRAFT),
-    ));
+    // Re-assembly replaces the month, so every existing draft beat is retired first. It cannot
+    // be a blanket DELETE: `post_edits.post_id` has no ON DELETE action, so a single beat that
+    // has had a caption generated refuses the statement and the whole re-assembly rolls back —
+    // which is why an Ask-touch on a month with any generated captions failed outright.
+    //
+    // Purge the beats nothing references (the common case, and tombstoning them every
+    // re-assembly would accumulate rows no reader wants); tombstone the ones post_edits names,
+    // so the ledger keeps its subject and the client's paid work is never destroyed to make
+    // room for a re-plan. See retireDraftPosts.
+    retired = await retireDraftPosts(tx, { cycleId: cycle.id });
     if (rows.length > 0) await tx.insert(contentCyclePosts).values(rows);
   });
 
   logger.info(
-    { ...logCtx, beats: rows.length, basis: draft.basis, phrasing: phrasing.outcome, assumptions: draft.assumptions.length },
+    { ...logCtx, beats: rows.length, basis: draft.basis, phrasing: phrasing.outcome, assumptions: draft.assumptions.length,
+      retiredPurged: retired.purged, retiredTombstoned: retired.tombstoned },
     'draft-plan: assembled and persisted',
   );
   return { draft, beatsWritten: rows.length, phrasing: phrasing.outcome };
