@@ -42,7 +42,7 @@
  */
 import { and, eq, isNull, isNotNull, sql as dsql } from 'drizzle-orm';
 import type { Queue } from 'bullmq';
-import { contentCycles, contentCyclePosts, clients, claimPlanReadySend, releasePlanReadySend } from '@sprigly/db';
+import { contentCycles, contentCyclePosts, clients, claimPlanReadySend, releasePlanReadySend, hasGeneratingPosts } from '@sprigly/db';
 import { ensureAppLink, monthLabelOf, nextMonth, sendAppReadyNotification, type PlanningDeps } from './planning.js';
 import { UNGROUNDED_KEY, ungroundedEmailMerge } from '@sprigly/engine/generation-recovery';
 // The preview renders through the SAME two functions the delivery path uses, so what it shows
@@ -87,18 +87,15 @@ export async function hasPendingGenerationJobs(
   return jobs.some((j) => j.id !== excludeJobId && isGenerationJobForCycle(j.id, cycleId));
 }
 
-/** The DB half. Soft-deleted posts are not work in flight. */
-export async function hasGeneratingPosts(db: PlanningDeps['db'], cycleId: string): Promise<boolean> {
-  const [row] = await db
-    .select({ n: dsql<number>`count(*)::int` })
-    .from(contentCyclePosts)
-    .where(and(
-      eq(contentCyclePosts.cycleId, cycleId),
-      eq(contentCyclePosts.status, 'generating'),
-      isNull(contentCyclePosts.deletedAt),
-    ));
-  return (row?.n ?? 0) > 0;
-}
+/**
+ * The DB half. Soft-deleted posts are not work in flight.
+ *
+ * Lives in @sprigly/db now and is re-exported here so this module still reads as the home of
+ * the predicate. The app asks the same question while a client watches a month fill in, and
+ * "is this cycle still working" decides both whether they get an email and whether their
+ * screen is honest — one rule, not two copies of one COUNT.
+ */
+export { hasGeneratingPosts };
 
 /** Both halves. A cycle is settled when nothing is generating and nothing is queued. */
 export async function isCycleSettled(

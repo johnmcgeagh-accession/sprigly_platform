@@ -28,6 +28,19 @@ import { planMoveGuard, shouldReconcile } from '@/lib/plan-move';
 import { refusalMessage } from '@/lib/refusals';
 import { navTrace } from './nav-trace';
 
+/**
+ * Generation-watch cadence. 1600ms is `pollJob`'s interval, reused rather than chosen again so
+ * "how often does this page ask about work in flight" has one answer. Against
+ * /api/plan/generation-status (~0.2ms, one index scan) a 311-second run is ~195 of these; the
+ * PLAN itself is refetched only when something changed, which over that run is ~28 times.
+ */
+const GENERATION_POLL_MS = 1600;
+/** Consecutive unchanged polls, with nothing generating, before the run counts as over. Two,
+ *  so a hook or script landing between polls still reopens the window. */
+const QUIET_POLLS_TO_SETTLE = 2;
+/** Backstop only — the worker's sweep is what rescues a wedged 'generating' row. */
+const GENERATION_POLL_MAX_MS = 10 * 60 * 1000;
+
 export interface AgentReply {
   message: string; proposals: ProposalView[]; items: InterpretedItem[];
   /** The conversation this turn landed in — the sheet holds it for the rest of its session. */
@@ -265,6 +278,87 @@ export function usePlanData(init: PlanDataInit) {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  /**
+   * WATCH A GENERATION RUN, and refetch the plan as it writes.
+   *
+   * Every other refetch in this file hangs off something the CLIENT did. A monthly generation
+   * run is started by the worker: approval hands back counts and no job ids (approve/route.ts),
+   * so `pollJob` cannot follow it, and nothing else here subscribes to anything it touches. The
+   * result was that the captions already in the loaded payload rendered and every later one did
+   * not — a real uat run wrote 28 captions over 311 seconds, none of them visible without a
+   * manual refresh, while the grid showed a correct render of stale rows as hollow rings.
+   *
+   * ── ON LOAD, not on approval ─────────────────────────────────────────────────────
+   *
+   * Deliberately keyed to the viewed cycle rather than wired into the approve button. Approval
+   * ends in `window.location.assign` (ApprovalSheet), so a load-time check already covers it —
+   * and it covers the case the approve button never could: an AUTO-approved cycle, where the
+   * run is started by the scheduler and the client simply opens the page in the middle of it.
+   * That client got nothing at all before, and they are the ones least likely to think to
+   * refresh, because they never pressed anything.
+   *
+   * ── THE STOP CONDITION IS QUIET, NOT COMPLETENESS ────────────────────────────────
+   *
+   * "Every post has a caption" is not reachable and must not be the rule: a declined launch
+   * beat settles as status 'new' with no caption, and a 'generation_failed' post is terminal
+   * and never retried. So this stops when nothing is generating AND `lastWritten` has not moved
+   * for QUIET_POLLS consecutive polls.
+   *
+   * The quiet window is also what makes hooks and scripts visible. shape.ts moves a post
+   * 'generating' → 'new', but hook.ts and script.ts write their fields and never touch status —
+   * so `generating === 0` alone would stop while a reel's script was still queued, and the
+   * script would land unseen. `lastWritten` is max(updated_at), maintained by the table's own
+   * trigger, so it moves for those writes too and the window waits for them.
+   *
+   * MAX_MS is a backstop, not the mechanism: a post wedged in 'generating' is rescued by the
+   * worker's sweepFailedGenerations, and this just declines to poll about it forever.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let lastSeen: string | null = null;
+    let quiet = 0;
+    let syncedOnce = false;
+    const startedAt = Date.now();
+
+    const schedule = () => { if (!cancelled) timer = setTimeout(() => void tick(), GENERATION_POLL_MS); };
+
+    const tick = async (): Promise<void> => {
+      if (cancelled || Date.now() - startedAt > GENERATION_POLL_MAX_MS) return;
+
+      let s: { generating: number; total: number; lastWritten: string | null };
+      try {
+        const r = await fetch(`/api/plan/generation-status?cycleId=${encodeURIComponent(viewedCycleId)}`);
+        if (!r.ok) return schedule();        // transient — the cap still bounds this
+        s = (await r.json()) as typeof s;
+      } catch { return schedule(); }
+      if (cancelled) return;
+      // A body that is not a status is not a transient failure, and retrying it would poll for
+      // the full MAX_MS to no purpose. Stop: something that cannot answer the question is not
+      // worth asking again.
+      if (typeof s?.generating !== 'number') return;
+
+      // Nothing in flight and nothing has moved: the run is over (or never started).
+      if (s.generating === 0 && lastSeen !== null && s.lastWritten === lastSeen) {
+        if (++quiet >= QUIET_POLLS_TO_SETTLE) return;
+        return schedule();
+      }
+
+      // The first sight of an ACTIVE run syncs once, because a write between page load and
+      // this first poll would otherwise be invisible until the next one — and on a run that
+      // ends right after it, until never.
+      if (s.generating > 0 && !syncedOnce) { syncedOnce = true; await refreshPlan(); }
+      else if (lastSeen !== null && s.lastWritten !== lastSeen) await refreshPlan();
+
+      if (s.lastWritten !== lastSeen) quiet = 0;
+      lastSeen = s.lastWritten;
+      schedule();
+    };
+
+    void tick();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [viewedCycleId, refreshPlan]);
 
   /** Apply an `applied` result to local state WITHOUT a full refetch: splice the fresh
    *  version of each changed post (from the response's post set) into whichever local array
