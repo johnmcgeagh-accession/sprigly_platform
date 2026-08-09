@@ -41,6 +41,8 @@
     "extract-voice-cycle": "sh -c 'set -a && . ../.env.local && set +a && tsx src/extract-voice-cycle.ts \"$@\"' --",
     "approve-voice-cycle": "sh -c 'set -a && . ../.env.local && set +a && tsx src/approve-voice-cycle.ts \"$@\"' --",
     "backfill-emails": "tsx --env-file ../.env.local src/backfill-connection-emails.ts",
+    "//verify-oauth-decrypt": "deliberately sources no env file — the target must be named per-run (--env-file ../.env.prod), so a default cannot silently point a production check at UAT",
+    "verify-oauth-decrypt": "tsx src/verify-oauth-decrypt.ts",
     "eval:bedrock":  "sh -c 'set -a && . ../.env.local && set +a && tsx scripts/eval-bedrock.ts'",
     "eval:harness":           "sh -c 'set -a && . ../.env.local && set +a && tsx scripts/eval-harness.ts'",
     "eval:harness:anthropic": "sh -c 'set -a && . ../.env.local && set +a && tsx scripts/eval-harness.ts anthropic'",
