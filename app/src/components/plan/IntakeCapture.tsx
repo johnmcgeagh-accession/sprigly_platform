@@ -59,14 +59,79 @@ type Props = {
   onClose: () => void;
 };
 
-/** Stable overlay + panel chrome (module-level so children never remount on the parent's renders). */
-function IntakeChrome({ wide, onClose, children }: { wide?: boolean; onClose: () => void; children: React.ReactNode }) {
+/**
+ * Stable overlay + panel chrome (module-level so children never remount on the parent's renders).
+ *
+ * ── THE HEADING IS OUTSIDE THE SCROLLER, AND THAT IS THE WHOLE FIX ───────────────────
+ *
+ * Reported from iOS Safari: the sheet opens past its own heading — "Let's plan September 2026
+ * together" not visible, the subhead clipped mid-line — and scrolling UP reveals it. That it is
+ * reachable by scrolling is what identifies the fault: the content is laid out correctly and
+ * the container is simply scrolled, which is a different thing from the shell's fault in
+ * `a733137` (laid out below the visible area, not reachable at all).
+ *
+ * WHAT DID NOT CAUSE IT. The obvious reading is the composer's `autoFocus` dragging itself into
+ * view and taking the heading with it. Measured in WebKit at 390×659, 390×560 and 390×480: the
+ * panel reports `scrollTop: 0` in every case with the textarea focused — including 390×480,
+ * where the textarea's bottom edge is 68px past the panel's. WebKit does not scroll an ancestor
+ * for a focused element whose top is already in view, so the focus never moves this panel.
+ * Removing the focus would have cost the client the thing they came to do and fixed nothing.
+ *
+ * WHAT DOES. The software keyboard, which no headless run has. On the device `autoFocus` opens
+ * it, iOS shrinks the VISUAL viewport by roughly 300px, and the UA then scrolls the caret back
+ * into what is left — through the nearest scrollable ancestor, which was this panel. The heading
+ * is 65px at the top of it and is what gets spent. That is why this class keeps being reported
+ * from a phone and keeps not reproducing in the suite.
+ *
+ * So the fix does not argue with the scroll. The heading LEAVES the scroller: the panel is now a
+ * flex column that clips, holding a `flex-none` header and a scrolling body, and nothing that
+ * scrolls the body — the keyboard, a focus, a thumb — can reach the heading at all. It holds
+ * without knowing which of them did it.
+ *
+ * `flex-none` on the header is load-bearing for the reason `030d11e` records for its spacer: in
+ * a flex column a bare div is `flex-shrink: 1`, so the header would be the first thing squeezed
+ * out and this would be the same bug by another route. `min-h-0` on the body is the other half —
+ * a flex item's `min-height: auto` refuses to shrink below its content, so without it the body
+ * would grow past the panel and the panel's `overflow-hidden` would CLIP it, which is worse than
+ * what was reported: unreachable rather than merely scrolled past.
+ *
+ * The body is a BLOCK scroller, deliberately — not `flex flex-col`. Per `030d11e`'s measured
+ * table, WebKit will not let a flex-column scroller's end padding create overflow, so `pb-5`
+ * here only works because this is a block. Adding `flex` to it reopens that.
+ *
+ * ── AND THE PANEL IS THE SMALL VIEWPORT ──────────────────────────────────────────────
+ *
+ * `max-h-[94vh]` was the last `vh` left on a mobile surface. On iOS `vh` is the LARGE viewport —
+ * the height with the toolbar minimised — so on an iPhone 13 with the toolbar drawn this asked
+ * for a 793px sheet inside a 659px visible strip, and the bottom ~185px of it (which is where
+ * "Save brief" lives) sat below what the client can see. `svh` is the height with chrome at its
+ * largest and is never behind it; the reasoning is written out in full on `PlanShell`, and the
+ * ruling there applies to any element sized against the phone's viewport, not only that one.
+ *
+ * Stated honestly: this is a correctness fix on its own terms, NOT a proven contributor to the
+ * reported symptom. It cannot hide the heading — `items-end` anchors the sheet's bottom, so a
+ * wrong max-height spends the bottom of the sheet, not the top. It is fixed here because it is
+ * the same mistake in the same file, and finding it twice is how it stays found.
+ */
+function IntakeChrome({ wide, header, onClose, children }: {
+  wide?: boolean;
+  /** Rendered ABOVE the scroller and outside it. Anything here is always on screen. */
+  header?: React.ReactNode;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
   return (
     <div data-testid="intake-overlay" onClick={onClose}
       className="fixed inset-0 z-[60] flex items-end justify-center bg-[rgba(51,65,85,.32)] p-0 sm:items-center sm:p-4">
       <div data-testid="intake-panel" onClick={(e) => e.stopPropagation()}
-        className={`flex max-h-[94vh] w-full flex-col overflow-y-auto rounded-t-3xl bg-surface p-5 shadow-[0_-16px_44px_rgba(51,65,85,.18)] sm:rounded-3xl sm:p-7 ${wide ? 'max-w-[900px]' : 'max-w-[560px]'}`}>
-        {children}
+        className={`flex max-h-[94svh] w-full flex-col overflow-hidden rounded-t-3xl bg-surface shadow-[0_-16px_44px_rgba(51,65,85,.18)] sm:rounded-3xl ${wide ? 'max-w-[900px]' : 'max-w-[560px]'}`}>
+        {header && (
+          <div data-testid="intake-header" className="flex-none px-5 pt-5 sm:px-7 sm:pt-7">{header}</div>
+        )}
+        <div data-testid="intake-body"
+          className={`min-h-0 flex-1 overflow-y-auto px-5 pb-5 sm:px-7 sm:pb-7 ${header ? '' : 'pt-5 sm:pt-7'}`}>
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -122,7 +187,10 @@ export function IntakeCapture(props: Props) {
     : 'Saved — we’ll build your month from this.';
 
   return (
-    <IntakeChrome wide onClose={onClose}>
+    <IntakeChrome wide onClose={onClose} header={
+      // The title, the subhead and the two controls. All four are things the client must be
+      // able to see at any scroll position — the heading because it names the MONTH they are
+      // briefing, and ✕ because a sheet whose close button can scroll away is a trap.
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h2 className="font-serif text-[26px] leading-tight text-slate-700">Let’s plan {monthLabel} together</h2>
@@ -134,7 +202,7 @@ export function IntakeCapture(props: Props) {
           <button data-testid="intake-close" onClick={onClose} aria-label="Close" className="flex h-8 w-8 flex-none items-center justify-center rounded-full text-[16px] font-bold text-muted hover:text-slate-700">✕</button>
         </div>
       </div>
-
+    }>
       {committedOnce && prePlanning && (
         <p data-testid="intake-saved-note" className="mb-4 rounded-xl bg-coral-100 px-3.5 py-3 text-[13.5px] leading-relaxed text-coral-800">{savedMsg}</p>
       )}

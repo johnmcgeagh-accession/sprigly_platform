@@ -61,12 +61,14 @@ export default defineConfig({
      * the second one reproduces perfectly in WebKit at a real small-viewport height, and could
      * not have failed in Chromium at any height (frame.ts → `scrollTail`).
      *
-     * Deliberately ONE spec file. This is not a second full pass of the suite in a second
+     * Deliberately a SHORT list. This is not a second full pass of the suite in a second
      * engine — it is the geometry that only this combination can see, and it stays that size.
+     * `intake-heading` is the third report of this class and the second to be traced to the
+     * phone's real height rather than its screen.
      */
     {
       name: 'mobile-webkit',
-      testMatch: /pill-clearance\.spec\.ts/,
+      testMatch: /(pill-clearance|intake-heading)\.spec\.ts/,
       dependencies: ['setup'],
       use: { ...devices['iPhone 13'], storageState: STATE },
     },
