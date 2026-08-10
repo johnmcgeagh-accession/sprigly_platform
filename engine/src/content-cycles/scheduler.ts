@@ -440,7 +440,24 @@ export async function evaluateThreeTouchForClient(params: {
       monthLabel:     planMonthLabel(cycle.cycleMonth),
       cutoffDate:     formatCutoffDate(today.year, today.month, cutoffDay),
       daysToCutoff:   String(Math.max(0, cutoffDay - today.day)),
-      intakeLink:     appLink ? `${appLink}?intake=1` : '',   // lands with the intake surface open
+      /**
+       * THE TOUCH NAMES ITS OWN MONTH.
+       *
+       * `?intake=1` alone opens the intake surface on whichever cycle the LANDING rule picked,
+       * and that rule (`resolveLandingCycleId` → `resolveDayCycleId`) prefers the cycle whose
+       * plan month contains TODAY. A touch fires inside the month BEFORE the one it is asking
+       * about, so on the ask day those are different cycles: on 10 August the link minted for
+       * the 2026-08 cycle (which plans September) landed on the 2026-07 cycle (which plans
+       * August). The client was asked to plan September and shown "Let's plan August 2026" —
+       * and because that cycle was `workbook_built`, i.e. not in PRE_PLANNING_STATUSES, their
+       * September brief was posted to the post-cutoff branch and became August proposals.
+       *
+       * The cycle id is right here, so the link says it. `?cycle=` is already the one input
+       * `resolveLandingCycleId` honours above every heuristic, and page.tsx verifies it belongs
+       * to this client (membership of `cycles`) before using it — a stale id falls through to
+       * the ordinary rule rather than erroring. This adds no new trust to the parameter.
+       */
+      intakeLink:     appLink ? `${appLink}?intake=1&cycle=${cycle.id}` : '',
       appLink,
       questionsBlock: touch === 'ask' ? buildQuestionsBlock(chan?.extraQuestions ?? null) : '',
       beatsSummary,

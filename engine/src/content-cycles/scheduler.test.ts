@@ -616,13 +616,44 @@ describe('evaluateThreeTouchForClient', () => {
       key: 'ask', clientId: 'c1',
       merge: expect.objectContaining({
         clientName: 'Ivy T', contactName: 'Sally', monthLabel: 'July 2026',
-        cutoffDate: '20 June', daysToCutoff: '15', intakeLink: 'https://app/p/tok?intake=1', appLink: 'https://app/p/tok',
+        cutoffDate: '20 June', daysToCutoff: '15', intakeLink: 'https://app/p/tok?intake=1&cycle=cyc-1', appLink: 'https://app/p/tok',
         questionsBlock: expect.stringContaining('1. Q1 dates?'),
       }),
     }));
     expect(update).toHaveBeenCalledTimes(1);   // the timestamp stamp only
     expect(setCalls).toEqual([{ askSentAt: expect.any(Date) }]);   // NOT a skip reason
     expect(setCalls[0]).not.toHaveProperty('askSkipReason');
+  });
+
+  /**
+   * The link has to NAME the cycle, not merely be minted for it.
+   *
+   * The landing rule prefers the cycle whose plan month contains today, and a touch always
+   * fires in the month BEFORE the one it asks about — so without `?cycle=` the client lands on
+   * the previous cycle, is shown its month, and (when that cycle is past its cutoff) writes
+   * their brief into it as post-cutoff proposals. Asserted on every touch, because all three
+   * carry {{intakeLink}}.
+   */
+  it.each([
+    ['ask',        5],   // schedule.day
+    ['nudge',     17],   // cutoffDay − 3
+    ['last_call', 19],   // cutoffDay − 1
+  ] as const)('the %s touch link names the cycle it is asking about', async (_touch, day) => {
+    const { db } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
+    const args = base(db, { today: { ...TODAY, day } });
+    expect(await evaluateThreeTouchForClient(args)).toBe('sent');
+    expect(args.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+      merge: expect.objectContaining({ intakeLink: 'https://app/p/tok?intake=1&cycle=cyc-1' }),
+    }));
+  });
+
+  it('leaves intakeLink empty when there is no app link, rather than emitting a bare query string', async () => {
+    const { db } = makeSenderDb([[emptyCycle], [], [clientRow], [chanRow]]);
+    const args = base(db, { resolveAppLink: vi.fn().mockResolvedValue(null) });
+    expect(await evaluateThreeTouchForClient(args)).toBe('sent');
+    expect(args.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+      merge: expect.objectContaining({ intakeLink: '', appLink: '' }),
+    }));
   });
 
   // ── Draft plan on the Ask touch (Build A) ──────────────────────────────────
