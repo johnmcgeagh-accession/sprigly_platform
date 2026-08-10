@@ -51,7 +51,7 @@ import type { ConversationTurn } from '@/lib/agent/conversation';
 import { useSpeechInput } from '../useSpeechInput';
 import { MicTracePanel } from '../MicTracePanel';
 
-export type VoiceContext = 'draft' | 'committed';
+export type VoiceContext = 'draft' | 'committed' | 'empty';
 
 /**
  * What a submitted sentence produced. `items` → an interpretation turn; `message` → an agent
@@ -102,6 +102,33 @@ const FRAMING: Record<VoiceContext, (monthName: string) => Framing> = {
     // plan is answered rather than filed (F2). The old placeholder offered one verb and one
     // shape — "Move the Thursday post to Friday" — which taught the composer as a command line.
     placeholder: 'Ask about or change your plan…',
+  }),
+  /**
+   * ── THE EMPTY MONTH, AND WHY THIS IS NOT "TELL ME WHAT'S HAPPENING" ─────────────────
+   *
+   * A month with no posts and no draft used to take the `committed` framing, so the agent's
+   * opening turn told the client "September is written" while the grid two inches away said
+   * "Nothing planned across September yet" and the rail said "0 posts this month".
+   *
+   * The obvious replacement — "tell me what's happening and we'll build it" — was drafted and
+   * REJECTED, because it promises something this composer does not do. Traced on the real
+   * empty cycle (UAT 0b9677e5): a brief-shaped sentence — *"Big Navy Edit launch on the 25th,
+   * build up to it all week. Quieter start to the month."* — parses to `add_note`, renders as
+   * "Saved to your ideas", and leaves the month empty. The composer builds nothing from a
+   * brief. What it CAN do here is a dated add: *"add a post about the autumn knitwear on 3
+   * September"* proposes one post, correctly, on the right cycle.
+   *
+   * So this framing offers exactly that, and no more. Briefing the month is the INTAKE
+   * surface's job — "Let's plan September 2026 together / Tell me what's happening this
+   * month" — and on an empty month arrived at from an Ask email the two are on screen at once.
+   * Two inputs inviting the same sentence, where only one of them acts on it, is worse than
+   * the wrong month state: it would teach the client to brief the composer, and their month
+   * would quietly become a backlog. They have different jobs and now say so.
+   */
+  empty: (m) => ({
+    title: `Add to ${m}`,
+    blurb: `Nothing’s planned for ${m} yet. Tell me a post you want — what it’s about and when — and I’ll put it in.`,
+    placeholder: 'Add a post — what and when…',
   }),
 };
 

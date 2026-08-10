@@ -89,9 +89,13 @@ describe('surfaceForCycle — the server decides, per cycle', () => {
     expect(draftBeats).toHaveLength(0);
   });
 
-  it('empty cycle (no posts, no drafts) → committed-redesign, which renders its own empty state', async () => {
+  it('empty cycle (no posts, no drafts) → committed-empty, so the composer is told', async () => {
+    // It used to answer 'committed-redesign', on the reasoning that the shell renders its own
+    // empty state. The shell does — in the grid and the rail, each from its own count — but the
+    // composer's framing reached for the written one and greeted an empty September with
+    // "September is written". The end of that walk is here.
     const { kind } = await surfaceOf(COMMITTED_CYCLE, 0);
-    expect(kind).toBe('committed-redesign');
+    expect(kind).toBe('committed-empty');
   });
 
   it('flag-off tenant with a draft still gets draft — the draft check precedes the flag', async () => {
@@ -117,6 +121,13 @@ describe('followServerSurface — the client follows, it does not decide', () =>
   it('committed: adopt it and load NO draft, so a stale draft cannot render over a plan', () => {
     expect(followServerSurface('committed-redesign')).toEqual({ kind: 'committed-redesign', loadDraft: false });
     expect(followServerSurface('committed-legacy')).toEqual({ kind: 'committed-legacy', loadDraft: false });
+  });
+
+  it('an EMPTY month is adopted like any other committed kind — and pays no draft query', () => {
+    // The whole cost of widening SurfaceKind, asserted: `loadDraft` keys off 'draft' alone, so
+    // the new member rides the existing committed path with nothing to change. A month with no
+    // posts and no drafts must not go fetching a draft payload that does not exist.
+    expect(followServerSurface('committed-empty')).toEqual({ kind: 'committed-empty', loadDraft: false });
   });
 
   it('missing field falls back to the committed shell, not to an empty draft frame', () => {

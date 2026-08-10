@@ -211,6 +211,16 @@ export default async function Page({ searchParams }: { searchParams: { intake?: 
       );
     }
 
+    // Both redesign states render the SAME shell — the difference is what the shell is told
+    // about the month, which it passes to the composer's framing (surface-state.voiceContextFor).
+    // Sharing the case is the point: an empty month is not a different surface, it is this
+    // surface over nothing, and forking the render would be the fifth derivation of that fact.
+    //
+    // `initialSurfaceKind` is passed HERE and not only on the draft case, and it is load-bearing:
+    // without it `usePlanData` starts on its 'committed-redesign' default and the first paint
+    // greets an empty month with "September is written" before the first month-switch corrects
+    // it. The server already knows; it has to say so.
+    case 'committed-empty':
     case 'committed-redesign':
       return (
         <PlanRedesign
@@ -227,6 +237,7 @@ export default async function Page({ searchParams }: { searchParams: { intake?: 
           intake={intake}
           durable={durable}
           cutoffDay={cutoffDay}
+          initialSurfaceKind={surface}
         />
       );
 

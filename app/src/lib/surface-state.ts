@@ -17,6 +17,7 @@ export type SurfaceKind =
   | 'gated'                // no session — the magic-link explainer
   | 'draft'                // an unapproved draft month to react to (Build B)
   | 'committed-redesign'   // the committed plan, redesign shell (plan_redesign flag on)
+  | 'committed-empty'      // the redesign shell over a month with nothing in it yet
   | 'committed-legacy';    // the committed plan, original shell
 
 export interface SurfaceFacts {
@@ -41,12 +42,48 @@ export interface SurfaceFacts {
  *     `committedPostCount === 0` rather than "are any rows drafts?" is what keeps that
  *     honest — the count comes from the already-fenced list, so the two cannot drift.
  *  3. No committed posts but drafts exist → the draft surface.
- *  4. Otherwise the committed shell, which renders its own empty state.
+ *  4. No committed posts and no drafts → the redesign shell, told that the month is EMPTY.
+ *  5. Otherwise the committed shell.
+ *
+ * ── WHY 4 IS A MEMBER OF THIS UNION AND NOT A COUNT READ SOMEWHERE ELSE ──────────────
+ *
+ * The empty month was already handled here — step 4 used to be a comment saying "the
+ * committed shell renders its own empty state", and it does: the grid says "Nothing planned
+ * across September yet" and the rail says "0 posts this month", each from its own count. What
+ * never reached the composer was the fact itself, so its framing stayed the constant
+ * `context="committed"` and the agent's opening turn said "September is written" over a month
+ * with nothing in it.
+ *
+ * The cheap fix is for the surface to branch on a post count it happens to be holding. That
+ * would make four independent derivations of "what state is this month in" on one screen —
+ * two counts, a literal, and the cycle status the intake banner reads. So the fact joins the
+ * union instead, where the counts already are, and every consumer reads the same answer.
+ *
+ * LEGACY IS DECIDED FIRST. The original shell has no composer and no empty framing, so there
+ * is nothing for this state to change there; a flag-off tenant's empty month is
+ * 'committed-legacy' exactly as before.
  */
 export function resolveSurfaceKind(facts: SurfaceFacts): SurfaceKind {
   if (!facts.hasSession) return 'gated';
   if (facts.committedPostCount === 0 && facts.draftBeatCount > 0) return 'draft';
-  return facts.planRedesign ? 'committed-redesign' : 'committed-legacy';
+  if (!facts.planRedesign) return 'committed-legacy';
+  return facts.committedPostCount === 0 ? 'committed-empty' : 'committed-redesign';
+}
+
+/**
+ * Which framing the conversation composer opens with, for a surface.
+ *
+ * The mapping lives HERE, beside the union, rather than as a ternary at the call site — so
+ * adding a member to `SurfaceKind` is one edit with one place to check, and so the projection
+ * is assertable without rendering anything.
+ *
+ * 'gated' and 'draft' never reach it: the gate renders no composer, and the draft surface
+ * passes its own context. They map to 'committed' as the safe default for the same reason
+ * `followServerSurface` defaults that way — a wrong framing on a written month is a smaller
+ * error than an "add me something" invitation over a month full of posts.
+ */
+export function voiceContextFor(kind: SurfaceKind): 'committed' | 'empty' {
+  return kind === 'committed-empty' ? 'empty' : 'committed';
 }
 
 /** True when the page needs to spend a query loading draft beats at all. Lets the page

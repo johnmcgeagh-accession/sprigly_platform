@@ -249,12 +249,30 @@ export function usePlanData(init: PlanDataInit) {
       const isHome = viewedCycleId === init.homeCycleId;
       const r = await fetch(isHome ? '/api/plan' : `/api/plan?cycleId=${encodeURIComponent(viewedCycleId)}`);
       if (!r.ok) return;
-      const d = (await r.json()) as { posts: PlanPost[]; crossMonthPosts?: PlanPost[]; beats?: PlanBeat[]; intake?: PlanIntake; durable?: DurableItemView[] };
+      const d = (await r.json()) as { posts: PlanPost[]; crossMonthPosts?: PlanPost[]; beats?: PlanBeat[]; intake?: PlanIntake; durable?: DurableItemView[]; surfaceKind?: SurfaceKind };
       setPosts(d.posts);
       setCrossMonthPosts(d.crossMonthPosts ?? []);
       setBeats(d.beats ?? []);
       if (d.intake) setIntake(d.intake);
       if (d.durable) setDurable(d.durable);
+      /**
+       * ── THE MONTH CAN STOP BEING EMPTY WITHOUT THE MONTH CHANGING ──────────────────
+       *
+       * This response has always carried `surfaceKind` and this function has always thrown it
+       * away, which cost nothing while the only committed kind was 'committed-redesign'. It is
+       * no longer free: applying the first add to an empty month goes through here, and without
+       * this the composer would still be offering "Nothing's planned for September yet" over
+       * the post the client just put in.
+       *
+       * COMMITTED KINDS ONLY. Entering and leaving a DRAFT month is `switchCycle`'s business —
+       * it is the half that fetches and drops the draft payload alongside the kind, and a kind
+       * changed here without that payload would flip `PlanRoot`'s `isDraft` against a `draft`
+       * that no longer matches it. So a draft month's refresh leaves the surface exactly where
+       * it was, and this only ever moves between the two committed states.
+       */
+      if (d.surfaceKind && d.surfaceKind !== 'draft') {
+        setSurfaceKind((cur) => (cur === 'draft' ? cur : d.surfaceKind!));
+      }
     } catch { /* non-fatal */ }
   }, [viewedCycleId, init.homeCycleId]);
 

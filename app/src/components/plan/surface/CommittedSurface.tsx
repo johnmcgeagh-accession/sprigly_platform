@@ -29,6 +29,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { PlanData } from '../usePlanData';
 import type { PlanPost } from '@/lib/types';
 import type { InterpretedItem } from '@/lib/agent/types';
+import { voiceContextFor } from '@/lib/surface-state';
 import { restoreDayFor, saveNavState } from '../nav-state';
 import { navTrace } from '../nav-trace';
 import { applyFailureMessage } from './applied-summary';
@@ -427,7 +428,11 @@ export function CommittedSurface({ data, frame = 'mobile' }: { data: PlanData; f
         // the desktop frame and let the phone's fall out of the component. That asymmetry is
         // what made the whole class of bug invisible: the half that mattered read as deliberate
         // because the other half was silent.
-        : { open: voiceOpen, chrome: 'sheet' as const })} context="committed" monthName={monthTitle(month).split(' ')[0] ?? ''}
+        // The framing follows the SURFACE, not a post count read here. `voiceContextFor` is the
+        // projection of the one surface decision (surface-state.ts) — so the composer, the grid
+        // and the rail cannot come to different conclusions about whether this month has
+        // anything in it.
+        : { open: voiceOpen, chrome: 'sheet' as const })} context={voiceContextFor(data.surfaceKind)} monthName={monthTitle(month).split(' ')[0] ?? ''}
       cycleId={data.viewedCycleId}
       busy={data.agentBusy}
       onClose={() => setVoiceOpen(false)}
