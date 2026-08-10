@@ -15,7 +15,7 @@ const SESSION_CAP = 20;
  * SESSION_CAP calls per mounted session. The preview NEVER writes the DB. `schedule(text)` is
  * called on each keystroke; the call fires only after the input has been idle for DEBOUNCE_MS.
  */
-export function useLivePreview() {
+export function useLivePreview(cycleId?: string) {
   const [preview, setPreview] = useState<BriefPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [calls, setCalls] = useState(0);
@@ -31,13 +31,16 @@ export function useLivePreview() {
     inFlight.current = true; setLoading(true);
     callsRef.current += 1; setCalls(callsRef.current);
     try {
+      // The cycle, not the month: the SERVER derives which month this brief is for, so the
+      // preview's instructions and the panel's heading cannot come to say different things.
       const res = await fetch('/api/plan/preview', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }),
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text, ...(cycleId ? { cycleId } : {}) }),
       });
       if (res.ok) { const d = (await res.json()) as { preview?: BriefPreview }; if (d.preview) setPreview(d.preview); }
     } catch { /* preview is best-effort — keep the last good one */ }
     finally { inFlight.current = false; setLoading(false); }
-  }, []);
+  }, [cycleId]);
 
   const schedule = useCallback((text: string) => {
     latest.current = text;

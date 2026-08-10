@@ -49,6 +49,9 @@ const FIELD = 'w-full rounded-xl border border-line bg-surface p-3 text-[15px] l
 type Mode = 'workspace' | 'guided';
 type Props = {
   questions: string[];
+  /** The cycle on screen. Sent with the live preview so the SERVER can resolve which month this
+   *  brief is for — the same fact `monthLabel` renders, derived once rather than twice. */
+  cycleId: string;
   prePlanning: boolean;
   busy: boolean;
   monthLabel: string;
@@ -138,7 +141,7 @@ function IntakeChrome({ wide, header, onClose, children }: {
 }
 
 export function IntakeCapture(props: Props) {
-  const { questions, prePlanning, busy, monthLabel, intake, durable, cutoffLabel, onSubmit, onClose } = props;
+  const { questions, cycleId, prePlanning, busy, monthLabel, intake, durable, cutoffLabel, onSubmit, onClose } = props;
   const [mode, setMode] = useState<Mode>('workspace');
   const [text, setText] = useState('');
   const [durableText, setDurableText] = useState('');
@@ -147,7 +150,7 @@ export function IntakeCapture(props: Props) {
   const [dismissedFollowUp, setDismissedFollowUp] = useState<string | null>(null);
   const [showHints, setShowHints] = useState(false);
 
-  const live = useLivePreview();
+  const live = useLivePreview(cycleId);
   const speech = useSpeechInput((chunk) => onType((t) => (t ? `${t} ${chunk}` : chunk)));
 
   // Typing (or a transcript chunk) updates the input, reverts any confirmed state back to live,

@@ -30,7 +30,7 @@ describe('buildIntakePayload', () => {
 
 describe('IntakeCapture — planning workspace (Phase 1)', () => {
   const base = {
-    questions: QS, prePlanning: true, busy: false, monthLabel: 'August 2026', cutoffLabel: '18 July',
+    questions: QS, cycleId: 'cyc-1', prePlanning: true, busy: false, monthLabel: 'August 2026', cutoffLabel: '18 July',
     durable: [{ id: 'd1', type: 'idea', content: 'lean into provenance', createdAt: '2026-07-01T00:00:00Z' }],
     onSubmit: vi.fn(), onClose: vi.fn(),
   };

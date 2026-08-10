@@ -126,6 +126,7 @@ export function PlanRoot(props: PlanDataInit) {
       {data.intakeOpen && (
         <IntakeCapture
           questions={data.questions}
+          cycleId={data.viewedCycleId}
           prePlanning={data.viewedCyclePrePlanning}
           busy={data.intakeBusy}
           monthLabel={viewedMonthLabel}

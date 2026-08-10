@@ -49,6 +49,14 @@ export interface PreviewDurable { content: string; month: string }
 export interface PreviewBriefParams {
   text:      string;
   durables?: PreviewDurable[];
+  /**
+   * The month this brief is FOR, as a label the model can read ("September 2026").
+   *
+   * Deterministic — `nextMonth(cycle.cycleMonth)`, resolved by the caller from the cycle row,
+   * never inferred from the text. Optional only so a caller that cannot resolve it degrades to
+   * the previous behaviour rather than failing; every real caller supplies it.
+   */
+  planMonth?: string;
   model:     ModelClient;
   logger?:   Logger;
   audit?:    AuditLogger;
@@ -72,6 +80,8 @@ Rules:
 - Extract ONLY what the brief actually says. Empty sections are fine — return []. Keep each item to a few words.
 - MEMORY: you may be given DURABLES — standing notes the client saved in earlier months, each tagged with the month it was captured. If a durable is clearly relevant to what's being typed now, you may include it as an item with "from" set to its month (e.g. "from": "June"). Otherwise ignore it. Items from the current text have "from": null.
 - followUp: at MOST ONE short question, and ONLY when it genuinely helps — either (a) a real gap ("Any key dates this month?" only if NO dates are present), or (b) connecting a durable to now ("You mentioned relaunching the range in autumn — is that this month?"). If the brief is already clear, or nothing is worth asking, set followUp to null. Never ask more than one thing. Never ask something the text already answers.
+- THE PLAN MONTH IS GIVEN TO YOU, AND IT IS NOT IN DOUBT. A bare day with no month — "the 25th", "the last weekend", "mid-month" — is a day in the PLAN MONTH. That is settled: never ask which month it is, never offer a different month for it, and never ask whether it belongs to something a DURABLE mentions happening in another month. Echo it back in "when" exactly as the client wrote it.
+- A date the brief names in a DIFFERENT month from the plan month ("the 3rd of October" while planning September) is genuinely worth one question, because it may be a note for later rather than a beat for this month. That is the ONLY case where a date earns a follow-up about timing.
 - Return ONE JSON object and nothing else. No prose, no markdown, no code fences.`;
 
 function isObj(v: unknown): v is Record<string, unknown> {
@@ -96,7 +106,23 @@ export async function previewBrief(params: PreviewBriefParams): Promise<BriefPre
   if (text.length < PREVIEW_MIN_CHARS) return EMPTY_PREVIEW;
 
   const durables = (params.durables ?? []).filter((d) => d.content.trim().length > 0);
+  /**
+   * THE MONTH LEADS, as it does in `buildBriefExtractUserMessage`.
+   *
+   * This pass used to be given no month at all, and it showed: asked to preview "a launch on the
+   * 25th" it would reach for a month named somewhere in the DURABLES and ask the client to choose
+   * between them — "Is the 25th launch the same as the October product on the waitlist?" — on a
+   * surface whose own heading reads "Let's plan September 2026 together". The durables are what
+   * made it possible (with none supplied it asks what is launching, never when), but the missing
+   * month is what made it reasonable: a bare ordinal genuinely is ambiguous to a reader who has
+   * not been told which month they are reading for.
+   *
+   * The month is a deterministic fact of the cycle. It is supplied rather than inferred, in the
+   * same position and for the same reason as the commit-time extraction — which was given it all
+   * along, which is why the two paths behaved differently on the same sentence.
+   */
   const userMessage = [
+    params.planMonth ? `PLAN MONTH: ${params.planMonth}\n` : '',
     durables.length ? `DURABLES (standing memories from earlier months):\n${durables.map((d) => `- [${d.month}] ${d.content}`).join('\n')}\n` : '',
     'BRIEF SO FAR:',
     text,
