@@ -47,6 +47,12 @@ describe('summariseBrief', () => {
   it('de-hyphenates ask types and qualifies them by product where there is one', () => {
     expect(summariseBrief(BRIEF as never).asks).toEqual(['behind the scenes (Hannah)', 'autumn transition']);
   });
+
+  // spec §7: "beat" is ours, not theirs, and this label renders straight onto the client's screen.
+  it('falls back to client language for a schedule entry with neither product nor type', () => {
+    const bare = { products: [], content_asks: [], schedule: [{ date: '2026-09-04', dateRange: null, type: '', product: null, colourway: null, note: '' }] };
+    expect(summariseBrief(bare as never).dates).toEqual([{ when: '4 Sep', label: 'planned post' }]);
+  });
 });
 
 describe('summariseSavedBrief — the stored-column boundary', () => {

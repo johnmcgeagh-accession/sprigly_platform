@@ -39,7 +39,12 @@ export function summariseBrief(brief: StructuredBrief): ExtractedSummary {
   });
   const dates = brief.schedule.map((b) => ({
     when: b.dateRange ? `${shortDate(b.dateRange.start)}–${shortDate(b.dateRange.end)}` : shortDate(b.date ?? ''),
-    label: (b.product || b.type || 'beat').replace(/-/g, ' '),
+    // "planned post", never "beat" (spec §7). This line renders straight into the capture
+    // surface's preview, and the last-resort fallback is the one branch nobody reads — it fires
+    // only for a schedule entry carrying neither a product nor a type. It sat in the intake
+    // route, outside the terminology fence's roots, and so was never checked; moving the
+    // function into src/lib is what put it in front of the grep that named it.
+    label: (b.product || b.type || 'planned post').replace(/-/g, ' '),
   }));
   const asks = brief.content_asks.map((a) => (a.product ? `${a.type.replace(/-/g, ' ')} (${a.product})` : a.type.replace(/-/g, ' ')));
   return { launches, dates, asks };
