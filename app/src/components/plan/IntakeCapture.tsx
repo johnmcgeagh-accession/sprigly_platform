@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import type { PlanIntake, DurableItemView, ExtractedSummary, IntakeResult } from '@/lib/types';
+import type { PlanIntake, DurableItemView, DraftBeatView, ExtractedSummary, IntakeResult } from '@/lib/types';
 import type { BriefPreview } from '@sprigly/engine';   // type-only — erased at build
 import { useLivePreview } from './useLivePreview';
 import { useSpeechInput } from './useSpeechInput';
@@ -44,6 +44,15 @@ const PLACEHOLDER = [
   'Quieter start, then push hard from mid-month',
 ].join('\n');
 
+/** The same invitation, for a month that already exists: every example CHANGES something
+ *  rather than describing a month from nothing. */
+const DRAFT_PLACEHOLDER = [
+  'Move the launch post to the 12th',
+  'Add a restock announcement on the 20th',
+  'The last week is too busy — thin it out',
+  'More about the fabric, less about the sale',
+].join('\n');
+
 const FIELD = 'w-full rounded-xl border border-line bg-surface p-3 text-[15px] leading-relaxed text-slate-700 outline-none focus:border-coral';
 
 type Mode = 'workspace' | 'guided';
@@ -68,9 +77,29 @@ type Props = {
   savedExtraction: ExtractedSummary | null;
   durable: DurableItemView[];
   cutoffLabel: string | null;   // e.g. "18 July" — the auto-run date; null → neutral confirmation
+  /**
+   * There is a PROPOSED MONTH behind this sheet, and the client can see it.
+   *
+   * Changes three things, all of them for the same reason — on a draft month the plan is the
+   * subject of the conversation, not something being described into existence:
+   *   1. the composer opens EMPTY (see `text` below)
+   *   2. the current posts are shown as context instead
+   *   3. a save that reshaped the month CLOSES the sheet, because the answer is behind it
+   */
+  draftMonth?: boolean;
+  /** The month as it currently stands, when `draftMonth`. Context to read, never text to edit —
+   *  it is deliberately not seeded into the input. */
+  currentBeats?: readonly DraftBeatView[];
   onSubmit: (p: IntakeSubmitPayload) => Promise<IntakeResult>;
   onClose: () => void;
 };
+
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** '3 Sep' — the same compact form the draft surface's own undo bar uses. */
+function shortDate(iso: string): string {
+  const [, m, d] = iso.split('-');
+  return `${Number(d)} ${MONTH_ABBR[Number(m) - 1] ?? ''}`.trim();
+}
 
 /**
  * Stable overlay + panel chrome (module-level so children never remount on the parent's renders).
@@ -152,6 +181,8 @@ function IntakeChrome({ wide, header, onClose, children }: {
 
 export function IntakeCapture(props: Props) {
   const { questions, cycleId, prePlanning, busy, monthLabel, intake, savedExtraction, durable, cutoffLabel, onSubmit, onClose } = props;
+  const draftMonth = props.draftMonth ?? false;
+  const currentBeats = props.currentBeats ?? [];
   const [mode, setMode] = useState<Mode>('workspace');
   /**
    * SEEDED WITH THE SAVED BRIEF, and that is the whole of the reload fix.
@@ -172,8 +203,21 @@ export function IntakeCapture(props: Props) {
    *
    * An EMPTY brief still seeds to '', so a first-time client sees the placeholder examples
    * exactly as before — the empty state is unchanged, not special-cased.
+   *
+   * ── EXCEPT ON A DRAFT MONTH, where the seed would be actively wrong ──────────────────
+   *
+   * The seed exists because, with no plan to look at, the stored sentence was the only evidence
+   * the brief had been kept. On a draft month that is no longer true: the month itself is on
+   * screen behind this sheet, and it is the better evidence by far.
+   *
+   * Worse, the sentence has stopped being an accurate description of it. The client can move a
+   * beat, drop one, or reshape the month by voice on the draft surface, and none of that is
+   * written back into `freeNotes` — so seeding it shows them a stale account of a month that has
+   * since changed, and invites them to re-submit it. The route applies THE SUBMISSION, not the
+   * merged brief (see briefInstruction), so a re-submitted stale sentence would be applied again
+   * as if it were new. An empty box asks the only question worth asking here: what now?
    */
-  const [text, setText] = useState(intake.freeNotes ?? '');
+  const [text, setText] = useState(draftMonth ? '' : (intake.freeNotes ?? ''));
   const [durableText, setDurableText] = useState('');
   const [confirmed, setConfirmed] = useState<ExtractedSummary | null>(null);
   const [committedOnce, setCommittedOnce] = useState(false);
@@ -198,6 +242,20 @@ export function IntakeCapture(props: Props) {
     const r = await onSubmit(buildFreeformPayload(text, durableText));
     if (!r.ok) return;
     if (r.mode !== 'brief_updated') { onClose(); return; }   // post-cutoff routed to proposals
+    /**
+     * THE MONTH IS THE RECEIPT.
+     *
+     * When the brief reshaped a draft, the posts behind this sheet have already moved — the
+     * server returned them and the surface is holding them. A summary panel describing what we
+     * extracted would be a worse answer than the thing itself, and it would sit on top of it.
+     * So we close, and the changed beats are marked on the month underneath (usePlanData folds
+     * the receipt in, DraftSurface renders its changedIds).
+     *
+     * `draftApplyError` is NOT handled here: `submitIntake` has already flashed it, and the
+     * save did land, so this stays the success path. Closing over a month that did not move,
+     * with the reason said out loud, beats holding a sheet open with nothing new to show.
+     */
+    if (r.draftApplied) { onClose(); return; }
     setConfirmed(r.extracted ?? { launches: [], dates: [], asks: [] });
     setCommittedOnce(true);
     setText(''); setDurableText('');
@@ -244,8 +302,17 @@ export function IntakeCapture(props: Props) {
       // briefing, and ✕ because a sheet whose close button can scroll away is a trap.
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
-          <h2 className="font-serif text-[26px] leading-tight text-slate-700">Let’s plan {monthLabel} together</h2>
-          <p className="mt-1 text-[14px] leading-relaxed text-muted">Tell me what’s happening this month. Type naturally or speak aloud — I’ll organise it as we go.</p>
+          {/* The heading names what is actually happening. On a draft month the plan exists and
+              the client is changing it; "let's plan it together" would describe a blank page
+              they are not looking at. */}
+          <h2 className="font-serif text-[26px] leading-tight text-slate-700">
+            {draftMonth ? `Change ${monthLabel}` : `Let’s plan ${monthLabel} together`}
+          </h2>
+          <p className="mt-1 text-[14px] leading-relaxed text-muted">
+            {draftMonth
+              ? 'Tell me what to change about the month I’ve planned. Type naturally or speak aloud — I’ll update it as we go.'
+              : 'Tell me what’s happening this month. Type naturally or speak aloud — I’ll organise it as we go.'}
+          </p>
         </div>
         <div className="flex items-center gap-1.5">
           <button data-testid="intake-hints-toggle" onClick={() => setShowHints((s) => !s)} aria-label="Prompts and options"
@@ -275,12 +342,35 @@ export function IntakeCapture(props: Props) {
       <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_320px]">
         {/* LEFT — the one input */}
         <div className="flex flex-col">
-          {committedOnce && priorBrief === '' ? null : priorBrief && (
+          {/* The brief receipt says "your brief is BELOW", which is only true because of the
+              seed. On a draft month there is no seed, so the line would be a lie — the current
+              plan block below takes its place as the evidence that we kept what they said. */}
+          {!draftMonth && (committedOnce && priorBrief === '' ? null : priorBrief && (
             <div data-testid="intake-brief-receipt" className="mb-2 text-[12.5px] text-muted">{briefReceipt}</div>
+          ))}
+
+          {draftMonth && (
+            <div data-testid="intake-current-plan" className="mb-3 rounded-xl border border-line bg-line-soft p-3">
+              <div className="mb-1.5 text-[11.5px] font-semibold uppercase tracking-[.05em] text-muted">
+                {monthLabel} as it stands — {currentBeats.length} {currentBeats.length === 1 ? 'post' : 'posts'}
+              </div>
+              {currentBeats.length > 0 && (
+                <ul className="mb-2 flex max-h-[168px] flex-col gap-0.5 overflow-y-auto">
+                  {[...currentBeats].sort((a, b) => a.date.localeCompare(b.date)).map((b) => (
+                    <li key={b.id} className="text-[12.5px] leading-snug text-slate-600">
+                      <span className="text-muted">{shortDate(b.date)}</span> · {b.title}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="text-[12px] leading-snug text-muted">
+                Tell me what to change and I’ll update these — move something, add what’s missing, or say what the month should lean into.
+              </p>
+            </div>
           )}
           <textarea data-testid="intake-input" autoFocus rows={9} value={text}
             onChange={(e) => onType(e.target.value)} className={`${FIELD} min-h-[220px] resize-none`}
-            placeholder={PLACEHOLDER} />
+            placeholder={draftMonth ? DRAFT_PLACEHOLDER : PLACEHOLDER} />
 
           <div className="mt-2.5 flex items-center gap-3">
             {speech.state !== 'unsupported' ? (
@@ -311,10 +401,13 @@ export function IntakeCapture(props: Props) {
           </div>
 
           <div className="mt-5 flex items-center gap-2">
-            <span className="flex-1 text-[12px] text-faint">{committedOnce ? 'Folded into your plan. Keep typing to add more.' : 'You can always change this later.'}</span>
+            <span className="flex-1 text-[12px] text-faint">
+              {draftMonth ? 'Your words are kept either way — the month updates when you save.'
+                : committedOnce ? 'Folded into your plan. Keep typing to add more.' : 'You can always change this later.'}
+            </span>
             <button data-testid="intake-create" disabled={busy} onClick={() => void create()}
               className="inline-flex h-11 items-center gap-2 rounded-xl bg-coral px-5 text-[15px] font-semibold text-white disabled:opacity-45">
-              {busy ? 'Saving…' : !prePlanning ? 'Send to Sprigly' : committedOnce ? 'Add to brief' : 'Save brief'}
+              {busy ? 'Saving…' : !prePlanning ? 'Send to Sprigly' : draftMonth ? 'Update the month' : committedOnce ? 'Add to brief' : 'Save brief'}
             </button>
           </div>
         </div>

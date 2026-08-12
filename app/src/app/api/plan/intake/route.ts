@@ -25,6 +25,9 @@ import type { DraftBeatView, ExtractedSummary } from '@/lib/types';
 // The ONLY sanctioned reader of draft rows (plan.ts) — the brief is extracted against the month
 // as it currently stands, so a sentence naming a date resolves against what is already there.
 import { loadDraftBeats } from '@/lib/plan';
+// The additive reshape path. Deliberately NOT assembly: see the call site for why a brief may
+// never run the day-1 assembler over a month the client has already touched.
+import { applyBriefToDraft, type DraftApplication } from '@/lib/draft-apply';
 // The save path and the LATER page loads describe a brief with the same sentences — see
 // brief-summary.ts for why that is one definition and not two.
 import { summariseBrief } from '@/lib/brief-summary';
@@ -66,6 +69,26 @@ async function loadCurrentPlan(clientId: string, cycleId: string): Promise<Draft
 /** Project draft beats down to what the extractor is allowed to see: title and date. */
 const asPlanState = (beats: readonly DraftBeatView[]): CurrentPlanBeat[] =>
   beats.map((b) => ({ date: b.date, title: b.title }));
+
+/**
+ * The submission rendered as ONE instruction: answered questions first, then the free notes.
+ *
+ * Extracted because two branches of this route now need it — the post-cutoff agent turn has
+ * built this string inline since Build 3, and the pre-cutoff draft reshape needs exactly the
+ * same thing. Two inline copies of "the brief, as one instruction" is two definitions of what
+ * the client said, and they would drift the first time either side gained a field.
+ *
+ * THE SUBMISSION, not the merged brief. `next.planContent` holds everything the client has ever
+ * said about this month; applying that would re-apply the whole history on every save. What
+ * reshapes the month is what they just typed — which is also why the composer opens empty on a
+ * draft month (IntakeCapture), so the two halves of that rule are stated in both places.
+ */
+function briefInstruction(answers: Record<string, string>, freeNotes: string): string {
+  const lines: string[] = [];
+  for (const [q, a] of Object.entries(answers)) if (a.trim()) lines.push(`${q} — ${a.trim()}`);
+  if (freeNotes.trim()) lines.push(freeNotes.trim());
+  return lines.join('\n');
+}
 
 /**
  * FIX 2 — extract the structured brief inline and persist it, so beats appear immediately after
@@ -184,13 +207,32 @@ function mergeFreeNotes(curNotes: string, addNotes: string): string {
   return `${curNotes}\n\n${addNotes}`;
 }
 
-/** Merge new answers/freeNotes into the existing intake_json (never clobber). */
+/**
+ * Merge new answers/freeNotes into the existing intake_json (never clobber).
+ *
+ * ── IT SPREADS `cur` FIRST, AND THAT IS NOT TIDYING ──────────────────────────────────
+ *
+ * This used to rebuild the object field by field from the five keys `IntakeJson` declares,
+ * which silently DELETED every key the type does not name. There is one: `draftApplications`,
+ * the reshape receipts — `draft-apply.ts` writes them as `{ ...intake, draftApplications }`
+ * (persistReceipt) and `loadReceipts` is the draft surface's history of what its own words did
+ * to the month.
+ *
+ * So every brief save wiped the receipts of every voice reshape before it. That was survivable
+ * while the wizard was the only writer here and the voice path was the only reader. It is not
+ * survivable now: on a draft month a save goes on to append its own receipt, so the client
+ * would end each save holding exactly one — the last thing they said, with everything they had
+ * said before it gone from the panel that exists to show them.
+ *
+ * Spreading `cur` keeps whatever the row holds and overwrites only what this function owns.
+ */
 function mergeIntake(cur: IntakeJson | null, answers: Record<string, string>, freeNotes: string, source: 'web' | 'voice'): IntakeJson {
   const curAnswers = cur?.planContent?.answers ?? {};
   const curNotes = (cur?.planContent?.freeNotes ?? '').trim();
   const addNotes = freeNotes.trim();
   const mergedNotes = mergeFreeNotes(curNotes, addNotes);
   return {
+    ...(cur ?? {}),
     planContent:     { answers: { ...curAnswers, ...answers }, freeNotes: mergedNotes },
     businessContext: cur?.businessContext ?? [],
     otherChannel:    cur?.otherChannel ?? {},
@@ -235,6 +277,12 @@ export async function POST(req: Request) {
   if (prePlanning) {
     let beatsReady = false;
     let extracted: ExtractedSummary | undefined;
+    // The reshape's results, when this cycle had a draft to reshape. Absent on a month with no
+    // draft, which is the unassembled first-brief case and keeps its original behaviour exactly.
+    let draftApplied = false;
+    let beats: DraftBeatView[] | undefined;
+    let application: DraftApplication | undefined;
+    let draftApplyError: string | undefined;
     if (hasIntakeContent) {
       /**
        * THE MONTH AS THE CLIENT LEFT IT, read before anything in this request changes it.
@@ -292,18 +340,56 @@ export async function POST(req: Request) {
       const brief = await extractAndPersistBrief(cycleId, cycle.cycleMonth, next, clientId, asPlanState(beatsBefore));
       beatsReady = brief !== null;
       if (brief) extracted = summariseBrief(brief);
+
+      /**
+       * ── THE BRIEF RESHAPES THE MONTH ──────────────────────────────────────────────────
+       *
+       * Only when there is already a draft here. A month with no beats is the first-brief case:
+       * nothing to reshape, and the cutoff's planning run is what builds it — that path is
+       * untouched, which is why this is gated on `beatsBefore` rather than on the flag or the
+       * status.
+       *
+       * `applyBriefToDraft`, NOT assembly. Assembly is a day-1 act that replaces the whole month:
+       * `retireDraftPosts` is scoped to the cycle with no exemption, so it would take the beats
+       * the client moved and the beats they added along with everything else. The transform path
+       * is additive and reads `beat_meta.clientTouched` as an absolute protection, which is the
+       * only way a brief can change a month the client has already worked on.
+       *
+       * NON-FATAL, on the same terms as the extraction above it: the intake is saved by this
+       * point and the ledger row is written. A reshape that fails leaves the client's words
+       * recorded and the month as it was — never a lost save. What it must not do is fail
+       * SILENTLY, so the error rides back on the response and the surface says so.
+       */
+      const instruction = briefInstruction(answers, freeNotes);
+      if (beatsBefore.length > 0 && instruction) {
+        try {
+          const applied = await applyBriefToDraft({
+            clientId, cycleId, text: instruction, model: getModelClient(), source,
+          });
+          if (applied.ok) {
+            draftApplied = true;
+            beats = applied.beats;
+            application = applied.application;
+          } else {
+            draftApplyError = applied.message;
+          }
+        } catch {
+          draftApplyError = 'We saved your brief, but couldn’t update the month just now.';
+        }
+      }
     }
-    return NextResponse.json({ mode: 'brief_updated', prePlanning: true, briefCleared: hasIntakeContent, beatsReady, extracted, durableSaved });
+    return NextResponse.json({
+      mode: 'brief_updated', prePlanning: true, briefCleared: hasIntakeContent, beatsReady, extracted, durableSaved,
+      // Present only when a draft was reshaped. `beats` is the authoritative post-apply month, so
+      // the surface renders what happened rather than refetching to find out.
+      draftApplied, beats, application, draftApplyError,
+    });
   }
 
   // POST-cutoff: do NOT touch intake_json — route the info to proposals via the agent loop.
   if (!hasIntakeContent) {
     return NextResponse.json({ mode: 'noop', prePlanning: false, durableSaved, message: 'This month has generated — noted your durable context for the future.' });
   }
-  const lines: string[] = [];
-  for (const [q, a] of Object.entries(answers)) if (a.trim()) lines.push(`${q} — ${a.trim()}`);
-  if (freeNotes.trim()) lines.push(freeNotes.trim());
-  const instruction = lines.join('\n');
-  const turn = await runPlanAgentTurn({ clientId, cycleId, instruction, source, sessionId });
+  const turn = await runPlanAgentTurn({ clientId, cycleId, instruction: briefInstruction(answers, freeNotes), source, sessionId });
   return NextResponse.json({ mode: 'proposed', prePlanning: false, durableSaved, ...turn });
 }

@@ -1108,14 +1108,44 @@ export function usePlanData(init: PlanDataInit) {
         body: JSON.stringify({ cycleId: viewedCycleId, source: 'web', questions: init.questions, ...payload }),
       });
       if (!res.ok) { flash('Couldn’t save that just now. Please try again.'); return { ok: false }; }
-      const d = (await res.json()) as { mode?: string; extracted?: ExtractedSummary; beatsReady?: boolean };
+      const d = (await res.json()) as {
+        mode?: string; extracted?: ExtractedSummary; beatsReady?: boolean;
+        draftApplied?: boolean; beats?: DraftBeatView[]; application?: DraftReceipt; draftApplyError?: string;
+      };
       if (d.mode === 'proposed') { flash('This month has generated — added to your plan for approval.'); void refreshProposals(); }
-      else if (d.mode === 'brief_updated') { await refreshPlan(); }
+      else if (d.mode === 'brief_updated') {
+        /**
+         * THE SERVER ALREADY SENT THE ANSWER.
+         *
+         * `applyBriefToDraft` returns the authoritative post-apply beats and the receipt, so a
+         * refetch here would ask for something we are already holding — and would race the
+         * write we just made, which is how a month flickers back to its old shape for a beat.
+         * The receipt goes on the FRONT of `receipts`: the draft surface reads `receipts[0]`
+         * as the current one, so this is what makes the changes visible when the composer
+         * closes over the month.
+         *
+         * A brief that reshaped nothing (no draft on this cycle) still refreshes, because that
+         * path's beats come from the cutoff run and this response carries none.
+         */
+        if (d.draftApplied && d.beats) {
+          const applied = d.beats, receipt = d.application;
+          setDraft((cur) => (cur
+            ? { ...cur, beats: applied, receipts: receipt ? [receipt, ...cur.receipts] : cur.receipts }
+            : cur));
+        } else {
+          await refreshPlan();
+        }
+        // Never silent: the save landed, the month did not move, and the client is told which.
+        if (d.draftApplyError) flash(d.draftApplyError);
+      }
       else { flash('Thanks — noted for the future.'); }
-      return { ok: true, mode: d.mode, extracted: d.extracted, beatsReady: d.beatsReady };
+      return {
+        ok: true, mode: d.mode, extracted: d.extracted, beatsReady: d.beatsReady,
+        draftApplied: d.draftApplied, draftApplyError: d.draftApplyError,
+      };
     } catch { flash('Network error. Please try again.'); return { ok: false }; }
     finally { setIntakeBusy(false); }
-  }, [intakeBusy, viewedCycleId, init.questions, flash, refreshProposals, refreshPlan]);
+  }, [intakeBusy, viewedCycleId, init.questions, flash, refreshProposals, refreshPlan, setDraft]);
 
   return {
     // data

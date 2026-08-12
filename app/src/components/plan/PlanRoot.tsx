@@ -116,28 +116,55 @@ export function PlanRoot(props: PlanDataInit) {
    * different view enums, and carrying one across a resize would restore a position the other
    * has no word for.
    */
+  /**
+   * THE WIZARD IS A SIBLING OF BOTH SURFACES, not a child of one.
+   *
+   * It used to be mounted inside the committed branch's fragment, BELOW the draft early return
+   * — so on a draft month `?intake=1` opened nothing and `openIntake` had nowhere to lead. That
+   * made the two ways of briefing a month mutually exclusive by tree position rather than by
+   * intent: a client looking at a proposed month could reshape it by voice but could not brief
+   * it in bulk, which is exactly the case a wizard is for.
+   *
+   * Derived once, rendered in both returns. The overlay is `fixed inset-0 z-[60]`, so it sits
+   * above whichever surface is behind it without either needing to know it exists.
+   *
+   * On a draft month it is told so: the composer opens EMPTY there and shows the current beats
+   * as context instead of the stored brief text. See IntakeCapture for why — after the client
+   * has moved a beat on the draft surface, the sentence that produced it is no longer what the
+   * month says, and seeding it back would invite them to re-submit a description of a month
+   * that has since changed.
+   */
+  const intakeNode = data.intakeOpen ? (
+    <IntakeCapture
+      questions={data.questions}
+      cycleId={data.viewedCycleId}
+      prePlanning={data.viewedCyclePrePlanning}
+      busy={data.intakeBusy}
+      monthLabel={viewedMonthLabel}
+      intake={data.intake}
+      savedExtraction={data.savedExtraction}
+      durable={data.durable}
+      cutoffLabel={cutoffLabel}
+      draftMonth={isDraft}
+      currentBeats={isDraft ? (data.draft?.beats ?? []) : []}
+      onSubmit={data.submitIntake}
+      onClose={data.closeIntake}
+    />
+  ) : null;
+
   if (isDraft && data.draft) {
-    return <DraftSurface key={`${data.viewedCycleId}:${desktop ? 'd' : 'm'}`} data={data} frame={desktop ? 'desktop' : 'mobile'} />;
+    return (
+      <>
+        <DraftSurface key={`${data.viewedCycleId}:${desktop ? 'd' : 'm'}`} data={data} frame={desktop ? 'desktop' : 'mobile'} />
+        {intakeNode}
+      </>
+    );
   }
 
   return (
     <>
       <CommittedSurface key={desktop ? 'd' : 'm'} data={data} frame={desktop ? 'desktop' : 'mobile'} />
-      {data.intakeOpen && (
-        <IntakeCapture
-          questions={data.questions}
-          cycleId={data.viewedCycleId}
-          prePlanning={data.viewedCyclePrePlanning}
-          busy={data.intakeBusy}
-          monthLabel={viewedMonthLabel}
-          intake={data.intake}
-          savedExtraction={data.savedExtraction}
-          durable={data.durable}
-          cutoffLabel={cutoffLabel}
-          onSubmit={data.submitIntake}
-          onClose={data.closeIntake}
-        />
-      )}
+      {intakeNode}
     </>
   );
 }

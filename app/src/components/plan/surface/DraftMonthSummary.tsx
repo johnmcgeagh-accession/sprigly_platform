@@ -53,8 +53,21 @@ const OPEN_CTA = 'Tap to see why these posts are here';
 /** The panel's closing row. A question first, because it invites a no as readily as a yes. */
 const SHAPE_CTA = 'Not right? Tell us what to change';
 
+/**
+ * The second closing row: the same invitation at a different SIZE.
+ *
+ * `SHAPE_CTA` opens the conversation, which is built for one change at a time — say a sentence,
+ * read a receipt, say the next. A client who has just read the whole month's reasoning and
+ * disagrees with several things at once is not well served by that: they would be typing six
+ * sentences and reading six receipts. The wizard takes the lot in one go and decomposes it.
+ *
+ * Both lead to the same place — a brief, applied to this month, additively. What differs is
+ * whether the client is making a change or restating the month.
+ */
+const BRIEF_CTA = 'Lots to change? Brief the whole month';
+
 export function DraftMonthSummary({
-  summary, expanded, onToggle, onAnswer, onShape, onIdeas,
+  summary, expanded, onToggle, onAnswer, onShape, onIdeas, onBrief,
 }: {
   /** Already derived. Null renders nothing at all — see monthSummary on the empty month. */
   summary: MonthSummary | null;
@@ -72,6 +85,9 @@ export function DraftMonthSummary({
    * deliberate degrade, not an oversight: a link is worse than no link when it goes nowhere.
    */
   onIdeas?: (() => void) | undefined;
+  /** Open the briefing wizard on this month. Absent on the same terms as `onShape` — a month
+   *  that can no longer be changed gets no invitation to change it. */
+  onBrief?: (() => void) | undefined;
 }) {
   if (!summary || summary.sections.length === 0) return null;
   const detailId = 'draft-summary-detail';
@@ -138,9 +154,10 @@ export function DraftMonthSummary({
             </section>
           ))}
 
-          {onShape && (
-            <div className="mt-3.5 border-t border-coral-600/25 pt-3.5">
-              <PromptRow testid="summary-shape" label={SHAPE_CTA} onClick={onShape} />
+          {(onShape || onBrief) && (
+            <div className="mt-3.5 flex flex-col gap-2 border-t border-coral-600/25 pt-3.5">
+              {onShape && <PromptRow testid="summary-shape" label={SHAPE_CTA} onClick={onShape} />}
+              {onBrief && <PromptRow testid="summary-brief" label={BRIEF_CTA} onClick={onBrief} />}
             </div>
           )}
         </div>

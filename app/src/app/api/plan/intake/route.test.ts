@@ -20,6 +20,11 @@ const h = vi.hoisted(() => ({
   activityCalls: [] as Array<Record<string, unknown>>,
   activityShouldFail: false,
   updateShouldFail: false,
+  /** The month as it stands, as `loadDraftBeats` would return it. Empty = an unassembled month. */
+  draftBeats: [] as Array<Record<string, unknown>>,
+  applyCalls: [] as Array<Record<string, unknown>>,
+  applyResult: null as Record<string, unknown> | null,
+  applyShouldThrow: false,
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -44,6 +49,22 @@ vi.mock('@sprigly/engine', () => ({
   BASE_QUESTIONS: ['Q1', 'Q2', 'Q3', 'Q4', 'Q5'],
   extractStructuredBrief: (...a: unknown[]) => { h.extractCalls.push(a[0]); return h.extractShouldFail ? Promise.reject(new Error('extract failed')) : Promise.resolve({ products: [{ product: 'Wren', colourway: 'sage', status: 'new', launch_date: null, content_from: null }], schedule: [{ date: '2026-07-25', dateRange: null, type: 'launch', product: null, colourway: null, note: 'launch on the 25th' }], content_asks: [], focus: [], conflicts: [], plan_window: { from: null, month: null } }); },
   distributeBriefAnswers: (a: Record<string, unknown>) => { h.distributeCalls.push(a); return Promise.resolve(h.distributeReturn); },
+}));
+// The month's current shape, and the additive reshape it feeds. Mocked at the module boundary
+// so this stays a unit test of the ROUTE's decisions — which beats the extractor is given, and
+// whether a brief reaches the draft at all — rather than of the reshape itself (that has its
+// own tests in draft-apply).
+vi.mock('@/lib/plan', () => ({ loadDraftBeats: () => Promise.resolve(h.draftBeats) }));
+vi.mock('@/lib/draft-apply', () => ({
+  applyBriefToDraft: (a: Record<string, unknown>) => {
+    h.applyCalls.push(a);
+    if (h.applyShouldThrow) return Promise.reject(new Error('model down'));
+    return Promise.resolve(h.applyResult ?? {
+      ok: true,
+      application: { id: 'rcpt-1', at: 'now', sourceText: 'x', scope: 'month_scoped', lines: ['moved'], changedIds: ['b1'] },
+      beats: [{ id: 'b1', date: '2026-07-12', title: 'Launch' }],
+    });
+  },
 }));
 vi.mock('@/lib/agent/model', () => ({ getModelClient: () => ({}) }));
 vi.mock('@/lib/cycle-nav', () => ({ nextMonth: (m: string) => m }));
@@ -72,6 +93,7 @@ beforeEach(() => {
   h.extractCalls.length = 0; h.extractShouldFail = false;
   h.distributeCalls.length = 0; h.distributeReturn = {};
   h.activityCalls.length = 0; h.activityShouldFail = false; h.updateShouldFail = false;
+  h.draftBeats.length = 0; h.applyCalls.length = 0; h.applyResult = null; h.applyShouldThrow = false;
 });
 
 describe('POST /api/plan/intake — classifier', () => {
@@ -254,5 +276,130 @@ describe('POST /api/plan/intake — classifier', () => {
     expect(res.status).toBe(200);
     const set = h.updateSets[0]!.intakeJson as { source: string };
     expect(set.source).toBe('voice');
+  });
+});
+
+/**
+ * The brief is read against the month, and then reshapes it.
+ *
+ * Two halves of one behaviour, and the ORDER between them is the thing worth pinning: the
+ * extractor is given the month as it stood BEFORE this submission, so a sentence naming a date
+ * resolves against what the client was looking at — not against the month their own words are
+ * about to produce.
+ */
+describe('POST /api/plan/intake — a brief on a month that already has a draft', () => {
+  const DRAFT = [
+    { id: 'b1', date: '2026-07-08', title: 'Launch build-up' },
+    { id: 'b2', date: '2026-07-20', title: 'Sunday Style' },
+  ];
+
+  it('gives the extractor the current beats as title + date, and nothing else', async () => {
+    h.draftBeats.push(...DRAFT);
+    await call({ cycleId: CYCLE, freeNotes: 'move the launch post to the 12th' });
+    const params = h.extractCalls[0] as { currentPlan?: unknown[] };
+    expect(params.currentPlan).toEqual([
+      { date: '2026-07-08', title: 'Launch build-up' },
+      { date: '2026-07-20', title: 'Sunday Style' },
+    ]);
+  });
+
+  it('passes no plan state when the month holds no draft', async () => {
+    await call({ cycleId: CYCLE, freeNotes: 'big launch on the 25th' });
+    const params = h.extractCalls[0] as { currentPlan?: unknown[] };
+    expect(params.currentPlan).toEqual([]);
+  });
+
+  it('routes the brief through the additive reshape and returns the refreshed month', async () => {
+    h.draftBeats.push(...DRAFT);
+    const res = await call({ cycleId: CYCLE, freeNotes: 'move the launch post to the 12th' });
+    const body = await res.json();
+
+    expect(h.applyCalls).toHaveLength(1);
+    expect(h.applyCalls[0]).toMatchObject({ clientId: CLIENT, cycleId: CYCLE, text: 'move the launch post to the 12th' });
+    expect(body.draftApplied).toBe(true);
+    expect(body.beats).toEqual([{ id: 'b1', date: '2026-07-12', title: 'Launch' }]);
+    expect(body.application.changedIds).toEqual(['b1']);
+  });
+
+  it('applies THE SUBMISSION, not the merged brief — a re-save cannot re-apply history', async () => {
+    h.cycleRow = [{ status: 'requested', cycleMonth: '2026-06', intakeJson: { planContent: { answers: {}, freeNotes: 'a launch on the 3rd' } } }];
+    h.draftBeats.push(...DRAFT);
+    await call({ cycleId: CYCLE, freeNotes: 'also add a restock on the 20th' });
+    // The stored sentence is merged into intake_json (below) but never re-applied to the month.
+    expect(String(h.applyCalls[0]!.text)).toBe('also add a restock on the 20th');
+    const merged = h.updateSets[0]!.intakeJson as { planContent: { freeNotes: string } };
+    expect(merged.planContent.freeNotes).toContain('a launch on the 3rd');
+    expect(merged.planContent.freeNotes).toContain('also add a restock on the 20th');
+  });
+
+  it('leaves an unassembled month exactly as it was — no reshape, original response', async () => {
+    const res = await call({ cycleId: CYCLE, freeNotes: 'big launch on the 25th' });
+    const body = await res.json();
+    expect(h.applyCalls).toHaveLength(0);
+    expect(body.draftApplied).toBe(false);
+    expect(body.beats).toBeUndefined();
+    expect(body.mode).toBe('brief_updated');
+    expect(body.beatsReady).toBe(true);
+  });
+
+  it('writes intake_json whether or not the month was reshaped', async () => {
+    h.draftBeats.push(...DRAFT);
+    await call({ cycleId: CYCLE, freeNotes: 'move the launch post to the 12th' });
+    expect((h.updateSets[0]!.intakeJson as { planContent: { freeNotes: string } }).planContent.freeNotes)
+      .toBe('move the launch post to the 12th');
+
+    h.updateSets.length = 0; h.applyCalls.length = 0; h.draftBeats.length = 0;
+    await call({ cycleId: CYCLE, freeNotes: 'big launch on the 25th' });
+    expect((h.updateSets[0]!.intakeJson as { planContent: { freeNotes: string } }).planContent.freeNotes)
+      .toBe('big launch on the 25th');
+  });
+
+  /** The save has already landed by this point. A reshape that cannot finish must say so —
+   *  a month that did not change is indistinguishable from one nobody asked to change. */
+  it('surfaces a refused reshape rather than dropping it, and still keeps the brief', async () => {
+    h.draftBeats.push(...DRAFT);
+    h.applyResult = { ok: false, error: 'cutoff_passed', message: 'This month’s draft is closed for changes.' };
+    const res = await call({ cycleId: CYCLE, freeNotes: 'move the launch post' });
+    const body = await res.json();
+    expect(body.draftApplied).toBe(false);
+    expect(body.draftApplyError).toBe('This month’s draft is closed for changes.');
+    expect(h.updateSets[0]!.intakeJson).toBeTruthy();
+  });
+
+  it('a thrown reshape is caught, reported, and never loses the save', async () => {
+    h.draftBeats.push(...DRAFT);
+    h.applyShouldThrow = true;
+    const res = await call({ cycleId: CYCLE, freeNotes: 'move the launch post' });
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.draftApplied).toBe(false);
+    expect(String(body.draftApplyError)).toContain('couldn’t update the month');
+    expect(h.updateSets[0]!.intakeJson).toBeTruthy();
+  });
+
+  /**
+   * The receipts live on `intake_json` as a key `IntakeJson` does not declare, and the merge
+   * used to rebuild the object from the declared five — so every brief save deleted the history
+   * of every voice reshape before it.
+   */
+  it('keeps the reshape receipts a save did not write', async () => {
+    const priorReceipts = [{ id: 'rcpt-0', at: 'earlier', sourceText: 'move the launch', scope: 'month_scoped', lines: [], changedIds: [] }];
+    h.cycleRow = [{
+      status: 'requested', cycleMonth: '2026-06',
+      intakeJson: { planContent: { answers: {}, freeNotes: '' }, draftApplications: priorReceipts },
+    }];
+    h.draftBeats.push(...DRAFT);
+    await call({ cycleId: CYCLE, freeNotes: 'add a restock on the 20th' });
+    const written = h.updateSets[0]!.intakeJson as Record<string, unknown>;
+    expect(written.draftApplications).toEqual(priorReceipts);
+  });
+
+  it('never reshapes a post-cutoff month — that path still routes to proposals', async () => {
+    h.cycleRow = [{ status: 'planning', intakeJson: null, cycleMonth: '2026-06' }];
+    h.draftBeats.push(...DRAFT);
+    const res = await call({ cycleId: CYCLE, freeNotes: 'move the launch post' });
+    expect((await res.json()).mode).toBe('proposed');
+    expect(h.applyCalls).toHaveLength(0);
+    expect(h.turnCalls).toHaveLength(1);
   });
 });

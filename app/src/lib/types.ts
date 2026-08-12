@@ -70,6 +70,14 @@ export interface IntakeResult {
   mode?:       string | undefined;               // 'brief_updated' | 'proposed' | 'noop'
   extracted?:  ExtractedSummary | undefined;      // present pre-cutoff when a brief was extracted
   beatsReady?: boolean | undefined;
+  /** The brief reshaped an existing draft month (rather than only being recorded for the
+   *  cutoff run). The composer closes on this: the answer is on the month behind it now, not
+   *  in a summary panel. */
+  draftApplied?: boolean | undefined;
+  /** The reshape ran but could not finish. The save still landed — this is said out loud
+   *  rather than swallowed, because a month that did not change looks identical to one that
+   *  was never asked to. */
+  draftApplyError?: string | undefined;
 }
 /** A client's active durable plan_input (idea/next_cycle) — read-only "remembered" list. */
 export interface DurableItemView { id: string; type: string; content: string; createdAt: string }

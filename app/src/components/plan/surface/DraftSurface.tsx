@@ -340,11 +340,19 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
 
   // `onIdeas` turns the "6 ideas you gave us in July" line into a way to go and read them.
   // Desktop only: Ideas is a rail destination and the phone has no rail to send anyone to.
+  //
+  // `onBrief` is the BULK route into the same reshape the mic offers. `data.openIntake` has
+  // existed on `usePlanData` since the wizard shipped and had no caller anywhere in the tree —
+  // the sheet was reachable only via `?intake=1`, and on a draft month not even that, because
+  // PlanRoot mounted it below the draft early return. Gated on `editable` for the same reason
+  // `onShape` is: past the cutoff a brief cannot move this month, and an invitation that can
+  // only be refused is worse than none.
   const summaryNode = (
     <DraftMonthSummary
       summary={summary} expanded={summaryOpen} onToggle={() => setSummaryOpen((v) => !v)}
       onAnswer={askVoice}
       {...(editable ? { onShape: () => askVoice('') } : {})}
+      {...(editable ? { onBrief: data.openIntake } : {})}
       {...(desktop ? { onIdeas: () => setRailView('ideas') } : {})}
     />
   );
