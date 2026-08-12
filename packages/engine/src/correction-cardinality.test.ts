@@ -12,7 +12,7 @@
  * Pure — no model, no DB.
  */
 import { describe, it, expect } from 'vitest';
-import { applyCorrection, type TransformBeat, type TransformResult } from './draft-transforms.js';
+import { applyCorrection, namesNoSubject, type TransformBeat, type TransformResult } from './draft-transforms.js';
 import type { MonthScopedIntent } from './intake-classify.js';
 
 const beat = (over: Partial<TransformBeat> & { id: string; date: string; title: string }): TransformBeat => ({
@@ -207,5 +207,61 @@ describe('clientTouched beats', () => {
   it('are included when everything moves', () => {
     const r = applyCorrection(say('move the posts from the 17th to the 10th'), touched(), '2026-11');
     expect(movedIds(r)).toEqual(['t1', 't2']);
+  });
+});
+
+/**
+ * ── A QUANTITY PHRASE NAMES NO SUBJECT ───────────────────────────────────────────────
+ *
+ * `resolveBeatSubject` keeps words longer than three characters, so "2 posts on the 7th"
+ * reduces to "posts" and matches any beat whose title or evidence contains that word. On
+ * cycle 5ea00045 that was three unrelated beats, which took the named-subject branch and
+ * moved all three — the client's "2" never reaching anything.
+ */
+describe('a phrase that is only a quantity and a date', () => {
+  const evidenced = (id: string, date: string, title: string, position: number, reason: string): TransformBeat => ({
+    id, date, title, position, format: 'single', pillar: 'Brand Story & Culture',
+    beatMeta: { slotType: 'proven', rationaleEvidence: { basis: 'client_input', reason } } as never,
+  });
+
+  /** Three beats whose EVIDENCE mentions posts — the shape that caused the spurious match. */
+  const connie = (): TransformBeat[] => [
+    evidenced('c1', '2026-11-05', 'Connie', 0, 'client asked for three posts about Connie'),
+    evidenced('c2', '2026-11-09', 'Connie', 1, 'client asked for three posts about Connie'),
+    evidenced('c3', '2026-11-14', 'Connie', 2, 'client asked for three posts about Connie'),
+    beat({ id: 'd1', date: '2026-11-07', title: 'First on the 7th', position: 3 }),
+    beat({ id: 'd2', date: '2026-11-07', title: 'Second on the 7th', position: 4 }),
+    beat({ id: 'd3', date: '2026-11-07', title: 'Third on the 7th', position: 5 }),
+  ];
+
+  it('resolves by DATE, not by the word "posts"', () => {
+    const r = applyCorrection(
+      say('move 2 posts from the 7th to the 6th', {
+        subject: '2 posts on the 7th', correctionOf: '2 posts on the 7th',
+        dateRange: { start: '2026-11-06', end: '2026-11-06' },
+      }), connie(), '2026-11');
+    // The three "Connie" beats are spread across three dates and are NOT what was asked for.
+    expect(movedIds(r)).toEqual(['d1', 'd2']);
+    expect(r.note).toContain('Moved 2 of the 3 posts on Sat 7 Nov');
+  });
+
+  it('a real subject still resolves by subject — it has words outside the quantity set', () => {
+    expect(namesNoSubject('Meadow candle launch')).toBe(false);
+    expect(namesNoSubject('Hannah launch')).toBe(false);
+    expect(namesNoSubject('the top 5 tips post')).toBe(false);   // "tips" is a subject word
+  });
+
+  it('recognises the quantity-only phrases the classifier actually produces', () => {
+    for (const s of ['2 posts on the 7th', 'post on the 17th', 'posts from the 17th',
+                     'everything on the 17th', 'one of the posts on the 17th', 'both posts']) {
+      expect(namesNoSubject(s)).toBe(true);
+    }
+  });
+
+  it('an empty or date-only phrase is not "subjectless" — it has no significant words at all', () => {
+    // These already fall through to the date resolver because resolveBeatSubject returns []
+    // on an empty word list. The distinction is kept so the two reasons stay separable.
+    expect(namesNoSubject('the 17th')).toBe(false);
+    expect(namesNoSubject('')).toBe(false);
   });
 });

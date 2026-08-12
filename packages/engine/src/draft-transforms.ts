@@ -1321,6 +1321,67 @@ export function requestedCount(sentence: string): number | null {
 }
 
 /**
+ * Words that are QUANTITY, not subject. Same tokenisation rule as `resolveBeatSubject`
+ * (lowercase, split on non-alphanumerics, keep length > 3) so the two can never disagree
+ * about what a significant word is.
+ */
+const QUANTITY_WORDS = new Set([
+  'post', 'posts', 'beat', 'beats', 'them', 'those', 'these', 'thing', 'things',
+  'both', 'everything', 'every', 'each',
+  'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve',
+]);
+
+/**
+ * Function words long enough to survive the >3 filter — noise in a subject phrase, never
+ * the subject. Kept SHORT and unambiguous on purpose: every word added here is a word that
+ * can no longer make a phrase count as naming something, so a noun with any chance of being
+ * a real subject ("week", "launch", "story") stays off it deliberately.
+ */
+const PHRASE_NOISE = new Set([
+  'from', 'with', 'that', 'this', 'into', 'onto', 'over', 'than', 'then', 'about',
+  'they', 'their', 'there', 'here', 'were', 'have', 'been',
+  'want', 'wants', 'wanted', 'only', 'just', 'please', 'could', 'would', 'should',
+  'back', 'move', 'moves', 'moved', 'moving', 'shift', 'take', 'takes', 'make',
+]);
+
+/**
+ * Does this correction phrase name a SUBJECT at all, or only a quantity and a date?
+ *
+ * ── The spurious match this closes ───────────────────────────────────────────────────
+ *
+ * `resolveBeatSubject` keeps words longer than three characters, so "2 posts on the 7th"
+ * reduces to the single word "posts" — and then matches any beat whose title or rationale
+ * evidence happens to contain it. Measured on cycle 5ea00045: three unrelated beats titled
+ * "Connie", because their evidence text says "posts". The correction then took the
+ * named-subject branch, moved all three, and the client's "2" was never read by anything.
+ *
+ * A phrase whose every significant word is a quantity word names nothing. Answering "no
+ * subject here" sends it to the date resolver, which is where a sentence like that has
+ * always belonged.
+ *
+ * ── Why this is not a change to the named-subject path ───────────────────────────────
+ *
+ * `resolveBeatSubject` is untouched, and so is the order it runs in. This only declines to
+ * CONSULT it for a phrase that carries no subject words — and a correction that names a real
+ * subject has, by construction, at least one significant word outside this set, so it cannot
+ * be rerouted. "the Meadow launch" keeps {meadow, launch} and resolves exactly as it did.
+ * The safety argument above still holds: nothing that resolves today resolves differently.
+ */
+export function namesNoSubject(subject: string): boolean {
+  const words = subject.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3);
+  if (words.length === 0) return false;   // no significant words at all is a different fact
+  // A DATE token is not a subject either, and "17th" is four characters so it survives the
+  // filter above where "7th" does not. Matched by shape rather than listed: every ordinal and
+  // every bare number is noise here, and the date resolver is the thing that reads them.
+  const isNoise = (w: string) =>
+    QUANTITY_WORDS.has(w) || PHRASE_NOISE.has(w) || /^\d+(?:st|nd|rd|th)?$/.test(w);
+  // At least ONE quantity word, and nothing that could be a subject. The first half matters:
+  // a phrase of pure noise ("from that") names nothing either, but it is not a quantity ask
+  // and routing it here would be inventing a reading of it.
+  return words.some((w) => QUANTITY_WORDS.has(w)) && words.every(isNoise);
+}
+
+/**
  * Apply a correction: move (or reformat) what is already on the plan.
  *
  * The uat failure this exists for: a client wrote "Meadow candle launch is the 10th not the
@@ -1355,7 +1416,9 @@ export function applyCorrection(intent: MonthScopedIntent, beats: TransformBeat[
    * the sentence this function exists for: "the Meadow candle launch is the 10th not the 1st"
    * would resolve on the OLD date and move whatever sits there instead of the arc.
    */
-  const named = resolveBeatSubject(subject, beats);
+  // A phrase that is only a quantity and a date names no subject, so the subject resolver is
+  // not asked about it — see `namesNoSubject` for the match it was returning instead.
+  const named = namesNoSubject(subject) ? [] : resolveBeatSubject(subject, beats);
   /**
    * WHICH RESOLVER FOUND THESE — and therefore whether cardinality may narrow them.
    *
