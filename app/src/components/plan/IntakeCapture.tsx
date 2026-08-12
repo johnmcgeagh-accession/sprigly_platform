@@ -143,7 +143,27 @@ function IntakeChrome({ wide, header, onClose, children }: {
 export function IntakeCapture(props: Props) {
   const { questions, cycleId, prePlanning, busy, monthLabel, intake, durable, cutoffLabel, onSubmit, onClose } = props;
   const [mode, setMode] = useState<Mode>('workspace');
-  const [text, setText] = useState('');
+  /**
+   * SEEDED WITH THE SAVED BRIEF, and that is the whole of the reload fix.
+   *
+   * `intake.freeNotes` has always arrived here — page.tsx reads intake_json, GET /api/plan
+   * re-reads it on every month switch, and `PlanRoot` passes it in. This composer was the one
+   * thing that ignored it, so a client who saved a brief and came back was shown an empty box
+   * over a populated column and had no reason to believe anything had been kept.
+   *
+   * What they did next is why this is a data-integrity fault rather than a cosmetic one: they
+   * retyped the month. The pre-cutoff merge APPENDS, so the second telling did not replace the
+   * first — it doubled it, and the extractor was handed the same September twice.
+   *
+   * A lazy initialiser, not an effect: the sheet is conditionally mounted (`data.intakeOpen &&`)
+   * so it gets a fresh mount each time it opens, and the seed is read once at that mount. An
+   * effect syncing `intake` → `text` would fight the client's caret every time `refreshPlan`
+   * returned a new object for the same brief.
+   *
+   * An EMPTY brief still seeds to '', so a first-time client sees the placeholder examples
+   * exactly as before — the empty state is unchanged, not special-cased.
+   */
+  const [text, setText] = useState(intake.freeNotes ?? '');
   const [durableText, setDurableText] = useState('');
   const [confirmed, setConfirmed] = useState<ExtractedSummary | null>(null);
   const [committedOnce, setCommittedOnce] = useState(false);

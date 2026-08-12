@@ -90,6 +90,33 @@ describe('POST /api/plan/intake — classifier', () => {
     expect(h.updateSets.some((u) => 'structuredBrief' in u)).toBe(true);
   });
 
+  // ── The seeded composer comes back holding the saved brief ──────────────────────────
+  // Both surfaces now arrive pre-filled (the workspace composer seeds from intake.freeNotes;
+  // the guided stepper always has). An unconditional append stored the month twice.
+  it('SEEDED RESUBMIT: freeNotes identical to what is held replaces rather than doubles', async () => {
+    const saved = 'Big launch of Hannah in green on the 15th.';
+    h.cycleRow = [{ status: 'requested', cycleMonth: '2026-06', intakeJson: { planContent: { answers: {}, freeNotes: saved }, businessContext: [], otherChannel: {}, source: 'manual', capturedAt: 'x' } }];
+    await call({ cycleId: CYCLE, freeNotes: saved, source: 'web' });
+    const set = h.updateSets[0]!.intakeJson as { planContent: { freeNotes: string } };
+    expect(set.planContent.freeNotes).toBe(saved);                      // NOT `${saved}\n\n${saved}`
+  });
+
+  it('SEEDED RESUBMIT: the seed plus a new sentence is stored once, whole', async () => {
+    const saved = 'Big launch of Hannah in green on the 15th.';
+    h.cycleRow = [{ status: 'requested', cycleMonth: '2026-06', intakeJson: { planContent: { answers: {}, freeNotes: saved }, businessContext: [], otherChannel: {}, source: 'manual', capturedAt: 'x' } }];
+    await call({ cycleId: CYCLE, freeNotes: `${saved}\n\nAlso London Fashion Week from the 18th.`, source: 'web' });
+    const set = h.updateSets[0]!.intakeJson as { planContent: { freeNotes: string } };
+    expect(set.planContent.freeNotes).toBe(`${saved}\n\nAlso London Fashion Week from the 18th.`);
+    expect(set.planContent.freeNotes.match(/Hannah/g)).toHaveLength(1);  // the launch is told once
+  });
+
+  it('a genuine addition (composer cleared after a save) still appends', async () => {
+    h.cycleRow = [{ status: 'requested', cycleMonth: '2026-06', intakeJson: { planContent: { answers: {}, freeNotes: 'note1' }, businessContext: [], otherChannel: {}, source: 'manual', capturedAt: 'x' } }];
+    await call({ cycleId: CYCLE, freeNotes: 'a separate thought', source: 'web' });
+    const set = h.updateSets[0]!.intakeJson as { planContent: { freeNotes: string } };
+    expect(set.planContent.freeNotes).toBe('note1\n\na separate thought');
+  });
+
   it('FIX 2: extraction FAILURE is non-fatal — intake still saved, brief not persisted, beatsReady false', async () => {
     h.extractShouldFail = true;
     h.cycleRow = [{ status: 'requested', cycleMonth: '2026-06', intakeJson: null }];

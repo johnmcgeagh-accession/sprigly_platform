@@ -141,12 +141,46 @@ function parseBody(b: Record<string, unknown>) {
   return { cycleId, answers, freeNotes, source, sessionId, durableItems, questions };
 }
 
+/**
+ * Fold an incoming brief into the one already on the cycle.
+ *
+ * ── THE SUBMISSION MAY ALREADY CONTAIN WHAT WE HOLD ──────────────────────────────────
+ *
+ * This used to be an unconditional append, which was right while the composer was always empty
+ * on arrival: everything that came back was, by construction, new. It is no longer true of
+ * either surface. The workspace composer is now seeded with the saved brief (IntakeCapture),
+ * and the guided stepper has ALWAYS seeded its free-notes field from `intake.freeNotes` — so
+ * that path has been silently doubling the brief on every re-save since it shipped, whether or
+ * not anyone opened the workspace.
+ *
+ * So a resubmission that OPENS WITH everything we already hold is not an addition to the brief;
+ * it IS the brief, carrying whatever was typed onto the end of it. Storing it as `cur + add`
+ * would write the month down twice and hand the extractor a doubled September — the same
+ * launch counted twice, the same dates parsed twice.
+ *
+ * The prefix test is the whole rule, and it is deliberately narrow. Text that does not begin
+ * with what we hold is a genuine addition and still appends, which keeps the "Add to brief"
+ * flow (the composer clears itself after a save) working exactly as it did.
+ *
+ * KNOWN GAP, stated rather than papered over: an in-place edit of already-saved words — the
+ * client changing a date in the middle of the brief — no longer starts with `curNotes`, so it
+ * appends and the old sentence survives beside the new one. Expressing that needs a replace
+ * mode this route does not have, and inventing one here would change what every existing
+ * caller's save means. Left for its own change.
+ */
+function mergeFreeNotes(curNotes: string, addNotes: string): string {
+  if (!addNotes) return curNotes;
+  if (!curNotes) return addNotes;
+  if (addNotes.startsWith(curNotes)) return addNotes;   // the seeded brief came back — take it whole
+  return `${curNotes}\n\n${addNotes}`;
+}
+
 /** Merge new answers/freeNotes into the existing intake_json (never clobber). */
 function mergeIntake(cur: IntakeJson | null, answers: Record<string, string>, freeNotes: string, source: 'web' | 'voice'): IntakeJson {
   const curAnswers = cur?.planContent?.answers ?? {};
   const curNotes = (cur?.planContent?.freeNotes ?? '').trim();
   const addNotes = freeNotes.trim();
-  const mergedNotes = curNotes && addNotes ? `${curNotes}\n\n${addNotes}` : (addNotes || curNotes);
+  const mergedNotes = mergeFreeNotes(curNotes, addNotes);
   return {
     planContent:     { answers: { ...curAnswers, ...answers }, freeNotes: mergedNotes },
     businessContext: cur?.businessContext ?? [],

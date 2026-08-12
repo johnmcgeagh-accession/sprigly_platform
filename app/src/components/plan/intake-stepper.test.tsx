@@ -54,9 +54,15 @@ describe('IntakeCapture — planning workspace (Phase 1)', () => {
     expect(html).toContain('worth remembering for a future campaign');
   });
 
-  it('on return, the workspace notes it is continuing the month brief', () => {
+  it('on return, the composer is SEEDED with the saved brief (not empty)', () => {
     const html = renderToStaticMarkup(<IntakeCapture {...base} intake={{ answers: {}, freeNotes: 'Launching on the 25th.' }} />);
-    expect(html).toContain('Continuing your August 2026 brief');
+    // the saved brief is the textarea's value — the reload fix
+    expect(html).toContain('Launching on the 25th.');
+  });
+
+  it('a first-time brief leaves the composer empty so the placeholder examples still show', () => {
+    const html = renderToStaticMarkup(<IntakeCapture {...base} intake={{ answers: {}, freeNotes: '' }} />);
+    expect(html).toContain('Big launch on the 25th');   // PLACEHOLDER survives the empty case
   });
 
   it('shows the post-cutoff framing when the cycle has generated', () => {
