@@ -25,6 +25,7 @@ import type { ExtractedSummary } from '@/lib/types';
 // The save path and the LATER page loads describe a brief with the same sentences — see
 // brief-summary.ts for why that is one definition and not two.
 import { summariseBrief } from '@/lib/brief-summary';
+import { recordActivity, USER_ACTOR } from '@/lib/activity';
 import { getSession } from '@/lib/auth';
 import { allowRequest } from '@/lib/rate-limit';
 import { saveDurableInput } from '@/lib/agent/notes';
@@ -216,6 +217,40 @@ export async function POST(req: Request) {
       const qs = questions.length ? questions : [...BASE_QUESTIONS];
       await distributeIntoEmptyAnswers(next, qs, clientId);
       await db.update(contentCycles).set({ intakeJson: next as unknown, updatedAt: new Date() }).where(eq(contentCycles.id, cycleId));
+
+      /**
+       * ── THE LEDGER ROW, immediately after the write it records ────────────────────────
+       *
+       * Placed HERE and not at the end of the branch, because this is the line after which the
+       * brief is on the cycle. Everything below — the brief clear, the extraction — is
+       * explicitly allowed to fail without losing the intake, so a row written after them would
+       * be a row that fails to appear for saves that unambiguously happened.
+       *
+       * A throw from the update above skips this entirely, which is the "no row on a failed
+       * save" half of the contract; the catch below is the other half, and it deliberately
+       * swallows. The client's brief IS saved by this point. Returning 500 because the ledger
+       * insert failed would tell them it had not, and what they do about that is retype the
+       * month into a merge that would then hold it twice — the exact fault this whole change
+       * exists to close. The ledger is an observation of the write, never a veto over it. Same
+       * posture as durableItems above, for the same reason.
+       *
+       * No postId: this is about the month, not about any row in it. plan_activity.post_id is
+       * nullable and cycle_id carries the meaning here.
+       */
+      try {
+        await recordActivity(db, {
+          clientId,
+          cycleId,
+          action:  'brief_saved',
+          actor:   USER_ACTOR,                 // origin 'user', actor 'client' — reached via a magic-link session
+          payload: {
+            source,                                                     // 'web' | 'voice'
+            answersSaved:   Object.keys(next.planContent.answers).length,
+            freeNotesChars: next.planContent.freeNotes.length,
+          },
+        });
+      } catch { /* observation only — never fails a save that already landed */ }
+
       // Intake changed → clear the extract-once brief (Build 1 helper), then FIX 2: extract + persist
       // inline so beats appear immediately. Intake is already saved; extraction failure is non-fatal.
       await clearStructuredBriefIfPrePlanning(db, cycleId);

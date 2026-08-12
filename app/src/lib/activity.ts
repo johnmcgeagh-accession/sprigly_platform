@@ -29,6 +29,18 @@ export type ActivityAction =
   | 'step_uncompleted'
   | 'step_renamed'
   | 'checklist_generated'
+  /**
+   * The client's brief for a month, saved pre-cutoff (POST /api/plan/intake).
+   *
+   * Named for the object saved, like every other write here — `caption_saved`, `hook_saved`,
+   * `script_saved` — rather than for the act of submitting a form.
+   *
+   * It is the single most consequential thing a client does on this surface: the whole month is
+   * generated from it, and it is the one write with no post_id, because it is about the month
+   * and not about any row in it. It recorded nothing at all until now, so the ledger could
+   * show thirty captions being edited and not the brief every one of them came from.
+   */
+  | 'brief_saved'
   // ── Draft-beat mutations (observability only) ───────────────────────────────
   // A draft drop is a HARD delete with no tombstone, and nothing recorded these at all —
   // so when six launch-arc beats vanished from cycle 040d6a1a before approval, the data

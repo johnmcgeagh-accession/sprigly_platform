@@ -17,6 +17,9 @@ const h = vi.hoisted(() => ({
   extractShouldFail: false,
   distributeCalls: [] as Array<Record<string, unknown>>,
   distributeReturn: {} as Record<string, string>,
+  activityCalls: [] as Array<Record<string, unknown>>,
+  activityShouldFail: false,
+  updateShouldFail: false,
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -27,7 +30,10 @@ vi.mock('@sprigly/db', () => ({
   db: {
     // .where().limit() → cycle lookup (h.cycleRow); .where() awaited → loadDurableContext ([] by default).
     select: () => ({ from: () => ({ where: () => Object.assign(Promise.resolve([] as unknown[]), { limit: () => Promise.resolve(h.cycleRow) }) }) }),
-    update: () => ({ set: (v: Record<string, unknown>) => { h.updateSets.push(v); return { where: () => Promise.resolve(undefined) }; } }),
+    update: () => ({ set: (v: Record<string, unknown>) => {
+      if (h.updateShouldFail && 'intakeJson' in v) return { where: () => Promise.reject(new Error('update failed')) };
+      h.updateSets.push(v); return { where: () => Promise.resolve(undefined) };
+    } }),
   },
   contentCycles: new Proxy({}, { get: (_t, p) => String(p) }),
   planInputs: new Proxy({}, { get: (_t, p) => String(p) }),
@@ -41,6 +47,13 @@ vi.mock('@sprigly/engine', () => ({
 }));
 vi.mock('@/lib/agent/model', () => ({ getModelClient: () => ({}) }));
 vi.mock('@/lib/cycle-nav', () => ({ nextMonth: (m: string) => m }));
+vi.mock('@/lib/activity', () => ({
+  USER_ACTOR: { origin: 'user', actor: 'client' },
+  recordActivity: (_db: unknown, e: Record<string, unknown>) => {
+    if (h.activityShouldFail) return Promise.reject(new Error('ledger down'));
+    h.activityCalls.push(e); return Promise.resolve(undefined);
+  },
+}));
 vi.mock('@/lib/auth', () => ({ getSession: async () => h.session }));
 vi.mock('@/lib/rate-limit', () => ({ allowRequest: () => true }));
 vi.mock('@/lib/agent/notes', () => ({ saveDurableInput: (a: Record<string, unknown>) => { h.durableCalls.push(a); return Promise.resolve('pi-1'); } }));
@@ -58,6 +71,7 @@ beforeEach(() => {
   h.updateSets.length = 0; h.clearCalls.length = 0; h.durableCalls.length = 0; h.turnCalls.length = 0;
   h.extractCalls.length = 0; h.extractShouldFail = false;
   h.distributeCalls.length = 0; h.distributeReturn = {};
+  h.activityCalls.length = 0; h.activityShouldFail = false; h.updateShouldFail = false;
 });
 
 describe('POST /api/plan/intake — classifier', () => {
@@ -115,6 +129,55 @@ describe('POST /api/plan/intake — classifier', () => {
     await call({ cycleId: CYCLE, freeNotes: 'a separate thought', source: 'web' });
     const set = h.updateSets[0]!.intakeJson as { planContent: { freeNotes: string } };
     expect(set.planContent.freeNotes).toBe('note1\n\na separate thought');
+  });
+
+  // ── plan_activity: the brief is the one client act that recorded nothing ────────────
+  describe('the ledger row', () => {
+    it('one brief_saved row per successful pre-cutoff save, attributed to the client, on the cycle', async () => {
+      await call({ cycleId: CYCLE, freeNotes: 'launching on the 25th', source: 'web' });
+      expect(h.activityCalls).toHaveLength(1);
+      expect(h.activityCalls[0]).toMatchObject({
+        clientId: CLIENT,
+        cycleId:  CYCLE,
+        action:   'brief_saved',
+        actor:    { origin: 'user', actor: 'client' },
+      });
+      expect(h.activityCalls[0]!.postId).toBeUndefined();   // about the month, not a row in it
+    });
+
+    it('carries the shape of what was saved, and the channel it arrived on', async () => {
+      await call({ cycleId: CYCLE, answers: { q1: 'a', q2: 'b' }, freeNotes: 'twelve chars', source: 'voice' });
+      expect(h.activityCalls[0]!.payload).toEqual({ source: 'voice', answersSaved: 2, freeNotesChars: 12 });
+    });
+
+    it('NO row when the save itself failed', async () => {
+      h.updateShouldFail = true;
+      await expect(call({ cycleId: CYCLE, freeNotes: 'launching on the 25th', source: 'web' })).rejects.toThrow();
+      expect(h.activityCalls).toHaveLength(0);
+    });
+
+    it('NO row when there was nothing to save (durable items only)', async () => {
+      await call({ cycleId: CYCLE, durableItems: [{ type: 'idea', text: 'linen restock' }], source: 'web' });
+      expect(h.durableCalls).toHaveLength(1);
+      expect(h.activityCalls).toHaveLength(0);
+    });
+
+    it('NO row post-cutoff — that path routes to proposals and never touches intake_json', async () => {
+      h.cycleRow = [{ status: 'planning', cycleMonth: '2026-06', intakeJson: null }];
+      await call({ cycleId: CYCLE, freeNotes: 'launching on the 25th', source: 'web' });
+      expect(h.turnCalls).toHaveLength(1);
+      expect(h.activityCalls).toHaveLength(0);
+    });
+
+    // The brief IS saved by the time the ledger is written. A 500 here would tell the client it
+    // was not, and what they do about that is retype the month — the duplication this change closes.
+    it('a ledger failure never fails a save that already landed', async () => {
+      h.activityShouldFail = true;
+      const res = await call({ cycleId: CYCLE, freeNotes: 'launching on the 25th', source: 'web' });
+      expect(res.status).toBe(200);
+      expect((await res.json()).mode).toBe('brief_updated');
+      expect(h.updateSets.some((u) => 'intakeJson' in u)).toBe(true);
+    });
   });
 
   it('FIX 2: extraction FAILURE is non-fatal — intake still saved, brief not persisted, beatsReady false', async () => {
