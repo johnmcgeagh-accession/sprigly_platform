@@ -542,14 +542,20 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
             {...(voiceFor ? { question: voiceFor } : {})}
             {...(voiceSignal ? { focusSignal: voiceSignal } : {})}
             onClose={() => { setVoiceFor(null); setThreadedReceiptId(null); }}
-            onSubmit={async (text, source) => {
-              const r = await m.say(text, source);
+            // `conversationId` is the third argument and it was being dropped on the floor here —
+            // the sheet sends it, the committed surface threads it, and these two mounts declared
+            // `(text, source)` and discarded the rest. That discard is the whole of the draft
+            // surface's amnesia: without it every turn opened a new conversation, so "those" and
+            // "it" had no previous turn to resolve against. Taken in, and echoed back out.
+            onSubmit={async (text, source, conversationId) => {
+              const r = await m.say(text, source, conversationId);
               if (!r.ok) return { ok: false as const };
               // The thread is about to carry this receipt's sentence; the chip and panel stand
               // down for it until the thread no longer does.
               setThreadedReceiptId(r.application?.id ?? null);
               return {
                 ok: true as const,
+                ...(r.conversationId ? { conversationId: r.conversationId } : {}),
                 // THE THREAD SAYS WHAT THE RECEIPT SAYS. This branched on `scope` alone and never
                 // read `reason`, so it narrated every evergreen family with one generic sentence
                 // — and rendered beside a panel heading that knew better: "Saved to your ideas —
@@ -681,14 +687,20 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
             // here APPLIES directly and returns a receipt — so the agent's turn IS the receipt's
             // own lines, and the conversation continues. The summary chip on the surface still
             // says what moved; there is nothing to consent to after the fact.
-            onSubmit={async (text, source) => {
-              const r = await m.say(text, source);
+            // `conversationId` is the third argument and it was being dropped on the floor here —
+            // the sheet sends it, the committed surface threads it, and these two mounts declared
+            // `(text, source)` and discarded the rest. That discard is the whole of the draft
+            // surface's amnesia: without it every turn opened a new conversation, so "those" and
+            // "it" had no previous turn to resolve against. Taken in, and echoed back out.
+            onSubmit={async (text, source, conversationId) => {
+              const r = await m.say(text, source, conversationId);
               if (!r.ok) return { ok: false as const };
               // The thread is about to carry this receipt's sentence; the chip and panel stand
               // down for it until the thread no longer does.
               setThreadedReceiptId(r.application?.id ?? null);
               return {
                 ok: true as const,
+                ...(r.conversationId ? { conversationId: r.conversationId } : {}),
                 // THE THREAD SAYS WHAT THE RECEIPT SAYS. This branched on `scope` alone and never
                 // read `reason`, so it narrated every evergreen family with one generic sentence
                 // — and rendered beside a panel heading that knew better: "Saved to your ideas —

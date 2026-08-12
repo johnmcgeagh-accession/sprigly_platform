@@ -34,6 +34,9 @@ interface DraftWrite {
   dropped?: Record<string, unknown>;
   application?: DraftReceipt;
   message?: string;
+  /** The conversation the server actually used. Echoed back so the session can hold it and
+   *  the NEXT turn lands in the same thread — which is the whole of the parser's memory. */
+  conversationId?: string | null;
 }
 
 const NETWORK_FAIL = 'We couldn’t reach the server. Check your connection and try again.';
@@ -223,13 +226,15 @@ export function useDraftMonth(data: PlanData) {
    * against rows that no longer carried the answer.
    */
   const say = useCallback(
-    async (text: string, source: 'web' | 'voice' = 'web') => {
+    async (text: string, source: 'web' | 'voice' = 'web', conversationId: string | null = null) => {
       // `shaping` is separate from `busy` on purpose. `busy` is true for a move and a drop too,
       // and those are the client's own edits landing — showing "Sprigly is working" over them
       // would credit the agent with something it did not do. This is the reshape and nothing
       // else, which is what the shell renders the agent's dots from (round 8, fix 7).
       setShaping(true);
-      try { return await write('/api/plan/draft/apply', { op: 'text', text, source }); }
+      // `conversationId` names the session this sentence belongs to. Null on the first turn of
+      // a session — the server opens one and echoes it back, and the sheet holds it from there.
+      try { return await write('/api/plan/draft/apply', { op: 'text', text, source, conversationId }); }
       finally { setShaping(false); }
     },
     [write],

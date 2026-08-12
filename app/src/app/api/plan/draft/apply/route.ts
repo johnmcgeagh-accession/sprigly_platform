@@ -21,7 +21,7 @@ import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { getModelClient } from '@/lib/agent/model';
 import { applyTextToDraft, addBacklogItemToMonth, loadReceipts } from '@/lib/draft-apply';
-import { ensureConversation, appendMessage } from '@/lib/agent/conversation';
+import { ensureConversation, appendMessage, conversationIsForCycle } from '@/lib/agent/conversation';
 import { threadMessage } from '@/lib/receipt-copy';
 import { getCycleMonth, monthLabel } from '@/lib/agent/cycle-state';
 import { resolveWriteCycle, requestedCycleId } from '@/lib/write-cycle';
@@ -89,6 +89,25 @@ export async function POST(req: Request) {
   // unknown value must not invent a third transport.
   const source = body['source'] === 'voice' ? 'voice' : 'web';
 
+  /**
+   * ── THE SESSION THIS TURN BELONGS TO ─────────────────────────────────────────────────
+   *
+   * This route took no conversation id at all, and `ensureConversation` was called with two
+   * arguments — which, since the per-session ruling (conversation.ts:42-48), means "start a
+   * new one" on EVERY turn. Measured on cycle 5ea00045: 45 conversation rows for 16
+   * exchanges, no two turns ever sharing one. The id was not missing, it was discarded: the
+   * dock sends it (VoiceSheet.tsx:475) and the committed surface threads it
+   * (CommittedSurface.tsx:442); only this route and the two DraftSurface mounts dropped it.
+   *
+   * Adopted only when it is this client's AND this month's. Threads are per-month, so a stale
+   * id from the month the client just left starts a fresh conversation here rather than
+   * appending November's correction to October's thread.
+   */
+  const sent = typeof body['conversationId'] === 'string' ? body['conversationId'] : null;
+  const priorConversationId = sent && await conversationIsForCycle(session.clientId, sent, cycleId).catch(() => false)
+    ? sent
+    : null;
+
   // applyTextToDraft decides: a pasted DOCUMENT goes through the decomposer, a single
   // instruction takes the existing path, byte-identical. The route stays thin.
   const res = await applyTextToDraft({
@@ -102,7 +121,7 @@ export async function POST(req: Request) {
   let conversationId: string | null = null;
   if (res.ok) {
     try {
-      conversationId = await ensureConversation(session.clientId, cycleId);
+      conversationId = await ensureConversation(session.clientId, cycleId, priorConversationId ?? undefined);
       await appendMessage({ conversationId, role: 'user', content: text, source, writer: 'draft-apply', outcome: 'user' });
       // THE STORED TRANSCRIPT IS THE COPY THAT OUTLIVES THE SESSION, and it was the fifth
       // emitter of the same sentence — hardcoded here, branching on `scope` alone, written into

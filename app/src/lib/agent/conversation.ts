@@ -62,6 +62,36 @@ export async function ensureConversation(
   return startConversation(clientId, cycleId);
 }
 
+/**
+ * Is this conversation this client's AND this month's?
+ *
+ * ── WHY THE CYCLE IS CHECKED HERE AND NOT INSIDE `ensureConversation` ────────────────
+ *
+ * `ensureConversation` verifies OWNERSHIP and nothing else, and that is right for it: a
+ * forged id must never be adopted, but a client's own id arriving on a different month is
+ * not an attack, it is a stale tab. The two want different answers — the first is a security
+ * check, the second is the per-month ruling — and folding the second into the first would
+ * silently change the committed path, which threads its own conversation through
+ * `runPlanAgentTurn` and has never been asked to be month-scoped at the seam.
+ *
+ * So the draft route asks this question explicitly before it adopts anything. A false means
+ * "start a new one", never "fail" — the client said something, and it has to land.
+ */
+export async function conversationIsForCycle(
+  clientId: string, conversationId: string, cycleId: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(and(
+      eq(conversations.id, conversationId),
+      eq(conversations.clientId, clientId),
+      eq(conversations.cycleId, cycleId),
+    ))
+    .limit(1);
+  return !!row;
+}
+
 export interface AppendMessageArgs {
   conversationId: string;
   role: 'user' | 'assistant';

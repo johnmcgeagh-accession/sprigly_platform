@@ -11,6 +11,9 @@ const h = vi.hoisted(() => ({
   appendMessage: vi.fn(),
   ensureConversation: vi.fn(),
   owned: new Set<string>(),
+  /** conversationId → the cycle it belongs to. Anything absent is another client's or another
+   *  month's, and must not be adopted. */
+  threadsFor: new Map<string, string>(),
 }));
 
 vi.mock('@/lib/auth', () => ({ getSession: async () => h.session }));
@@ -24,6 +27,9 @@ vi.mock('@/lib/draft-apply', () => ({
 vi.mock('@/lib/agent/conversation', () => ({
   ensureConversation: (...a: unknown[]) => { h.ensureConversation(...a); return Promise.resolve('conv-1'); },
   appendMessage: (...a: unknown[]) => h.appendMessage(...a),
+  // Per-month threads: only the ids in `h.threadsFor` belong to the cycle they are asked about.
+  conversationIsForCycle: async (_c: string, id: string, cycleId: string) =>
+    h.threadsFor.get(id) === cycleId,
 }));
 // Ownership, as the read routes already ask it. Only the set below is this client's.
 vi.mock('@/lib/agent/cycle-state', async (orig) => ({
@@ -58,6 +64,44 @@ beforeEach(() => {
   h.appendMessage.mockReset().mockResolvedValue('m-1');
   h.ensureConversation.mockReset();
   h.owned.clear(); h.owned.add(CYCLE); h.owned.add(VIEWED);
+  h.threadsFor.clear();
+});
+
+/**
+ * ── THE TURN JOINS THE SESSION IT BELONGS TO ─────────────────────────────────────────
+ *
+ * `ensureConversation` was called with two arguments, which since the per-session ruling
+ * means "start a new one" — so every turn on a draft month opened its own conversation and
+ * no correction ever had a previous turn to resolve against. 45 rows for 16 exchanges on
+ * cycle 5ea00045. The id was being sent by the dock and discarded here.
+ */
+describe('the conversation is adopted, not re-opened every turn', () => {
+  it('passes the sent conversation through to ensureConversation', async () => {
+    h.threadsFor.set('conv-live', CYCLE);
+    await post({ op: 'text', text: 'I only wanted one of those moving', conversationId: 'conv-live' });
+    expect(h.ensureConversation).toHaveBeenCalledWith(CLIENT, CYCLE, 'conv-live');
+  });
+
+  it('starts a new one when the id belongs to ANOTHER MONTH — threads are per-month', async () => {
+    h.threadsFor.set('conv-october', VIEWED);            // a stale id from the month just left
+    await post({ op: 'text', text: 'no, the other one', conversationId: 'conv-october' });
+    expect(h.ensureConversation).toHaveBeenCalledWith(CLIENT, CYCLE, undefined);
+  });
+
+  it('starts a new one when the id is not this client’s', async () => {
+    await post({ op: 'text', text: 'move the launch', conversationId: 'conv-someone-else' });
+    expect(h.ensureConversation).toHaveBeenCalledWith(CLIENT, CYCLE, undefined);
+  });
+
+  it('a non-string conversationId is ignored rather than forwarded', async () => {
+    await post({ op: 'text', text: 'move the launch', conversationId: { id: 'x' } });
+    expect(h.ensureConversation).toHaveBeenCalledWith(CLIENT, CYCLE, undefined);
+  });
+
+  it('echoes the conversation back so the sheet can hold it for the next turn', async () => {
+    const res = await post({ op: 'text', text: 'move the launch' });
+    expect((await res.json()).conversationId).toBe('conv-1');
+  });
 });
 
 describe('auth', () => {
@@ -202,7 +246,8 @@ describe('the write lands on the month the client is looking at', () => {
 
   it('the thread is opened on the VIEWED cycle too — receipt and beats cannot land apart', async () => {
     await post({ op: 'text', text: 'move the launch', cycleId: VIEWED });
-    expect(h.ensureConversation).toHaveBeenCalledWith(CLIENT, VIEWED);
+    // The third argument is the conversation to ADOPT; undefined here because none was sent.
+    expect(h.ensureConversation).toHaveBeenCalledWith(CLIENT, VIEWED, undefined);
   });
 
   it('GET receipts reads the VIEWED cycle', async () => {

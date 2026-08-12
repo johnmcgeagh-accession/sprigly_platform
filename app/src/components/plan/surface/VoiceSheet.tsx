@@ -300,8 +300,26 @@ export function VoiceSheet({
   // ── Open: reset, then load the month's thread ────────────────────────────────────────
   const historyLoaded = useRef(false);
   const [wasOpen, setWasOpen] = useState(false);
-  if (open !== wasOpen) {
-    setWasOpen(open);
+  /**
+   * ── A MONTH SWITCH ENDS THE SESSION, AND IT HAS TO ───────────────────────────────────
+   *
+   * The reset below hangs off the `open` TRANSITION, which is exactly right for the phone's
+   * summoned sheet and never fires at all in the desktop dock: there `open` is a bare literal
+   * (DraftSurface.tsx) and the region has been mounted since the page loaded. So switching
+   * month left the thread on screen showing the month the client had just left, while
+   * `conversationId.current` went on pointing at that month's conversation — a thread that
+   * visually spanned months over an id that did not.
+   *
+   * Threads are per-month. Both halves of that now move together: the turns clear, so the
+   * client SEES that the history is gone rather than being invited to say "no, the other one"
+   * to a thread the next month cannot read, and the id clears with them, so the next sentence
+   * opens a fresh conversation on the cycle they are actually looking at.
+   */
+  const [wasCycle, setWasCycle] = useState(cycleId);
+  const cycleChanged = cycleId !== wasCycle;
+  if (cycleChanged) setWasCycle(cycleId);
+  if (open !== wasOpen || cycleChanged) {
+    if (open !== wasOpen) setWasOpen(open);
     if (open) {
       setText(''); setTurns([]); heard.current = false;
       typedRef.current = ''; heardRef.current = '';
