@@ -23,6 +23,7 @@ import {
   classifyIntake, applyIntent, diffBeats, renderDiff, isNoOp,
   isDocumentShaped, decomposeInput, orderIndices, namesAnOperation, briefArcDatesFor,
   type IntakeRouting, type MonthScopedIntent, type TransformBeat, type BeatOp, type DiffBeat,
+  type BeatDelta,
 } from '@sprigly/engine';
 import { createAuditLogger } from '@sprigly/audit';
 import { editScopeToday } from '@/lib/edit-scope';
@@ -62,6 +63,19 @@ export interface DraftApplication {
   /** Rendered diff lines. Empty on the evergreen path; the ANSWER on the question path, which
    *  is why the surface can render both from one field — a receipt is what the agent said. */
   lines:       string[];
+  /**
+   * The SAME change, structured — what `lines` was rendered from, kept rather than thrown away.
+   *
+   * `lines` is prose for a human, and the conversation thread was storing that prose and then
+   * handing it to the next turn's parser as its memory. A receipt averaged 405 characters and
+   * ran to 1,708, against a committed-path turn that serialises from resolved items in a
+   * fraction of that — because the committed path kept its structure and this one did not.
+   *
+   * Present only where a diff was actually computed. A question, a filing, or a zero-op month
+   * context has no deltas and leaves this undefined, which is the honest answer for all three:
+   * nothing moved, so there is nothing structured to say about what moved.
+   */
+  deltas?:     BeatDelta[];
   /** Beats added or changed — the surface marks these until the next visit. */
   changedIds:  string[];
   /** A transform's explanation when it did less than asked (partial arc, nothing eligible). */
@@ -670,7 +684,8 @@ export async function applyIntakeToDraft(params: {
       const afterC = await loadTransformBeats(clientId, cycleId);
       const diffC = diffBeats(beforeC.map(toDiffBeat), afterC.map(toDiffBeat));
       const application: DraftApplication = {
-        ...base, scope: 'month_scoped', lines: renderDiff(diffC), changedIds: diffC.changedIds,
+        ...base, scope: 'month_scoped', lines: renderDiff(diffC), deltas: diffC.deltas,
+        changedIds: diffC.changedIds,
         ...(result.note ? { note: result.note } : {}),
       };
       if (!params.suppressReceipt) await persistReceipt(cycleId, application);
@@ -784,6 +799,7 @@ export async function applyIntakeToDraft(params: {
     ...base,
     scope: 'month_scoped',
     lines: renderDiff(diff),
+    deltas: diff.deltas,
     changedIds: diff.changedIds,
     ...(result.note ? { note: result.note } : {}),
     ...(deferred > 0 ? { deferredCount: deferred } : {}),

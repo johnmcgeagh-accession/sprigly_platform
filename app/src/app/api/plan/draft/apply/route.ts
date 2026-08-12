@@ -23,6 +23,7 @@ import { getModelClient } from '@/lib/agent/model';
 import { applyTextToDraft, addBacklogItemToMonth, loadReceipts } from '@/lib/draft-apply';
 import { ensureConversation, appendMessage, conversationIsForCycle } from '@/lib/agent/conversation';
 import { threadMessage } from '@/lib/receipt-copy';
+import { receiptItems } from '@/lib/receipt-items';
 import { getCycleMonth, monthLabel } from '@/lib/agent/cycle-state';
 import { resolveWriteCycle, requestedCycleId } from '@/lib/write-cycle';
 
@@ -129,6 +130,7 @@ export async function POST(req: Request) {
       // as the thread now. The month is fetched for it: a family sentence names the month, and
       // "this month" in a transcript read back weeks later names nothing.
       const planMonth = await getCycleMonth(session.clientId, cycleId).catch(() => null);
+      const items = receiptItems(res.application);
       await appendMessage({
         conversationId, role: 'assistant',
         // Bare month name, no year — `DraftSurface` renders `monthTitle(month).split(' ')[0]`,
@@ -138,7 +140,16 @@ export async function POST(req: Request) {
         // 'receipt', not 'answered' (0092): this row is the draft surface's applied-lines
         // receipt, not a plan-agent turn, and the two were previously the same shape.
         writer: 'draft-apply', outcome: 'receipt',
-        metadata: { receiptId: res.application?.id ?? null, changedIds: res.application?.changedIds ?? [] },
+        // `items` is what the NEXT turn's parser reads this receipt as (receipt-items.ts). The
+        // stored prose stays exactly as it is — it is what the sheet renders — but the window
+        // the classifier gets now serialises from resolved titles and ISO dates instead of a
+        // paragraph written for a person. Omitted, not empty, where the prose is the better
+        // read: a question's answer is the referent a follow-up needs.
+        metadata: {
+          receiptId: res.application?.id ?? null,
+          changedIds: res.application?.changedIds ?? [],
+          ...(items.length ? { items } : {}),
+        },
       });
     } catch { conversationId = null; }
   }
