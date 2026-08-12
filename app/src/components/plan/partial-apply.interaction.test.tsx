@@ -56,7 +56,7 @@ function init(): PlanDataInit {
     today: TODAY,
     clientName: 'earl-of-east',
     questions: [],
-    intake: { answers: {}, freeNotes: '' },
+    intake: { answers: {}, freeNotes: '' }, savedExtraction: null,
     durable: [],
   } as PlanDataInit;
 }

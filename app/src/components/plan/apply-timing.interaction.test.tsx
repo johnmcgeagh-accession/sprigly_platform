@@ -66,7 +66,7 @@ function init(): PlanDataInit {
     posts: [post()], crossMonthPosts: [], beats: [],
     cycles: [{ cycleId: OCT, displayMonth: '2026-10', monthLabel: 'October 2026', prePlanning: false }] as PlanDataInit['cycles'],
     homeCycleId: OCT, initialViewedCycleId: OCT, today: TODAY,
-    clientName: 'earl-of-east', questions: [], intake: { answers: {}, freeNotes: '' }, durable: [],
+    clientName: 'earl-of-east', questions: [], intake: { answers: {}, freeNotes: '' }, savedExtraction: null, durable: [],
   } as PlanDataInit;
 }
 

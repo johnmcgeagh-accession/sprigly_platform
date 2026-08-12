@@ -1,4 +1,4 @@
-import type { PlanPost, PlanBeat, PlanIntake, DurableItemView, CycleSummary } from '@/lib/types';
+import type { PlanPost, PlanBeat, PlanIntake, DurableItemView, CycleSummary, ExtractedSummary } from '@/lib/types';
 import { resolveTodayIso } from '@/lib/steps';
 import { fraunces, inter, jakarta } from '@/app/fonts';
 import { PlanRoot } from '@/components/plan/PlanRoot';
@@ -17,6 +17,9 @@ interface PlanRedesignProps {
   initialIntakeOpen?: boolean;   // landed from the Ask email's {{intakeLink}} (?intake=1)
   questions: string[];           // BASE + this channel's extra_questions (intake form source)
   intake: PlanIntake;            // the landed cycle's saved intake (form pre-fill, FIX 1)
+  // What the last extraction took from that brief (projection of structured_brief), or null
+  // when nothing has been extracted yet. Read-only; the capture surface's preview renders it.
+  savedExtraction?: ExtractedSummary | null;
   durable: DurableItemView[];    // client's active durable items (read-only list)
   cutoffDay?: number | null;     // auto-run cutoff day-of-month (client schedule), or null
   // The surface the server chose for the landed cycle, and the draft data when it chose
@@ -31,7 +34,7 @@ interface PlanRedesignProps {
  * resolves "today" once, server-side, from the tenant timezone default. Everything
  * interactive lives in <PlanRoot>, which chooses the desktop or mobile layout.
  */
-export default function PlanRedesign({ clientName, posts, crossMonthPosts, beats, cycles, homeCycleId, initialCycleId, initialReadOnly, initialIntakeOpen, questions, intake, durable, cutoffDay, initialSurfaceKind, initialDraft }: PlanRedesignProps) {
+export default function PlanRedesign({ clientName, posts, crossMonthPosts, beats, cycles, homeCycleId, initialCycleId, initialReadOnly, initialIntakeOpen, questions, intake, savedExtraction, durable, cutoffDay, initialSurfaceKind, initialDraft }: PlanRedesignProps) {
   return (
     <div className={`plan-redesign ${fraunces.variable} ${inter.variable} ${jakarta.variable} font-sans`}>
       <PlanRoot
@@ -46,6 +49,7 @@ export default function PlanRedesign({ clientName, posts, crossMonthPosts, beats
         initialIntakeOpen={initialIntakeOpen}
         questions={questions}
         intake={intake}
+        savedExtraction={savedExtraction ?? null}
         durable={durable}
         cutoffDay={cutoffDay ?? null}
         initialSurfaceKind={initialSurfaceKind}

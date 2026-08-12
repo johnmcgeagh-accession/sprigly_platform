@@ -12,6 +12,7 @@ import { db, contentCycles, clientConfigs, planInputs } from '@sprigly/db';
 import type { IntakeJson } from '@sprigly/engine';
 import { getSession } from '@/lib/auth';
 import { loadPlanPosts, loadCrossMonthPosts, isCycleReadableByClient, beatsInMonth, surfaceForCycle } from '@/lib/plan';
+import { summariseSavedBrief } from '@/lib/brief-summary';
 import { readPlanRedesignFlag } from '@/lib/flags';
 import { nextMonth } from '@/lib/cycle-nav';
 
@@ -56,6 +57,10 @@ export async function GET(req: Request) {
   // active durable context (read-only "remembered for the future" list). Session-scoped.
   const planContent = (cyc?.intakeJson as IntakeJson | null)?.planContent ?? { answers: {}, freeNotes: '' };
   const intake = { answers: planContent.answers ?? {}, freeNotes: planContent.freeNotes ?? '' };
+  // What the last extraction TOOK from that brief, for the capture surface's preview panel.
+  // Free: `structuredBrief` is already selected above for `beats`, and this is a pure
+  // projection of it — no extra query, and emphatically no fresh model call on a page load.
+  const savedExtraction = summariseSavedBrief(cyc?.structuredBrief);
   const durableRows = await db
     .select({ id: planInputs.id, type: planInputs.type, content: planInputs.content, createdAt: planInputs.createdAt })
     .from(planInputs)
@@ -80,5 +85,5 @@ export async function GET(req: Request) {
     planRedesign:       readPlanRedesignFlag(cfg?.settings),
   });
 
-  return NextResponse.json({ posts, crossMonthPosts, beats, intake, durable, surfaceKind, readOnly: !isHome });
+  return NextResponse.json({ posts, crossMonthPosts, beats, intake, savedExtraction, durable, surfaceKind, readOnly: !isHome });
 }

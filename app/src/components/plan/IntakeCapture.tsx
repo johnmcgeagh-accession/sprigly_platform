@@ -56,6 +56,16 @@ type Props = {
   busy: boolean;
   monthLabel: string;
   intake: PlanIntake;
+  /**
+   * What the last extraction took from the SAVED brief, or null when nothing is stored.
+   *
+   * This is the preview panel's cold-start source. `live.preview` only ever exists because the
+   * client is typing right now, so on a reload the panel had nothing to say and said the
+   * empty-state line — "As you type, I'll gather it here" — over a month we had already read,
+   * extracted and turned into beats. That sentence, next to a composer that also looked empty,
+   * is the whole reason a returning client concluded their brief had been lost.
+   */
+  savedExtraction: ExtractedSummary | null;
   durable: DurableItemView[];
   cutoffLabel: string | null;   // e.g. "18 July" — the auto-run date; null → neutral confirmation
   onSubmit: (p: IntakeSubmitPayload) => Promise<IntakeResult>;
@@ -141,7 +151,7 @@ function IntakeChrome({ wide, header, onClose, children }: {
 }
 
 export function IntakeCapture(props: Props) {
-  const { questions, cycleId, prePlanning, busy, monthLabel, intake, durable, cutoffLabel, onSubmit, onClose } = props;
+  const { questions, cycleId, prePlanning, busy, monthLabel, intake, savedExtraction, durable, cutoffLabel, onSubmit, onClose } = props;
   const [mode, setMode] = useState<Mode>('workspace');
   /**
    * SEEDED WITH THE SAVED BRIEF, and that is the whole of the reload fix.
@@ -291,15 +301,30 @@ export function IntakeCapture(props: Props) {
           </div>
         </div>
 
-        {/* RIGHT — live preview / confirmed summary */}
-        <PreviewPanel preview={confirmed ? null : live.preview} confirmed={confirmed} prePlanning={prePlanning} />
+        {/* RIGHT — live preview / confirmed summary / the saved brief's own reading */}
+        <PreviewPanel preview={confirmed ? null : live.preview} confirmed={confirmed} saved={savedExtraction} prePlanning={prePlanning} />
       </div>
     </IntakeChrome>
   );
 }
 
-// ── Right column: live preview → confirmed summary ────────────────────────────
-function PreviewPanel({ preview, confirmed, prePlanning }: { preview: BriefPreview | null; confirmed: ExtractedSummary | null; prePlanning: boolean }) {
+// ── Right column: live preview → confirmed summary → the saved brief ──────────
+/**
+ * THREE sources, in priority order, and the order is the argument.
+ *
+ *   `confirmed` — this session just saved. The freshest thing that exists; it also carries the
+ *                 post-cutoff "sent for approval" framing, so it must outrank the rest.
+ *   `preview`   — the client is typing NOW. Live and unsaved, and more current than any stored
+ *                 reading of an earlier brief.
+ *   `saved`     — nothing is happening in this session, so what we hold is what we last read
+ *                 from the stored brief. This is the case a reload lands in.
+ *
+ * `saved` is last because it is the oldest, and present at all because without it the panel
+ * asserted — to a client whose September was already extracted into beats — that it had heard
+ * nothing. It is a projection of a persisted `structured_brief` (brief-summary.ts): no model
+ * call happens on mount, and none should be added here.
+ */
+function PreviewPanel({ preview, confirmed, saved, prePlanning }: { preview: BriefPreview | null; confirmed: ExtractedSummary | null; saved: ExtractedSummary | null; prePlanning: boolean }) {
   if (confirmed) {
     const empty = confirmed.launches.length === 0 && confirmed.dates.length === 0 && confirmed.asks.length === 0;
     return (
@@ -319,6 +344,23 @@ function PreviewPanel({ preview, confirmed, prePlanning }: { preview: BriefPrevi
   }
 
   const has = preview && (preview.campaigns.length || preview.themes.length || preview.products.length || preview.dates.length || preview.availability.length || preview.ideas.length);
+
+  // Nothing live, but a brief IS on file: show what we took from it. Headed in the past tense —
+  // this is a record of a completed reading, not a running one, and the difference is the whole
+  // reassurance the panel is here to give.
+  if (!has && saved) {
+    return (
+      <aside data-testid="intake-saved-extraction" className="rounded-2xl border border-line bg-line-soft p-4">
+        <div className="mb-2 text-[11.5px] font-semibold uppercase tracking-[.06em] text-coral-800">From your saved brief</div>
+        <div className="flex flex-col gap-3">
+          {saved.dates.length > 0 && <PGroup title="Dates">{saved.dates.map((d, i) => <PLine key={i} left={d.when} text={d.label} />)}</PGroup>}
+          {saved.launches.length > 0 && <PGroup title="Launches & restocks">{saved.launches.map((l, i) => <PLine key={i} text={l} />)}</PGroup>}
+          {saved.asks.length > 0 && <PGroup title="Also noted">{saved.asks.map((a, i) => <PLine key={i} text={a} />)}</PGroup>}
+        </div>
+      </aside>
+    );
+  }
+
   return (
     <aside data-testid="intake-preview" className="rounded-2xl border border-line bg-line-soft p-4">
       <div className="mb-2 text-[11.5px] font-semibold uppercase tracking-[.06em] text-muted">What I’m hearing</div>

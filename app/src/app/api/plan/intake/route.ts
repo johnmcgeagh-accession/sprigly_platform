@@ -22,6 +22,9 @@ import { db, contentCycles, clearStructuredBriefIfPrePlanning, PRE_PLANNING_STAT
 import { createAuditLogger } from '@sprigly/audit';
 import { extractStructuredBrief, distributeBriefAnswers, loadDurableInputs, BASE_QUESTIONS, type IntakeJson, type StructuredBrief } from '@sprigly/engine';
 import type { ExtractedSummary } from '@/lib/types';
+// The save path and the LATER page loads describe a brief with the same sentences — see
+// brief-summary.ts for why that is one definition and not two.
+import { summariseBrief } from '@/lib/brief-summary';
 import { getSession } from '@/lib/auth';
 import { allowRequest } from '@/lib/rate-limit';
 import { saveDurableInput } from '@/lib/agent/notes';
@@ -70,27 +73,6 @@ async function extractAndPersistBrief(cycleId: string, cycleMonth: string, intak
   } catch {
     return null;   // intake is saved; brief stays null for the lazy retry
   }
-}
-
-const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-/** 'YYYY-MM-DD' → '25 Aug' (defensive: returns the raw string if it doesn't parse). */
-function shortDate(iso: string): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-  return m ? `${Number(m[3])} ${MON[Number(m[2]) - 1] ?? m[2]}` : iso;
-}
-
-/** Compact, human-readable summary of an extracted brief for the "here's what we took" moment. */
-function summariseBrief(brief: StructuredBrief): ExtractedSummary {
-  const launches = brief.products.map((p) => {
-    const name = `${p.product}${p.colourway ? ` in ${p.colourway}` : ''}`;
-    return p.status === 'restock' ? `${name} — restock` : `${name} — new`;
-  });
-  const dates = brief.schedule.map((b) => ({
-    when: b.dateRange ? `${shortDate(b.dateRange.start)}–${shortDate(b.dateRange.end)}` : shortDate(b.date ?? ''),
-    label: (b.product || b.type || 'beat').replace(/-/g, ' '),
-  }));
-  const asks = brief.content_asks.map((a) => (a.product ? `${a.type.replace(/-/g, ' ')} (${a.product})` : a.type.replace(/-/g, ' ')));
-  return { launches, dates, asks };
 }
 
 /** Distribute the running free-text brief across empty base-question slots (non-fatal + timeboxed).

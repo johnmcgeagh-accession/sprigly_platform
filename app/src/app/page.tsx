@@ -6,6 +6,7 @@ import { getSession } from '@/lib/auth';
 import { loadPlanPosts, loadCrossMonthPosts, loadCycleList, beatsInMonth, cycleHasReviewableDraft, surfaceForCycle, loadDraftSurfaceContext } from '@/lib/plan';
 import { editScopeToday } from '@/lib/edit-scope';
 import { resolveLandingCycleId } from '@/lib/cycle-nav';
+import { summariseSavedBrief } from '@/lib/brief-summary';
 import { readPlanRedesignFlag } from '@/lib/flags';
 import { loadActiveCanvasHex, CORAL_THEME_COLOR } from '@/lib/theme';
 import PlanApp from '@/components/PlanApp';
@@ -123,6 +124,10 @@ export default async function Page({ searchParams }: { searchParams: { intake?: 
   const beats = initialMonth ? beatsInMonth(landed?.structuredBrief, initialMonth) : [];
   const landedPlanContent = (landed?.intakeJson as IntakeJson | null)?.planContent ?? { answers: {}, freeNotes: '' };
   const intake = { answers: landedPlanContent.answers ?? {}, freeNotes: landedPlanContent.freeNotes ?? '' };
+  // What the last extraction took from that brief. `structuredBrief` is already in hand for
+  // `beats` one line up, so this is a projection of a row we have — not a second read, and not
+  // a model call. It is what lets the capture surface show a saved brief back on a cold load.
+  const savedExtraction = summariseSavedBrief(landed?.structuredBrief);
   const durableRows = await db
     .select({ id: planInputs.id, type: planInputs.type, content: planInputs.content, createdAt: planInputs.createdAt })
     .from(planInputs)
@@ -190,6 +195,7 @@ export default async function Page({ searchParams }: { searchParams: { intake?: 
             initialIntakeOpen={initialIntakeOpen}
             questions={questions}
             intake={intake}
+            savedExtraction={savedExtraction}
             durable={durable}
             cutoffDay={cutoffDay}
             initialSurfaceKind="draft"
@@ -235,6 +241,7 @@ export default async function Page({ searchParams }: { searchParams: { intake?: 
           initialIntakeOpen={initialIntakeOpen}
           questions={questions}
           intake={intake}
+          savedExtraction={savedExtraction}
           durable={durable}
           cutoffDay={cutoffDay}
           initialSurfaceKind={surface}

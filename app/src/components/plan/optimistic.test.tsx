@@ -48,7 +48,7 @@ function Probe({ posts }: { posts: PlanPost[] }) {
     posts, crossMonthPosts: [], beats: [],
     cycles: [{ cycleId: 'cyc-1', displayMonth: '2026-10', monthLabel: 'October 2026' }],
     homeCycleId: 'cyc-1', today: TODAY, clientName: 'Earl of East',
-    questions: [], intake: { answers: {}, freeNotes: '' }, durable: [],
+    questions: [], intake: { answers: {}, freeNotes: '' }, savedExtraction: null, durable: [],
   } as unknown as PlanDataInit);
   const p = api.posts[0];
   return (

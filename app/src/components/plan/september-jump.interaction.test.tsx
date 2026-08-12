@@ -48,7 +48,7 @@ function init(over: Partial<PlanDataInit> = {}): PlanDataInit {
     today: TODAY,
     clientName: 'ivy-t',
     questions: [],
-    intake: { answers: {}, freeNotes: '' },
+    intake: { answers: {}, freeNotes: '' }, savedExtraction: null,
     durable: [],
     ...over,
   } as PlanDataInit;

@@ -32,6 +32,7 @@ describe('IntakeCapture — planning workspace (Phase 1)', () => {
   const base = {
     questions: QS, cycleId: 'cyc-1', prePlanning: true, busy: false, monthLabel: 'August 2026', cutoffLabel: '18 July',
     durable: [{ id: 'd1', type: 'idea', content: 'lean into provenance', createdAt: '2026-07-01T00:00:00Z' }],
+    savedExtraction: null,
     onSubmit: vi.fn(), onClose: vi.fn(),
   };
 
@@ -63,6 +64,33 @@ describe('IntakeCapture — planning workspace (Phase 1)', () => {
   it('a first-time brief leaves the composer empty so the placeholder examples still show', () => {
     const html = renderToStaticMarkup(<IntakeCapture {...base} intake={{ answers: {}, freeNotes: '' }} />);
     expect(html).toContain('Big launch on the 25th');   // PLACEHOLDER survives the empty case
+  });
+
+  // ── The preview panel on a COLD load ────────────────────────────────────────────────
+  // live.preview only exists while someone is typing, so on a reload the panel used to claim
+  // it had heard nothing about a month it had already extracted into beats.
+  const SAVED = {
+    launches: ['Hannah in green — new'],
+    dates:    [{ when: '15 Sep', label: 'launch' }],
+    asks:     ['london fashion week'],
+  };
+
+  it('with a saved extraction and nothing live, the panel shows what was taken from the brief', () => {
+    const html = renderToStaticMarkup(
+      <IntakeCapture {...base} intake={{ answers: {}, freeNotes: 'Big launch of Hannah in green on the 15th.' }} savedExtraction={SAVED} />,
+    );
+    expect(html).toContain('data-testid="intake-saved-extraction"');
+    expect(html).toContain('From your saved brief');
+    expect(html).toContain('Hannah in green — new');
+    expect(html).toContain('15 Sep');
+    expect(html).not.toContain('As you type, I’ll gather it here');   // the empty state is gone
+  });
+
+  it('with no saved extraction the empty state is unchanged', () => {
+    const html = renderToStaticMarkup(<IntakeCapture {...base} intake={{ answers: {}, freeNotes: '' }} savedExtraction={null} />);
+    expect(html).toContain('data-testid="intake-preview"');
+    expect(html).toContain('As you type, I’ll gather it here');
+    expect(html).not.toContain('data-testid="intake-saved-extraction"');
   });
 
   it('shows the post-cutoff framing when the cycle has generated', () => {

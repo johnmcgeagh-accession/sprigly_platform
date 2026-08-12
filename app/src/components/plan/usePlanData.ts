@@ -75,6 +75,16 @@ export interface PlanDataInit {
   // FIX 1 (Build 5): the viewed cycle's saved intake (form pre-fill) + the client's active
   // durable items (read-only "remembered" list).
   intake: PlanIntake;
+  /**
+   * What the last extraction TOOK from the viewed cycle's brief — a projection of the persisted
+   * `structured_brief`, computed server-side (brief-summary.ts) and shipped with the payload.
+   *
+   * Held beside `intake` rather than derived from it, because they answer different questions:
+   * `intake` is what the client SAID and is editable; this is what we UNDERSTOOD and is
+   * read-only. Deriving the second from the first in the browser would mean re-running the
+   * extractor on every load, which is a Sonnet call for a brief that has not changed.
+   */
+  savedExtraction: ExtractedSummary | null;
   durable: DurableItemView[];
   // Auto-run cutoff day-of-month (client schedule), or null when unconfigured — drives the
   // "Save brief" confirmation copy (a real date vs the neutral message).
@@ -110,6 +120,7 @@ export function usePlanData(init: PlanDataInit) {
   }, []);
   const [beats, setBeats] = useState<PlanBeat[]>(init.beats);
   const [intake, setIntake] = useState<PlanIntake>(init.intake);
+  const [savedExtraction, setSavedExtraction] = useState<ExtractedSummary | null>(init.savedExtraction);
   const [durable, setDurable] = useState<DurableItemView[]>(init.durable);
   const [cycles, setCycles] = useState<CycleSummary[]>(init.cycles);
   const [proposals, setProposals] = useState<ProposalView[]>([]);
@@ -249,11 +260,14 @@ export function usePlanData(init: PlanDataInit) {
       const isHome = viewedCycleId === init.homeCycleId;
       const r = await fetch(isHome ? '/api/plan' : `/api/plan?cycleId=${encodeURIComponent(viewedCycleId)}`);
       if (!r.ok) return;
-      const d = (await r.json()) as { posts: PlanPost[]; crossMonthPosts?: PlanPost[]; beats?: PlanBeat[]; intake?: PlanIntake; durable?: DurableItemView[]; surfaceKind?: SurfaceKind };
+      const d = (await r.json()) as { posts: PlanPost[]; crossMonthPosts?: PlanPost[]; beats?: PlanBeat[]; intake?: PlanIntake; savedExtraction?: ExtractedSummary | null; durable?: DurableItemView[]; surfaceKind?: SurfaceKind };
       setPosts(d.posts);
       setCrossMonthPosts(d.crossMonthPosts ?? []);
       setBeats(d.beats ?? []);
       if (d.intake) setIntake(d.intake);
+      // `null` is MEANINGFUL: an intake change clears structured_brief before re-extracting, so
+      // a nullish value must clear the panel rather than leave the previous month's reading up.
+      if ('savedExtraction' in d) setSavedExtraction(d.savedExtraction ?? null);
       if (d.durable) setDurable(d.durable);
       /**
        * ── THE MONTH CAN STOP BEING EMPTY WITHOUT THE MONTH CHANGING ──────────────────
@@ -1043,7 +1057,7 @@ export function usePlanData(init: PlanDataInit) {
       const isHome = cycleId === init.homeCycleId;
       const res = await fetch(isHome ? '/api/plan' : `/api/plan?cycleId=${encodeURIComponent(cycleId)}`);
       if (!res.ok) { flash('Could not open that month.'); return; }
-      const d = (await res.json()) as { posts: PlanPost[]; crossMonthPosts?: PlanPost[]; beats?: PlanBeat[]; intake?: PlanIntake; durable?: DurableItemView[]; surfaceKind?: SurfaceKind };
+      const d = (await res.json()) as { posts: PlanPost[]; crossMonthPosts?: PlanPost[]; beats?: PlanBeat[]; intake?: PlanIntake; savedExtraction?: ExtractedSummary | null; durable?: DurableItemView[]; surfaceKind?: SurfaceKind };
       // FOLLOW the server's surface decision for the cycle being entered. Entering a
       // draft-only month means fetching the draft surface's own data from its own reader;
       // leaving one means dropping it, so a stale draft can never render over a committed
@@ -1060,6 +1074,7 @@ export function usePlanData(init: PlanDataInit) {
       setSurfaceKind(kind);
       setPosts(d.posts); setCrossMonthPosts(d.crossMonthPosts ?? []); setBeats(d.beats ?? []); setViewedCycleId(cycleId);
       if (d.intake) setIntake(d.intake); if (d.durable) setDurable(d.durable);
+      setSavedExtraction(d.savedExtraction ?? null);   // a new month's reading, or none
     } catch { flash('Network error. Please try again.'); }
     finally { setSwitching(false); }
   }, [init.homeCycleId, flash]);
@@ -1105,7 +1120,7 @@ export function usePlanData(init: PlanDataInit) {
   return {
     // data
     posts, crossMonthPosts, calendarPosts, beats, beatsOn, cycles, proposals, notes, ideas, ideasError, today: init.today, clientName: init.clientName, pendingMoves,
-    questions: init.questions, intake, durable, intakeOpen, intakeBusy, viewedCyclePrePlanning, openIntake, closeIntake, submitIntake,
+    questions: init.questions, intake, savedExtraction, durable, intakeOpen, intakeBusy, viewedCyclePrePlanning, openIntake, closeIntake, submitIntake,
     homeCycleId: init.homeCycleId, viewedCycleId, readOnly, canEdit, todayCycleId,
     surfaceKind, draft, setDraft,
     // status

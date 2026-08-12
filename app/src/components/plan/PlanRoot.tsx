@@ -131,6 +131,7 @@ export function PlanRoot(props: PlanDataInit) {
           busy={data.intakeBusy}
           monthLabel={viewedMonthLabel}
           intake={data.intake}
+          savedExtraction={data.savedExtraction}
           durable={data.durable}
           cutoffLabel={cutoffLabel}
           onSubmit={data.submitIntake}
