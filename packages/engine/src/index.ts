@@ -143,6 +143,8 @@ export {
   isEmptyBrief, isPlannableBrief, extractStructuredBrief, distributeBriefAnswers,
 } from './brief-extract.js';
 export type { BriefExtractParams, DistributeAnswersParams, CurrentPlanBeat } from './brief-extract.js';
+export { briefArcDatesFor, arcRoleOf, productMatchesSubject, entryDate } from './brief-schedule.js';
+export type { BriefArcDates } from './brief-schedule.js';
 
 // Live planning-workspace preview (Phase 1) — cheap Haiku mirror of the in-progress brief.
 export { previewBrief, EMPTY_PREVIEW, PREVIEW_MIN_CHARS } from './brief-preview.js';

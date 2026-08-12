@@ -21,7 +21,7 @@ import {
 } from '@sprigly/db';
 import {
   classifyIntake, applyIntent, diffBeats, renderDiff, isNoOp,
-  isDocumentShaped, decomposeInput, orderIndices, namesAnOperation,
+  isDocumentShaped, decomposeInput, orderIndices, namesAnOperation, briefArcDatesFor,
   type IntakeRouting, type MonthScopedIntent, type TransformBeat, type BeatOp, type DiffBeat,
 } from '@sprigly/engine';
 import { createAuditLogger } from '@sprigly/audit';
@@ -565,6 +565,20 @@ export async function applyIntakeToDraft(params: {
    *  caller rolls every segment into a single combined receipt. Beats, backlog rows and the
    *  cadence floor are still written; only the individual receipt is withheld. */
   suppressReceipt?: boolean;
+  /**
+   * The structured brief the SAME request just extracted (content_cycles.structured_brief).
+   *
+   * The extractor is the careful reader of the two model passes a save runs: it resolves the
+   * client's vague timing and dates every beat, and until now it wrote that to a column
+   * nothing on this path read, while `classifyIntake` re-derived a date from raw text and
+   * placed the month from it. This is that answer, handed over rather than re-earned — no
+   * third model call.
+   *
+   * OPTIONAL, and unknown-typed, because it is allowed to be missing: the extraction runs
+   * inside a 25s race and returns null on timeout or malformed output. Absent or partial
+   * degrades to exactly the previous behaviour.
+   */
+  brief?: unknown;
 }): Promise<ApplyResult> {
   const { clientId, cycleId, text, model } = params;
   const source: InputSource = params.source ?? 'web';
@@ -692,7 +706,25 @@ export async function applyIntakeToDraft(params: {
     ? await pillarVocab(clientId, cycle.channel).catch(() => [])
     : [];
 
-  const result = applyIntent(routing.intent as MonthScopedIntent, before, planMonth, today, clientPillars);
+  /**
+   * ── THE EXTRACTOR'S DATES WIN, WHERE IT HAS ANY FOR THIS SUBJECT ─────────────────
+   *
+   * `classifyIntake` reads one segment in isolation and guesses a date from it.
+   * `extractStructuredBrief` read the WHOLE brief, resolved the vague timing, and dated the
+   * same beat properly — and the two disagreed by a week on ivy-t's Hannah launch, with the
+   * worse answer winning because it was the only one this path could see.
+   *
+   * Matched on product name (briefArcDatesFor explains why that is the only reliable key).
+   * A subject the brief has no dated entry for returns `{}` and nothing below changes, which
+   * is every product-less single post — and those are the ones the classifier already gets
+   * right, because their segment says the date in words.
+   */
+  const arc = briefArcDatesFor(params.brief, routing.intent.subject);
+  const intent = arc.launch
+    ? { ...(routing.intent as MonthScopedIntent), dateRange: { start: arc.launch, end: arc.launch } }
+    : (routing.intent as MonthScopedIntent);
+
+  const result = applyIntent(intent, before, planMonth, today, clientPillars);
 
   /**
    * ── CONTEXT FOR THIS MONTH, NOT AN IDEA FOR LATER ────────────────────────────────
@@ -770,6 +802,8 @@ export async function applyIntakeToDraft(params: {
  * does not import @sprigly/engine (whose index eagerly loads the db client).
  */
 export async function applyTextToDraft(params: {
+  /** The structured brief this request already extracted — see applyIntakeToDraft. */
+  brief?: unknown;
   clientId: string;
   cycleId:  string;
   text:     string;
@@ -841,6 +875,11 @@ export async function applyBriefToDraft(params: {
   source?:  InputSource;
   now?:     Date;
   today?:   string;
+  /** The structured brief this request already extracted — see applyIntakeToDraft. Threaded
+   *  to every segment: the schedule was extracted from the whole brief, so a segment's dates
+   *  may well have been resolved from a sentence in a DIFFERENT segment ("the week before"
+   *  needs the launch the other half named). */
+  brief?: unknown;
 }): Promise<ApplyResult> {
   const { clientId, cycleId, text, model } = params;
   const source: InputSource = params.source ?? 'web';
@@ -868,7 +907,7 @@ export async function applyBriefToDraft(params: {
   // Decompose. A coverage-contract failure (twice) falls back to the whole-input path.
   const decomposition = await decomposeInput({ text: brief, model, audit, clientId });
   if (!decomposition) {
-    return applyIntakeToDraft({ clientId, cycleId, text: brief, model, now, today });
+    return applyIntakeToDraft({ clientId, cycleId, text: brief, model, now, today, brief: params.brief });
   }
   const { segments, discarded } = decomposition;
 
@@ -884,6 +923,7 @@ export async function applyBriefToDraft(params: {
   for (const i of orderIndices(routings)) {
     const r = await applyIntakeToDraft({
       clientId, cycleId, text: segments[i]!, model, source, routing: routings[i]!, now, today, suppressReceipt: true,
+      brief: params.brief,
     });
     items[i] = toBriefItem(segments[i]!, routings[i]!, r);
   }

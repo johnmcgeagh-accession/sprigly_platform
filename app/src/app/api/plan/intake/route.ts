@@ -359,12 +359,26 @@ export async function POST(req: Request) {
        * point and the ledger row is written. A reshape that fails leaves the client's words
        * recorded and the month as it was — never a lost save. What it must not do is fail
        * SILENTLY, so the error rides back on the response and the surface says so.
+       *
+       * ── AND IT IS HANDED THE BRIEF THE LINE ABOVE JUST EXTRACTED ─────────────────────
+       *
+       * Two model passes read this same sentence. `extractStructuredBrief` is the careful one
+       * — it saw the whole brief at once, resolved "the week before" into a real window and
+       * dated every beat — and its answer went to a column the reshape never read, while
+       * `classifyIntake` re-derived a date per segment and placed the month from that. They
+       * disagreed by a week on ivy-t's Hannah launch and the worse answer won, because it was
+       * the only one this path could see.
+       *
+       * `brief` is whatever came back above, including NULL: the extraction runs inside a 25s
+       * race and returns null on timeout or on output the gate rejects. Null degrades to
+       * exactly the previous behaviour — `briefArcDatesFor` answers `{}` and every date comes
+       * from the classifier as before.
        */
       const instruction = briefInstruction(answers, freeNotes);
       if (beatsBefore.length > 0 && instruction) {
         try {
           const applied = await applyBriefToDraft({
-            clientId, cycleId, text: instruction, model: getModelClient(), source,
+            clientId, cycleId, text: instruction, model: getModelClient(), source, brief,
           });
           if (applied.ok) {
             draftApplied = true;
