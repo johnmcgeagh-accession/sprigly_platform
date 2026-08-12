@@ -1307,3 +1307,75 @@ describe('the month summary', () => {
     expect(screen.queryByTestId('draft-summary')).toBeNull();
   });
 });
+
+/**
+ * The header's way into the briefing wizard.
+ *
+ * The panel route below it already existed and still does; this is the same handler, one tap
+ * from the month instead of two behind a strip labelled as an explanation.
+ */
+describe('briefing the month, from the header', () => {
+  const OCT = [
+    beat({ id: 'r1', format: 'reel' }),
+    ...Array.from({ length: 3 }, (_, i) => beat({ id: `s${i}`, format: 'single', position: i + 1 })),
+  ];
+
+  it('renders on an editable draft month and opens the wizard', () => {
+    const openIntake = vi.fn();
+    render(<DraftSurface data={fakeData({ openIntake }, OCT)} />);
+    fireEvent.click(screen.getByTestId('brief-month-btn'));
+    expect(openIntake).toHaveBeenCalledTimes(1);
+  });
+
+  it('is the SAME handler the summary panel calls — one way in, two ways to reach it', () => {
+    const openIntake = vi.fn();
+    render(<DraftSurface data={fakeData({ openIntake }, OCT)} />);
+    fireEvent.click(screen.getByTestId('brief-month-btn'));
+    fireEvent.click(screen.getByTestId('draft-summary-toggle'));
+    fireEvent.click(screen.getByTestId('summary-brief'));
+    expect(openIntake).toHaveBeenCalledTimes(2);   // both routes, one function
+  });
+
+  /** The gate is `editable`, from cycleIsPreCutoff — the same value the summary route is gated
+   *  on, so there is no state where one route exists and the other does not. */
+  it('is ABSENT past the cutoff, and so is the panel route', () => {
+    const data = fakeData({ openIntake: vi.fn() }, OCT);
+    (data.draft as { editable: boolean }).editable = false;
+    render(<DraftSurface data={data} />);
+    expect(screen.queryByTestId('brief-month-btn')).toBeNull();
+    fireEvent.click(screen.getByTestId('draft-summary-toggle'));
+    expect(screen.queryByTestId('summary-brief')).toBeNull();
+  });
+
+  /** Generate refuses an empty month because it can only refuse there. Briefing is the opposite:
+   *  a month with nothing in it is one there is MORE reason to brief. */
+  it('survives an empty draft month, where Generate correctly does not', () => {
+    render(<DraftSurface data={fakeData({ openIntake: vi.fn() }, [])} />);
+    expect(screen.getByTestId('brief-month-btn')).toBeTruthy();
+    expect(screen.queryByTestId('ready-pill')).toBeNull();
+  });
+
+  /**
+   * The hierarchy is carried by the BORDER, and it is the whole reason this control can sit
+   * beside Generate without competing with it: coral border = the action, line border = chrome.
+   * Generate is terminal (approveDraftCore commits every beat and starts the fan-out); briefing
+   * is iterative. They must not read as peers.
+   */
+  it('takes the chrome treatment, leaving Generate the only coral-bordered control', () => {
+    render(<DraftSurface data={fakeData({ openIntake: vi.fn() }, OCT)} />);
+    const brief = screen.getByTestId('brief-month-btn');
+    const generate = screen.getByTestId('ready-pill');
+
+    expect(brief.className).toContain('border-line/30');       // the Today treatment
+    expect(brief.className).not.toContain('border-coral-600');
+    expect(generate.className).toContain('border-coral-600');
+    // Neither is a filled coral block, so the 14px/500 floor for white-on-coral never applies.
+    expect(brief.className).not.toContain('bg-coral-650');
+    expect(brief.className).toContain('min-h-[40px]');         // the X3 tap floor
+  });
+
+  it('says what it does, in the client’s language', () => {
+    render(<DraftSurface data={fakeData({ openIntake: vi.fn() }, OCT)} />);
+    expect(screen.getByTestId('brief-month-btn').textContent).toBe('Brief the month');
+  });
+});

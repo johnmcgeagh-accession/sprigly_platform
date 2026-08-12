@@ -77,6 +77,46 @@ import { type SurfaceFrame } from './frame';
  */
 const THIN_MONTH_MAX = 4;
 
+/**
+ * The header's way into the briefing wizard — the SAME `data.openIntake` the summary panel's
+ * closing row calls, one tap from the month instead of two.
+ *
+ * ── Why a second entry point at all ──────────────────────────────────────────────────
+ *
+ * The first one is inside `DraftMonthSummary`, behind a strip labelled "Tap to see why these
+ * posts are here". That label is an accurate description of the panel and a bad description of
+ * what is in it: the panel both asks "We've assumed nothing's launching this month — anything
+ * coming up?" AND holds the only control that answers it, and nothing on the closed strip says
+ * so. A client who wants to tell us about their month has no reason to open an explanation.
+ *
+ * ── Why the Today treatment and not a new one ────────────────────────────────────────
+ *
+ * This header already carries a two-step hierarchy and it is carried by the BORDER, not by
+ * fill: `border-coral-600` is the action (Generate, the only one), `border-line/30` is chrome
+ * (Today, in both shells). Briefing is a chrome-weight act — iterative, reversible, repeatable
+ * — so it takes the chrome treatment verbatim rather than inventing a third tier. Generate
+ * keeps the only coral border in the header and stays primary by being the only thing that
+ * looks like the action.
+ *
+ * No coral fill is involved, so the 14px/500 floor for white-on-coral-600 does not bind; this
+ * is coral-800 ink on `surface`, the same pairing Today and Generate already use.
+ */
+function BriefButton({ onClick, frame }: { onClick: () => void; frame: SurfaceFrame }) {
+  const desktop = frame === 'desktop';
+  return (
+    <button
+      type="button" data-testid="brief-month-btn" onClick={onClick}
+      // Byte-identical to the Today control in each shell (PlanShell.tsx:181,
+      // DesktopShell.tsx:150) — including the 40px floor nothing interactive goes under (X3).
+      className={`min-h-[40px] flex-none rounded-full border border-line/30 bg-surface shadow-card transition-colors duration-100 active:bg-coral-100 font-semibold text-coral-800 ${desktop ? 'px-4 text-[13.5px]' : 'px-3.5 text-[13px]'}`}
+    >
+      {/* The label names the ACT, in the register the rest of the surface uses. "Wizard" is
+          what we call it; "Brief the month" is what the client is doing. */}
+      Brief the month
+    </button>
+  );
+}
+
 export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame?: SurfaceFrame }) {
   const desktop = frame === 'desktop';
   const draft = data.draft;
@@ -347,6 +387,32 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
   // PlanRoot mounted it below the draft early return. Gated on `editable` for the same reason
   // `onShape` is: past the cutoff a brief cannot move this month, and an invitation that can
   // only be refused is worse than none.
+  /**
+   * The header's control cluster: brief (chrome) then Generate (the action), in that order.
+   *
+   * ── Beside Generate, not beside "This is your November draft" ────────────────────────
+   *
+   * Both sit in the same header row, so this is a choice about which NEIGHBOUR it takes its
+   * meaning from. The framing line is a statement of what the client is looking at; a control
+   * welded to it would read as part of that statement, which is precisely the failure the
+   * summary strip already demonstrates — a thing that looks like description and is actually
+   * the way in. Beside Generate it takes its meaning from the other control instead, and the
+   * row states the two things you can do to a draft: change it, or commit it. That the second
+   * is terminal and the first is not is then carried by the border, where this header already
+   * carries that distinction.
+   *
+   * `editable` gates BOTH, and it is the same value the summary route is gated on (from
+   * cycleIsPreCutoff via loadDraftSurfaceContext) — so a post-cutoff month offers neither, and
+   * there is no state in which one route exists and the other does not.
+   */
+  const headerControls = (
+    <span className="flex flex-none items-center gap-2">
+      {editable && <BriefButton onClick={data.openIntake} frame={frame} />}
+      {editable && m.beats.length > 0 && <ApprovalPill busy={approval.busy} onClick={() => approval.setOpen(true)} />}
+    </span>
+  );
+  const hasHeaderControls = editable;
+
   const summaryNode = (
     <DraftMonthSummary
       summary={summary} expanded={summaryOpen} onToggle={() => setSummaryOpen((v) => !v)}
@@ -374,14 +440,17 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
             <span data-testid="draft-badge" className="flex-none rounded-full bg-coral-650 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[.1em] text-white">
               Draft
             </span>
-            <span data-testid="draft-framing" className="min-w-0 truncate text-[13.5px] font-medium text-chrome">
+            {/* Same ruling as the phone's, at the width the desktop header runs out. Measured at
+                1280 with the controls in: the line truncated to 121px AND pushed "November 2026"
+                onto two lines, which is a worse trade than dropping a sentence the DRAFT badge
+                beside it and the month title above it both already carry. Whole again at 1440. */}
+            <span data-testid="draft-framing"
+              className={`min-w-0 truncate text-[13.5px] font-medium text-chrome ${hasHeaderControls ? 'hidden min-[1400px]:inline' : ''}`}>
               This is your {monthName} draft
             </span>
           </span>
         }
-        headerRight={editable && m.beats.length > 0
-          ? <ApprovalPill busy={approval.busy} onClick={() => approval.setOpen(true)} />
-          : undefined}
+        headerRight={hasHeaderControls ? headerControls : undefined}
         /**
          * X5a's RULE, IN THE SHELL WHERE THE THREAD NEVER CLOSES.
          *
@@ -502,10 +571,12 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
       micLabel={`Tell us about ${monthName}`}
       onToday={goToday}
       todayEnabled={todayEnabled}
-      // THE PILL, in the space the round-3 Week|Month switcher vacated. Rendered only on an
-      // editable draft that has something to approve: a Generate control on an empty month, or
-      // on one already past its cutoff, is a control that can only refuse.
-      headerRight={editable && m.beats.length > 0 ? <ApprovalPill busy={approval.busy} onClick={() => approval.setOpen(true)} /> : undefined}
+      // THE CONTROLS, in the space the round-3 Week|Month switcher vacated. Generate is rendered
+      // only on an editable draft that has something to approve: a Generate control on an empty
+      // month, or on one already past its cutoff, is a control that can only refuse. Brief keeps
+      // the `editable` half of that test but not the beat count — an empty draft month is a month
+      // there is MORE reason to brief, not less.
+      headerRight={hasHeaderControls ? headerControls : undefined}
       badge={
         // The badge carries *provisional*; the line carries *which month*. "Not sent yet" is
         // gone from here as redundant with the badge, and the rest of the framing lives in the
@@ -514,7 +585,24 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
           <span data-testid="draft-badge" className="flex-none rounded-full bg-coral-650 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[.1em] text-white">
             Draft
           </span>
-          <span data-testid="draft-framing" className="min-w-0 truncate text-[13.5px] font-medium text-chrome">
+          {/**
+            * THE LINE GIVES WAY TO THE CONTROLS ON A NARROW PHONE, AND ONLY THERE.
+            *
+            * Measured at 390×844: badge 63 + line 179 + brief 127 + Generate 109 + gaps 28 = 506px
+            * wanted in the 350px this row has. Something has to go, and `truncate` was choosing
+            * for us — it rendered the line at 23px, i.e. "T…", which is worse than absent.
+            *
+            * This line is what gives way because it is the third statement of one fact: the DRAFT
+            * badge is immediately left of it and the `November 2026` title is directly above it.
+            * Nothing is learned from it that the row it sits in does not already say. The controls
+            * are the only things here that DO something.
+            *
+            * 580px is the arithmetic above plus a margin, not a device. Above it everything fits
+            * whole; the line was already truncating at 390 before this build (158/179px), so this
+            * is not a new constraint on it, only a cleaner answer to one.
+            */}
+          <span data-testid="draft-framing"
+            className={`min-w-0 truncate text-[13.5px] font-medium text-chrome ${hasHeaderControls ? 'hidden min-[580px]:inline' : ''}`}>
             This is your {monthName} draft
           </span>
         </span>
