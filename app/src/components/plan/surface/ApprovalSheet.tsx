@@ -169,7 +169,21 @@ export function useApproval(cycleId: string | undefined) {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch('/api/plan/draft/approve', { method: 'POST' });
+      /**
+       * THE MONTH ON SCREEN IS THE MONTH APPROVED.
+       *
+       * `cycleId` — the viewed cycle — has been passed into this hook since it shipped and was
+       * used for exactly one thing: the redirect below, so the client LANDS on the month they
+       * approved. It was never sent with the call, so the route committed `session.cycleId`
+       * instead, and the redirect then carried them to a month that had not been approved at
+       * all. Approval spends money and cannot be undone; the one call here that most needed to
+       * name its target was the only one that did not.
+       */
+      const res = await fetch('/api/plan/draft/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cycleId ? { cycleId } : {}),
+      });
       const json = (await res.json()) as { ok?: boolean; message?: string };
       if (!res.ok || !json.ok) {
         setError(json.message ?? 'We couldn’t start that. Try again?');

@@ -92,13 +92,35 @@ export function useDraftMonth(data: PlanData) {
     return r;
   }, [data.draft, setBeats]);
 
-  /** One write, its result folded into the shared draft state, and its failure said out loud. */
+  /**
+   * One write, its result folded into the shared draft state, and its failure said out loud.
+   *
+   * ── EVERY WRITE NAMES THE MONTH IT IS FOR ────────────────────────────────────────────
+   *
+   * These posts carried no cycle at all, so the routes fell back to `session.cycleId` — the
+   * month the magic link was minted for, which is only the month on screen until the client
+   * uses the switcher. A question asked on November was answered about November and returned
+   * SEPTEMBER's beats, which is what emptied the month; an added beat landed in September
+   * outright. `viewedCycleId` is the one the surface is rendering and the one the server must
+   * be told about, so it goes on every body from a single place rather than per call site.
+   */
   const write = useCallback(async (url: string, body: unknown): Promise<DraftWrite> => {
     setBusy(true);
     try {
-      const r = await post(url, body);
+      const r = await post(url, { ...(body as Record<string, unknown>), cycleId: data.viewedCycleId });
       if (!r.ok) { data.flash(r.message ?? GENERIC_FAIL); return r; }
-      if (r.beats) setBeats(r.beats);
+      /**
+       * ABSENT AND EMPTY ARE DIFFERENT ANSWERS.
+       *
+       * `[]` is truthy, so `if (r.beats)` treated "this month has no beats" and "this response
+       * carries no beats" identically and cleared the month for both. That is what turned the
+       * wrong-cycle read above into a visibly empty November rather than a stale one — and it
+       * would do the same to any future response that legitimately omits the key.
+       *
+       * A response that OMITS `beats` is saying nothing about them, so we keep what we hold.
+       * A response that sends `[]` is asserting the month is empty, and we believe it.
+       */
+      if (Array.isArray(r.beats)) setBeats(r.beats);
       // A QUESTION does not become the surface's receipt. A receipt is a record of what changed
       // and offers a review of it; an answer changed nothing, and its place is the thread where
       // it was asked. Promoting it would put "What changed" over a list of things that didn't.
@@ -109,6 +131,8 @@ export function useDraftMonth(data: PlanData) {
       return r;
     } finally { setBusy(false); }
   }, [data, setBeats]);
+  // `data.viewedCycleId` rides in on `data`, which is already the dependency — named here so
+  // the reason it must not be dropped from that list is written down.
 
   const move = useCallback(async (beat: DraftBeatView, date: string) => {
     const from = beat.date;

@@ -147,7 +147,9 @@ for (const frame of ['desktop', 'mobile'] as const) {
       fireEvent.click(within(panel).getByTestId('assumption-nudge'));
 
       const body = await sendFromComposer('Nothing is launching in October');
-      expect(body).toEqual({ op: 'text', text: 'Nothing is launching in October', source: 'web' });
+      expect(body).toMatchObject({ op: 'text', text: 'Nothing is launching in October', source: 'web' });
+      // …and it names the month it is for, on both frames (useDraftMonth.write).
+      expect((body as { cycleId?: string }).cycleId).toBeTruthy();
     });
 
     it('pressing the shaping CTA twice still takes the composer the second time', () => {

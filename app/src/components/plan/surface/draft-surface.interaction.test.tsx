@@ -216,7 +216,7 @@ describe('the draft detail sheet', () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe('/api/plan/draft');
-    expect(calls[0]!.body).toEqual({ op: 'format', postId: 'b1', format: 'carousel' });
+    expect(calls[0]!.body).toMatchObject({ op: 'format', postId: 'b1', format: 'carousel' });
   });
 
   it('the move picker offers NO posting time — the draft route cannot save one', () => {
@@ -254,11 +254,11 @@ describe('structural edits, and one slot of undo', () => {
     fireEvent.click(document.querySelector('[data-testid="grid-cell"][data-date="2026-10-22"]')!);
     await act(async () => { fireEvent.click(screen.getByTestId('move-confirm')); });
 
-    expect(calls[0]!.body).toEqual({ op: 'move', postId: 'b1', date: '2026-10-22' });
+    expect(calls[0]!.body).toMatchObject({ op: 'move', postId: 'b1', date: '2026-10-22' });
     expect(screen.getByTestId('feedback').textContent).toContain('Moved to 22 Oct');
 
     await act(async () => { fireEvent.click(screen.getByTestId('feedback-undo')); });
-    expect(calls[1]!.body).toEqual({ op: 'move', postId: 'b1', date: TODAY });
+    expect(calls[1]!.body).toMatchObject({ op: 'move', postId: 'b1', date: TODAY });
   });
 
   it('a delete RESTORES the whole beat on undo, never re-adds a husk', async () => {
@@ -268,12 +268,12 @@ describe('structural edits, and one slot of undo', () => {
     open();
     await act(async () => { fireEvent.click(screen.getByTestId('act-delete')); });
 
-    expect(calls[0]!.body).toEqual({ op: 'drop', postId: 'b1' });
+    expect(calls[0]!.body).toMatchObject({ op: 'drop', postId: 'b1' });
     expect(screen.getByTestId('feedback').textContent).toContain('Post removed.');
 
     await act(async () => { fireEvent.click(screen.getByTestId('feedback-undo')); });
     // The WHOLE row goes back — title, evidence, position — not {date, format, pillar}.
-    expect(calls[1]!.body).toEqual({ op: 'restore', beat: dropped });
+    expect(calls[1]!.body).toMatchObject({ op: 'restore', beat: dropped });
   });
 
   it('says "Post removed", never "Beat removed"', async () => {
@@ -297,7 +297,7 @@ describe('structural edits, and one slot of undo', () => {
     fireEvent.change(screen.getByTestId('add-subject'), { target: { value: 'The candle, back in stock' } });
     await act(async () => { fireEvent.click(screen.getByTestId('add-confirm')); });
 
-    expect(calls[0]!.body).toEqual({
+    expect(calls[0]!.body).toMatchObject({
       op: 'add', date: TODAY, format: 'single', pillar: 'Home & Space', subject: 'The candle, back in stock',
     });
   });
@@ -440,7 +440,7 @@ describe('the microphone, and what it does HERE', () => {
     await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
 
     const apply = calls.find((c) => c.url === '/api/plan/draft/apply')!;
-    expect(apply.body).toEqual({ op: 'text', text: 'The candle relaunches on the 24th', source: 'web' });
+    expect(apply.body).toMatchObject({ op: 'text', text: 'The candle relaunches on the 24th', source: 'web' });
     // The sheet STAYS: the reshape's receipt lines are the agent's turn, in the thread.
     expect(screen.getByTestId('voice-sheet')).toBeTruthy();
     const agents = screen.getAllByTestId('turn-agent');
@@ -510,7 +510,7 @@ describe('the assumption, re-voiced — inside the summary', () => {
     // THE ANSWERING PATH IS UNCHANGED (M4): the same route, the same op, the same body as when
     // the strip owned this. Our question is context for the person, never part of what is sent.
     const apply = calls.find((c) => c.url === '/api/plan/draft/apply')!;
-    expect(apply.body).toEqual({ op: 'text', text: 'The candle, on the 24th', source: 'web' });
+    expect(apply.body).toMatchObject({ op: 'text', text: 'The candle, on the 24th', source: 'web' });
   });
 
   it('asks nothing when every assumption is about our own bookkeeping', () => {
@@ -827,7 +827,7 @@ describe('the itemised rollup (mockup 08)', () => {
     await act(async () => { fireEvent.click(within(idea).getByTestId('add-to-this-month')); });
 
     expect(calls[0]!.url).toBe('/api/plan/draft/apply');
-    expect(calls[0]!.body).toEqual({ op: 'add_to_month', planInputId: 'pi-0', date: TODAY });
+    expect(calls[0]!.body).toMatchObject({ op: 'add_to_month', planInputId: 'pi-0', date: TODAY });
   });
 
   it('a read-only month reads the rollup and rescues nothing', () => {
@@ -1377,5 +1377,73 @@ describe('briefing the month, from the header', () => {
   it('says what it does, in the client’s language', () => {
     render(<DraftSurface data={fakeData({ openIntake: vi.fn() }, OCT)} />);
     expect(screen.getByTestId('brief-month-btn').textContent).toBe('Brief the month');
+  });
+});
+
+/**
+ * Every write names its month, and an absent answer is not an empty one.
+ *
+ * These posts used to carry no cycle at all, so the routes fell back to `session.cycleId` —
+ * the month the magic link named rather than the month on screen. A client browsing November
+ * on a September link had a dock question answered about November and returned SEPTEMBER's
+ * beats, which the fold below then believed.
+ */
+describe('a draft write names the month it is for', () => {
+  const open = () => fireEvent.click(screen.getByTestId('draft-card'));
+
+  /** Added centrally in useDraftMonth.write, so one op proves it for all of them. */
+  it('carries the viewed cycle on every write, including the undo', async () => {
+    const calls = stubFetch({ beats: [beat({ date: '2026-10-22' })] });
+    render(<DraftSurface data={fakeData()} />);
+    open();
+    fireEvent.click(screen.getByTestId('act-move'));
+    fireEvent.click(document.querySelector('[data-testid="grid-cell"][data-date="2026-10-22"]')!);
+    await act(async () => { fireEvent.click(screen.getByTestId('move-confirm')); });
+    await act(async () => { fireEvent.click(screen.getByTestId('feedback-undo')); });
+
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    for (const c of calls) expect(c.body.cycleId).toBe('cyc-1');
+  });
+
+  it('carries it on the reshape route too', async () => {
+    const calls = stubFetch({ application: { id: 'r', at: 'x', sourceText: 'y', scope: 'month_scoped', lines: [], changedIds: [] } });
+    render(<DraftSurface data={fakeData()} />);
+    fireEvent.click(screen.getByTestId('nav-mic'));
+    fireEvent.change(screen.getByTestId('voice-input'), { target: { value: 'more product this month' } });
+    await act(async () => { fireEvent.click(screen.getByTestId('voice-submit')); });
+
+    const apply = calls.find((c) => c.url === '/api/plan/draft/apply');
+    expect(apply?.body.cycleId).toBe('cyc-1');
+  });
+
+  /**
+   * `[]` is truthy, so `if (r.beats)` cleared the month for a response that carried no beats
+   * at all. A response that OMITS the key is saying nothing about them; one that sends `[]` is
+   * asserting the month is empty. They must not be the same answer — that conflation is what
+   * turned a wrong-cycle read into a visibly empty November rather than a stale one.
+   */
+  it('KEEPS the month when a response carries no beats key', async () => {
+    const setDraft = vi.fn();
+    stubFetch({});                                   // ok:true, and no `beats` at all
+    render(<DraftSurface data={fakeData({ setDraft })} />);
+    open();
+    await act(async () => { fireEvent.click(screen.getByTestId('act-delete')); });
+
+    // The optimistic update ran, but nothing folded a server list in after it.
+    const folded = setDraft.mock.calls
+      .map(([u]) => (u as (d: unknown) => { beats: unknown[] })({ beats: [beat()], pillars: [], editable: true, receipts: [] }).beats)
+      .filter((b) => b.length === 0);
+    expect(folded).toHaveLength(1);                  // the optimistic drop only — no server []
+  });
+
+  it('BELIEVES an explicit empty month', async () => {
+    const setDraft = vi.fn();
+    stubFetch({ beats: [] });                        // the server says: nothing here
+    render(<DraftSurface data={fakeData({ setDraft })} />);
+    open();
+    await act(async () => { fireEvent.click(screen.getByTestId('act-delete')); });
+
+    const updater = setDraft.mock.calls.at(-1)![0] as (d: unknown) => { beats: unknown[] };
+    expect(updater({ beats: [beat()], pillars: [], editable: true, receipts: [] }).beats).toEqual([]);
   });
 });

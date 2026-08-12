@@ -41,7 +41,7 @@ export function DraftPlan(props: DraftPlanProps) {
       const res = await fetch('/api/plan/draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(op),
+        body: JSON.stringify({ ...op, cycleId: props.viewedCycleId }),
       });
       const json = (await res.json()) as { ok?: boolean; beats?: DraftBeatView[]; message?: string; dropped?: Record<string, unknown> };
       if (!res.ok || !json.ok) {
@@ -63,7 +63,7 @@ export function DraftPlan(props: DraftPlanProps) {
     try {
       const res = await fetch('/api/plan/draft/apply', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ op: 'text', text }),
+        body: JSON.stringify({ op: 'text', text, cycleId: props.viewedCycleId }),
       });
       const json = (await res.json()) as { ok?: boolean; application?: DraftReceipt; beats?: DraftBeatView[]; message?: string };
       if (!res.ok || !json.ok) return { ok: false, message: json.message ?? 'That didn’t work. Try again?' };
@@ -89,7 +89,7 @@ export function DraftPlan(props: DraftPlanProps) {
     try {
       const res = await fetch('/api/plan/draft/apply', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ op: 'add_to_month', planInputId, date }),
+        body: JSON.stringify({ op: 'add_to_month', planInputId, date, cycleId: props.viewedCycleId }),
       });
       const json = (await res.json()) as { ok?: boolean; application?: DraftReceipt; beats?: DraftBeatView[]; message?: string };
       if (!res.ok || !json.ok) return { ok: false, message: json.message ?? 'That didn’t work. Try again?' };
@@ -103,7 +103,10 @@ export function DraftPlan(props: DraftPlanProps) {
 
   async function onApprove() {
     try {
-      const res = await fetch('/api/plan/draft/approve', { method: 'POST' });
+      const res = await fetch('/api/plan/draft/approve', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cycleId: props.viewedCycleId }),
+      });
       const json = (await res.json()) as { ok?: boolean; message?: string };
       if (!res.ok || !json.ok) return { ok: false, message: json.message ?? 'We couldn’t start that. Try again?' };
       return { ok: true };
