@@ -140,3 +140,90 @@ describe('degrades rather than throws', () => {
     expect(briefArcDatesFor(twoLaunches, 'Hannah').launch).toBe('2026-11-12');
   });
 });
+
+// ── The arc's offsets, when the brief supplies them ─────────────────────────────────
+import { applyLaunchArc } from './draft-transforms.js';
+import type { MonthScopedIntent, TransformBeat } from './index.js';
+
+/** Ten replaceable template beats — the pool the arc displaces into. */
+const pool = (): TransformBeat[] => Array.from({ length: 10 }, (_, i) => ({
+  id: `b${i}`, date: `2027-01-${String(i + 1).padStart(2, '0')}`, format: 'single',
+  pillar: 'Home', title: `Filler ${i}`, position: i,
+  beatMeta: { slotType: 'proven' as const, rationaleEvidence: { basis: 'template' as const } },
+}));
+
+const launchIntent = (start: string): MonthScopedIntent => ({
+  kind: 'launch', subject: 'Hannah in green', sourceText: 'launch Hannah in green',
+  dateRange: { start, end: start },
+});
+
+/** The arc's dates, in order, from a result's add ops. */
+const placed = (r: { ops: Array<{ op: string; date?: string; title?: string }> }) =>
+  r.ops.filter((o) => o.op === 'add').map((o) => `${o.date} ${String(o.title).split('— ')[1]}`);
+
+describe('LAUNCH_ARC takes the brief’s offsets when it has them', () => {
+  it('THE REGRESSION: "a teaser the week before" is finally a week before', () => {
+    const r = applyLaunchArc(launchIntent('2027-01-12'), pool(), '2027-01', {
+      launch: '2027-01-12', tease: '2027-01-05', followUp: '2027-01-19',
+    });
+    expect(placed(r)).toEqual([
+      '2027-01-05 Tease',
+      '2027-01-12 Launch',
+      '2027-01-19 Follow-up',
+    ]);
+  });
+
+  it('falls back to [-5, 0, +3] when the brief dates nothing', () => {
+    const r = applyLaunchArc(launchIntent('2027-01-12'), pool(), '2027-01');
+    expect(placed(r)).toEqual([
+      '2027-01-07 Tease',
+      '2027-01-12 Launch',
+      '2027-01-15 Follow-up',
+    ]);
+  });
+
+  /** Each part is independent — a brief that names one does not forfeit the other. */
+  it('mixes: the brief’s tease, the constant’s follow-up', () => {
+    const r = applyLaunchArc(launchIntent('2027-01-12'), pool(), '2027-01', { launch: '2027-01-12', tease: '2027-01-05' });
+    expect(placed(r)).toEqual([
+      '2027-01-05 Tease',
+      '2027-01-12 Launch',
+      '2027-01-15 Follow-up',   // +3, unchanged
+    ]);
+  });
+
+  it('mixes the other way: the constant’s tease, the brief’s follow-up', () => {
+    const r = applyLaunchArc(launchIntent('2027-01-12'), pool(), '2027-01', { launch: '2027-01-12', followUp: '2027-01-19' });
+    expect(placed(r)).toEqual([
+      '2027-01-07 Tease',       // -5, unchanged
+      '2027-01-12 Launch',
+      '2027-01-19 Follow-up',
+    ]);
+  });
+
+  /** The clamping predates this and is untouched: a brief-supplied date off the edge of the
+   *  month gets exactly what a computed offset off the edge gets. */
+  it('clamps a brief date outside the plan month, like any other', () => {
+    const r = applyLaunchArc(launchIntent('2027-01-12'), pool(), '2027-01', {
+      launch: '2027-01-12', tease: '2026-12-20', followUp: '2027-02-14',
+    });
+    expect(placed(r)).toEqual([
+      '2027-01-01 Tease',       // clamped to the month's first day
+      '2027-01-12 Launch',
+      '2027-01-31 Follow-up',   // clamped to its last
+    ]);
+  });
+
+  it('still refuses to put a tease on or after its launch', () => {
+    const r = applyLaunchArc(launchIntent('2027-01-12'), pool(), '2027-01', { launch: '2027-01-12', tease: '2027-01-12' });
+    const dates = placed(r);
+    expect(dates[0]).toBe('2027-01-11 Tease');   // slid to the day before, not left colliding
+    expect(dates[1]).toBe('2027-01-12 Launch');
+  });
+
+  it('says so when a launch on the 1st leaves no room for the brief’s tease', () => {
+    const r = applyLaunchArc(launchIntent('2027-01-01'), pool(), '2027-01', { launch: '2027-01-01', tease: '2026-12-25' });
+    expect(placed(r).some((p) => p.includes('Tease'))).toBe(false);
+    expect(r.note).toMatch(/no room for a tease/);
+  });
+});

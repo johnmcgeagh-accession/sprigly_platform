@@ -30,6 +30,7 @@
 import type { BeatMeta, BeatRationaleEvidence } from '@sprigly/db';
 import type { MonthScopedIntent } from './intake-classify.js';
 import { cadenceFloorSlots } from './draft-skeleton.js';
+import type { BriefArcDates } from './brief-schedule.js';
 import { spreadPillars } from './pillar-weights.js';
 
 /** The subset of a draft row these transforms reason about. */
@@ -417,14 +418,18 @@ export function launchArcSubject(title: string | null | undefined): string | nul
  * so — a partial arc the client can see is better than a full arc that quietly evicted a
  * beat they cared about, and better than silence.
  */
-export function applyLaunchArc(intent: MonthScopedIntent, beats: TransformBeat[], month: string): TransformResult {
+export function applyLaunchArc(
+  intent: MonthScopedIntent, beats: TransformBeat[], month: string,
+  /** Dates the brief already resolved for this subject. Empty → the constant, unchanged. */
+  given: BriefArcDates = {},
+): TransformResult {
   if (!intent.dateRange) return { ops: [], note: 'No date was given, so there was nothing to build the launch around.', unresolved: true };
   const anchor = intent.dateRange.start;
 
   const pool = replacementCandidates(beats, anchor);
   if (pool.length === 0) return { ops: [], note: POOL_EMPTY_NOTE };
 
-  const { parts, dropped } = arcDates(anchor, month);
+  const { parts, dropped } = arcDates(anchor, month, given);
 
   const ops: BeatOp[] = [];
   const used = new Set<string>();
@@ -471,14 +476,31 @@ export function applyLaunchArc(intent: MonthScopedIntent, beats: TransformBeat[]
  *
  * Dropping beats shifting-forward deliberately: a tease after its launch is not a tease, and
  * silently reordering the arc would teach the client that our labels don't mean anything.
+ *
+ * ── WHERE THE BRIEF DATED A PART, THE BRIEF WINS ─────────────────────────────────────
+ *
+ * LAUNCH_ARC's [-5, 0, +3] is a shape we assume when we know nothing. It is not what anyone
+ * asked for, and while it was the only source of offsets "a teaser the week before" was
+ * unachievable no matter which date anchored the arc — the tease landed five days out because
+ * five is the number in the constant. `given` carries whatever the extractor resolved for
+ * this subject (brief-schedule.ts), and each part takes its own date from it INDEPENDENTLY:
+ * a brief that names a tease and no follow-up gets the client's tease and the constant's
+ * follow-up, rather than all-or-nothing on either side.
+ *
+ * The clamping below is unchanged and applies identically to a brief-supplied date. A client
+ * naming a tease outside the plan month is in exactly the position a computed offset that
+ * falls off the edge is in, and gets the same answer — the month is the month.
  */
-function arcDates(anchor: string, month: string): {
+function arcDates(anchor: string, month: string, given: BriefArcDates = {}): {
   parts: Array<{ date: string; label: string; format: string }>;
   dropped?: string;
 } {
   const first = clampToMonth(`${month}-01`, month);
   const last  = clampToMonth(`${month}-31`, month);
   const at = (offset: number) => clampToMonth(iso(parse(anchor) + offset * dayMs), month);
+  /** The brief's date for a part, clamped like any other, or the constant's offset. */
+  const wanted = (briefDate: string | undefined, offsetDays: number) =>
+    briefDate ? clampToMonth(briefDate, month) : at(offsetDays);
 
   const launchDate = at(0);
   const parts: Array<{ date: string; label: string; format: string }> = [];
@@ -486,7 +508,7 @@ function arcDates(anchor: string, month: string): {
 
   // Tease — must land strictly BEFORE the launch.
   const teasePart = LAUNCH_ARC[0]!;
-  const teaseWanted = at(teasePart.offsetDays);
+  const teaseWanted = wanted(given.tease, teasePart.offsetDays);
   if (teaseWanted < launchDate) {
     parts.push({ date: teaseWanted, label: teasePart.label, format: teasePart.format });
   } else if (launchDate > first) {
@@ -499,7 +521,7 @@ function arcDates(anchor: string, month: string): {
 
   // Follow-up — must land strictly AFTER the launch. Same rule, mirrored off the month end.
   const followPart = LAUNCH_ARC[2]!;
-  const followWanted = at(followPart.offsetDays);
+  const followWanted = wanted(given.followUp, followPart.offsetDays);
   if (followWanted > launchDate) {
     parts.push({ date: followWanted, label: followPart.label, format: followPart.format });
   } else if (launchDate < last) {
@@ -1304,9 +1326,12 @@ export function applyIntent(
    *  every other kind's callers are unchanged; omitting it narrows an emphasis match to the
    *  month's own pillars rather than widening it to anything (`applyEmphasis`). */
   clientPillars: readonly string[] = [],
+  /** The extractor's own dates for this intent's subject (brief-schedule.ts). Only the launch
+   *  arc reads them; every other kind ignores the argument entirely. */
+  given: BriefArcDates = {},
 ): TransformResult {
   switch (intent.kind) {
-    case 'launch':    return applyLaunchArc(intent, beats, month);
+    case 'launch':    return applyLaunchArc(intent, beats, month, given);
     case 'event':     return applyEvent(intent, beats, month);
     case 'series':    return applySeries(intent, beats, month);
     case 'beat_spec': return applyBeatSpec(intent, beats, month);

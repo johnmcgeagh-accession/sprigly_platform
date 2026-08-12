@@ -724,7 +724,9 @@ export async function applyIntakeToDraft(params: {
     ? { ...(routing.intent as MonthScopedIntent), dateRange: { start: arc.launch, end: arc.launch } }
     : (routing.intent as MonthScopedIntent);
 
-  const result = applyIntent(intent, before, planMonth, today, clientPillars);
+  // `arc` rides along for the launch branch: the constant's [-5, 0, +3] is a shape we assume
+  // when we know nothing, and where the brief dated a part the client told us the shape.
+  const result = applyIntent(intent, before, planMonth, today, clientPillars, arc);
 
   /**
    * ── CONTEXT FOR THIS MONTH, NOT AN IDEA FOR LATER ────────────────────────────────
