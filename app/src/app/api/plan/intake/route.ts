@@ -20,8 +20,11 @@ import { NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import { db, contentCycles, clearStructuredBriefIfPrePlanning, PRE_PLANNING_STATUSES } from '@sprigly/db';
 import { createAuditLogger } from '@sprigly/audit';
-import { extractStructuredBrief, distributeBriefAnswers, loadDurableInputs, BASE_QUESTIONS, type IntakeJson, type StructuredBrief } from '@sprigly/engine';
-import type { ExtractedSummary } from '@/lib/types';
+import { extractStructuredBrief, distributeBriefAnswers, loadDurableInputs, BASE_QUESTIONS, type IntakeJson, type StructuredBrief, type CurrentPlanBeat } from '@sprigly/engine';
+import type { DraftBeatView, ExtractedSummary } from '@/lib/types';
+// The ONLY sanctioned reader of draft rows (plan.ts) — the brief is extracted against the month
+// as it currently stands, so a sentence naming a date resolves against what is already there.
+import { loadDraftBeats } from '@/lib/plan';
 // The save path and the LATER page loads describe a brief with the same sentences — see
 // brief-summary.ts for why that is one definition and not two.
 import { summariseBrief } from '@/lib/brief-summary';
@@ -48,19 +51,42 @@ async function loadDurableContext(clientId: string, planMonth: string): Promise<
 }
 
 /**
+ * The month as it currently stands, for the extractor's CURRENT PLAN section.
+ *
+ * Best-effort on the same terms as `loadDurableContext` above: a failed read costs the
+ * extraction its context, never the client's save. Returns the full `DraftBeatView` because the
+ * caller needs BOTH facts this read carries — the titles and dates the extractor is given, and
+ * whether there is a draft here to reshape at all. One read, one answer to "what is on this
+ * month"; two would be two answers, and they would drift.
+ */
+async function loadCurrentPlan(clientId: string, cycleId: string): Promise<DraftBeatView[]> {
+  try { return await loadDraftBeats(clientId, cycleId); } catch { return []; }
+}
+
+/** Project draft beats down to what the extractor is allowed to see: title and date. */
+const asPlanState = (beats: readonly DraftBeatView[]): CurrentPlanBeat[] =>
+  beats.map((b) => ({ date: b.date, title: b.title }));
+
+/**
  * FIX 2 — extract the structured brief inline and persist it, so beats appear immediately after
  * Send. The intake_json is already SAVED before this runs, so a failed/slow/malformed extraction
  * never loses the brief: on any error we return false and leave structured_brief null (the
  * extract-gate's fail-loud validation still applies — a malformed brief is never persisted), and
  * the lazy planning-path re-extracts later. Returns whether beats are now ready.
  */
-async function extractAndPersistBrief(cycleId: string, cycleMonth: string, intake: IntakeJson, clientId: string): Promise<StructuredBrief | null> {
+async function extractAndPersistBrief(
+  cycleId: string, cycleMonth: string, intake: IntakeJson, clientId: string,
+  /** The month as it stands RIGHT NOW — read by the caller before any reshape, so the brief is
+   *  interpreted against the state the client was looking at when they wrote it. */
+  currentPlan: readonly CurrentPlanBeat[] = [],
+): Promise<StructuredBrief | null> {
   try {
     const planMonth = nextMonth(cycleMonth);
     const durableContext = await loadDurableContext(clientId, planMonth);
     const brief = await Promise.race([
       extractStructuredBrief({
         planContent: intake.planContent, planMonth, model: getModelClient(), clientId, durableContext,
+        currentPlan,
         // The heaviest single call on this route (one Sonnet extraction of the whole brief) and
         // it was leaving no row. `extractStructuredBrief` has taken an auditor all along and
         // logs behind `if (audit && clientId)` — clientId was already being passed; the auditor
@@ -210,6 +236,15 @@ export async function POST(req: Request) {
     let beatsReady = false;
     let extracted: ExtractedSummary | undefined;
     if (hasIntakeContent) {
+      /**
+       * THE MONTH AS THE CLIENT LEFT IT, read before anything in this request changes it.
+       *
+       * Two consumers, deliberately one read: it is the extractor's CURRENT PLAN section (so
+       * "move the launch post" resolves against real dates), and it is the test for whether
+       * this cycle has a draft to reshape at all. Reading it after the reshape would give the
+       * extractor a month that already contains the answer to the brief it is extracting.
+       */
+      const beatsBefore = await loadCurrentPlan(clientId, cycleId);
       const next = mergeIntake(cycle.intakeJson as IntakeJson | null, answers, freeNotes, source);
       // Prompt 2: distribute the running freeform brief across EMPTY base-question answer slots
       // (non-fatal) BEFORE persisting, so the generator + admin IntakePanel see populated answers.
@@ -254,7 +289,7 @@ export async function POST(req: Request) {
       // Intake changed → clear the extract-once brief (Build 1 helper), then FIX 2: extract + persist
       // inline so beats appear immediately. Intake is already saved; extraction failure is non-fatal.
       await clearStructuredBriefIfPrePlanning(db, cycleId);
-      const brief = await extractAndPersistBrief(cycleId, cycle.cycleMonth, next, clientId);
+      const brief = await extractAndPersistBrief(cycleId, cycle.cycleMonth, next, clientId, asPlanState(beatsBefore));
       beatsReady = brief !== null;
       if (brief) extracted = summariseBrief(brief);
     }
