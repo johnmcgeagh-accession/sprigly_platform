@@ -16,6 +16,7 @@ import { and, eq } from 'drizzle-orm';
 import { db, contentCycles } from '@sprigly/db';
 import { getSession } from '@/lib/auth';
 import { loadDraftBeats, loadDraftSurfaceContext } from '@/lib/plan';
+import { resolveWriteCycle, requestedCycleId } from '@/lib/write-cycle';
 import {
   moveBeat, swapFormat, dropBeat, addBeat, restoreBeat, reorderWithinDay,
   type DraftMutationResult,
@@ -75,10 +76,27 @@ export async function POST(req: Request) {
   try { body = (await req.json()) as Record<string, unknown>; } catch { /* handled below */ }
 
   const op     = String(body['op'] ?? '');
-  // cycleId is only ever taken from the session for ops that create rows — a caller must
-  // not be able to plant a beat in a cycle they were not issued a link for (see runOp).
+
+  /**
+   * THE CYCLE IS THE ONE ON SCREEN, verified to be this client's.
+   *
+   * This used to read "cycleId is only ever taken from the session ... a caller must not be
+   * able to plant a beat in a cycle they were not issued a link for", which is LINK-scoping,
+   * and the surface has never worked that way: the month switcher walks the client across
+   * every cycle they own while the link keeps naming the one it was minted for. The result
+   * was that `add`, `restore` and `reorder` planted rows in the link's month while the client
+   * watched a different one — the same defect the read routes fixed by taking the viewed
+   * cycle and checking ownership. The guard is CLIENT-scoped now, which is the boundary that
+   * was always meant: your own months, not one of them.
+   *
+   * `move`, `format` and `drop` are unaffected either way — they resolve the cycle from the
+   * post id via requireDraftMutable and never consult this.
+   */
+  const target = await resolveWriteCycle(session, requestedCycleId(body));
+  if (!target.ok) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+
   try {
-    return await runOp(op, body, session);
+    return await runOp(op, body, session, target.cycleId);
   } catch (err) {
     // An UNEXPECTED failure — a constraint, a trigger, a dropped connection. Every guard
     // refusal above returns a typed result and never lands here, so anything reaching this
@@ -99,9 +117,13 @@ export async function POST(req: Request) {
 }
 
 /** The op dispatch itself. Split out so every branch sits inside the POST handler's catch. */
-async function runOp(op: string, body: Record<string, unknown>, session: { clientId: string; cycleId: string }) {
+async function runOp(
+  op: string, body: Record<string, unknown>,
+  session: { clientId: string; cycleId: string },
+  /** Already resolved and ownership-checked by the caller. Only the row-CREATING ops read it. */
+  cycleId: string,
+) {
   const postId = typeof body['postId'] === 'string' ? body['postId'] : '';
-  const cycleId = session.cycleId;
 
   switch (op) {
     case 'move': {

@@ -9,6 +9,8 @@ const h = vi.hoisted(() => ({
   addBacklogItemToMonth: vi.fn(),
   loadReceipts: vi.fn(),
   appendMessage: vi.fn(),
+  ensureConversation: vi.fn(),
+  owned: new Set<string>(),
 }));
 
 vi.mock('@/lib/auth', () => ({ getSession: async () => h.session }));
@@ -20,19 +22,30 @@ vi.mock('@/lib/draft-apply', () => ({
 }));
 // The route now writes the reshape into the per-cycle conversation (the sheet's thread).
 vi.mock('@/lib/agent/conversation', () => ({
-  ensureConversation: async () => 'conv-1',
+  ensureConversation: (...a: unknown[]) => { h.ensureConversation(...a); return Promise.resolve('conv-1'); },
   appendMessage: (...a: unknown[]) => h.appendMessage(...a),
+}));
+// Ownership, as the read routes already ask it. Only the set below is this client's.
+vi.mock('@/lib/agent/cycle-state', async (orig) => ({
+  ...(await orig() as object),
+  cycleBelongsToClient: async (_c: string, id: string) => h.owned.has(id),
+  getCycleMonth: async () => '2026-09',
 }));
 
 import { GET, POST } from './route';
 
 const CLIENT = 'client-1';
-const CYCLE  = 'cycle-1';
+const CYCLE  = '11111111-1111-4111-8111-111111111111';
+/** Another month of the SAME client — the one on screen. */
+const VIEWED = '22222222-2222-4222-8222-222222222222';
+const FOREIGN = '33333333-3333-4333-8333-333333333333';
 const APPLIED = {
   ok: true as const,
   application: { id: 'r-1', at: '2026-08-01T00:00:00Z', sourceText: 'x', scope: 'month_scoped', lines: ['Added: X, Mon 28 Sep'], changedIds: ['n1'] },
   beats: [{ id: 'n1' }],
 };
+
+const get = () => GET(new Request('http://x/api/plan/draft/apply'));
 
 const post = (body: unknown) =>
   POST(new Request('http://x/api/plan/draft/apply', { method: 'POST', body: JSON.stringify(body) }));
@@ -43,12 +56,14 @@ beforeEach(() => {
   h.addBacklogItemToMonth.mockReset().mockResolvedValue(APPLIED);
   h.loadReceipts.mockReset().mockResolvedValue([]);
   h.appendMessage.mockReset().mockResolvedValue('m-1');
+  h.ensureConversation.mockReset();
+  h.owned.clear(); h.owned.add(CYCLE); h.owned.add(VIEWED);
 });
 
 describe('auth', () => {
   it('refuses both verbs without a session', async () => {
     h.session = null;
-    expect((await GET()).status).toBe(401);
+    expect((await get()).status).toBe(401);
     expect((await post({ op: 'text', text: 'hello' })).status).toBe(401);
     expect(h.applyTextToDraft).not.toHaveBeenCalled();
   });
@@ -87,9 +102,25 @@ describe('op: text', () => {
     expect(h.applyTextToDraft).toHaveBeenCalled();
   });
 
-  it('takes identity from the SESSION, never the body', async () => {
-    await post({ op: 'text', text: 'x', clientId: 'someone-else', cycleId: 'their-cycle' });
-    expect(h.applyTextToDraft).toHaveBeenCalledWith(expect.objectContaining({ clientId: CLIENT, cycleId: CYCLE }));
+  /**
+   * The contract SPLIT here, and the split is the point.
+   *
+   * This used to read "takes identity from the SESSION, never the body" and asserted that a
+   * body-supplied cycleId was ignored. That is still true of WHO — clientId is the session's
+   * and a body can never change it. It is deliberately no longer true of WHICH MONTH: the
+   * viewed cycle now comes from the body, because the client can walk to a month their link
+   * does not name. What protects that is ownership, not provenance — an id we cannot verify
+   * is refused rather than quietly replaced with the session's.
+   */
+  it('takes the CLIENT from the session, never the body', async () => {
+    await post({ op: 'text', text: 'x', clientId: 'someone-else', cycleId: VIEWED });
+    expect(h.applyTextToDraft).toHaveBeenCalledWith(expect.objectContaining({ clientId: CLIENT, cycleId: VIEWED }));
+  });
+
+  it('refuses a body-supplied cycle it cannot verify, rather than silently using the session’s', async () => {
+    const res = await post({ op: 'text', text: 'x', cycleId: 'their-cycle' });
+    expect(res.status).toBe(403);
+    expect(h.applyTextToDraft).not.toHaveBeenCalled();
   });
 
   it('rejects empty or whitespace-only text before calling anything', async () => {
@@ -145,8 +176,60 @@ describe('validation and error mapping', () => {
 describe('GET — receipts survive reload', () => {
   it('returns the cycle’s stored receipts', async () => {
     h.loadReceipts.mockResolvedValue([APPLIED.application]);
-    const res = await GET();
+    const res = await get();
     expect(await res.json()).toEqual({ receipts: [APPLIED.application] });
     expect(h.loadReceipts).toHaveBeenCalledWith(CYCLE);
+  });
+});
+
+/**
+ * The cycle a write lands on.
+ *
+ * These posts used to carry no cycle, so every branch here took `session.cycleId` — the month
+ * the magic link named. A client browsing November on a September link had their reshape,
+ * their promoted idea, their receipt AND their conversation turn applied to September.
+ */
+describe('the write lands on the month the client is looking at', () => {
+  it('op:text applies to the VIEWED cycle, not the session’s', async () => {
+    await post({ op: 'text', text: 'move the launch', cycleId: VIEWED });
+    expect(h.applyTextToDraft).toHaveBeenCalledWith(expect.objectContaining({ cycleId: VIEWED }));
+  });
+
+  it('op:add_to_month promotes into the VIEWED cycle', async () => {
+    await post({ op: 'add_to_month', planInputId: 'pi-1', date: '2026-11-05', cycleId: VIEWED });
+    expect(h.addBacklogItemToMonth).toHaveBeenCalledWith(expect.objectContaining({ cycleId: VIEWED }));
+  });
+
+  it('the thread is opened on the VIEWED cycle too — receipt and beats cannot land apart', async () => {
+    await post({ op: 'text', text: 'move the launch', cycleId: VIEWED });
+    expect(h.ensureConversation).toHaveBeenCalledWith(CLIENT, VIEWED);
+  });
+
+  it('GET receipts reads the VIEWED cycle', async () => {
+    await GET(new Request(`http://x/api/plan/draft/apply?cycleId=${VIEWED}`));
+    expect(h.loadReceipts).toHaveBeenCalledWith(VIEWED);
+  });
+
+  it('falls back to the session’s cycle when none is sent — older callers still work', async () => {
+    await post({ op: 'text', text: 'move the launch' });
+    expect(h.applyTextToDraft).toHaveBeenCalledWith(expect.objectContaining({ cycleId: CYCLE }));
+  });
+
+  it('REFUSES another client’s cycle, and writes nothing', async () => {
+    const res = await post({ op: 'text', text: 'move the launch', cycleId: FOREIGN });
+    expect(res.status).toBe(403);
+    expect(h.applyTextToDraft).not.toHaveBeenCalled();
+  });
+
+  it('REFUSES a malformed cycle rather than defaulting to the session’s', async () => {
+    const res = await post({ op: 'text', text: 'move the launch', cycleId: 'not-a-uuid' });
+    expect(res.status).toBe(403);
+    expect(h.applyTextToDraft).not.toHaveBeenCalled();
+  });
+
+  it('refuses BEFORE the op is dispatched — an unknown op on a foreign cycle is still 403', async () => {
+    const res = await post({ op: 'add_to_month', planInputId: 'pi-1', date: '2026-11-05', cycleId: FOREIGN });
+    expect(res.status).toBe(403);
+    expect(h.addBacklogItemToMonth).not.toHaveBeenCalled();
   });
 });

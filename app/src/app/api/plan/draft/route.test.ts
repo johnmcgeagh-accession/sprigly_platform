@@ -17,9 +17,15 @@ const h = vi.hoisted(() => ({
   dropBeat: vi.fn(),
   addBeat: vi.fn(),
   reorderWithinDay: vi.fn(),
+  restoreBeat: vi.fn(),
+  owned: new Set<string>(),
 }));
 
 vi.mock('@/lib/auth', () => ({ getSession: async () => h.session }));
+// Ownership, asked the same way the read routes ask it.
+vi.mock('@/lib/agent/cycle-state', () => ({
+  cycleBelongsToClient: async (_c: string, id: string) => h.owned.has(id),
+}));
 vi.mock('@/lib/plan', () => ({
   loadDraftBeats: (...a: unknown[]) => h.loadDraftBeats(...a),
   loadDraftSurfaceContext: (...a: unknown[]) => h.loadDraftSurfaceContext(...a),
@@ -36,12 +42,16 @@ vi.mock('@/lib/draft-mutations', () => ({
   dropBeat:         (...a: unknown[]) => h.dropBeat(...a),
   addBeat:          (...a: unknown[]) => h.addBeat(...a),
   reorderWithinDay: (...a: unknown[]) => h.reorderWithinDay(...a),
+  restoreBeat:      (...a: unknown[]) => h.restoreBeat(...a),
 }));
 
 import { GET, POST } from './route';
 
 const CLIENT = 'client-1';
-const CYCLE  = 'cycle-1';
+const CYCLE  = '11111111-1111-4111-8111-111111111111';
+/** Another month of the SAME client — the one on screen. */
+const VIEWED = '22222222-2222-4222-8222-222222222222';
+const FOREIGN = '33333333-3333-4333-8333-333333333333';
 const OK = { ok: true as const, beats: [{ id: 'beat-1' }] };
 
 const post = (body: unknown) =>
@@ -49,6 +59,8 @@ const post = (body: unknown) =>
 
 beforeEach(() => {
   h.session = { clientId: CLIENT, cycleId: CYCLE };
+  h.owned.clear(); h.owned.add(CYCLE); h.owned.add(VIEWED);
+  h.restoreBeat.mockReset().mockResolvedValue({ ok: true, beats: [] });
   for (const fn of [h.loadDraftBeats, h.loadDraftSurfaceContext, h.moveBeat, h.swapFormat, h.dropBeat, h.addBeat, h.reorderWithinDay]) fn.mockReset();
   h.loadDraftBeats.mockResolvedValue([]);
   h.loadDraftSurfaceContext.mockResolvedValue({ pillars: [], editable: true, receipts: [] });
@@ -124,10 +136,52 @@ describe('op dispatch', () => {
     expect(h.dropBeat).toHaveBeenCalledWith(CLIENT, 'p1');
   });
 
-  it('add → addBeat, with the cycle from the SESSION not the body', async () => {
-    // A caller must not be able to plant a beat in a cycle they were not issued a link for.
-    await post({ op: 'add', cycleId: 'someone-elses-cycle', date: '2026-09-10', format: 'reel', pillar: 'Home & Space' });
+  /**
+   * THE RULE CHANGED, and the old assertion is the bug it was protecting.
+   *
+   * This read "with the cycle from the SESSION not the body", on the premise that a caller
+   * must not plant a beat in a cycle they were not issued a link for. That is LINK-scoping,
+   * and the surface has never worked that way — the month switcher walks the client across
+   * every cycle they own while the link keeps naming one. The result was that `add` planted
+   * rows in the link's month while the client watched a different one.
+   *
+   * The boundary is the CLIENT, which is what the read routes already enforce. A month they
+   * own is honoured; anything else is refused, not quietly swapped for the session's.
+   */
+  it('add → addBeat, on the VIEWED cycle when the client owns it', async () => {
+    await post({ op: 'add', cycleId: VIEWED, date: '2026-09-10', format: 'reel', pillar: 'Home & Space' });
+    expect(h.addBeat).toHaveBeenCalledWith(CLIENT, VIEWED, { date: '2026-09-10', format: 'reel', pillar: 'Home & Space' });
+  });
+
+  it('add → addBeat, on the SESSION cycle when no cycle is sent', async () => {
+    await post({ op: 'add', date: '2026-09-10', format: 'reel', pillar: 'Home & Space' });
     expect(h.addBeat).toHaveBeenCalledWith(CLIENT, CYCLE, { date: '2026-09-10', format: 'reel', pillar: 'Home & Space' });
+  });
+
+  it('REFUSES a cycle the client does not own, and plants nothing', async () => {
+    const res = await post({ op: 'add', cycleId: FOREIGN, date: '2026-09-10', format: 'reel', pillar: 'Home & Space' });
+    expect(res.status).toBe(403);
+    expect(h.addBeat).not.toHaveBeenCalled();
+  });
+
+  it('REFUSES a malformed cycle rather than defaulting to the session’s', async () => {
+    const res = await post({ op: 'add', cycleId: 'someone-elses-cycle', date: '2026-09-10', format: 'reel', pillar: 'Home & Space' });
+    expect(res.status).toBe(403);
+    expect(h.addBeat).not.toHaveBeenCalled();
+  });
+
+  it('reorder and restore follow the same cycle as add', async () => {
+    await post({ op: 'reorder', cycleId: VIEWED, date: '2026-09-02', postIds: ['a'] });
+    expect(h.reorderWithinDay).toHaveBeenCalledWith(CLIENT, VIEWED, '2026-09-02', ['a']);
+    await post({ op: 'restore', cycleId: VIEWED, postId: 'p1' });
+    expect(h.restoreBeat).toHaveBeenCalledWith(CLIENT, VIEWED, { id: 'p1' });
+  });
+
+  /** move/format/drop resolve the cycle from the POST id, so they never consult it at all —
+   *  a foreign cycleId on one of those is simply irrelevant, not a refusal. */
+  it('leaves move/format/drop alone — they resolve the cycle from the post', async () => {
+    await post({ op: 'move', postId: 'p1', date: '2026-09-11', cycleId: VIEWED });
+    expect(h.moveBeat).toHaveBeenCalledWith(CLIENT, 'p1', '2026-09-11');
   });
 
   it('reorder → reorderWithinDay, filtering non-string ids', async () => {

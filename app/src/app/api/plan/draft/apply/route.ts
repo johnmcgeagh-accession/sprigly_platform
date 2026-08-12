@@ -24,6 +24,7 @@ import { applyTextToDraft, addBacklogItemToMonth, loadReceipts } from '@/lib/dra
 import { ensureConversation, appendMessage } from '@/lib/agent/conversation';
 import { threadMessage } from '@/lib/receipt-copy';
 import { getCycleMonth, monthLabel } from '@/lib/agent/cycle-state';
+import { resolveWriteCycle, requestedCycleId } from '@/lib/write-cycle';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,10 +35,13 @@ const STATUS: Record<string, number> = {
   cutoff_passed: 409,
 };
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'no_session' }, { status: 401 });
-  return NextResponse.json({ receipts: await loadReceipts(session.cycleId) });
+  // The receipts belong to the month ON SCREEN, not to the month the link names.
+  const target = await resolveWriteCycle(session, new URL(req.url).searchParams.get('cycleId'));
+  if (!target.ok) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  return NextResponse.json({ receipts: await loadReceipts(target.cycleId) });
 }
 
 export async function POST(req: Request) {
@@ -49,6 +53,17 @@ export async function POST(req: Request) {
 
   const op = String(body['op'] ?? 'text');
 
+  /**
+   * THE MONTH THE CLIENT IS LOOKING AT, not the one their link names.
+   *
+   * Resolved once, before any branch, so every write below — the reshape, the promotion, the
+   * receipt and the conversation turn — lands on the same cycle. Splitting it per branch is
+   * how the receipt came to be filed on a different month from the beats it described.
+   */
+  const target = await resolveWriteCycle(session, requestedCycleId(body));
+  if (!target.ok) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  const cycleId = target.cycleId;
+
   if (op === 'add_to_month') {
     const planInputId = String(body['planInputId'] ?? '');
     const date = String(body['date'] ?? '');
@@ -56,7 +71,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'bad_request' }, { status: 400 });
     }
     const res = await addBacklogItemToMonth({
-      clientId: session.clientId, cycleId: session.cycleId, planInputId, date, model: getModelClient(),
+      clientId: session.clientId, cycleId, planInputId, date, model: getModelClient(),
     });
     return res.ok
       ? NextResponse.json({ ok: true, application: res.application, beats: res.beats })
@@ -77,7 +92,7 @@ export async function POST(req: Request) {
   // applyTextToDraft decides: a pasted DOCUMENT goes through the decomposer, a single
   // instruction takes the existing path, byte-identical. The route stays thin.
   const res = await applyTextToDraft({
-    clientId: session.clientId, cycleId: session.cycleId, text, source, model: getModelClient(),
+    clientId: session.clientId, cycleId, text, source, model: getModelClient(),
   });
 
   // THE THREAD (conversation sheet). A draft reshape is a turn of the same per-cycle
@@ -87,14 +102,14 @@ export async function POST(req: Request) {
   let conversationId: string | null = null;
   if (res.ok) {
     try {
-      conversationId = await ensureConversation(session.clientId, session.cycleId);
+      conversationId = await ensureConversation(session.clientId, cycleId);
       await appendMessage({ conversationId, role: 'user', content: text, source, writer: 'draft-apply', outcome: 'user' });
       // THE STORED TRANSCRIPT IS THE COPY THAT OUTLIVES THE SESSION, and it was the fifth
       // emitter of the same sentence — hardcoded here, branching on `scope` alone, written into
       // the conversation where it disagrees with the receipt permanently. It reads the same rule
       // as the thread now. The month is fetched for it: a family sentence names the month, and
       // "this month" in a transcript read back weeks later names nothing.
-      const planMonth = await getCycleMonth(session.clientId, session.cycleId).catch(() => null);
+      const planMonth = await getCycleMonth(session.clientId, cycleId).catch(() => null);
       await appendMessage({
         conversationId, role: 'assistant',
         // Bare month name, no year — `DraftSurface` renders `monthTitle(month).split(' ')[0]`,
