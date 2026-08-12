@@ -6,8 +6,11 @@
  * no quantity at all. The follow-up — "I only wanted one of those moving" — then had nothing
  * to act on, so conversation memory landing (853c7eb) fixed the reading and not the doing.
  *
- * The boundary this file guards hardest is the one the code warns about in prose: cardinality
- * narrows the DATE-SCOPED fallback only. A named subject is an arc and moves whole.
+ * The boundary this file guards hardest: narrowing happens when the client STATED a number,
+ * and only then. An unqualified ask moves everything on both paths — a date wholesale, an arc
+ * whole — because a phrasing that works must not quietly start doing less. An explicit count
+ * narrows either, because the client's own words outrank both the date they pointed at and
+ * the title the classifier chose.
  *
  * Pure — no model, no DB.
  */
@@ -132,14 +135,15 @@ describe('a date holding exactly one beat is unchanged', () => {
 });
 
 /**
- * ── THE NAMED-SUBJECT PATH IS UNTOUCHED ──────────────────────────────────────────────
+ * ── AN ARC MOVES WHOLE UNLESS THE CLIENT SAYS OTHERWISE ──────────────────────────────
  *
  * `draft-transforms.ts` records why `resolveBeatRef` and `beatsOnNamedDate` must not be
  * collapsed: the first identifies one post and its caller refuses ambiguity, the second may
- * return several and its caller moves them together. Cardinality narrows the SECOND only.
- * An arc is a shape, and taking one beat out of it is not a smaller version of the ask.
+ * return several and its caller moves them together. That protects an arc from a RESOLVER
+ * quietly picking one of three, which is still true here — nothing narrows unless a number
+ * was stated. What it does not cover is the client stating one, which is the case below.
  */
-describe('a named subject moves whole, singular phrasing or not', () => {
+describe('a named subject moves whole unless a count says otherwise', () => {
   const arc = (): TransformBeat[] => {
     const meta = { slotType: 'proven' as const, rationaleEvidence: { basis: 'client_input', reason: 'the Hannah launch' } as never };
     return [
@@ -158,14 +162,25 @@ describe('a named subject moves whole, singular phrasing or not', () => {
     expect(movedIds(r)).toEqual(['h1', 'h2', 'h3']);
   });
 
-  it('a SINGULAR sentence does not narrow an arc — cardinality never reaches this path', () => {
+  /**
+   * REVERSED by operator ruling, and the reversal is the point.
+   *
+   * This used to assert that a singular sentence could not narrow an arc. It cost the client
+   * six moved posts live (see the T2 block below), and the principle that settles it was
+   * already in the file: the client's own words beat the model's restatement. `sourceText`
+   * outranks `correctionOf`; by the same rule an explicit "a post" outranks a title match.
+   */
+  it('an EXPLICIT count narrows an arc — the client said how many they wanted', () => {
     const r = applyCorrection(
       say('move a post from the Hannah launch to the 20th', {
         subject: 'Hannah launch', correctionOf: 'Hannah launch',
         dateRange: { start: '2026-11-20', end: '2026-11-20' },
       }), arc(), '2026-11');
-    expect(movedIds(r)).toEqual(['h1', 'h2', 'h3']);
-    expect(r.note).toBe('Moved all 3 posts for “Hannah launch”, keeping the same spacing.');
+    expect(movedIds(r)).toEqual(['h1']);
+    expect(r.note).toBe(
+      'Moved 1 of the 3 posts matching “Hannah launch” — the one on Sun 1 Nov.'
+      + ' Say “move all of them” if you meant the whole run.',
+    );
   });
 
   it('keeps the arc’s relative spacing when it moves', () => {
@@ -263,5 +278,82 @@ describe('a phrase that is only a quantity and a date', () => {
     // on an empty word list. The distinction is kept so the two reasons stay separable.
     expect(namesNoSubject('the 17th')).toBe(false);
     expect(namesNoSubject('')).toBe(false);
+  });
+});
+
+/**
+ * ── THE T2 REGRESSION ────────────────────────────────────────────────────────────────
+ *
+ * Live on cycle 5ea00045, with conversation memory in place:
+ *
+ *   T1  "move a post from the 12th to the 5th"   → one beat moved. Correct.
+ *   T2  "I only wanted one of those moving"      → SIX beats of the Hannah arc moved a week.
+ *
+ * The chain: the thread let the classifier resolve "those", so `correctionOf` came back as
+ * the previous turn's post TITLE; a title is a named subject; the named path moved every
+ * match; and `resolveBeatSubject` matched all six Hannah beats because every significant
+ * word of "Hannah in green — Launch" appears in each of them. Undoing one move cost six.
+ */
+describe('the T2 regression — a correction naming the previous turn’s post', () => {
+  /** The Hannah arc as it stood at T2: two beats share the title the previous turn named. */
+  const hannah = (): TransformBeat[] => {
+    const m = (reason: string) => ({ slotType: 'proven' as const, rationaleEvidence: { basis: 'client_input', reason } as never });
+    const src = 'launching Hannah in green';
+    return [
+      beat({ id: 'n1', date: '2026-11-05', title: 'Hannah in green — Launch',    beatMeta: m(src), position: 48 }),
+      beat({ id: 'n2', date: '2026-11-07', title: 'Hannah in green — Tease',     beatMeta: m(src), position: 47 }),
+      beat({ id: 'n3', date: '2026-11-15', title: 'Hannah in green — Follow-up', beatMeta: m(src), position: 49 }),
+      beat({ id: 'n4', date: '2026-11-18', title: 'Hannah in green — Tease',     beatMeta: m(src), position: 41 }),
+      beat({ id: 'n5', date: '2026-11-22', title: 'Hannah in green — Launch',    beatMeta: m(src), position: 42 }),
+      beat({ id: 'n6', date: '2026-11-25', title: 'Hannah in green — Follow-up', beatMeta: m(src), position: 43 }),
+    ];
+  };
+
+  const t2 = (over = {}) => say('I only wanted one of those moving', {
+    subject: 'Hannah in green — Launch', correctionOf: 'Hannah in green — Launch',
+    dateRange: { start: '2026-11-12', end: '2026-11-12' }, ...over,
+  });
+
+  it('moves ONE beat, not six', () => {
+    expect(movedIds(applyCorrection(t2(), hannah(), '2026-11'))).toEqual(['n1']);
+  });
+
+  it('picks the beat the PREVIOUS TURN acted on — the exact title match, earliest', () => {
+    // n1 and n5 both carry the title verbatim; n2/n3/n4/n6 matched on the words alone.
+    // n1 is the one T1 moved, and it is the earlier of the two exact matches.
+    const r = applyCorrection(t2(), hannah(), '2026-11');
+    expect(movedIds(r)).toEqual(['n1']);
+    expect(r.ops).toEqual([{ op: 'update', id: 'n1', changes: { date: '2026-11-12' } }]);
+  });
+
+  it('prefers an exact title match over an EARLIER substring match', () => {
+    // The ranking must not collapse to "first by date", or a partial match sitting earlier
+    // in the month would win over the beat whose title the previous turn actually quoted.
+    const withEarlyNoise = [
+      beat({ id: 'early', date: '2026-11-02', title: 'Hannah in green — Tease', position: 1 }),
+      ...hannah(),
+    ];
+    expect(movedIds(applyCorrection(t2(), withEarlyNoise, '2026-11'))).toEqual(['n1']);
+  });
+
+  it('says it narrowed, how many matched, and which one it took', () => {
+    expect(applyCorrection(t2(), hannah(), '2026-11').note).toBe(
+      'Moved 1 of the 6 posts matching “Hannah in green — Launch” — the one on Thu 5 Nov.'
+      + ' Say “move all of them” if you meant the whole run.',
+    );
+  });
+
+  it('names DATES when narrowing a subject match, because the titles repeat', () => {
+    const r = applyCorrection(t2({ sourceText: 'move 2 of those to the 12th' }), hannah(), '2026-11');
+    expect(r.note).toBe(
+      'Moved 2 of the 6 posts matching “Hannah in green — Launch” — Thu 5 Nov and Sun 22 Nov.'
+      + ' Say “move all of them” if you meant the whole run.',
+    );
+  });
+
+  it('an UNQUALIFIED correction on the same arc still moves all six, keeping spacing', () => {
+    const r = applyCorrection(t2({ sourceText: 'move the Hannah launch to the 12th' }), hannah(), '2026-11');
+    expect(movedIds(r)).toEqual(['n1', 'n2', 'n3', 'n4', 'n5', 'n6']);
+    expect(r.note).toBe('Moved all 6 posts for “Hannah in green — Launch”, keeping the same spacing.');
   });
 });

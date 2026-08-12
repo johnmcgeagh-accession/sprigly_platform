@@ -1382,6 +1382,35 @@ export function namesNoSubject(subject: string): boolean {
 }
 
 /**
+ * WHICH OF THE MATCHES THE CLIENT MEANT, when they asked for fewer than we found.
+ *
+ * ── The beat the previous turn acted on comes first ──────────────────────────────────
+ *
+ * The thread does not reach this function — it is a string the route hands to the
+ * classifier, and the transform is pure. But the classifier's answer carries the signal
+ * anyway: on a correction that replies to the last turn, `correctionOf` is the TITLE it read
+ * off that turn's receipt. "I only wanted one of those moving" comes back as
+ * `correctionOf: "Hannah in green — Launch"` because that is what the previous turn moved.
+ *
+ * So an exact title match ranks first. It is not a heuristic about which beat is more
+ * important; it is the one piece of evidence available here about which beat was just
+ * discussed. Substring matches — the other five Hannah beats, which matched only because
+ * every significant word of the title appears in them too — rank below it.
+ *
+ * Ties break by date then position: the same order the date-scoped branch uses, and the
+ * order the client reads their own plan in. It is deterministic, and the receipt names what
+ * it took, so a wrong pick is visible on the turn it happens and correctable on the next.
+ */
+export function rankForNarrowing(matches: readonly TransformBeat[], subject: string): TransformBeat[] {
+  const needle = subject.trim().toLowerCase();
+  const exact = (b: TransformBeat) => b.title.trim().toLowerCase() === needle;
+  return [...matches].sort((a, b) =>
+    (Number(exact(b)) - Number(exact(a)))
+    || a.date.localeCompare(b.date)
+    || a.position - b.position);
+}
+
+/**
  * Apply a correction: move (or reformat) what is already on the plan.
  *
  * The uat failure this exists for: a client wrote "Meadow candle launch is the 10th not the
@@ -1419,15 +1448,6 @@ export function applyCorrection(intent: MonthScopedIntent, beats: TransformBeat[
   // A phrase that is only a quantity and a date names no subject, so the subject resolver is
   // not asked about it — see `namesNoSubject` for the match it was returning instead.
   const named = namesNoSubject(subject) ? [] : resolveBeatSubject(subject, beats);
-  /**
-   * WHICH RESOLVER FOUND THESE — and therefore whether cardinality may narrow them.
-   *
-   * Only the DATE-SCOPED fallback is narrowable. A named subject is an arc: "the Meadow
-   * launch" is three beats that move together, and taking one of them would break the shape
-   * the client is correcting. That is the divergence the note above `beatsOnNamedDate`
-   * records and warns against collapsing, and this is the line that keeps the two apart —
-   * `requestedCount` is never consulted when `resolveBeatSubject` matched.
-   */
   const dateScoped = named.length === 0;
   const matches = dateScoped ? beatsOnNamedDate(subject, beats) : named;
   if (matches.length === 0) {
@@ -1473,8 +1493,36 @@ export function applyCorrection(intent: MonthScopedIntent, beats: TransformBeat[
    * for three and the date holds two, so both move and the receipt says two. Refusing would
    * withhold a change they plainly wanted over an arithmetic disagreement.
    */
-  const wanted = dateScoped ? requestedCount(intent.sourceText) : null;
-  const chosen = wanted === null ? sorted : sorted.slice(0, wanted);
+  /**
+   * ── AN EXPLICIT COUNT OUTRANKS A TITLE MATCH (operator ruling) ───────────────────────
+   *
+   * This used to read `dateScoped ? requestedCount(...) : null` — cardinality was refused on
+   * the named-subject path outright, on the reasoning that an arc is a shape and one beat
+   * taken out of it is a broken shape rather than a smaller ask.
+   *
+   * That is right about "move the Meadow launch" and wrong about "I only wanted ONE of those
+   * moving". Live on cycle 5ea00045: the client corrected a single move, the classifier
+   * resolved "those" to the previous turn's post title, a title is a named subject, and six
+   * beats of the Hannah arc moved a week. Undoing one move cost them six.
+   *
+   * The principle is the one already governing `requestedCount`'s input: the CLIENT'S OWN
+   * WORDS beat the model's restatement. `sourceText` outranks `correctionOf` because one is
+   * what they typed and the other is a paraphrase; by the same rule an explicit "one" they
+   * typed outranks a title the classifier chose. The comment above `beatsOnNamedDate`
+   * protects an arc from ARBITRARY narrowing — from a resolver quietly picking one of three
+   * — and it does not contemplate the client saying how many they want. When they say it,
+   * they are not asking for a smaller version of the arc; they are telling us the arc was
+   * never what they meant.
+   *
+   * Unqualified is untouched on BOTH paths. `requestedCount` returns null unless the client
+   * stated a quantity, so "move the Meadow launch to the 10th" still moves all three beats,
+   * keeping their spacing, exactly as it always has.
+   */
+  const wanted = requestedCount(intent.sourceText);
+  const ranked = wanted === null || wanted >= sorted.length
+    ? sorted
+    : rankForNarrowing(sorted, subject);
+  const chosen = wanted === null ? ranked : ranked.slice(0, wanted);
   const narrowed = chosen.length < sorted.length;
 
   const anchor = parse(chosen[0]!.date);
@@ -1493,10 +1541,22 @@ export function applyCorrection(intent: MonthScopedIntent, beats: TransformBeat[
    * cannot see from the plan: the two that stayed put look no different from the two that
    * were never candidates.
    *
-   * The named-subject branch keeps its own sentence, unchanged, for the reason the whole
-   * file keeps those two paths apart.
+   * WHICH ATTRIBUTE NAMES THE CHOSEN BEATS depends on which resolver found them, because it
+   * has to be the one that tells them apart. Matches on a DATE all share that date, so their
+   * titles distinguish them. Matches on a SUBJECT often share a title — the Hannah arc has
+   * two beats called "Hannah in green — Launch" — so their dates do.
    */
   if (!dateScoped) {
+    if (narrowed) {
+      const which = chosen.length === 1
+        ? `the one on ${shortDate(chosen[0]!.date)}`
+        : chosen.map((b) => shortDate(b.date)).join(' and ');
+      return {
+        ops,
+        note: `Moved ${chosen.length} of the ${sorted.length} posts matching “${subject}” — ${which}.`
+          + ` Say “move all of them” if you meant the whole run.`,
+      };
+    }
     return sorted.length > 1
       ? { ops, note: `Moved all ${sorted.length} posts for “${subject}”, keeping the same spacing.` }
       : { ops };

@@ -106,6 +106,7 @@ export {
   replacementCandidates, byWeakestEvidence, isReplaceable, replacementTier, isClientTouched, isClientOriginated,
   isClientAdded, isFromEarlierInput, POOL_EMPTY_NOTE, deriveTitle, resolveBeatRef,
   resolveEmphasisTarget, resolveEmphasisIntent, requestedCount, namesNoSubject, applyCorrection,
+  rankForNarrowing,
 } from './draft-transforms.js';
 export type { TransformBeat, BeatOp, TransformResult, DeferredInstance, EmphasisTarget } from './draft-transforms.js';
 export { diffBeats, renderDiff, renderDelta, shortDate, isNoOp } from './draft-diff.js';
