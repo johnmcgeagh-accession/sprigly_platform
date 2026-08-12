@@ -1247,6 +1247,76 @@ export function beatsOnNamedDate(ref: string, beats: TransformBeat[]): Transform
     Number(b.date.slice(8, 10)) === day && (month === null || Number(b.date.slice(5, 7)) === month));
 }
 
+/** Numbers a client types as words. Twelve is the ceiling because a month's busiest date
+ *  holds a handful of beats — past that they say "all", which is its own rule below. */
+const NUMBER_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
+  seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+};
+const NUM = `\\d{1,2}|${Object.keys(NUMBER_WORDS).join('|')}`;
+/** The nouns a count can attach to. "of them/those/these" is how a correction refers back to
+ *  a previous turn's list — "I only wanted one of those moving". */
+const COUNTED = `(?:posts?|beats?)|of\\s+(?:them|those|these|the\\s+posts?)`;
+
+const ALL_MARKER   = /\b(?:all|every|everything|them all|the whole (?:day|lot))\b/;
+const BOTH_MARKER  = /\bboth\b/;
+const COUNT_NOUN   = new RegExp(`\\b(${NUM})\\s+(?:more\\s+|other\\s+)?(?:${COUNTED})\\b`);
+/** A singular determiner on the noun itself. "the post" counts: a client who writes it
+ *  believes there is one, and telling them there were three is more use than moving three. */
+const SINGULAR     = /\b(?:a|the|another|just one|only one|a single|the single)\s+(?:single\s+)?post\b|\bjust one\b|\bonly one\b/;
+
+/**
+ * HOW MANY BEATS DID THE CLIENT ASK FOR? — read from their own words.
+ *
+ * ── Why the sentence and not the model ───────────────────────────────────────────────
+ *
+ * "a post" versus "the posts" versus "2 posts" is a fact about GRAMMAR, not a judgement
+ * about content, and this file already has the precedent for where those belong:
+ * `parsePlanQuestion` claims a question before the model runs for exactly this reason —
+ * "it is a fact about the sentence's grammar, not a judgement about its content, and a
+ * judgement is what went wrong". A model call here would add cost and variance to answer a
+ * question the words have already answered.
+ *
+ * It reads `intent.sourceText`, which is the client's message VERBATIM — `routeFromParsed`
+ * overwrites whatever the model returned with what we actually received, so it cannot be
+ * paraphrased out from under this. `correctionOf` is deliberately NOT read: it is the
+ * model's restatement, and it is where a plural can quietly become a singular.
+ *
+ * ── null means "they did not say", not "one" ─────────────────────────────────────────
+ *
+ * Unrecognised phrasing returns null and the caller moves everything, which is the
+ * behaviour that shipped. A parser that guessed would turn "move the 17th to the 10th"
+ * into a silent partial move, and a partial move nobody asked for is the failure this is
+ * meant to prevent, pointing the other way.
+ *
+ * WHAT IT DOES NOT HANDLE, deliberately — each falls through to null (move everything):
+ *   ordinal selection   "the second post on the 17th"   — picking by position, not counting
+ *   fuzzy quantities    "a couple of posts", "most of them", "a few"
+ *   exclusions          "all but one", "everything except the reel"
+ *   "all 3" with a different number of matches: ALL wins and the receipt states the real
+ *   count, rather than this trying to referee a client who contradicted themselves.
+ */
+export function requestedCount(sentence: string): number | null {
+  const t = (sentence ?? '').toLowerCase();
+  if (!t.trim()) return null;
+
+  // ALL is checked FIRST and beats every other marker. "move all 3 posts" is a client saying
+  // the same thing twice; if their number disagrees with the plan, the word is the safer read
+  // and the receipt names what actually moved.
+  if (ALL_MARKER.test(t)) return null;
+
+  const m = COUNT_NOUN.exec(t);
+  if (m) {
+    const raw = m[1]!;
+    const n = NUMBER_WORDS[raw] ?? Number(raw);
+    if (Number.isFinite(n) && n >= 1) return n;
+  }
+
+  if (BOTH_MARKER.test(t)) return 2;
+  if (SINGULAR.test(t)) return 1;
+  return null;
+}
+
 /**
  * Apply a correction: move (or reformat) what is already on the plan.
  *
