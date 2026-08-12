@@ -593,6 +593,15 @@ export async function applyIntakeToDraft(params: {
    * degrades to exactly the previous behaviour.
    */
   brief?: unknown;
+  /**
+   * The conversation so far, serialised by `threadForParser` — what the classifier reads to
+   * resolve a message that points backwards ("I only wanted one of those moving").
+   *
+   * Passed in rather than read here: the route owns the conversation, and it has to read the
+   * window BEFORE this turn's own message lands in it. Absent on the brief path and on the
+   * first turn of a session, and an absent thread leaves the classifier's prompt unchanged.
+   */
+  thread?: string;
 }): Promise<ApplyResult> {
   const { clientId, cycleId, text, model } = params;
   const source: InputSource = params.source ?? 'web';
@@ -616,7 +625,10 @@ export async function applyIntakeToDraft(params: {
   // caller never passed one. `params.routing` short-circuits it (the "add to this month" path
   // re-routes a backlog item without re-classifying), and that path spends nothing to log.
   const routing = params.routing
-    ?? await classifyIntake({ text: sourceText, planMonth, model, audit: createAuditLogger(db), clientId });
+    ?? await classifyIntake({
+      text: sourceText, planMonth, model, audit: createAuditLogger(db), clientId,
+      ...(params.thread ? { thread: params.thread } : {}),
+    });
 
   const base: Omit<DraftApplication, 'scope' | 'lines' | 'changedIds'> = {
     id: receiptId(now.getTime(), sourceText),
@@ -830,6 +842,15 @@ export async function applyTextToDraft(params: {
   source?:  InputSource;
   now?:     Date;
   today?:   string;
+  /**
+   * The conversation so far — see applyIntakeToDraft.
+   *
+   * It reaches the SINGLE-INSTRUCTION branch only. `applyBriefToDraft` declares no such field
+   * and reads none: a pasted document is not a reply to the last turn, and its segments are
+   * classified in isolation by design. The value rides along in `params` and is ignored there,
+   * which keeps the brief path byte-identical without a second call shape here.
+   */
+  thread?:  string;
 }): Promise<ApplyResult> {
   return isDocumentShaped(params.text.trim())
     ? applyBriefToDraft(params)

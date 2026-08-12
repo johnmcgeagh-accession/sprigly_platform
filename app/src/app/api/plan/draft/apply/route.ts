@@ -21,7 +21,7 @@ import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { getModelClient } from '@/lib/agent/model';
 import { applyTextToDraft, addBacklogItemToMonth, loadReceipts } from '@/lib/draft-apply';
-import { ensureConversation, appendMessage, conversationIsForCycle } from '@/lib/agent/conversation';
+import { ensureConversation, appendMessage, conversationIsForCycle, listTurns, threadForParser } from '@/lib/agent/conversation';
 import { threadMessage } from '@/lib/receipt-copy';
 import { receiptItems } from '@/lib/receipt-items';
 import { getCycleMonth, monthLabel } from '@/lib/agent/cycle-state';
@@ -109,10 +109,29 @@ export async function POST(req: Request) {
     ? sent
     : null;
 
+  /**
+   * ── THE THREAD, READ BEFORE THIS TURN'S MESSAGE LANDS ────────────────────────────────
+   *
+   * The same window and the same serialiser the committed path's parser reads
+   * (turn.ts:249-253). Read FIRST, so it is the conversation as it stood when the client
+   * spoke — a window that already contained this sentence would offer it to itself as
+   * context.
+   *
+   * An unreadable thread degrades to a threadless turn, never to a failed one: the client
+   * said something, and losing their sentence to a conversation read is a far worse failure
+   * than answering it without memory.
+   */
+  const thread = priorConversationId
+    ? await listTurns(session.clientId, priorConversationId)
+        .then((turns) => threadForParser(turns))
+        .catch(() => '')
+    : '';
+
   // applyTextToDraft decides: a pasted DOCUMENT goes through the decomposer, a single
   // instruction takes the existing path, byte-identical. The route stays thin.
   const res = await applyTextToDraft({
     clientId: session.clientId, cycleId, text, source, model: getModelClient(),
+    ...(thread ? { thread } : {}),
   });
 
   // THE THREAD (conversation sheet). A draft reshape is a turn of the same per-cycle

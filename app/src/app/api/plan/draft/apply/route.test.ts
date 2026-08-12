@@ -14,6 +14,9 @@ const h = vi.hoisted(() => ({
   /** conversationId → the cycle it belongs to. Anything absent is another client's or another
    *  month's, and must not be adopted. */
   threadsFor: new Map<string, string>(),
+  listTurns: vi.fn(),
+  /** The stored thread `listTurns` hands back. */
+  turns: [] as { role: string; content: string }[],
 }));
 
 vi.mock('@/lib/auth', () => ({ getSession: async () => h.session }));
@@ -30,6 +33,10 @@ vi.mock('@/lib/agent/conversation', () => ({
   // Per-month threads: only the ids in `h.threadsFor` belong to the cycle they are asked about.
   conversationIsForCycle: async (_c: string, id: string, cycleId: string) =>
     h.threadsFor.get(id) === cycleId,
+  // The window the classifier reads. `h.turns` stands in for the stored thread.
+  listTurns: async (...a: unknown[]) => { h.listTurns(...a); return h.turns; },
+  threadForParser: (turns: { role: string; content: string }[]) =>
+    turns.map((t) => `${t.role === 'user' ? 'CLIENT' : 'ASSISTANT'}: ${t.content}`).join('\n'),
 }));
 // Ownership, as the read routes already ask it. Only the set below is this client's.
 vi.mock('@/lib/agent/cycle-state', async (orig) => ({
@@ -64,7 +71,7 @@ beforeEach(() => {
   h.appendMessage.mockReset().mockResolvedValue('m-1');
   h.ensureConversation.mockReset();
   h.owned.clear(); h.owned.add(CYCLE); h.owned.add(VIEWED);
-  h.threadsFor.clear();
+  h.threadsFor.clear(); h.listTurns.mockReset(); h.turns = [];
 });
 
 /**
@@ -101,6 +108,60 @@ describe('the conversation is adopted, not re-opened every turn', () => {
   it('echoes the conversation back so the sheet can hold it for the next turn', async () => {
     const res = await post({ op: 'text', text: 'move the launch' });
     expect((await res.json()).conversationId).toBe('conv-1');
+  });
+});
+
+/**
+ * ── THE WINDOW REACHES THE CLASSIFIER ────────────────────────────────────────────────
+ *
+ * The route reads the thread and hands it to `applyTextToDraft`, which passes it to
+ * `classifyIntake`. Without it the classifier saw one sentence and a plan month, so "I only
+ * wanted one of those moving" had nothing to be a reply to.
+ */
+describe('the thread the classifier reads', () => {
+  const THREAD = [
+    { role: 'user', content: 'move a post from the 17th to the week before' },
+    { role: 'assistant', content: 'move "Ethical" 2026-11-17 → 2026-11-10' },
+  ];
+
+  it('is read from the adopted conversation and passed down', async () => {
+    h.threadsFor.set('conv-live', CYCLE);
+    h.turns = THREAD;
+    await post({ op: 'text', text: 'I only wanted one of those moving', conversationId: 'conv-live' });
+    expect(h.listTurns).toHaveBeenCalledWith(CLIENT, 'conv-live');
+    expect(h.applyTextToDraft).toHaveBeenCalledWith(expect.objectContaining({
+      thread: 'CLIENT: move a post from the 17th to the week before\nASSISTANT: move "Ethical" 2026-11-17 → 2026-11-10',
+    }));
+  });
+
+  it('is read BEFORE this turn’s own message is appended — the window is what they replied to', async () => {
+    h.threadsFor.set('conv-live', CYCLE);
+    h.turns = THREAD;
+    await post({ op: 'text', text: 'move it back', conversationId: 'conv-live' });
+    const readAt = h.listTurns.mock.invocationCallOrder[0]!;
+    const wroteAt = h.appendMessage.mock.invocationCallOrder[0]!;
+    expect(readAt).toBeLessThan(wroteAt);
+  });
+
+  it('is ABSENT on a first turn — no conversation, no window, unchanged behaviour', async () => {
+    await post({ op: 'text', text: 'move the launch' });
+    expect(h.listTurns).not.toHaveBeenCalled();
+    expect(h.applyTextToDraft).toHaveBeenCalledWith(expect.not.objectContaining({ thread: expect.anything() }));
+  });
+
+  it('is ABSENT when the id belongs to another month — the stale thread is never read', async () => {
+    h.threadsFor.set('conv-october', VIEWED);
+    await post({ op: 'text', text: 'no, the other one', conversationId: 'conv-october' });
+    expect(h.listTurns).not.toHaveBeenCalled();
+    expect(h.applyTextToDraft).toHaveBeenCalledWith(expect.not.objectContaining({ thread: expect.anything() }));
+  });
+
+  it('an unreadable thread degrades to a threadless turn, never a failed one', async () => {
+    h.threadsFor.set('conv-live', CYCLE);
+    h.listTurns.mockImplementationOnce(() => { throw new Error('db down'); });
+    const res = await post({ op: 'text', text: 'move it back', conversationId: 'conv-live' });
+    expect(res.status).toBe(200);
+    expect(h.applyTextToDraft).toHaveBeenCalledWith(expect.not.objectContaining({ thread: expect.anything() }));
   });
 });
 

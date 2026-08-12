@@ -12,7 +12,8 @@
     "cache-check": "sh -c 'set -a && . ../.env.local && set +a && vite-node --config vitest.config.ts scripts/cache-check.mts -- \"$@\"' --",
     "plan-facts-check": "sh -c 'set -a && . ../.env.local && set +a && vite-node --config vitest.config.ts scripts/plan-facts-check.mts -- \"$@\"' --",
     "query-eval": "sh -c 'set -a && . ../.env.local && set +a && vite-node --config vitest.config.ts scripts/query-eval-cli.mts -- \"$@\"' --",
-    "draft-path-check": "sh -c 'set -a && . ../.env.local && set +a && vite-node --config vitest.config.ts scripts/draft-path-check.mts -- \"$@\"' --"
+    "draft-path-check": "sh -c 'set -a && . ../.env.local && set +a && vite-node --config vitest.config.ts scripts/draft-path-check.mts -- \"$@\"' --",
+    "uat": "sh -c 'set -a && . ../.env.local && set +a && vitest run --config vitest.uat.config.ts \"$@\"' --"
   },
   "dependencies": {
     "@sprigly/audit": "workspace:*",

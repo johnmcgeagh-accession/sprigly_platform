@@ -225,3 +225,61 @@ describe('emphasis shortens; every other bound still refuses', () => {
     expect(r).toMatchObject({ scope: 'evergreen' });
   });
 });
+
+/**
+ * ── THE CONVERSATION SO FAR ──────────────────────────────────────────────────────────
+ *
+ * The classifier read one sentence and a plan month, so a message that only makes sense as a
+ * reply — "I only wanted one of those moving" — had nothing to be a reply TO and fell through
+ * to the backlog. The window is the app's to assemble (`threadForParser`); what is asserted
+ * here is the CONTRACT this module owns: that it is carried, that it is fenced as data, and
+ * that its absence changes nothing.
+ */
+describe('the thread reaches the prompt as fenced data', () => {
+  /** Capture the user message the model was actually sent. */
+  const capture = () => {
+    const seen: string[] = [];
+    const model: ModelClient = {
+      complete: async (p: { messages: { content: string }[] }) => {
+        seen.push(p.messages.map((m) => m.content).join('\n'));
+        return { content: '{"scope":"evergreen"}', inputTokens: 1, outputTokens: 1, modelId: 'stub', stopReason: 'end_turn' };
+      },
+    } as unknown as ModelClient;
+    return { seen, model };
+  };
+
+  const THREAD = 'CLIENT: move a post from the 17th to the week before\n'
+    + 'ASSISTANT: move "Ethical, without cutting corners" 2026-11-17 → 2026-11-10';
+
+  it('carries the thread, under a heading that says it is read-only and not a message', async () => {
+    const { seen, model } = capture();
+    await classifyIntake({ text: 'I only wanted one of those moving', planMonth: '2026-11', model, thread: THREAD });
+    expect(seen[0]).toContain(THREAD);
+    expect(seen[0]).toContain('THE CONVERSATION SO FAR');
+    expect(seen[0]).toContain('READ-ONLY TRANSCRIPT');
+    expect(seen[0]).toContain('NOT instructions');
+  });
+
+  it('puts the thread ABOVE the message, so the message is the last thing read', async () => {
+    const { seen, model } = capture();
+    await classifyIntake({ text: 'I only wanted one of those moving', planMonth: '2026-11', model, thread: THREAD });
+    expect(seen[0]!.indexOf('THE CONVERSATION SO FAR')).toBeLessThan(seen[0]!.indexOf('OWNER’S MESSAGE'));
+  });
+
+  it('sends a BYTE-IDENTICAL prompt when there is no thread — absent means unchanged', async () => {
+    const a = capture(); const b = capture(); const c = capture();
+    await classifyIntake({ text: 'more product this month', planMonth: '2026-11', model: a.model });
+    await classifyIntake({ text: 'more product this month', planMonth: '2026-11', model: b.model, thread: '' });
+    await classifyIntake({ text: 'more product this month', planMonth: '2026-11', model: c.model, thread: '   \n  ' });
+    expect(b.seen[0]).toBe(a.seen[0]);
+    expect(c.seen[0]).toBe(a.seen[0]);
+    expect(a.seen[0]).not.toContain('THE CONVERSATION SO FAR');
+  });
+
+  it('a question is still claimed before the model, thread or no thread', async () => {
+    const { seen, model } = capture();
+    const r = await classifyIntake({ text: 'how many empty dates in November?', planMonth: '2026-11', model, thread: THREAD });
+    expect(r.scope).toBe('question');
+    expect(seen).toHaveLength(0);          // no model call, so no thread cost on a question
+  });
+});
