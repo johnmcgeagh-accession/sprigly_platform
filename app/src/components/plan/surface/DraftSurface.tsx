@@ -56,6 +56,7 @@ import { IdeasPanel } from './IdeasPanel';
 import { monthSummary } from '@/lib/draft-rationale';
 import { DraftMonthSummary } from './DraftMonthSummary';
 import { Feedback } from './Feedback';
+import { MonthWorking } from './MonthWorking';
 import { SummaryChip } from './SummaryChip';
 import { ReceiptPanel } from './ReceiptPanel';
 import { chipLabel } from './receipt-summary';
@@ -413,6 +414,13 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
   );
   const hasHeaderControls = editable;
 
+  /**
+   * The wizard's brief is landing on THIS month — the one fact both shells render, and the one
+   * sentence a screen reader gets for it. See MonthWorking: the dots are decorative, so the
+   * name has to come from the surface that knows which month is waiting.
+   */
+  const workingLabel = `Working your brief into ${monthName}`;
+
   const summaryNode = (
     <DraftMonthSummary
       summary={summary} expanded={summaryOpen} onToggle={() => setSummaryOpen((v) => !v)}
@@ -466,19 +474,22 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
          * The committed desktop surface already passes both off for the same reason. This is
          * the pair matching, not a new rule.
          *
-         * ── THE ONE THING THAT DOES BELONG HERE: an intake save ──────────────────────────
+         * ── AND THE INTAKE SAVE DOES NOT BELONG HERE EITHER ──────────────────────────────
          *
-         * The rule above hands the working state to the dock because the dock is SAYING it —
-         * a reshape typed there produces a turn in that thread, three feet to the right. A
-         * brief submitted through the wizard produces no dock turn at all, and since the
-         * sheet now closes on submit rather than on completion, nothing else on this screen
-         * would say the month is being worked on. There is no second indicator to collide
-         * with, so the reason the rule exists does not reach this case.
+         * c1038f1 put it here, on the reasoning that a wizard brief produces no dock turn and
+         * so nothing else on this screen would say the month is being worked on. The fact was
+         * right and the mount was wrong: this bar renders `AgentSays`, which is a conversation
+         * turn's shape at a conversation column's measure, and `topSlot` gives it the whole
+         * plan width. A brief in flight became a full-bleed accent slab across the head of the
+         * month — heavier than Generate, which is the only ACTION on the screen.
+         *
+         * The state now renders on the month itself (`MonthWorking`, below), which is the thing
+         * it is about. This bar goes back to carrying undo and `flash()` only.
          */
         topSlot={<Feedback
           frame="desktop"
           undo={m.undo} onDismiss={() => m.setUndo(null)} message={data.toast}
-          agent={null} agentWorking={data.intakeBusy}
+          agent={null} agentWorking={false}
         />}
         {...(railView === 'ideas'
           ? { region: <IdeasPanel data={data} onOpen={openFromRegion} frame="desktop" /> }
@@ -486,22 +497,29 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
         {...(railView === 'tasks'
           ? { region: <TasksPanel data={data} onOpen={() => {}} frame="desktop" /> }
           : {})}
-        month={railView !== 'plan' ? null : showingReceipt && m.receipt ? (
-          <ReceiptPanel
-            receipt={m.receipt} monthName={monthName} editable={editable} rescuing={m.busy}
-            onRescue={(id) => void m.addToMonth(id, m.rescueDate())}
-            onClear={() => { setReceiptOpen(false); m.setReceipt(null); }}
-          />
-        ) : (
-          <>
-            {!threadCarriesReceipt && <SummaryChip label={label} expanded={receiptOpen} onToggle={() => setReceiptOpen((v) => !v)} />}
-            <MonthGrid
-              month={month} selected={selected} today={data.today} frame="desktop"
-              marksFor={marksFor} onPick={(iso) => setSelected(iso, 'user:grid')}
-              footer={monthFooter} lockToMonth
-            />
-            <div className="flex-none px-[22px] pb-5">{summaryNode}</div>
-          </>
+        /* The wizard's working state, on the column it is changing. The DAY column, the header
+           and the dock are outside it and stay live — a brief rewrites the month, and the month
+           is exactly what stops answering while it does. */
+        month={railView !== 'plan' ? null : (
+          <MonthWorking working={data.intakeBusy} label={workingLabel}>
+            {showingReceipt && m.receipt ? (
+              <ReceiptPanel
+                receipt={m.receipt} monthName={monthName} editable={editable} rescuing={m.busy}
+                onRescue={(id) => void m.addToMonth(id, m.rescueDate())}
+                onClear={() => { setReceiptOpen(false); m.setReceipt(null); }}
+              />
+            ) : (
+              <>
+                {!threadCarriesReceipt && <SummaryChip label={label} expanded={receiptOpen} onToggle={() => setReceiptOpen((v) => !v)} />}
+                <MonthGrid
+                  month={month} selected={selected} today={data.today} frame="desktop"
+                  marksFor={marksFor} onPick={(iso) => setSelected(iso, 'user:grid')}
+                  footer={monthFooter} lockToMonth
+                />
+                <div className="flex-none px-[22px] pb-5">{summaryNode}</div>
+              </>
+            )}
+          </MonthWorking>
         )}
         day={addNode('panel')
             ?? (openBeat
@@ -622,11 +640,12 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
         frame="mobile"
         undo={m.undo} onDismiss={() => m.setUndo(null)} message={data.toast}
         agent={voiceFor !== null ? null : data.agentToast}
-        // `intakeBusy` joins the same channel: the wizard closes on submit now, so this bar is
-        // the only thing left saying the brief is being worked into the month. It is NOT gated
-        // on `voiceFor === null` like the other two — the wizard is not the voice sheet, so an
-        // open sheet is not a second voice claiming the same work.
-        agentWorking={data.intakeBusy || (voiceFor === null && (data.agentBusy || m.shaping))}
+        // `intakeBusy` has LEFT this channel — see the desktop twin for the reasoning. A brief
+        // in flight is not a turn in a conversation, and giving it a conversation turn's shape
+        // across the whole plan width is what put a coral slab over the top of the month. It
+        // renders on the month now (`MonthWorking`). What is left here is the agent's own
+        // voice, on the rule X5a already set for it.
+        agentWorking={voiceFor === null && (data.agentBusy || m.shaping)}
       />}
       chip={!threadCarriesReceipt ? <SummaryChip label={label} expanded={receiptOpen} onToggle={() => setReceiptOpen((v) => !v)} /> : undefined}
       overlays={<>
@@ -691,51 +710,58 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
         />
       ) : null}
     >
-      {/* THE PANEL REPLACES THE VIEW rather than stacking over it. Not a sheet: a sheet implies
-          a task to finish and a way out to find, and this is a thing to read. The nav pill stays
-          live underneath, so leaving is the same gesture as changing view. */}
-      {showingReceipt && m.receipt && (
-        <ReceiptPanel
-          receipt={m.receipt} monthName={monthName} editable={editable} rescuing={m.busy}
-          onRescue={(id) => void m.addToMonth(id, m.rescueDate())}
-          onClear={() => {
-            setReceiptOpen(false);
-            // Clearing the summary NEVER un-marks what changed: "New" is `changedIds`, a
-            // different piece of state with a different lifetime (spec §3).
-            m.setReceipt(null);
-          }}
-        />
-      )}
+      {/* The content region, and the wizard's working state over whichever view is in it. It
+          wraps ALL FOUR branches rather than the two that hold a month: a wrapper that came and
+          went with the view would be a second flex child appearing in the column, which is the
+          reflow this treatment exists to avoid. The strip, the header and the nav pill are
+          above it in the shell and are untouched. */}
+      <MonthWorking working={data.intakeBusy} label={workingLabel}>
+        {/* THE PANEL REPLACES THE VIEW rather than stacking over it. Not a sheet: a sheet implies
+            a task to finish and a way out to find, and this is a thing to read. The nav pill stays
+            live underneath, so leaving is the same gesture as changing view. */}
+        {showingReceipt && m.receipt && (
+          <ReceiptPanel
+            receipt={m.receipt} monthName={monthName} editable={editable} rescuing={m.busy}
+            onRescue={(id) => void m.addToMonth(id, m.rescueDate())}
+            onClear={() => {
+              setReceiptOpen(false);
+              // Clearing the summary NEVER un-marks what changed: "New" is `changedIds`, a
+              // different piece of state with a different lifetime (spec §3).
+              m.setReceipt(null);
+            }}
+          />
+        )}
 
-      {!showingReceipt && view === 'day' && (
-        <DraftDayPanel
-          date={selected} today={data.today}
-          beats={beatsOn(selected)}
-          editable={editable && data.canEdit(selected)}
-          changedIds={m.changedIds}
-          onOpen={setOpenId}
-          onAdd={() => setAddFor(selected)}
-          // BOTH PROMPTS OPEN THE SAME SHEET the mic opens, and that is the point of
-          // putting them here: the client has just read the reasoning, and the one place to say
-          // something about it is the one place they already know.
-          summary={summaryNode}
-          footer={thinNote}
-        />
-      )}
-      {!showingReceipt && view === 'month' && (
-        <MonthGrid
-          month={month} selected={selected} today={data.today}
-          marksFor={marksFor} onPick={(iso) => setSelected(iso, 'user:grid')} footer={monthFooter} lockToMonth
-          summary={
-            <MonthDaySummary
-              date={selected} noun="planned post" empty="Nothing drafted"
-              items={beatsOn(selected).map((b) => ({ id: b.id, title: b.title, format: b.format }))}
-              onOpen={setOpenId}
-            />
-          }
-        />
-      )}
-      {!showingReceipt && view === 'tasks' && <TasksPanel data={data} onOpen={() => {}} />}
+        {!showingReceipt && view === 'day' && (
+          <DraftDayPanel
+            date={selected} today={data.today}
+            beats={beatsOn(selected)}
+            editable={editable && data.canEdit(selected)}
+            changedIds={m.changedIds}
+            onOpen={setOpenId}
+            onAdd={() => setAddFor(selected)}
+            // BOTH PROMPTS OPEN THE SAME SHEET the mic opens, and that is the point of
+            // putting them here: the client has just read the reasoning, and the one place to say
+            // something about it is the one place they already know.
+            summary={summaryNode}
+            footer={thinNote}
+          />
+        )}
+        {!showingReceipt && view === 'month' && (
+          <MonthGrid
+            month={month} selected={selected} today={data.today}
+            marksFor={marksFor} onPick={(iso) => setSelected(iso, 'user:grid')} footer={monthFooter} lockToMonth
+            summary={
+              <MonthDaySummary
+                date={selected} noun="planned post" empty="Nothing drafted"
+                items={beatsOn(selected).map((b) => ({ id: b.id, title: b.title, format: b.format }))}
+                onOpen={setOpenId}
+              />
+            }
+          />
+        )}
+        {!showingReceipt && view === 'tasks' && <TasksPanel data={data} onOpen={() => {}} />}
+      </MonthWorking>
     </PlanShell>
   );
 }

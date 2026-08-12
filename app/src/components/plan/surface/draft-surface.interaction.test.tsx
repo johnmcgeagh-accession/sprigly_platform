@@ -1455,19 +1455,69 @@ describe('a draft write names the month it is for', () => {
 describe('a brief submitted from the wizard, after the sheet has closed', () => {
   const OCT = [beat({ id: 'b1' }), beat({ id: 'b2', date: '2026-10-08', position: 1 })];
 
-  it('shows the month working while the save is in flight', () => {
+  it('shows the month working while the save is in flight — ON the month, not in the top bar', () => {
     render(<DraftSurface data={fakeData({ intakeBusy: true }, OCT)} />);
-    expect(screen.getByTestId('feedback-agent')).toBeTruthy();
+    expect(screen.getByTestId('month-working-veil')).toBeTruthy();
+    expect(screen.getByTestId('agent-dots')).toBeTruthy();
+    // The bar carried this for one build and gave it a conversation turn's shape across the
+    // whole plan width. It is not a turn, and this is the assertion that keeps it off there.
+    expect(screen.queryByTestId('feedback-agent')).toBeNull();
     cleanup();
     render(<DraftSurface data={fakeData({ intakeBusy: false }, OCT)} />);
     // Nothing claims to be working when nothing is.
-    expect(screen.queryByTestId('feedback-agent')).toBeNull();
+    expect(screen.queryByTestId('month-working-veil')).toBeNull();
   });
 
   it('says it on the DESKTOP shell too, where the dock would otherwise own that voice', () => {
     // The desktop shell reads a few more fields off `data` than the phone's does.
     render(<DraftSurface data={fakeData({ intakeBusy: true, ideas: [], proposals: [] }, OCT)} frame="desktop" />);
-    expect(screen.getByTestId('feedback-agent')).toBeTruthy();
+    expect(screen.getByTestId('month-working-veil')).toBeTruthy();
+    expect(screen.queryByTestId('feedback-agent')).toBeNull();
+  });
+
+  /**
+   * The month is DIMMED and still there. Blanking it would take away the one thing the client
+   * came back to the surface to look at, and a scrim over the top would put the indicator in
+   * the same tint as the field behind it.
+   */
+  it('dims the month rather than replacing it, and reserves no space to do it', () => {
+    const { rerender } = render(<DraftSurface data={fakeData({ intakeBusy: false }, OCT)} />);
+    const region = screen.getByTestId('month-working');
+    const content = region.firstElementChild as HTMLElement;
+    const classes = (el: HTMLElement) => el.className.split(/\s+/).filter(Boolean);
+    const restingClass = classes(content);
+    expect(screen.getByTestId('day-panel')).toBeTruthy();
+
+    rerender(<DraftSurface data={fakeData({ intakeBusy: true }, OCT)} />);
+    // Same node, same flex contract, one opacity class more — nothing enters the flow, so the
+    // grid underneath cannot move. The veil that carries the dots is absolutely positioned.
+    expect(screen.getByTestId('month-working').firstElementChild).toBe(content);
+    expect(classes(content)).toEqual([...restingClass, 'opacity-60']);
+    expect(screen.getByTestId('month-working-veil').className).toContain('absolute');
+    // The month is still rendered under it, not swapped out for a spinner.
+    expect(screen.getByTestId('day-panel')).toBeTruthy();
+  });
+
+  /** A day tapped mid-apply would select against a month about to be replaced. */
+  it('makes the dimmed month INERT while the brief lands, and live again after', () => {
+    const { rerender } = render(<DraftSurface data={fakeData({ intakeBusy: true }, OCT)} />);
+    const content = screen.getByTestId('month-working').firstElementChild as HTMLElement & { inert: boolean };
+    expect(content.inert).toBe(true);
+
+    rerender(<DraftSurface data={fakeData({ intakeBusy: false }, OCT)} />);
+    expect(content.inert).toBe(false);
+  });
+
+  /** The controls a client can still reach for are outside the dimmed region, by construction. */
+  it('leaves the header controls alone', () => {
+    render(<DraftSurface data={fakeData({ intakeBusy: true }, OCT)} />);
+    const region = screen.getByTestId('month-working');
+    for (const id of ['today-btn', 'brief-month-btn', 'ready-pill']) {
+      const el = screen.queryByTestId(id);
+      if (el) expect(region.contains(el)).toBe(false);
+    }
+    expect(screen.getByTestId('today-btn')).toBeTruthy();
+    expect(screen.getByTestId('brief-month-btn')).toBeTruthy();
   });
 
   /** The receipt is folded into `draft.receipts` by usePlanData AFTER this surface mounted.
