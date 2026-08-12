@@ -131,7 +131,10 @@ describe('applyCorrection resolves a date when the subject cannot — and only t
       sept(), '2026-09',
     );
     expect(res.ops).toEqual([{ op: 'update', id: 's22', changes: { date: '2026-09-25' } }]);
-    expect(res.note).toBeUndefined();
+    // The count is stated even at one. It used to be silent here, which meant the only turns
+    // that named a number were the plural ones — and a note that appears only sometimes is a
+    // note the client learns to skim, on exactly the turn where the number matters most.
+    expect(res.note).toBe('Moved 1 post from Tue 22 Sep — “Someone in your corner, always”.');
   });
 
   it('THE SUBJECT STILL WINS — a date is only ever the fallback', () => {
@@ -159,7 +162,10 @@ describe('applyCorrection resolves a date when the subject cannot — and only t
       doubled, '2026-09',
     );
     expect(res.ops.map((o) => 'id' in o && o.id)).toEqual(['d1', 'd2']);
-    expect(res.note).toBe('Moved all 2 posts for “the 1st”, keeping the same spacing.');
+    // Names the DATE rather than echoing the client's phrase back at them. "the 1st" is what
+    // they typed; "Tue 1 Sep" is the day they are looking at, and it matches the `Moved:` lines
+    // directly above it because both now come from `shortDate`.
+    expect(res.note).toBe('Moved all 2 posts on Tue 1 Sep, keeping the same spacing.');
 
     const lines = renderDiff(diffBeats(
       doubled.map((b) => ({ id: b.id, date: b.date, format: b.format, pillar: b.pillar, title: b.title })),

@@ -32,6 +32,9 @@ import type { MonthScopedIntent } from './intake-classify.js';
 import { cadenceFloorSlots } from './draft-skeleton.js';
 import type { BriefArcDates } from './brief-schedule.js';
 import { spreadPillars } from './pillar-weights.js';
+// The receipt's own date formatter, shared so a note and the diff line above it cannot
+// disagree about what to call 17 November. draft-diff imports nothing from here.
+import { shortDate } from './draft-diff.js';
 
 /** The subset of a draft row these transforms reason about. */
 export interface TransformBeat {
@@ -1352,9 +1355,18 @@ export function applyCorrection(intent: MonthScopedIntent, beats: TransformBeat[
    * the sentence this function exists for: "the Meadow candle launch is the 10th not the 1st"
    * would resolve on the OLD date and move whatever sits there instead of the arc.
    */
-  const matches = resolveBeatSubject(subject, beats).length
-    ? resolveBeatSubject(subject, beats)
-    : beatsOnNamedDate(subject, beats);
+  const named = resolveBeatSubject(subject, beats);
+  /**
+   * WHICH RESOLVER FOUND THESE — and therefore whether cardinality may narrow them.
+   *
+   * Only the DATE-SCOPED fallback is narrowable. A named subject is an arc: "the Meadow
+   * launch" is three beats that move together, and taking one of them would break the shape
+   * the client is correcting. That is the divergence the note above `beatsOnNamedDate`
+   * records and warns against collapsing, and this is the line that keeps the two apart —
+   * `requestedCount` is never consulted when `resolveBeatSubject` matched.
+   */
+  const dateScoped = named.length === 0;
+  const matches = dateScoped ? beatsOnNamedDate(subject, beats) : named;
   if (matches.length === 0) {
     return { ops: [], note: `We couldn’t find “${subject}” on this month’s plan, so it was saved to your ideas instead.`, unresolved: true };
   }
@@ -1376,17 +1388,73 @@ export function applyCorrection(intent: MonthScopedIntent, beats: TransformBeat[
     return { ops: [], note: `It wasn’t clear what to change about “${subject}”, so it was saved to your ideas.`, unresolved: true };
   }
 
-  const sorted = [...matches].sort((a, b) => a.date.localeCompare(b.date));
-  const anchor = parse(sorted[0]!.date);
-  const ops: BeatOp[] = sorted.map((b) => ({
+  /**
+   * Date first, then POSITION — the order the client sees on the day.
+   *
+   * The old sort compared dates alone. Across an arc that is the whole ordering; within one
+   * date it left the beats in whatever order the loader happened to return, which did not
+   * matter while every match moved and matters now that a subset might. "The first post on
+   * the 17th" has to mean the first one on their screen, every time.
+   */
+  const sorted = [...matches].sort((a, b) => a.date.localeCompare(b.date) || a.position - b.position);
+
+  /**
+   * ── HOW MANY OF THEM ─────────────────────────────────────────────────────────────────
+   *
+   * `null` from `requestedCount` means the client named no quantity, and it keeps the
+   * behaviour that shipped: everything on the date moves. That is the operator's ruling on
+   * the unqualified case — "move the 17th to the 10th" points at a date wholesale, it works
+   * today, and it must not quietly start doing less. The receipt states the count either way.
+   *
+   * A count LARGER than the match set is not an error and does not refuse: the client asked
+   * for three and the date holds two, so both move and the receipt says two. Refusing would
+   * withhold a change they plainly wanted over an arithmetic disagreement.
+   */
+  const wanted = dateScoped ? requestedCount(intent.sourceText) : null;
+  const chosen = wanted === null ? sorted : sorted.slice(0, wanted);
+  const narrowed = chosen.length < sorted.length;
+
+  const anchor = parse(chosen[0]!.date);
+  const ops: BeatOp[] = chosen.map((b) => ({
     op: 'update' as const,
     id: b.id,
     changes: { date: clampToMonth(iso(parse(to) + (parse(b.date) - anchor)), month) },
   }));
 
-  return sorted.length > 1
-    ? { ops, note: `Moved all ${sorted.length} posts for “${subject}”, keeping the same spacing.` }
-    : { ops };
+  /**
+   * THE RECEIPT SAYS HOW MANY, ALWAYS — including when the answer is one.
+   *
+   * A note that appears only in the plural teaches the client to skim it, and the one turn
+   * where the number matters most is the one where they asked for a single post out of
+   * several. When a subset was taken it also names WHICH, because that is the fact they
+   * cannot see from the plan: the two that stayed put look no different from the two that
+   * were never candidates.
+   *
+   * The named-subject branch keeps its own sentence, unchanged, for the reason the whole
+   * file keeps those two paths apart.
+   */
+  if (!dateScoped) {
+    return sorted.length > 1
+      ? { ops, note: `Moved all ${sorted.length} posts for “${subject}”, keeping the same spacing.` }
+      : { ops };
+  }
+
+  const where = shortDate(chosen[0]!.date);
+  const one = (b: TransformBeat) => `“${b.title}”`;
+  if (narrowed) {
+    return {
+      ops,
+      note: chosen.length === 1
+        ? `Moved 1 of the ${sorted.length} posts on ${where} — ${one(chosen[0]!)}. Say “move all of them” if you meant the rest too.`
+        : `Moved ${chosen.length} of the ${sorted.length} posts on ${where} — ${chosen.map(one).join(' and ')}. Say “move all of them” if you meant the rest too.`,
+    };
+  }
+  return {
+    ops,
+    note: sorted.length === 1
+      ? `Moved 1 post from ${where} — ${one(chosen[0]!)}.`
+      : `Moved all ${sorted.length} posts on ${where}, keeping the same spacing.`,
+  };
 }
 
 /** Dispatch an intent to its transform. */
