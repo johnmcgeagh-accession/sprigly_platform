@@ -20,7 +20,7 @@
  * highlight marks, one undo slot, and whether a write is in flight. All of it is in-memory and
  * gone on reload, deliberately (spec §1.2).
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DraftBeatView } from '@/lib/types';
 import type { PlanData } from '../usePlanData';
 import type { DraftReceipt } from '../DraftPlanView';
@@ -67,6 +67,38 @@ export function useDraftMonth(data: PlanData) {
   /** A reshape is running: the ONE thing on this surface the agent is doing rather than us. */
   const [shaping, setShaping] = useState(false);
   const [undo, setUndo] = useState<UndoState | null>(null);
+
+  /**
+   * A RECEIPT THAT ARRIVES AFTER MOUNT STILL HAS TO REACH THE CLIENT.
+   *
+   * `receipt` is seeded from `receipts[0]` once, at mount, which was enough while every
+   * receipt on this surface was produced by a write this hook itself made — `write()` sets it
+   * directly on the way back. The wizard is not one of those: it submits through
+   * `usePlanData`, which folds the new receipt onto the FRONT of `draft.receipts`, and this
+   * hook was already mounted and never looked again.
+   *
+   * That gap did not show while the sheet stayed open until the work finished, because the
+   * sheet was the thing reporting. It closes on submit now, so this is where the answer has
+   * to land — including the unhappy ones: a rollup whose segments failed to classify or apply
+   * is a receipt like any other, and dropping it would leave a brief that silently did nothing.
+   *
+   * Keyed on the receipt's ID, not on the array: `usePlanData` replaces `draft` on every fold,
+   * so an identity check would re-fire on beats-only updates and resurrect a receipt the
+   * client had just cleared.
+   */
+  const latestReceiptId = receipts[0]?.id ?? null;
+  const seenReceiptId = useRef(latestReceiptId);
+  useEffect(() => {
+    if (latestReceiptId === seenReceiptId.current) return;
+    seenReceiptId.current = latestReceiptId;
+    const next = receipts[0] ?? null;
+    // A question answers rather than changes, and does not become the surface's receipt —
+    // the same rule `write()` applies below, stated once per entry point.
+    if (next && next.scope !== 'question') {
+      setReceipt(next);
+      setChangedIds(next.changedIds ?? []);
+    }
+  }, [latestReceiptId, receipts]);
 
   const setBeats = useCallback((next: DraftBeatView[]) => {
     data.setDraft((d) => (d ? { ...d, beats: next } : d));

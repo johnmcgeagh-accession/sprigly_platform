@@ -96,14 +96,34 @@ describe('the composer on a DRAFT month', () => {
     expect(screen.getByTestId('intake-create').textContent).toBe('Update the month');
   });
 
-  it('CLOSES when the brief reshaped the month — the month behind it is the receipt', async () => {
-    const { onSubmit, onClose } = renderWizard({ draftMonth: true, currentBeats: BEATS });
+  /**
+   * CLOSES ON SUBMIT, not on completion. A brief is seconds of model work; holding a modal
+   * open across it makes the dialog read as broken, and the month behind is what they came
+   * for. The submit is deliberately not awaited — `submitIntake` lives in `usePlanData`,
+   * which outlives this sheet.
+   */
+  it('CLOSES the moment the brief is sent, without waiting for the work', async () => {
+    let resolve!: (r: IntakeResult) => void;
+    const pending = new Promise<IntakeResult>((r) => { resolve = r; });
+    const onSubmit = vi.fn(() => pending);
+    const onClose = vi.fn();
+    render(
+      <IntakeCapture
+        questions={['Q1']} cycleId="c1" prePlanning busy={false} monthLabel="September 2026"
+        intake={INTAKE} savedExtraction={null} durable={[]} cutoffLabel="18 August"
+        draftMonth currentBeats={BEATS} onSubmit={onSubmit} onClose={onClose}
+      />,
+    );
     fireEvent.change(screen.getByTestId('intake-input'), { target: { value: 'move the launch to the 12th' } });
-    await act(async () => { fireEvent.click(screen.getByTestId('intake-create')); });
+    fireEvent.click(screen.getByTestId('intake-create'));
+
+    // Closed already, with the request still in flight.
     expect(onSubmit).toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
+    await act(async () => { resolve({ ok: true, mode: 'brief_updated', draftApplied: true }); await pending; });
   });
 
+  /** No month behind the sheet means the summary IS the only evidence the brief was read. */
   it('does NOT close when nothing was reshaped — the summary panel is still the answer there', async () => {
     const onSubmit = vi.fn(async (): Promise<IntakeResult> => ({ ok: true, mode: 'brief_updated', draftApplied: false }));
     const onClose = vi.fn();

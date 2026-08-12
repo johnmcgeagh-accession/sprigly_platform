@@ -239,6 +239,30 @@ export function IntakeCapture(props: Props) {
   };
 
   const create = async () => {
+    /**
+     * ON A DRAFT MONTH THE SHEET CLOSES ON SUBMIT, NOT ON COMPLETION.
+     *
+     * A brief is a decomposition, a classification per segment and a transform each — seconds
+     * of work, sometimes tens of them. Holding a modal open across that makes the dialog look
+     * broken: the client has said their piece and is being made to watch a spinner over the
+     * month they wanted to see. The month is what they came for, so we give it back
+     * immediately and let the work land on it.
+     *
+     * NOT awaited, deliberately. `submitIntake` lives in `usePlanData`, which outlives this
+     * sheet, so the fold-in and the failure flash both still happen after unmount. The
+     * in-flight state rides on `data.intakeBusy`, which the surface renders as the agent's
+     * working state, and the receipt lands on the month (see useDraftMonth's receipt sync).
+     *
+     * The NO-DRAFT case keeps its await below. There is no month behind the sheet to hand
+     * back there — the extracted summary IS the only evidence the brief was understood, and
+     * closing onto an empty surface would replace feedback with nothing.
+     */
+    if (draftMonth) {
+      void onSubmit(buildFreeformPayload(text, durableText));
+      onClose();
+      return;
+    }
+
     const r = await onSubmit(buildFreeformPayload(text, durableText));
     if (!r.ok) return;
     if (r.mode !== 'brief_updated') { onClose(); return; }   // post-cutoff routed to proposals

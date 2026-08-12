@@ -465,11 +465,20 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
          *
          * The committed desktop surface already passes both off for the same reason. This is
          * the pair matching, not a new rule.
+         *
+         * ── THE ONE THING THAT DOES BELONG HERE: an intake save ──────────────────────────
+         *
+         * The rule above hands the working state to the dock because the dock is SAYING it —
+         * a reshape typed there produces a turn in that thread, three feet to the right. A
+         * brief submitted through the wizard produces no dock turn at all, and since the
+         * sheet now closes on submit rather than on completion, nothing else on this screen
+         * would say the month is being worked on. There is no second indicator to collide
+         * with, so the reason the rule exists does not reach this case.
          */
         topSlot={<Feedback
           frame="desktop"
           undo={m.undo} onDismiss={() => m.setUndo(null)} message={data.toast}
-          agent={null} agentWorking={false}
+          agent={null} agentWorking={data.intakeBusy}
         />}
         {...(railView === 'ideas'
           ? { region: <IdeasPanel data={data} onOpen={openFromRegion} frame="desktop" /> }
@@ -613,7 +622,11 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
         frame="mobile"
         undo={m.undo} onDismiss={() => m.setUndo(null)} message={data.toast}
         agent={voiceFor !== null ? null : data.agentToast}
-        agentWorking={voiceFor === null && (data.agentBusy || m.shaping)}
+        // `intakeBusy` joins the same channel: the wizard closes on submit now, so this bar is
+        // the only thing left saying the brief is being worked into the month. It is NOT gated
+        // on `voiceFor === null` like the other two — the wizard is not the voice sheet, so an
+        // open sheet is not a second voice claiming the same work.
+        agentWorking={data.intakeBusy || (voiceFor === null && (data.agentBusy || m.shaping))}
       />}
       chip={!threadCarriesReceipt ? <SummaryChip label={label} expanded={receiptOpen} onToggle={() => setReceiptOpen((v) => !v)} /> : undefined}
       overlays={<>

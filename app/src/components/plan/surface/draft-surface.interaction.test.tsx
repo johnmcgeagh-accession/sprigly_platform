@@ -1447,3 +1447,66 @@ describe('a draft write names the month it is for', () => {
     expect(updater({ beats: [beat()], pillars: [], editable: true, receipts: [] }).beats).toEqual([]);
   });
 });
+
+/**
+ * The wizard closes on submit, so the MONTH has to say the work is happening — and the
+ * receipt has to find its way onto a surface that was already mounted when it arrived.
+ */
+describe('a brief submitted from the wizard, after the sheet has closed', () => {
+  const OCT = [beat({ id: 'b1' }), beat({ id: 'b2', date: '2026-10-08', position: 1 })];
+
+  it('shows the month working while the save is in flight', () => {
+    render(<DraftSurface data={fakeData({ intakeBusy: true }, OCT)} />);
+    expect(screen.getByTestId('feedback-agent')).toBeTruthy();
+    cleanup();
+    render(<DraftSurface data={fakeData({ intakeBusy: false }, OCT)} />);
+    // Nothing claims to be working when nothing is.
+    expect(screen.queryByTestId('feedback-agent')).toBeNull();
+  });
+
+  it('says it on the DESKTOP shell too, where the dock would otherwise own that voice', () => {
+    // The desktop shell reads a few more fields off `data` than the phone's does.
+    render(<DraftSurface data={fakeData({ intakeBusy: true, ideas: [], proposals: [] }, OCT)} frame="desktop" />);
+    expect(screen.getByTestId('feedback-agent')).toBeTruthy();
+  });
+
+  /** The receipt is folded into `draft.receipts` by usePlanData AFTER this surface mounted.
+   *  Seeding `receipt` once at mount missed it entirely. */
+  it('surfaces a receipt that arrives after mount', () => {
+    const later = { id: 'r-late', at: '', sourceText: 'brief', scope: 'month_scoped' as const, lines: ['Added: A thing, Sat 3 Oct'], changedIds: ['b2'] };
+    const { rerender } = render(<DraftSurface data={fakeData({}, OCT)} />);
+    expect(screen.queryByText(/Added: A thing/)).toBeNull();
+
+    const withReceipt = fakeData({}, OCT);
+    (withReceipt.draft as { receipts: unknown[] }).receipts = [later];
+    rerender(<DraftSurface data={withReceipt} />);
+
+    expect(screen.getByTestId('summary-chip')).toBeTruthy();
+  });
+
+  /** A rollup whose segments failed still has to land — that is the whole point of it. */
+  it('surfaces a FAILED rollup too, not only a successful one', () => {
+    const failed = {
+      id: 'r-failed', at: '', sourceText: 'brief', scope: 'month_scoped' as const, lines: [], changedIds: [],
+      segmentCount: 2, items: [
+        { span: 'a thing', outcome: 'couldnt_apply' as const, lines: [], changedIds: [] },
+        { span: 'another', outcome: 'idea' as const, lines: [], changedIds: [], planInputId: 'pi-1' },
+      ],
+    };
+    const { rerender } = render(<DraftSurface data={fakeData({}, OCT)} />);
+    const withReceipt = fakeData({}, OCT);
+    (withReceipt.draft as { receipts: unknown[] }).receipts = [failed];
+    rerender(<DraftSurface data={withReceipt} />);
+    expect(screen.getByTestId('summary-chip')).toBeTruthy();
+  });
+
+  /** An ANSWER is not a receipt — the same rule write() already applies. */
+  it('does not promote a question to the surface receipt', () => {
+    const q = { id: 'r-q', at: '', sourceText: 'how many posts?', scope: 'question' as const, lines: ['12 posts.'], changedIds: [] };
+    const { rerender } = render(<DraftSurface data={fakeData({}, OCT)} />);
+    const withQ = fakeData({}, OCT);
+    (withQ.draft as { receipts: unknown[] }).receipts = [q];
+    rerender(<DraftSurface data={withQ} />);
+    expect(screen.queryByTestId('summary-chip')).toBeNull();
+  });
+});
