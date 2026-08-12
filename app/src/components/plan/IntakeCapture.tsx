@@ -218,6 +218,24 @@ export function IntakeCapture(props: Props) {
   const savedMsg = cutoffLabel
     ? `Saved — your content calendar will be created on ${cutoffLabel}. Add or adjust anything until then; after that, changes go to your plan for approval.`
     : 'Saved — we’ll build your month from this.';
+  /**
+   * THE RECEIPT for a brief saved in an EARLIER session.
+   *
+   * It replaces "Continuing your {month} brief — add anything new below.", which was written for
+   * a composer that opened empty and read, beside one, as incidental grey chrome. The client's
+   * question on returning is not "am I continuing?" — it is "did that save?", and the old line
+   * never answered it. Answering it in the first word is the whole job.
+   *
+   * Same register as the refusal copy (lib/refusals.ts): state what happened to their words,
+   * then what to do, then what happens next. No thanks, no exclamation, nothing that sounds
+   * like reassurance in place of information.
+   *
+   * "below" is load-bearing and only true because of the seed — the brief IS in the box under
+   * this line now. If the seed is ever reverted, this sentence becomes a lie.
+   */
+  const briefReceipt = cutoffLabel
+    ? `Saved. Your ${monthLabel} brief is below — edit it or add to it, then save again. We’ll build the month from it on ${cutoffLabel}.`
+    : `Saved. Your ${monthLabel} brief is below — edit it or add to it, then save again. We’ll build the month from it.`;
 
   return (
     <IntakeChrome wide onClose={onClose} header={
@@ -258,7 +276,7 @@ export function IntakeCapture(props: Props) {
         {/* LEFT — the one input */}
         <div className="flex flex-col">
           {committedOnce && priorBrief === '' ? null : priorBrief && (
-            <div className="mb-2 text-[12.5px] text-muted">Continuing your {monthLabel} brief — add anything new below.</div>
+            <div data-testid="intake-brief-receipt" className="mb-2 text-[12.5px] text-muted">{briefReceipt}</div>
           )}
           <textarea data-testid="intake-input" autoFocus rows={9} value={text}
             onChange={(e) => onType(e.target.value)} className={`${FIELD} min-h-[220px] resize-none`}

@@ -66,6 +66,30 @@ describe('IntakeCapture — planning workspace (Phase 1)', () => {
     expect(html).toContain('Big launch on the 25th');   // PLACEHOLDER survives the empty case
   });
 
+  // ── The receipt ─────────────────────────────────────────────────────────────────────
+  // The returning client's question is "did that save?", so the answer is the first word.
+  it('a returning client is told the brief is saved, where it is, and what happens next', () => {
+    const html = renderToStaticMarkup(<IntakeCapture {...base} intake={{ answers: {}, freeNotes: 'Launching on the 25th.' }} />);
+    expect(html).toContain('data-testid="intake-brief-receipt"');
+    expect(html).toMatch(/Saved\. Your August 2026 brief is below/);
+    expect(html).toContain('edit it or add to it, then save again');
+    expect(html).toContain('We’ll build the month from it on 18 July');   // the real cutoff date
+    expect(html).not.toContain('Continuing your August 2026 brief');      // the old, too-quiet line
+  });
+
+  it('with no cutoff date configured the receipt drops the date rather than inventing one', () => {
+    const html = renderToStaticMarkup(
+      <IntakeCapture {...base} cutoffLabel={null} intake={{ answers: {}, freeNotes: 'Launching on the 25th.' }} />,
+    );
+    expect(html).toContain('We’ll build the month from it.');
+    expect(html).not.toContain('on null');
+  });
+
+  it('no receipt for a first-time brief — there is nothing yet to have saved', () => {
+    const html = renderToStaticMarkup(<IntakeCapture {...base} intake={{ answers: {}, freeNotes: '' }} />);
+    expect(html).not.toContain('data-testid="intake-brief-receipt"');
+  });
+
   // ── The preview panel on a COLD load ────────────────────────────────────────────────
   // live.preview only exists while someone is typing, so on a reload the panel used to claim
   // it had heard nothing about a month it had already extracted into beats.
