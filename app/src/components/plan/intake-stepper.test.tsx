@@ -15,16 +15,26 @@ const QS = ['Any key dates?', 'Anything new?', 'Any looks or themes?'];
 
 describe('buildIntakePayload', () => {
   it('sends only non-empty answers — a skipped/blank question is omitted (prior save preserved by the merge)', () => {
-    const p = buildIntakePayload(QS, { 'Any key dates?': 'launch on the 5th', 'Anything new?': '   ', 'Any looks or themes?': '' }, '  ', '');
+    const p = buildIntakePayload(QS, { 'Any key dates?': 'launch on the 5th', 'Anything new?': '   ', 'Any looks or themes?': '' }, '  ');
     expect(p.answers).toEqual({ 'Any key dates?': 'launch on the 5th' });   // blank + whitespace omitted
     expect(p.freeNotes).toBe('');
     expect(p.durableItems).toEqual([]);
   });
 
-  it('trims freeNotes and turns durable text into an idea item', () => {
-    const p = buildIntakePayload(QS, {}, '  make Fridays warmer  ', '  Connie relaunch next quarter  ');
+  it('trims freeNotes', () => {
+    const p = buildIntakePayload(QS, {}, '  make Fridays warmer  ');
     expect(p.freeNotes).toBe('make Fridays warmer');
-    expect(p.durableItems).toEqual([{ type: 'idea', text: 'Connie relaunch next quarter' }]);
+  });
+
+  /**
+   * The stepper no longer collects durable items. Future-facing content typed into the brief
+   * is routed to plan_inputs by the classifier, which is what the separate field was asking
+   * the client to do by hand — and unlike the field, that route classifies first.
+   */
+  it('never sends durableItems — the classifier files what is for later', () => {
+    const p = buildIntakePayload(QS, {}, 'not this month, but a Christmas gift guide would be good');
+    expect(p.durableItems).toEqual([]);
+    expect(p.freeNotes).toBe('not this month, but a Christmas gift guide would be good');
   });
 });
 
@@ -48,11 +58,19 @@ describe('IntakeCapture — planning workspace (Phase 1)', () => {
     expect(html).not.toContain('Step 1 of');                     // NOT the stepper
   });
 
-  it('the durable input is present and renamed to the future-campaign framing', () => {
+  /**
+   * The composer is the ONLY input now. "Not this month?" asked the client to sort their own
+   * brief into now-and-later, which is the classifier's job and the one it does first — and
+   * unlike that box, the classifier reads what it files. Nothing typed into the field was
+   * classified at all, so it went to plan_inputs verbatim and the day-1 assembler could title
+   * a beat with it.
+   */
+  it('has no second box asking the client to sort their own brief', () => {
     const html = renderToStaticMarkup(<IntakeCapture {...base} intake={{ answers: {}, freeNotes: '' }} />);
-    expect(html).toContain('data-testid="intake-durable"');
-    expect(html).toContain('Not this month?');
-    expect(html).toContain('worth remembering for a future campaign');
+    expect(html).not.toContain('data-testid="intake-durable"');
+    expect(html).not.toContain('Not this month?');
+    expect(html).not.toContain('worth remembering for a future campaign');
+    expect(html).toContain('data-testid="intake-input"');          // the one that remains
   });
 
   it('on return, the composer is SEEDED with the saved brief (not empty)', () => {

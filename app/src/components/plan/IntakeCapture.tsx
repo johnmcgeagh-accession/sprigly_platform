@@ -22,19 +22,42 @@ export interface IntakeSubmitPayload {
   durableItems: { type: 'idea' | 'next_cycle'; text: string }[];
 }
 
-/** Guided-stepper payload (pure/testable): only NON-EMPTY answers are sent; the server merge
- *  preserves prior saves for skipped questions. */
-export function buildIntakePayload(questions: string[], answers: Record<string, string>, freeNotes: string, durableText: string): IntakeSubmitPayload {
+/**
+ * Guided-stepper payload (pure/testable): only NON-EMPTY answers are sent; the server merge
+ * preserves prior saves for skipped questions.
+ *
+ * `durableItems` is always empty now — see buildFreeformPayload. The field stays on the wire
+ * so the route's branch is unchanged and any other caller keeps working.
+ */
+export function buildIntakePayload(questions: string[], answers: Record<string, string>, freeNotes: string): IntakeSubmitPayload {
   const trimmedAnswers: Record<string, string> = {};
   for (const q of questions) { const v = (answers[q] ?? '').trim(); if (v) trimmedAnswers[q] = v; }
-  const durableItems = durableText.trim() ? [{ type: 'idea' as const, text: durableText.trim() }] : [];
-  return { answers: trimmedAnswers, freeNotes: freeNotes.trim(), durableItems };
+  return { answers: trimmedAnswers, freeNotes: freeNotes.trim(), durableItems: [] };
 }
 
-/** Freeform/workspace payload: the whole brief is freeNotes; answers are distributed server-side. */
-function buildFreeformPayload(text: string, durableText: string): IntakeSubmitPayload {
-  const durableItems = durableText.trim() ? [{ type: 'idea' as const, text: durableText.trim() }] : [];
-  return { answers: {}, freeNotes: text.trim(), durableItems };
+/**
+ * Freeform/workspace payload: the whole brief is freeNotes; answers are distributed server-side.
+ *
+ * ── NO durableItems, BECAUSE THE CLASSIFIER ALREADY SORTS THIS ───────────────────────
+ *
+ * The wizard used to carry a second box — "Not this month? Anything worth remembering for a
+ * future campaign" — writing straight to plan_inputs via saveDurableInput, with no
+ * classification of any kind. It asked the client to do the sorting the system does anyway:
+ * `classifyIntake` routes future-facing content to EVERGREEN and `saveToBacklog` files it,
+ * and the two writes are the same row. Measured on UAT with the field empty, "Not this month,
+ * but a Christmas gift guide would be good." in the composer produced
+ * type=idea / origin=client / lifecycle=candidate / status=active / cycle_id=null — the shape
+ * saveDurableInput writes — and appeared in the receipt as its own line with a planInputId,
+ * so the client can promote it into the month.
+ *
+ * The box also had a cost beyond the extra decision: nothing typed into it was classified, so
+ * whatever went in became a standing idea verbatim, and the day-1 assembler treats every
+ * standing idea as an experiment candidate and titles the beat with it
+ * (draft-assembly.ts:357). That is one of the two routes by which conversational fragments
+ * ended up as beat titles.
+ */
+function buildFreeformPayload(text: string): IntakeSubmitPayload {
+  return { answers: {}, freeNotes: text.trim(), durableItems: [] };
 }
 
 const PLACEHOLDER = [
@@ -218,7 +241,6 @@ export function IntakeCapture(props: Props) {
    * as if it were new. An empty box asks the only question worth asking here: what now?
    */
   const [text, setText] = useState(draftMonth ? '' : (intake.freeNotes ?? ''));
-  const [durableText, setDurableText] = useState('');
   const [confirmed, setConfirmed] = useState<ExtractedSummary | null>(null);
   const [committedOnce, setCommittedOnce] = useState(false);
   const [dismissedFollowUp, setDismissedFollowUp] = useState<string | null>(null);
@@ -258,12 +280,12 @@ export function IntakeCapture(props: Props) {
      * closing onto an empty surface would replace feedback with nothing.
      */
     if (draftMonth) {
-      void onSubmit(buildFreeformPayload(text, durableText));
+      void onSubmit(buildFreeformPayload(text));
       onClose();
       return;
     }
 
-    const r = await onSubmit(buildFreeformPayload(text, durableText));
+    const r = await onSubmit(buildFreeformPayload(text));
     if (!r.ok) return;
     if (r.mode !== 'brief_updated') { onClose(); return; }   // post-cutoff routed to proposals
     /**
@@ -282,7 +304,7 @@ export function IntakeCapture(props: Props) {
     if (r.draftApplied) { onClose(); return; }
     setConfirmed(r.extracted ?? { launches: [], dates: [], asks: [] });
     setCommittedOnce(true);
-    setText(''); setDurableText('');
+    setText('');
   };
 
   if (mode === 'guided') {
@@ -417,13 +439,6 @@ export function IntakeCapture(props: Props) {
             </div>
           )}
 
-          <div className="mt-5">
-            <label className="mb-1 block text-[13px] font-semibold text-slate-700">Not this month?</label>
-            <p className="mb-1.5 text-[12px] text-muted">Anything worth remembering for a future campaign — kept across months.</p>
-            <textarea data-testid="intake-durable" rows={2} value={durableText} onChange={(e) => setDurableText(e.target.value)} className={FIELD}
-              placeholder="e.g. an idea to revisit in a future campaign" />
-          </div>
-
           <div className="mt-5 flex items-center gap-2">
             <span className="flex-1 text-[12px] text-faint">
               {draftMonth ? 'Your words are kept either way — the month updates when you save.'
@@ -537,20 +552,29 @@ function PLine({ text, left, from }: { text: string; left?: string; from?: strin
 function GuidedStepper({ questions, prePlanning, busy, intake, durable, onSubmit, onDone, onBack }: Props & {
   onDone: (r: IntakeResult) => void; onBack: () => void;
 }) {
+  /**
+   * The DURABLE step is gone for the same reason the workspace's box is (buildFreeformPayload):
+   * it asked the client to sort what the classifier already sorts, and nothing typed into it
+   * was classified at all. One step shorter, and `Q + 1` is now the review rather than a third
+   * question about time.
+   *
+   * `durable` is still a prop and still read below — showing what we already remember is a
+   * different act from asking for more of it, and the list is the only place the client can
+   * see their standing ideas from here.
+   */
   const Q = questions.length;
-  const FREE = Q, DURABLE = Q + 1, REVIEW = Q + 2;
-  const inputSteps = Q + 2;
+  const FREE = Q, REVIEW = Q + 1;
+  const inputSteps = Q + 1;
   const [answers, setAnswers] = useState<Record<string, string>>(() => ({ ...intake.answers }));
   const [freeNotes, setFreeNotes] = useState(intake.freeNotes ?? '');
-  const [durableText, setDurableText] = useState('');
   const [step, setStep] = useState(0);
 
   const setAnswer = (q: string, v: string) => setAnswers((m) => ({ ...m, [q]: v }));
   const next = () => setStep((s) => Math.min(REVIEW, s + 1));
   const back = () => (step === 0 ? onBack() : setStep((s) => Math.max(0, s - 1)));
-  const skip = () => { if (step < Q) setAnswer(questions[step]!, ''); else if (step === FREE) setFreeNotes(''); else if (step === DURABLE) setDurableText(''); next(); };
-  const submit = async () => { onDone(await onSubmit(buildIntakePayload(questions, answers, freeNotes, durableText))); };
-  const heading = step < Q ? questions[step]! : step === FREE ? 'Anything else for this month?' : step === DURABLE ? 'Anything to remember for the future?' : 'Review your brief';
+  const skip = () => { if (step < Q) setAnswer(questions[step]!, ''); else if (step === FREE) setFreeNotes(''); next(); };
+  const submit = async () => { onDone(await onSubmit(buildIntakePayload(questions, answers, freeNotes))); };
+  const heading = step < Q ? questions[step]! : step === FREE ? 'Anything else for this month?' : 'Review your brief';
 
   return (
     <>
@@ -566,16 +590,14 @@ function GuidedStepper({ questions, prePlanning, busy, intake, durable, onSubmit
       <h2 className="mb-3 font-serif text-[20px] leading-snug text-slate-700">{heading}</h2>
       {step < Q && <textarea data-testid="intake-answer" autoFocus rows={4} value={answers[questions[step]!] ?? ''} onChange={(e) => setAnswer(questions[step]!, e.target.value)} className={FIELD} />}
       {step === FREE && <textarea data-testid="intake-freenotes" autoFocus rows={5} value={freeNotes} onChange={(e) => setFreeNotes(e.target.value)} className={FIELD} placeholder="Anything at all — we'll weave it in." />}
-      {step === DURABLE && (
-        <>
-          <textarea data-testid="intake-durable" autoFocus rows={3} value={durableText} onChange={(e) => setDurableText(e.target.value)} className={FIELD} placeholder="Ideas or plans not tied to this month — kept across months." />
-          {durable.length > 0 && (
-            <div className="mt-3" data-testid="durable-list">
-              <div className="mb-1 text-[12px] font-semibold text-muted">Remembered for the future</div>
-              <ul className="flex flex-col gap-1">{durable.map((d) => <li key={d.id} className="rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[13px] text-slate-600">{d.content}</li>)}</ul>
-            </div>
-          )}
-        </>
+      {/* What we ALREADY remember, on the last input step. Reading it back is not the same as
+          asking for more: the client can see their standing ideas without being asked to sort
+          this month's brief from next year's. */}
+      {step === FREE && durable.length > 0 && (
+        <div className="mt-3" data-testid="durable-list">
+          <div className="mb-1 text-[12px] font-semibold text-muted">Remembered for the future</div>
+          <ul className="flex flex-col gap-1">{durable.map((d) => <li key={d.id} className="rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[13px] text-slate-600">{d.content}</li>)}</ul>
+        </div>
       )}
       {step === REVIEW && (
         <div className="flex flex-col gap-2" data-testid="intake-review">
@@ -597,7 +619,7 @@ function GuidedStepper({ questions, prePlanning, busy, intake, durable, onSubmit
         {step !== REVIEW ? (
           <>
             <button data-testid="intake-skip" onClick={skip} className="text-[14px] font-semibold text-muted hover:text-slate-700">Skip</button>
-            <button data-testid="intake-next" onClick={next} className="inline-flex h-10 items-center rounded-xl bg-coral px-4 text-[15px] font-semibold text-white">{step === DURABLE ? 'Review' : 'Next'}</button>
+            <button data-testid="intake-next" onClick={next} className="inline-flex h-10 items-center rounded-xl bg-coral px-4 text-[15px] font-semibold text-white">{step === FREE ? 'Review' : 'Next'}</button>
           </>
         ) : (
           <button data-testid="intake-submit" disabled={busy} onClick={submit} className="inline-flex h-11 items-center gap-2 rounded-xl bg-coral px-5 text-[15px] font-semibold text-white disabled:opacity-45">{busy ? 'Sending…' : 'Send to Sprigly'}</button>
