@@ -264,6 +264,70 @@ async function extractAndPersistBrief(
   }
 }
 
+/**
+ * The SUBMISSION's own structured brief — the dates for the sentence the client just typed.
+ *
+ * ── THE HALVES OF ONE CALL DID NOT AGREE ─────────────────────────────────────────────
+ *
+ * `applyBriefToDraft` is handed two things about the same save: `text`, which is
+ * `briefInstruction(answers, freeNotes)` — the SUBMISSION, for the reason its docblock gives —
+ * and `brief`, which until now was extracted from `intake.planContent`, the whole ACCUMULATION.
+ * So `classifyIntake` decomposed the submission to derive a subject, and `briefArcDatesFor`
+ * then looked that subject up in a structure derived from a much larger, noisier text. Only the
+ * structure abridges, and when it dropped the product the subject named, the arc override found
+ * nothing (brief-schedule.ts:140) and LAUNCH_ARC's [-5, 0, +3] placed the month instead. The
+ * client briefs "launch on the 12th, teaser the week before" and gets 7/12/15.
+ *
+ * This extracts the same text the reshape is already reading. Measured against ivy-t's live
+ * 41-beat month, 5 runs per case: a 90-char submission costs 213–221 output tokens in 3.1–3.5s,
+ * a 241-char one 712–810 tokens in 7.4–9.1s, and both kept every product 5/5. The accumulated
+ * 1,162-char log costs 1,713–1,834 tokens in 16.8–19.8s and dropped products on 2 of 5 runs.
+ * Real submissions are small: across 53 saves the median delta is 0 characters and the 90th
+ * percentile is 121.
+ *
+ * ── WHAT IT DOES NOT FIX ─────────────────────────────────────────────────────────────
+ *
+ * The loss is not driven by input SIZE but by near-duplicate sentences inside one input, which
+ * accumulation manufactures and a single save usually does not. A coherent 732-char paste naming
+ * nine products kept all nine on 5 of 5 runs; the last 849 characters of ivy-t's real command
+ * log — which still contains two near-identical launch sentences — dropped one on 4 of 5. So a
+ * client pasting an entire command-log-shaped brief in one go is still exposed. That case is
+ * rare (3 of 53 submissions exceeded 400 characters) and is not what this closes.
+ *
+ * Deliberately NOT persisted and NOT audited for shortfall: `structured_brief` remains the
+ * accumulation's extraction, unchanged, because it is what the worker inherits and what the
+ * month view reads. This brief exists for the length of one request.
+ */
+async function extractSubmissionBrief(
+  cycleMonth: string, answers: Record<string, string>, freeNotes: string, clientId: string,
+  currentPlan: readonly CurrentPlanBeat[] = [],
+): Promise<StructuredBrief | null> {
+  const planMonth = nextMonth(cycleMonth);
+  try {
+    return await Promise.race([
+      extractStructuredBrief({
+        planContent: { answers, freeNotes }, planMonth, model: getModelClient(), clientId,
+        // No durable context. Durables are standing notes about the MONTH, and this call's whole
+        // job is the sentence in front of it; folding them in would re-introduce exactly the
+        // background text the submission scope exists to leave out.
+        currentPlan,
+        audit: createAuditLogger(db),
+        logger: briefLogger,
+      }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('extract timeout')), EXTRACT_TIMEOUT_MS)),
+    ]) as StructuredBrief;
+  } catch (err) {
+    // Null is the documented degrade for the reshape: `briefArcDatesFor` answers `{}` and every
+    // date comes from the classifier, which is exactly the behaviour that shipped before the arc
+    // override existed. Recorded so a systematic failure here is visible rather than inferred.
+    briefLogger.warn(
+      { cycleMonth, planMonth, failure: classifyExtractFailure(err), err: String(err) },
+      'brief-extract: submission extraction failed — the reshape falls back to classifier dates',
+    );
+    return null;
+  }
+}
+
 /** Distribute the running free-text brief across empty base-question slots (non-fatal + timeboxed).
  *  Fills ONLY answer slots that are currently empty, so an explicit (guided-mode) answer is never
  *  clobbered; the free text remains the source of truth for extraction either way. */
@@ -476,9 +540,37 @@ export async function POST(req: Request) {
       // Intake changed → clear the extract-once brief (Build 1 helper), then FIX 2: extract + persist
       // inline so beats appear immediately. Intake is already saved; extraction failure is non-fatal.
       await clearStructuredBriefIfPrePlanning(db, cycleId);
-      const brief = await extractAndPersistBrief(cycleId, cycle.cycleMonth, next, clientId, asPlanState(beatsBefore));
+      const planState = asPlanState(beatsBefore);
+
+      /**
+       * TWO EXTRACTIONS, CONCURRENTLY, BECAUSE THEY ANSWER DIFFERENT QUESTIONS.
+       *
+       * The accumulation's brief is what gets PERSISTED — it describes the month, it is what the
+       * month view reads back and what the worker inherits (planning.ts ensureStructuredBrief
+       * re-reads rather than re-extracting). The submission's brief is what RESHAPES the month:
+       * the dates for the sentence just typed, matched against the same text the reshape already
+       * classifies. See `extractSubmissionBrief` for why one cannot serve both.
+       *
+       * `Promise.all`, so the slower of the two sets the wait rather than their sum. Each carries
+       * its own 25s race internally and its own degrade — neither can reject this, so a failure on
+       * one side never costs the other its answer.
+       */
+      const [brief, submissionBrief] = await Promise.all([
+        extractAndPersistBrief(cycleId, cycle.cycleMonth, next, clientId, planState),
+        extractSubmissionBrief(cycle.cycleMonth, answers, freeNotes, clientId, planState),
+      ]);
       beatsReady = brief !== null;
-      if (brief) extracted = summariseBrief(brief);
+      /**
+       * The receipt describes THIS SAVE, not the month.
+       *
+       * "Here's what we took" is the answer to what the client just said, and reading it off the
+       * accumulation made it restate months-old content on every save. The month's own reading is
+       * a different panel with a different source — `summariseSavedBrief` over the persisted
+       * column, on page load (page.tsx). Falls back to the persisted brief when the submission
+       * extraction failed, so a receipt is never lost to the narrower call.
+       */
+      const receiptBrief = submissionBrief ?? brief;
+      if (receiptBrief) extracted = summariseBrief(receiptBrief);
 
       /**
        * ── THE BRIEF RESHAPES THE MONTH ──────────────────────────────────────────────────
@@ -508,8 +600,14 @@ export async function POST(req: Request) {
        * disagreed by a week on ivy-t's Hannah launch and the worse answer won, because it was
        * the only one this path could see.
        *
-       * `brief` is whatever came back above, including NULL: the extraction runs inside a 25s
-       * race and returns null on timeout or on output the gate rejects. Null degrades to
+       * ── AND IT READS THE BRIEF FOR THE TEXT IT IS GIVEN ─────────────────────────────
+       *
+       * `text` is the SUBMISSION and so is `submissionBrief`. That agreement is the point: the
+       * accumulation's brief was the one abridging, and when it dropped the product this
+       * sentence names, `briefArcDatesFor` answered `{}` and the constant placed the arc.
+       *
+       * NULL is still a supported answer, including NULL: each extraction runs inside its own
+       * 25s race and returns null on timeout or on output the gate rejects. Null degrades to
        * exactly the previous behaviour — `briefArcDatesFor` answers `{}` and every date comes
        * from the classifier as before.
        */
@@ -517,7 +615,7 @@ export async function POST(req: Request) {
       if (beatsBefore.length > 0 && instruction) {
         try {
           const applied = await applyBriefToDraft({
-            clientId, cycleId, text: instruction, model: getModelClient(), source, brief,
+            clientId, cycleId, text: instruction, model: getModelClient(), source, brief: submissionBrief,
           });
           if (applied.ok) {
             draftApplied = true;

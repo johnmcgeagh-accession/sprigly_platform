@@ -15,6 +15,14 @@ const h = vi.hoisted(() => ({
   turnCalls: [] as Array<Record<string, unknown>>,
   extractCalls: [] as unknown[],
   extractShouldFail: false,
+  /** What each extraction handed back, keyed by the freeNotes it was given. Identity is how a
+   *  test tells two structurally identical stubs apart — and keying by INPUT rather than call
+   *  order matters: the two extractions race, and the accumulation one awaits loadDurableContext
+   *  before it calls, so the submission's call lands first. Order is an implementation detail;
+   *  which text produced which brief is the contract. */
+  extractReturns: new Map<string, unknown>(),
+  /** Fail only the extraction given these exact freeNotes, leaving the other to succeed. */
+  failNotes: null as string | null,
   distributeCalls: [] as Array<Record<string, unknown>>,
   distributeReturn: {} as Record<string, string>,
   activityCalls: [] as Array<Record<string, unknown>>,
@@ -58,7 +66,16 @@ vi.mock('@sprigly/db', () => ({
 }));
 vi.mock('@sprigly/engine', () => ({
   BASE_QUESTIONS: ['Q1', 'Q2', 'Q3', 'Q4', 'Q5'],
-  extractStructuredBrief: (...a: unknown[]) => { h.extractCalls.push(a[0]); return h.extractShouldFail ? Promise.reject(h.extractError) : Promise.resolve({ products: [{ product: 'Wren', colourway: 'sage', status: 'new', launch_date: null, content_from: null }], schedule: [{ date: '2026-07-25', dateRange: null, type: 'launch', product: null, colourway: null, note: 'launch on the 25th' }], content_asks: [], focus: [], conflicts: [], plan_window: { from: null, month: null } }); },
+  extractStructuredBrief: (...a: unknown[]) => {
+    h.extractCalls.push(a[0]);
+    const notes = (a[0] as { planContent?: { freeNotes?: string } })?.planContent?.freeNotes ?? '';
+    if (h.extractShouldFail || (h.failNotes !== null && h.failNotes === notes)) return Promise.reject(h.extractError);
+    // A FRESH object per call: the route routes two briefs to two consumers, and a shared
+    // literal would make "the reshape got the submission one" untestable.
+    const brief = { products: [{ product: 'Wren', colourway: 'sage', status: 'new', launch_date: null, content_from: null }], schedule: [{ date: '2026-07-25', dateRange: null, type: 'launch', product: null, colourway: null, note: 'launch on the 25th' }], content_asks: [], focus: [], conflicts: [], plan_window: { from: null, month: null } };
+    h.extractReturns.set(notes, brief);
+    return Promise.resolve(brief);
+  },
   distributeBriefAnswers: (a: Record<string, unknown>) => { h.distributeCalls.push(a); return Promise.resolve(h.distributeReturn); },
   // Mocked at the module boundary like the reshape below — the detector has its own tests
   // (packages/engine brief-shortfall.test.ts, against the live brief that dropped Maggie). What
@@ -106,6 +123,7 @@ beforeEach(() => {
   h.cycleRow = [{ status: 'requested', intakeJson: null, cycleMonth: '2026-06' }];
   h.updateSets.length = 0; h.clearCalls.length = 0; h.durableCalls.length = 0; h.turnCalls.length = 0;
   h.extractCalls.length = 0; h.extractShouldFail = false;
+  h.extractReturns.clear(); h.failNotes = null;
   h.distributeCalls.length = 0; h.distributeReturn = {};
   h.activityCalls.length = 0; h.activityShouldFail = false; h.updateShouldFail = false;
   h.draftBeats.length = 0; h.applyCalls.length = 0; h.applyResult = null; h.applyShouldThrow = false;
@@ -138,9 +156,50 @@ describe('POST /api/plan/intake — classifier', () => {
     expect(set.planContent.answers).toEqual({ q1: 'new', q2: 'added' });   // q1 overwritten, q2 added
     expect(set.planContent.freeNotes).toBe('note1\n\nnote2');              // appended with a blank-line separator
     expect(h.clearCalls).toHaveLength(1);
-    expect(h.extractCalls).toHaveLength(1);                                // extraction ran
+    // TWO extractions now run, and they are not the same call: one over the accumulation (what
+    // gets persisted and what the worker inherits), one over the submission (what reshapes the
+    // month). See the route's `extractSubmissionBrief` for why one cannot serve both.
+    expect(h.extractCalls).toHaveLength(2);
     // the second update persisted the extracted structured_brief
     expect(h.updateSets.some((u) => 'structuredBrief' in u)).toBe(true);
+  });
+
+  it('extracts the ACCUMULATION for persistence and the SUBMISSION for the reshape', async () => {
+    h.cycleRow = [{ status: 'requested', cycleMonth: '2026-06',
+      intakeJson: { planContent: { answers: {}, freeNotes: 'said in June' }, businessContext: [], otherChannel: {}, source: 'manual', capturedAt: 'x' } }];
+    await call({ cycleId: CYCLE, freeNotes: 'launch Maggie on the 12th', source: 'web' });
+
+    const notes = (h.extractCalls as Array<{ planContent: { freeNotes: string } }>).map((c) => c.planContent.freeNotes);
+    // The accumulation carries the whole history; the submission carries only what was just typed.
+    expect(notes).toContain('said in June\n\nlaunch Maggie on the 12th');
+    expect(notes).toContain('launch Maggie on the 12th');
+  });
+
+  it('gives the reshape the submission brief, not the accumulation one', async () => {
+    h.draftBeats.push({ id: 'b1', date: '2026-07-03', title: 'Existing' });
+    // A PRIOR brief is what makes the two texts differ at all — on a first save the accumulation
+    // IS the submission, and there is nothing to tell apart.
+    h.cycleRow = [{ status: 'requested', cycleMonth: '2026-06',
+      intakeJson: { planContent: { answers: {}, freeNotes: 'said in June' }, businessContext: [], otherChannel: {}, source: 'manual', capturedAt: 'x' } }];
+    await call({ cycleId: CYCLE, freeNotes: 'launch Maggie on the 12th', source: 'web' });
+
+    expect(h.applyCalls).toHaveLength(1);
+    // Both extractions return a structurally identical stub, so identity is the discriminator.
+    expect(h.applyCalls[0]!.brief).toBe(h.extractReturns.get('launch Maggie on the 12th'));
+    expect(h.applyCalls[0]!.brief).not.toBe(h.extractReturns.get('said in June\n\nlaunch Maggie on the 12th'));
+  });
+
+  it('still reshapes when the submission extraction fails — null degrades to classifier dates', async () => {
+    h.draftBeats.push({ id: 'b1', date: '2026-07-03', title: 'Existing' });
+    h.failNotes = 'launch Maggie on the 12th';   // the submission call only
+    h.cycleRow = [{ status: 'requested', cycleMonth: '2026-06',
+      intakeJson: { planContent: { answers: {}, freeNotes: 'said in June' }, businessContext: [], otherChannel: {}, source: 'manual', capturedAt: 'x' } }];
+    const res = await call({ cycleId: CYCLE, freeNotes: 'launch Maggie on the 12th', source: 'web' });
+
+    const body = await res.json();
+    expect(body.beatsReady).toBe(true);          // the persisted extraction still succeeded
+    expect(h.applyCalls).toHaveLength(1);
+    expect(h.applyCalls[0]!.brief).toBeNull();   // the reshape ran anyway, with no dates
   });
 
   // ── The seeded composer comes back holding the saved brief ──────────────────────────
