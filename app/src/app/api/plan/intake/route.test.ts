@@ -29,6 +29,8 @@ const h = vi.hoisted(() => ({
   shortfallReturn: { named: [] as string[], missing: [] as string[] },
   shortfallCalls: [] as unknown[],
   auditInserts: [] as Array<Record<string, unknown>>,
+  /** The error `extractStructuredBrief` rejects with when `extractShouldFail` is set. */
+  extractError: new Error('extract failed') as unknown,
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -56,7 +58,7 @@ vi.mock('@sprigly/db', () => ({
 }));
 vi.mock('@sprigly/engine', () => ({
   BASE_QUESTIONS: ['Q1', 'Q2', 'Q3', 'Q4', 'Q5'],
-  extractStructuredBrief: (...a: unknown[]) => { h.extractCalls.push(a[0]); return h.extractShouldFail ? Promise.reject(new Error('extract failed')) : Promise.resolve({ products: [{ product: 'Wren', colourway: 'sage', status: 'new', launch_date: null, content_from: null }], schedule: [{ date: '2026-07-25', dateRange: null, type: 'launch', product: null, colourway: null, note: 'launch on the 25th' }], content_asks: [], focus: [], conflicts: [], plan_window: { from: null, month: null } }); },
+  extractStructuredBrief: (...a: unknown[]) => { h.extractCalls.push(a[0]); return h.extractShouldFail ? Promise.reject(h.extractError) : Promise.resolve({ products: [{ product: 'Wren', colourway: 'sage', status: 'new', launch_date: null, content_from: null }], schedule: [{ date: '2026-07-25', dateRange: null, type: 'launch', product: null, colourway: null, note: 'launch on the 25th' }], content_asks: [], focus: [], conflicts: [], plan_window: { from: null, month: null } }); },
   distributeBriefAnswers: (a: Record<string, unknown>) => { h.distributeCalls.push(a); return Promise.resolve(h.distributeReturn); },
   // Mocked at the module boundary like the reshape below — the detector has its own tests
   // (packages/engine brief-shortfall.test.ts, against the live brief that dropped Maggie). What
@@ -108,7 +110,7 @@ beforeEach(() => {
   h.activityCalls.length = 0; h.activityShouldFail = false; h.updateShouldFail = false;
   h.draftBeats.length = 0; h.applyCalls.length = 0; h.applyResult = null; h.applyShouldThrow = false;
   h.shortfallReturn = { named: [], missing: [] }; h.shortfallCalls.length = 0;
-  h.auditInserts.length = 0;
+  h.auditInserts.length = 0; h.extractError = new Error('extract failed');
 });
 
 describe('POST /api/plan/intake — classifier', () => {
@@ -227,6 +229,37 @@ describe('POST /api/plan/intake — classifier', () => {
     expect(body.beatsReady).toBe(false);
     expect(h.updateSets.some((u) => 'intakeJson' in u)).toBe(true);        // intake WAS saved
     expect(h.updateSets.some((u) => 'structuredBrief' in u)).toBe(false);  // brief NOT persisted
+  });
+
+  /**
+   * ── THE FAILURE NO LONGER EVAPORATES ────────────────────────────────────────────────────
+   *
+   * The test above has always passed, and it passed just as well when the catch was
+   * `catch { return null }`. "Non-fatal" and "unrecorded" are not the same property, and only
+   * one of them was ever checked — a truncated extraction left a null brief, no row, and a
+   * model-call audit row indistinguishable from a successful call.
+   */
+  it('records WHY the extraction produced no brief, classified', async () => {
+    const cases: Array<[unknown, string]> = [
+      [new Error('extract timeout'), 'timeout'],
+      [new Error('brief-extract gate: products[0].product is required and must be a non-empty string'), 'gate'],
+      [new Error('no parseable JSON object in model output'), 'unparseable'],
+      [new SyntaxError('Unexpected end of JSON input'), 'unparseable'],
+      [new Error('connection reset'), 'unknown'],
+    ];
+    for (const [err, expected] of cases) {
+      h.auditInserts.length = 0;
+      h.extractShouldFail = true; h.extractError = err;
+      h.cycleRow = [{ status: 'requested', cycleMonth: '2026-06', intakeJson: null }];
+      const res = await call({ cycleId: CYCLE, answers: { q1: 'launch on the 25th' }, source: 'web' });
+      expect((await res.json()).beatsReady).toBe(false);
+      expect(h.auditInserts).toHaveLength(1);
+      const row = h.auditInserts[0]!;
+      expect(row.action).toBe('content-cycle:brief-extract-outcome');
+      const meta = row.metadata as { outcome: string; failure: string };
+      expect(meta.outcome).toBe('failed');
+      expect(meta.failure).toBe(expected);
+    }
   });
 
   it('records the shortfall when the extraction returns fewer products than the brief names', async () => {

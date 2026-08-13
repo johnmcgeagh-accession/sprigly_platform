@@ -114,6 +114,34 @@ async function loadCatalogueNames(clientId: string): Promise<string[]> {
 }
 
 /**
+ * Why an extraction produced no brief, as far as this catch site can actually tell.
+ *
+ * Stated honestly, because the classes are not equally separable here:
+ *   - `timeout`    — the 25s race won. Unambiguous: we threw this error ourselves.
+ *   - `gate`       — the model returned parseable JSON and `validateStructuredBrief` rejected it
+ *                    (missing required field, bad status, malformed date). Unambiguous: the gate
+ *                    prefixes its own message.
+ *   - `unparseable`— nothing in the response survived `parseBriefResponse`. TRUNCATION IS A
+ *                    SUBSET OF THIS ONE AND IS NOT SEPARABLE HERE. A response cut off at the
+ *                    token cap leaves no complete top-level object, so json-salvage contributes
+ *                    no candidate and the parser throws — but so does prose, a fenced blob that
+ *                    never closes, and a stray control character. Telling them apart needs
+ *                    `stopReason`, which `extractStructuredBrief` does not return; separating
+ *                    them means plumbing it out, which is a change to the extractor's contract
+ *                    and deliberately not made here.
+ *   - `unknown`    — anything else, including a failed db write of an otherwise good brief.
+ */
+type ExtractFailure = 'timeout' | 'gate' | 'unparseable' | 'unknown';
+
+function classifyExtractFailure(err: unknown): ExtractFailure {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg === 'extract timeout') return 'timeout';
+  if (msg.startsWith('brief-extract gate:')) return 'gate';
+  if (msg.includes('no parseable JSON object') || err instanceof SyntaxError) return 'unparseable';
+  return 'unknown';
+}
+
+/**
  * Record what the extraction actually produced, where it can be found later.
  *
  * `audit_log`, and a SEPARATE row from the model-call one, for a reason worth stating: the model
@@ -133,11 +161,15 @@ async function loadCatalogueNames(clientId: string): Promise<string[]> {
  * it reports.
  */
 async function recordExtractOutcome(
-  clientId: string, cycleId: string, planMonth: string, shortfall: BriefShortfall,
+  clientId: string, cycleId: string, planMonth: string,
+  outcome: { shortfall: BriefShortfall } | { failure: ExtractFailure; message: string },
 ): Promise<void> {
   try {
-    const metadata = { cycleId, planMonth, outcome: 'shortfall' as const,
-      named: shortfall.named, missing: shortfall.missing };
+    const metadata = 'shortfall' in outcome
+      ? { cycleId, planMonth, outcome: 'shortfall' as const,
+          named: outcome.shortfall.named, missing: outcome.shortfall.missing }
+      : { cycleId, planMonth, outcome: 'failed' as const,
+          failure: outcome.failure, message: outcome.message.slice(0, 500) };
     await db.insert(auditLog).values({
       clientId, action: 'content-cycle:brief-extract-outcome', metadata,
     });
@@ -213,10 +245,21 @@ async function extractAndPersistBrief(
           schedule: (brief as StructuredBrief).schedule.length },
         'brief-extract: extraction returned fewer products than the brief names',
       );
-      await recordExtractOutcome(clientId, cycleId, planMonth, shortfall);
+      await recordExtractOutcome(clientId, cycleId, planMonth, { shortfall });
     }
     return brief as StructuredBrief;
-  } catch {
+  } catch (err) {
+    /**
+     * Still non-fatal, and deliberately so: the intake is already saved, and the lazy planning
+     * path re-extracts later. What changed is that the failure no longer evaporates. The bare
+     * `catch { return null }` this replaces discarded the truncation case entirely — the brief
+     * stayed null, nothing was written, and the only trace left was a model-call row that looks
+     * exactly like a successful one.
+     */
+    const failure = classifyExtractFailure(err);
+    const message = err instanceof Error ? err.message : String(err);
+    briefLogger.warn({ cycleId, planMonth, failure, err: message }, 'brief-extract: failed — brief left null for the lazy retry');
+    await recordExtractOutcome(clientId, cycleId, planMonth, { failure, message });
     return null;   // intake is saved; brief stays null for the lazy retry
   }
 }
