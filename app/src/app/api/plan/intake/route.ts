@@ -18,9 +18,9 @@
  */
 import { NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
-import { db, contentCycles, clearStructuredBriefIfPrePlanning, PRE_PLANNING_STATUSES } from '@sprigly/db';
+import { db, contentCycles, clearStructuredBriefIfPrePlanning, PRE_PLANNING_STATUSES, auditLog, clientProductCatalogue } from '@sprigly/db';
 import { createAuditLogger } from '@sprigly/audit';
-import { extractStructuredBrief, distributeBriefAnswers, loadDurableInputs, BASE_QUESTIONS, type IntakeJson, type StructuredBrief, type CurrentPlanBeat } from '@sprigly/engine';
+import { extractStructuredBrief, distributeBriefAnswers, loadDurableInputs, BASE_QUESTIONS, briefProductShortfall, type IntakeJson, type StructuredBrief, type CurrentPlanBeat, type BriefShortfall } from '@sprigly/engine';
 import type { DraftBeatView, ExtractedSummary } from '@/lib/types';
 // The ONLY sanctioned reader of draft rows (plan.ts) — the brief is extracted against the month
 // as it currently stands, so a sentence naming a date resolves against what is already there.
@@ -71,6 +71,82 @@ const asPlanState = (beats: readonly DraftBeatView[]): CurrentPlanBeat[] =>
   beats.map((b) => ({ date: b.date, title: b.title }));
 
 /**
+ * The extractor's optional `logger`, which this route has never supplied.
+ *
+ * `extractStructuredBrief` has logged its output counts since it was written (brief-extract.ts),
+ * behind `logger?.info` — and the reason the guard never fired here is structural, not an
+ * oversight to be embarrassed about: that `Logger` is a pino shape, the worker has pino, and a
+ * Next.js route handler has no logger at all. `clientId` was passed because it was already in
+ * scope; a logger was not, so the one line that would have said "this extraction returned three
+ * products" has never once run on the path clients actually use. The same gap swallowed the
+ * auditor until it was passed explicitly below.
+ *
+ * Two methods is the whole interface, so the adapter is two methods. Structured, not
+ * interpolated, because the fields are what a later query wants.
+ */
+const briefLogger = {
+  info: (obj: unknown, msg?: string) => console.log(JSON.stringify({ level: 'info', msg, ...(obj as object) })),
+  warn: (obj: unknown, msg?: string) => console.warn(JSON.stringify({ level: 'warn', msg, ...(obj as object) })),
+};
+
+/**
+ * The client's catalogue family names — the independent list the shortfall check needs.
+ *
+ * Best-effort on the same terms as `loadDurableContext` and `loadCurrentPlan`: a failed read
+ * costs the extraction its shortfall check, never the client's save. See brief-shortfall.ts for
+ * why the catalogue is the key and what it cannot see.
+ */
+async function loadCatalogueNames(clientId: string): Promise<string[]> {
+  try {
+    const rows = await db.select({ catalogue: clientProductCatalogue.catalogue })
+      .from(clientProductCatalogue).where(eq(clientProductCatalogue.clientId, clientId));
+    const names = new Set<string>();
+    for (const row of rows) {
+      const families = (row.catalogue as { families?: unknown } | null)?.families;
+      if (!Array.isArray(families)) continue;
+      for (const f of families) {
+        const name = (f as { name?: unknown })?.name;
+        if (typeof name === 'string' && name.trim()) names.add(name.trim());
+      }
+    }
+    return [...names];
+  } catch { return []; }
+}
+
+/**
+ * Record what the extraction actually produced, where it can be found later.
+ *
+ * `audit_log`, and a SEPARATE row from the model-call one, for a reason worth stating: the model
+ * call is audited BEFORE the response is parsed (brief-extract.ts), which is correct — the tokens
+ * were spent whatever happens next — but it means a run that dropped three products and a run
+ * that dropped none are identical in the ledger apart from a token count. This row is the
+ * post-parse half. It is written only when there is something to say, so the table does not grow
+ * a row per keystroke-driven save.
+ *
+ * It is written directly rather than through `createAuditLogger`, whose one method is
+ * `logModelCall` and whose job is pricing tokens. No model call happened here; borrowing that
+ * method would mean inventing a `modelId` and two zero token counts to satisfy a cost
+ * calculation that should not run.
+ *
+ * Non-fatal by construction. The intake has already been saved and the brief already persisted
+ * by the time this runs; a detector that can fail the request it measures is worse than the gap
+ * it reports.
+ */
+async function recordExtractOutcome(
+  clientId: string, cycleId: string, planMonth: string, shortfall: BriefShortfall,
+): Promise<void> {
+  try {
+    const metadata = { cycleId, planMonth, outcome: 'shortfall' as const,
+      named: shortfall.named, missing: shortfall.missing };
+    await db.insert(auditLog).values({
+      clientId, action: 'content-cycle:brief-extract-outcome', metadata,
+    });
+  } catch (err) {
+    briefLogger.warn({ cycleId, planMonth, err: String(err) }, 'brief-extract: outcome audit failed — non-fatal');
+  }
+}
+
+/**
  * The submission rendered as ONE instruction: answered questions first, then the free notes.
  *
  * Extracted because two branches of this route now need it — the post-cutoff agent turn has
@@ -103,8 +179,8 @@ async function extractAndPersistBrief(
    *  interpreted against the state the client was looking at when they wrote it. */
   currentPlan: readonly CurrentPlanBeat[] = [],
 ): Promise<StructuredBrief | null> {
+  const planMonth = nextMonth(cycleMonth);
   try {
-    const planMonth = nextMonth(cycleMonth);
     const durableContext = await loadDurableContext(clientId, planMonth);
     const brief = await Promise.race([
       extractStructuredBrief({
@@ -115,10 +191,30 @@ async function extractAndPersistBrief(
         // logs behind `if (audit && clientId)` — clientId was already being passed; the auditor
         // never was, so the guard silently never fired.
         audit: createAuditLogger(db),
+        // The same shape of gap, one line down: the extractor's own count log sits behind
+        // `logger?.info` and this route had no logger to give it. See `briefLogger`.
+        logger: briefLogger,
       }),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error('extract timeout')), EXTRACT_TIMEOUT_MS)),
     ]);
     await db.update(contentCycles).set({ structuredBrief: brief as unknown, updatedAt: new Date() }).where(eq(contentCycles.id, cycleId));
+
+    /**
+     * The brief is SAVED before this runs, and stays saved whatever it finds. A shortfall is a
+     * measurement of what came back, not a verdict on whether to keep it — a brief naming four
+     * of five products is still far better than the null a rejection would leave.
+     */
+    const catalogue = await loadCatalogueNames(clientId);
+    const shortfall = briefProductShortfall(intake.planContent.freeNotes, brief, catalogue);
+    if (shortfall.missing.length > 0) {
+      briefLogger.warn(
+        { cycleId, planMonth, named: shortfall.named, missing: shortfall.missing,
+          products: (brief as StructuredBrief).products.length,
+          schedule: (brief as StructuredBrief).schedule.length },
+        'brief-extract: extraction returned fewer products than the brief names',
+      );
+      await recordExtractOutcome(clientId, cycleId, planMonth, shortfall);
+    }
     return brief as StructuredBrief;
   } catch {
     return null;   // intake is saved; brief stays null for the lazy retry

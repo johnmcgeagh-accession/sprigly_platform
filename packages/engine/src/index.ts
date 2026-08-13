@@ -146,6 +146,10 @@ export {
 export type { BriefExtractParams, DistributeAnswersParams, CurrentPlanBeat } from './brief-extract.js';
 export { briefArcDatesFor, arcRoleOf, productMatchesSubject, entryDate } from './brief-schedule.js';
 export type { BriefArcDates } from './brief-schedule.js';
+// Did the extraction return everything the brief named? Pairs with the extractor above: it can
+// return a complete, gate-passing brief that silently omits part of the client's notes.
+export { briefProductShortfall, NO_SHORTFALL } from './brief-shortfall.js';
+export type { BriefShortfall } from './brief-shortfall.js';
 
 // Live planning-workspace preview (Phase 1) — cheap Haiku mirror of the in-progress brief.
 export { previewBrief, EMPTY_PREVIEW, PREVIEW_MIN_CHARS } from './brief-preview.js';

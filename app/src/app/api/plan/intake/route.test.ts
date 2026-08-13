@@ -25,6 +25,10 @@ const h = vi.hoisted(() => ({
   applyCalls: [] as Array<Record<string, unknown>>,
   applyResult: null as Record<string, unknown> | null,
   applyShouldThrow: false,
+  /** What the shortfall detector reports back, and the audit rows the route writes from it. */
+  shortfallReturn: { named: [] as string[], missing: [] as string[] },
+  shortfallCalls: [] as unknown[],
+  auditInserts: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -39,9 +43,14 @@ vi.mock('@sprigly/db', () => ({
       if (h.updateShouldFail && 'intakeJson' in v) return { where: () => Promise.reject(new Error('update failed')) };
       h.updateSets.push(v); return { where: () => Promise.resolve(undefined) };
     } }),
+    // The post-parse outcome row. Captured rather than discarded: "the loss is recorded" is the
+    // whole point of the row, so a test that cannot see it cannot check the thing that matters.
+    insert: () => ({ values: (v: Record<string, unknown>) => { h.auditInserts.push(v); return Promise.resolve(undefined); } }),
   },
   contentCycles: new Proxy({}, { get: (_t, p) => String(p) }),
   planInputs: new Proxy({}, { get: (_t, p) => String(p) }),
+  auditLog: new Proxy({}, { get: (_t, p) => String(p) }),
+  clientProductCatalogue: new Proxy({}, { get: (_t, p) => String(p) }),
   clearStructuredBriefIfPrePlanning: (...a: unknown[]) => { h.clearCalls.push(a); return Promise.resolve('cleared'); },
   PRE_PLANNING_STATUSES: new Set(['scheduled', 'requested', 'reply_received', 'awaiting_confirmation', 'intake_confirmed']),
 }));
@@ -49,6 +58,10 @@ vi.mock('@sprigly/engine', () => ({
   BASE_QUESTIONS: ['Q1', 'Q2', 'Q3', 'Q4', 'Q5'],
   extractStructuredBrief: (...a: unknown[]) => { h.extractCalls.push(a[0]); return h.extractShouldFail ? Promise.reject(new Error('extract failed')) : Promise.resolve({ products: [{ product: 'Wren', colourway: 'sage', status: 'new', launch_date: null, content_from: null }], schedule: [{ date: '2026-07-25', dateRange: null, type: 'launch', product: null, colourway: null, note: 'launch on the 25th' }], content_asks: [], focus: [], conflicts: [], plan_window: { from: null, month: null } }); },
   distributeBriefAnswers: (a: Record<string, unknown>) => { h.distributeCalls.push(a); return Promise.resolve(h.distributeReturn); },
+  // Mocked at the module boundary like the reshape below — the detector has its own tests
+  // (packages/engine brief-shortfall.test.ts, against the live brief that dropped Maggie). What
+  // belongs here is the ROUTE's decision: what it does with the answer.
+  briefProductShortfall: (...a: unknown[]) => { h.shortfallCalls.push(a); return h.shortfallReturn; },
 }));
 // The month's current shape, and the additive reshape it feeds. Mocked at the module boundary
 // so this stays a unit test of the ROUTE's decisions — which beats the extractor is given, and
@@ -94,6 +107,8 @@ beforeEach(() => {
   h.distributeCalls.length = 0; h.distributeReturn = {};
   h.activityCalls.length = 0; h.activityShouldFail = false; h.updateShouldFail = false;
   h.draftBeats.length = 0; h.applyCalls.length = 0; h.applyResult = null; h.applyShouldThrow = false;
+  h.shortfallReturn = { named: [], missing: [] }; h.shortfallCalls.length = 0;
+  h.auditInserts.length = 0;
 });
 
 describe('POST /api/plan/intake — classifier', () => {
@@ -212,6 +227,41 @@ describe('POST /api/plan/intake — classifier', () => {
     expect(body.beatsReady).toBe(false);
     expect(h.updateSets.some((u) => 'intakeJson' in u)).toBe(true);        // intake WAS saved
     expect(h.updateSets.some((u) => 'structuredBrief' in u)).toBe(false);  // brief NOT persisted
+  });
+
+  it('records the shortfall when the extraction returns fewer products than the brief names', async () => {
+    h.shortfallReturn = { named: ['Hannah', 'Connie', 'Maggie'], missing: ['Maggie'] };
+    h.cycleRow = [{ status: 'requested', cycleMonth: '2026-06', intakeJson: null }];
+    const res = await call({ cycleId: CYCLE, freeNotes: 'launch Maggie in yellow on the 12th', source: 'web' });
+    const body = await res.json();
+
+    // The brief is KEPT. A shortfall is a measurement of what came back, not a veto on it —
+    // four of five products beats the null a rejection would leave.
+    expect(body.beatsReady).toBe(true);
+    expect(h.updateSets.some((u) => 'structuredBrief' in u)).toBe(true);
+
+    expect(h.auditInserts).toHaveLength(1);
+    const meta = h.auditInserts[0]!.metadata as { outcome: string; named: string[]; missing: string[] };
+    expect(meta.outcome).toBe('shortfall');
+    expect(meta.missing).toEqual(['Maggie']);
+    expect(meta.named).toEqual(['Hannah', 'Connie', 'Maggie']);
+  });
+
+  it('writes no row when the extraction returned everything the brief named', async () => {
+    h.shortfallReturn = { named: ['Hannah'], missing: [] };
+    h.cycleRow = [{ status: 'requested', cycleMonth: '2026-06', intakeJson: null }];
+    const res = await call({ cycleId: CYCLE, freeNotes: 'launch Hannah in green on the 12th', source: 'web' });
+    expect((await res.json()).beatsReady).toBe(true);
+    // Silence is the common case — this runs on every keystroke-driven save.
+    expect(h.auditInserts).toHaveLength(0);
+  });
+
+  it('gives the extractor a logger, so its own count log can fire', async () => {
+    h.cycleRow = [{ status: 'requested', cycleMonth: '2026-06', intakeJson: null }];
+    await call({ cycleId: CYCLE, freeNotes: 'launch Hannah on the 12th', source: 'web' });
+    const params = h.extractCalls[0] as { logger?: { info: unknown; warn: unknown } };
+    expect(typeof params.logger?.info).toBe('function');
+    expect(typeof params.logger?.warn).toBe('function');
   });
 
   it('FREEFORM (Prompt 2): distributes the brief into EMPTY answer slots + returns an extracted summary', async () => {
