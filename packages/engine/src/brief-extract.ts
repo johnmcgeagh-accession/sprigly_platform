@@ -35,9 +35,38 @@ import type {
 interface Logger { info(obj: unknown, msg?: string): void; warn(obj: unknown, msg?: string): void }
 
 // The logical model — Sonnet, resolved by the model client to the eu-west-2
-// Bedrock physical id. Extraction output is small, so a modest token cap.
+// Bedrock physical id.
 const BRIEF_EXTRACT_MODEL = 'sonnet';
-const BRIEF_EXTRACT_MAX_TOKENS = 3_000;
+
+/**
+ * The output ceiling — a runaway bound, NOT a shape for the answer.
+ *
+ * It was 3,000, and "extraction output is small" stopped being true. Measured on ivy-t's
+ * accumulated November brief (cycle 5ea00045, 1,162 chars of freeNotes): a faithful extraction
+ * of that brief costs 2,881–3,557 output tokens. Two of eight runs came back at exactly 3,000
+ * with stopReason=max_tokens, truncated mid-JSON, and `parseBriefResponse` threw — the caller
+ * then wrote no brief at all. Twelve tokens of margin is not a margin; it is a coin flip whose
+ * losing side is a thrown extraction.
+ *
+ * 8,000 is chosen to be unreachable rather than tight: >2x the worst faithful extraction
+ * measured, an order of magnitude under Sonnet's 128k output ceiling, and half of
+ * PLANNING_MAX_TOKENS (16,000) — the heaviest call in the stack — which keeps the relative
+ * weighting of the two honest. Raising it is free: output tokens bill on what is generated,
+ * never on the cap, and every production-shape run observed terminates at end_turn around
+ * 1,700 tokens, nowhere near either number.
+ *
+ * WHAT THIS DOES NOT FIX, so the next reader does not mistake it for the cure: with the CURRENT
+ * PLAN section present (41 beats), the extractor abridges to ~1,500–1,700 tokens and returns a
+ * COMPLETE, gate-passing brief that silently omits the tail of the client's notes. Five of five
+ * runs at the real production call shape dropped three named products while finishing on
+ * end_turn — the cap was never reached, and raising it to 8,000 changed nothing on three further
+ * runs. That is a separate defect; see brief-shortfall.ts for the detection this pairs with.
+ *
+ * The real latency ceiling on the app path is not this constant either. `EXTRACT_TIMEOUT_MS`
+ * (intake/route.ts) races the call at 25s, and generation measured ~100 tokens/sec — so beyond
+ * roughly 2,400 output tokens the race, not the cap, is what ends the call.
+ */
+const BRIEF_EXTRACT_MAX_TOKENS = 8_000;
 
 /** The empty brief — returned verbatim when there is nothing to extract, and the
  *  shape every caller can rely on. */
