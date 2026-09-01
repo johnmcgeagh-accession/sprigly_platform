@@ -355,3 +355,157 @@ describe.skipIf(!TEST_DB || !TEST_REDIS)('plan-ready send outcome + sweep', () =
     expect(await stampOf(cycleId)).toEqual(before);
   }, 60_000);
 });
+
+// ── Ask coverage: did the delivered month carry the brief's undated asks? ─────
+// September 2026 shipped 33 posts and dropped four of the client's verbatim opening hooks,
+// and nothing noticed for a month. Settlement is where that becomes observable, because it
+// is the one moment that knows the month is finished.
+
+describe.skipIf(!TEST_DB || !TEST_REDIS)('plan-ready ask-coverage outcome', () => {
+  let sql: Any, db: Any, M: Any, q: Any, planning: Any;
+
+  beforeAll(async () => {
+    ({ sql, db } = await import('@sprigly/db'));
+    const { Queue } = await import('bullmq');
+    M = await import('./plan-ready.js');
+    planning = await import('./planning.js');
+    q = new Queue('content-cycles', { connection: { url: TEST_REDIS! } });
+  });
+  afterEach(async () => { vi.restoreAllMocks(); await q.obliterate({ force: true }).catch(() => {}); });
+
+  /**
+   * Every client this block creates, removed at the end.
+   *
+   * The older blocks in this file leave their fixtures behind, which is survivable on a
+   * throwaway database and rude on a shared UAT one — and this suite is most useful run against
+   * UAT, where Postgres and Redis both already exist. Deleted FK-innermost first.
+   */
+  const created: string[] = [];
+  afterAll(async () => {
+    for (const clientId of created) {
+      await sql`DELETE FROM audit_log             WHERE client_id = ${clientId}`.catch(() => {});
+      await sql`DELETE FROM app_magic_link_tokens WHERE client_id = ${clientId}`.catch(() => {});
+      await sql`DELETE FROM content_cycle_posts   WHERE client_id = ${clientId}`.catch(() => {});
+      await sql`DELETE FROM content_cycles        WHERE client_id = ${clientId}`.catch(() => {});
+      await sql`DELETE FROM clients               WHERE id        = ${clientId}`.catch(() => {});
+    }
+    await q?.close();
+  });
+
+  const ACTION = 'content-cycle:ask-coverage-outcome';
+
+  /** The four hooks that went missing, plus the argument that landed. */
+  const BRIEF_WITH_ASKS = {
+    products: [], schedule: [], focus: [], conflicts: [], plan_window: { from: null, month: '2026-08' },
+    content_asks: [
+      { type: 'wardrobe-avoidance-hook', product: null, note: 'Hook: Do you avoid sorting your wardrobe out?' },
+      { type: 'shop-your-wardrobe-hook', product: null, note: 'Hook: Do you avoid shopping your own wardrobe?' },
+      { type: 'not-fast-fashion-brand-values', product: null, note: 'We do not compete with fast fashion because we do not make fast fashion at all, ever.' },
+    ],
+  };
+
+  async function briefedCycle(brief: unknown): Promise<{ clientId: string; cycleId: string }> {
+    const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const [{ id: clientId }] = await sql`
+      INSERT INTO clients (name, slug, status) VALUES ('Ask Coverage', ${`ask-cov-${stamp}`}, 'active') RETURNING id`;
+    const [{ id: cycleId }] = await sql`
+      INSERT INTO content_cycles (client_id, channel, cycle_month, status, approved_at, approved_by, structured_brief)
+      VALUES (${clientId}, 'instagram', '2026-07', 'scheduled', now(), 'client', ${brief ? sql.unsafe(`'${JSON.stringify(brief).replace(/'/g, "''")}'::jsonb`) : null})
+      RETURNING id`;
+    created.push(clientId);
+    return { clientId, cycleId };
+  }
+
+  async function addCaptioned(clientId: string, cycleId: string, caption: string, status = 'new'): Promise<void> {
+    await sql`
+      INSERT INTO content_cycle_posts (client_id, cycle_id, channel, scheduled_date, format, status, caption)
+      VALUES (${clientId}, ${cycleId}, 'instagram', '2026-08-04', 'reel', ${status}, ${caption})`;
+  }
+
+  const rows = async (clientId: string): Promise<Any[]> =>
+    sql`SELECT metadata FROM audit_log WHERE client_id = ${clientId} AND action = ${ACTION}`;
+
+  const deps = () => ({
+    db, logger: { info() {}, warn() {}, error() {}, debug() {} },
+    appBaseUrl: 'http://localhost:3000',
+    encProvider: {}, googleClientId: '', googleClientSecret: '', model: {}, prompts: {}, audit: {},
+  } as Any);
+
+  it('a month that DROPPED asks: the row appears, names them, and settlement still sends', async () => {
+    const { clientId, cycleId } = await briefedCycle(BRIEF_WITH_ASKS);
+    await addCaptioned(clientId, cycleId, 'We do not compete with fast fashion because we do not make fast fashion at all, ever.');
+    vi.spyOn(planning, 'sendAppReadyNotification').mockResolvedValue(true as Any);
+
+    expect(await M.settlePlanReady(deps(), q, cycleId)).toBe('sent');
+
+    const [row] = await rows(clientId);
+    expect(row).toBeTruthy();
+    expect(row.metadata.counts).toEqual({ used: 1, unused: 2, unmeasured: 0 });
+    // The finding is legible from the row alone — the client's own missing sentences.
+    const unused = row.metadata.asks.filter((a: Any) => a.verdict === 'unused');
+    expect(unused.map((a: Any) => a.line).sort()).toEqual([
+      'Do you avoid shopping your own wardrobe?',
+      'Do you avoid sorting your wardrobe out?',
+    ]);
+  }, 60_000);
+
+  it('a month with NO asks briefed writes no row at all', async () => {
+    const { clientId, cycleId } = await briefedCycle({
+      products: [], schedule: [], content_asks: [], focus: [], conflicts: [], plan_window: { from: null, month: '2026-08' },
+    });
+    await addCaptioned(clientId, cycleId, 'An ordinary caption.');
+    vi.spyOn(planning, 'sendAppReadyNotification').mockResolvedValue(true as Any);
+
+    expect(await M.settlePlanReady(deps(), q, cycleId)).toBe('sent');
+    expect(await rows(clientId)).toHaveLength(0);
+  }, 60_000);
+
+  it('a cycle with no structured_brief writes no row, and settles unaffected', async () => {
+    const { clientId, cycleId } = await briefedCycle(null);
+    await addCaptioned(clientId, cycleId, 'An ordinary caption.');
+    vi.spyOn(planning, 'sendAppReadyNotification').mockResolvedValue(true as Any);
+
+    expect(await M.settlePlanReady(deps(), q, cycleId)).toBe('sent');
+    expect(await rows(clientId)).toHaveLength(0);
+  }, 60_000);
+
+  it('the measurement THROWING never costs the delivery', async () => {
+    const { clientId, cycleId } = await briefedCycle(BRIEF_WITH_ASKS);
+    await addCaptioned(clientId, cycleId, 'Anything at all.');
+    const send = vi.spyOn(planning, 'sendAppReadyNotification').mockResolvedValue(true as Any);
+    // The detector itself blows up mid-settlement.
+    const engine = await import('@sprigly/engine');
+    vi.spyOn(engine, 'briefAskCoverage').mockImplementation(() => { throw new Error('detector exploded'); });
+
+    // Settlement completes, the email still went, and the claim still stands.
+    expect(await M.settlePlanReady(deps(), q, cycleId)).toBe('sent');
+    expect(send).toHaveBeenCalledOnce();
+    const [{ plan_ready_sent_at: stamp }] = await sql`SELECT plan_ready_sent_at FROM content_cycles WHERE id = ${cycleId}`;
+    expect(stamp).toBeTruthy();
+    // …and no row was invented for a measurement that never happened.
+    expect(await rows(clientId)).toHaveLength(0);
+  }, 60_000);
+
+  it('settlement touches NOTHING but audit_log — no posts, no cycles, no edits added', async () => {
+    const { clientId, cycleId } = await briefedCycle(BRIEF_WITH_ASKS);
+    await addCaptioned(clientId, cycleId, 'Anything at all.');
+    vi.spyOn(planning, 'sendAppReadyNotification').mockResolvedValue(true as Any);
+
+    const counts = async (): Promise<Any> => {
+      const [r] = await sql`
+        SELECT (SELECT count(*) FROM content_cycle_posts WHERE cycle_id = ${cycleId}) AS posts,
+               (SELECT count(*) FROM content_cycles      WHERE id       = ${cycleId}) AS cycles,
+               (SELECT count(*) FROM post_edits          WHERE cycle_id = ${cycleId}) AS edits,
+               (SELECT count(*) FROM audit_log WHERE client_id = ${clientId} AND action = ${ACTION}) AS audit`;
+      return r;
+    };
+    const before = await counts();
+    expect(await M.settlePlanReady(deps(), q, cycleId)).toBe('sent');
+    const after = await counts();
+
+    expect(after.posts).toBe(before.posts);
+    expect(after.cycles).toBe(before.cycles);
+    expect(after.edits).toBe(before.edits);
+    expect(Number(after.audit)).toBe(Number(before.audit) + 1);   // the one row it is allowed
+  }, 60_000);
+});

@@ -42,13 +42,14 @@
  */
 import { and, eq, isNull, isNotNull, sql as dsql } from 'drizzle-orm';
 import type { Queue } from 'bullmq';
-import { contentCycles, contentCyclePosts, clients, claimPlanReadySend, releasePlanReadySend, hasGeneratingPosts } from '@sprigly/db';
+import { contentCycles, contentCyclePosts, clients, claimPlanReadySend, releasePlanReadySend, hasGeneratingPosts, auditLog, excludeDraftPosts } from '@sprigly/db';
 import { ensureAppLink, monthLabelOf, nextMonth, sendAppReadyNotification, type PlanningDeps } from './planning.js';
 import { UNGROUNDED_KEY, ungroundedEmailMerge } from '@sprigly/engine/generation-recovery';
 // The preview renders through the SAME two functions the delivery path uses, so what it shows
 // is what would be sent rather than a second opinion about it.
 import { getPublishedTemplate } from './email-send.js';
-import { renderEmailTemplate } from '@sprigly/engine';
+import { renderEmailTemplate, briefAskCoverage } from '@sprigly/engine';
+import type { AskCoverage, AskCoveragePost } from '@sprigly/engine';
 
 export { claimPlanReadySend, releasePlanReadySend };
 
@@ -118,6 +119,132 @@ export async function countUngroundedPosts(db: PlanningDeps['db'], cycleId: stri
   return row?.n ?? 0;
 }
 
+/**
+ * The month as the client will read it: every live, non-draft post's delivered text.
+ *
+ * Drafts are excluded through the shared predicate for the reason every plan reader excludes
+ * them — a beat nobody approved is not part of the month, and counting one would let an
+ * unapproved proposal answer for a briefed ask. Soft-deleted rows go for the same reason
+ * `countUngroundedPosts` drops them: a post the client deleted is not delivery.
+ *
+ * `title` lives in `source_meta`, not a column, so it is read out of the jsonb rather than
+ * selected — briefAskCoverage reads it for the title-echo signal.
+ */
+export async function loadAskCoveragePosts(
+  db: PlanningDeps['db'], cycleId: string,
+): Promise<AskCoveragePost[]> {
+  const rows = await db
+    .select({
+      title:   dsql<string | null>`${contentCyclePosts.sourceMeta} ->> ${'title'}`,
+      caption: contentCyclePosts.caption,
+      hook:    contentCyclePosts.hook,
+      script:  contentCyclePosts.script,
+      overlay: contentCyclePosts.overlay,
+    })
+    .from(contentCyclePosts)
+    .where(and(
+      eq(contentCyclePosts.cycleId, cycleId),
+      isNull(contentCyclePosts.deletedAt),
+      excludeDraftPosts(),
+    ));
+  return rows;
+}
+
+/**
+ * The audit row's body.
+ *
+ * Pure, and separated from the write so the thing worth getting right can be tested without a
+ * database. What it stores is the module's OWN output rather than a re-reading of it: verdict
+ * plus the three evidence numbers briefAskCoverage produced. Recomputing "why" here would be a
+ * second copy of the thresholds, free to drift from the first, and an audit row that disagrees
+ * with the detector is worse than no row.
+ *
+ * Asks are ordered unused → unmeasured → used, because the first is the finding and the last is
+ * the reassurance, and an operator scanning a row should meet them in that order.
+ *
+ * Every ask is identifiable from the row alone. A quoted one carries `line` — the client's own
+ * sentence, which is both what she asked for and what went missing, and a better handle than her
+ * note would be. A thematic one carries `type` and the cycle id, and no note: notes are NOT
+ * keyable by type (one live UAT brief types two different asks `feature`), so copying them in
+ * could label a row with the wrong ask's words, and a wrong quotation is worse than none.
+ */
+export function askCoverageMetadata(
+  cycleId: string, planMonth: string, postsMeasured: number, coverage: AskCoverage,
+): Record<string, unknown> {
+  const RANK: Record<string, number> = { unused: 0, unmeasured: 1, used: 2 };
+  const asks = [...coverage.items]
+    .sort((a, b) => (RANK[a.verdict] ?? 3) - (RANK[b.verdict] ?? 3))
+    .map((i) => ({
+      type:    i.type,
+      product: i.product,
+      verdict: i.verdict,
+      // The evidence, exactly as the detector reported it.
+      longestRun:   i.longestRun,
+      contentWords: i.contentWords,
+      titleEcho:    i.titleEcho,
+      // A quoted ask carries the client's own sentence — the exact words that went missing,
+      // which identifies it better than its note would. A thematic ask carries none, and is
+      // identified by `type` plus the cycle id: the brief is one query away and its notes are
+      // NOT keyable by type (two asks on one live UAT brief are both typed `feature`), so
+      // copying them in here would risk labelling a row with the wrong ask's words.
+      ...(i.quotedLine ? { line: i.quotedLine } : {}),
+    }));
+  return {
+    cycleId,
+    planMonth,
+    postsMeasured,
+    counts: {
+      used:       coverage.used.length,
+      unused:     coverage.unused.length,
+      unmeasured: coverage.unmeasured.length,
+    },
+    asks,
+  };
+}
+
+/**
+ * Measure the delivered month against the brief's undated asks, and record what it found.
+ *
+ * WHEN IT WRITES. Whenever the brief carried asks at all — a clean month writes a row saying so,
+ * and a month with no asks writes nothing. Findings-only was the alternative and it breaks the
+ * one property this detector is built around: `unused` is conclusive but silence is not, so an
+ * absent row must never be readable as "nothing was missing". Writing only on findings would
+ * make "measured, nothing conclusive" and "never measured at all" the same absence, which is
+ * exactly the misreading that let September look complete. A month with NO asks is skipped
+ * because there was genuinely nothing to measure, not because nothing was found. The volume is
+ * one row per delivered month per client.
+ *
+ * NEVER THROWS, and never returns anything the caller must handle. It runs after the email has
+ * already gone; a measurement that can fail the delivery it measures is worse than the gap it
+ * reports (the reasoning `recordExtractOutcome` gives for the same posture on the intake path).
+ * Every failure mode — the read, the detector, the insert — lands in the same catch and leaves
+ * a warn behind, so a month that was not measured says so in the log rather than looking clean.
+ */
+export async function recordAskCoverage(
+  deps: PlanningDeps, clientId: string, cycleId: string, planMonth: string, brief: unknown,
+): Promise<void> {
+  const { db, logger } = deps;
+  try {
+    const posts    = await loadAskCoveragePosts(db, cycleId);
+    const coverage = briefAskCoverage(brief, posts);
+    if (coverage.items.length === 0) return;   // no asks briefed — nothing to measure
+
+    const metadata = askCoverageMetadata(cycleId, planMonth, posts.length, coverage);
+    await db.insert(auditLog).values({
+      clientId, action: 'content-cycle:ask-coverage-outcome', metadata,
+    });
+
+    if (coverage.unused.length > 0) {
+      logger.warn(
+        { cycleId, planMonth, unused: coverage.unused, unmeasured: coverage.unmeasured },
+        'plan-ready: briefed content asks reached no post in the delivered month',
+      );
+    }
+  } catch (err) {
+    logger.warn({ cycleId, planMonth, err: String(err) }, 'plan-ready: ask-coverage measurement failed — non-fatal, month unaffected');
+  }
+}
+
 export type SettleOutcome =
   | 'sent'
   | 'not_settled'    // work still in flight
@@ -143,6 +270,9 @@ export async function settlePlanReady(
       id: contentCycles.id, clientId: contentCycles.clientId, cycleMonth: contentCycles.cycleMonth,
       approvedAt: contentCycles.approvedAt, approvedBy: contentCycles.approvedBy,
       planReadySentAt: contentCycles.planReadySentAt,
+      // Read here so the coverage measurement below costs no second round trip. The preview
+      // twin deliberately does NOT select it: it neither measures nor records.
+      structuredBrief: contentCycles.structuredBrief,
     })
     .from(contentCycles)
     .where(eq(contentCycles.id, cycleId))
@@ -197,6 +327,22 @@ export async function settlePlanReady(
   }
 
   logger.info({ cycleId, autoApproved, monthLabel }, 'plan-ready: settled and sent');
+
+  /**
+   * Did the month that just went out carry what the client asked for?
+   *
+   * HERE, and not one line earlier, because `claimPlanReadySend` already does the work that
+   * would otherwise need doing again. Settlement runs after EVERY generation job; the claim is
+   * the single conditional UPDATE that lets exactly one of those callers past, so recording on
+   * this side of it gives exactly one row per delivered month with no second dedup key. Before
+   * the claim would measure on every job. Between the claim and the send would double-record on
+   * the send_failed path, which releases the claim so a later pass re-enters.
+   *
+   * Awaited rather than floated: the email has already gone, so nothing the client sees waits on
+   * it, and a floated promise would let the worker move on mid-insert. It cannot throw.
+   */
+  await recordAskCoverage(deps, cycle.clientId, cycleId, nextMonth(cycle.cycleMonth), cycle.structuredBrief);
+
   return 'sent';
 }
 
