@@ -150,6 +150,11 @@ export type { BriefArcDates } from './brief-schedule.js';
 // return a complete, gate-passing brief that silently omits part of the client's notes.
 export { briefProductShortfall, NO_SHORTFALL } from './brief-shortfall.js';
 export type { BriefShortfall } from './brief-shortfall.js';
+// The same question one stage later: did GENERATION use what extraction kept? Closes the gap
+// brief-shortfall.ts:36-38 names as outside its own range — "an undated content ask… those are
+// real losses and this module is silent on them."
+export { briefAskCoverage, NO_ASK_COVERAGE, VERBATIM_MIN_WORDS, VERBATIM_MIN_CONTENT, QUOTED_MIN_RUN } from './ask-coverage.js';
+export type { AskCoverage, AskCoverageItem, AskCoveragePost, AskVerdict } from './ask-coverage.js';
 
 // Live planning-workspace preview (Phase 1) — cheap Haiku mirror of the in-progress brief.
 export { previewBrief, EMPTY_PREVIEW, PREVIEW_MIN_CHARS } from './brief-preview.js';
