@@ -16,11 +16,25 @@
  *
  * ── The rules, stated ────────────────────────────────────────────────────────────────
  *
- * ONE CHANGE = one `post_edits` row with `passed = true`. That row is written by exactly the
- * paths that make a paid generation call and get a usable result back: a caption written for a
- * new post, an instructed caption rewrite (engine/.../shape.ts), a hook or script refine
- * (engine/.../refine.ts), and the weekly session's rewrites (engine/.../weekly-session.ts). A
- * generation that fails is not counted, because nothing was delivered.
+ * ONE CHANGE = one `post_edits` row with `passed = true` AND `billable = true`. That row is
+ * written by exactly the paths that make a paid generation call and get a usable result back:
+ * a caption written for a new post, an instructed caption rewrite (engine/.../shape.ts), a
+ * hook or script refine (engine/.../refine.ts), and the weekly session's rewrites
+ * (engine/.../weekly-session.ts). A generation that fails is not counted, because nothing was
+ * delivered.
+ *
+ * WHAT `billable` ADDS, AND THE DEFECT IT CLOSES (0094). `passed` alone counted the monthly
+ * plan fan-out against the client's own allowance — the month's captions are the PRODUCT, and
+ * the 30 changes are for shaping it afterwards. Measured on ivy-t's August 2026: 20 rows she
+ * spent herself between the 3rd and the 14th, then 30 more written by the cutoff fan-out at
+ * 04:00 on the 24th, reaching the limit at 04:01:51 and running on to 50 against a limit of
+ * 30. Six days later a time-sensitive promo was refused on quota. The rows still exist — they
+ * are real spend and the cost reporting wants them — but the ALLOWANCE ignores them.
+ *
+ * NOT `actor`. That column answers a different question (whose hand moved the plan, for the
+ * untouched-post rate) and the failed-generation sweep stamps its retries 'agent' on purpose.
+ * A client rewrite that failed transiently produces exactly one row, written by that retry;
+ * keying the exemption on `actor` would make it free. See `post_edits.billable` in schema.ts.
  *
  * WHOSE ROW. `post_edits` has no client_id, so the count joins `cycle_id → content_cycles` and
  * filters on (client_id, channel). A client's Instagram allowance and their email allowance are
@@ -89,6 +103,12 @@ export async function readAiChangeUsage(
       eq(contentCycles.clientId, clientId),
       eq(contentCycles.channel,  channel),
       eq(postEdits.passed, true),
+      // The exemption is applied HERE, at the count, and nowhere near the write. A
+      // system-generated row is still written, still carries its instruction and its
+      // before/after text, and still shows up in cost reporting — the allowance simply does
+      // not look at it. Exempting at the write would have bought the same allowance answer
+      // by destroying the record of what we actually spent.
+      eq(postEdits.billable, true),
       gte(postEdits.createdAt, start),
     ));
 

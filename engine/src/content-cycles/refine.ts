@@ -103,6 +103,11 @@ export async function runFieldRefine(job: ShapeJob, deps: PlanningDeps): Promise
       postId: post.id, cycleId: job.cycleId, scope: job.scope,
       instruction: job.instruction, captionBefore: before, captionAfter: after, passed: true,
       actor: job.actor ?? 'agent',
+      // Same two-defaults rule as shape.ts (0094): unattributed under-counts engagement,
+      // unmarked charges. A refine only ever reaches here from a client-instructed route or
+      // an approved proposal, so in practice this is always true — stated rather than assumed,
+      // because a future producer of `target` jobs would otherwise inherit silence.
+      billable: job.billable ?? true,
     });
   } catch (err) {
     logger.warn({ ...logCtx, err: String(err) }, 'refine: post_edits audit write failed — non-fatal');

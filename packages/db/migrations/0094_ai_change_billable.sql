@@ -1,0 +1,92 @@
+-- 0094_ai_change_billable — which post_edits rows the client's allowance is allowed to count.
+--
+-- ── The defect this closes ────────────────────────────────────────────────────────────
+--
+-- `readAiChangeUsage` counts every post_edits row with passed = true in the calendar month,
+-- scoped to (client_id, channel). Nothing distinguishes a change the CLIENT asked for from
+-- generation the SYSTEM started on its own, so the monthly plan fan-out spends the client's
+-- allowance on the product they are already paying for.
+--
+-- Measured on ivy-t (c79cf1c5-b51d-4a9b-aedc-48577df43e8f), August 2026:
+--
+--   20 rows  actor='client'   3–14 Aug, genuine instructed rewrites — hers, correctly counted
+--   30 rows  actor='agent'    24 Aug 04:00–04:05, autoApproveAndGenerate's cutoff fan-out
+--   ──
+--   50 against a limit of 30. The cap was reached at 04:01:51 by a run she did not start,
+--   and on 30 August her next request — a time-sensitive promo — was refused on quota.
+--
+-- The fan-out reads no allowance at all before it queues (draft-plan.ts), so it cannot stop
+-- at the limit either; it simply overspends and the client discovers it later.
+--
+-- ── Why a new column and not `actor` ──────────────────────────────────────────────────
+--
+-- `actor` (0090) is the obvious candidate and it is the wrong one. It answers "whose hand
+-- moved the plan" — the untouched-post rate — and the failed-generation sweep therefore
+-- stamps its retries 'agent' ON PURPOSE (generation-sweep.ts), because a system retry must
+-- not count as client engagement.
+--
+-- That is correct for engagement and fatal for billing. A client-instructed rewrite that
+-- fails transiently writes NO post_edits row — the row is written only on success — and the
+-- sweep's retry then writes one stamped 'agent'. Keying the exemption on `actor` would make
+-- that change free, and would do it for every client whose changes ever hit a timeout. The
+-- two questions agree on eight of nine enqueue paths and disagree exactly on recovery, which
+-- is the one place the difference is invisible.
+--
+-- Re-stamping the sweep 'client' is not the fix either: it would repair billing by corrupting
+-- the number `actor` exists to measure. Two questions, two columns.
+--
+-- ── NOT NULL DEFAULT true, and why that direction ─────────────────────────────────────
+--
+-- The default is the load-bearing decision, and it is deliberately the OPPOSITE of `actor`'s.
+--
+--   actor    absent ⇒ 'agent'. Under-counts client engagement. Safe, because the mistake
+--            makes the measured number pessimistic rather than flattering.
+--   billable absent ⇒ true. CHARGES. Safe, because the mistake costs the client one visible,
+--            refundable change — where the other direction silently makes the cap
+--            unenforceable and nobody finds out until an audit.
+--
+-- So a writer that forgets the flag bills. A writer must SAY it is exempt to be exempt.
+--
+-- Historic rows all become billable, which is the honest record: they were counted at the
+-- time. No backfill — see below.
+--
+-- ── No backfill, deliberately ─────────────────────────────────────────────────────────
+--
+-- ivy-t's 30 fan-out rows stay billable. Her August window is closed (the count is per
+-- calendar month, and it is September), so retro-exempting them changes no allowance any
+-- client has today; it would only rewrite what was true when the refusal happened. The
+-- ledger should say what it counted.
+--
+-- ── Adjacent constraints and readers, checked before writing (the 0085 lesson) ─────────
+--
+--   post_edits check constraints — one, post_edits_actor_check (0090). NOT touched; the new
+--                                  column is independent of it.
+--   post_edits triggers          — none.
+--   readers of post_edits        — six outside readAiChangeUsage:
+--                                    admin/src/lib/client-health.ts:92
+--                                    engine/src/client-health-measure-cli.ts:42
+--                                    engine/src/content-cycles/plan-merge-dryrun.ts:49
+--                                    engine/src/content-cycles/planning.ts:1079
+--                                    engine/src/content-cycles/merge-apply-cli.ts:105
+--                                    packages/db/src/retire-draft-posts.ts:83
+--                                  Every one is an existence check or a text read. None
+--                                  counts rows against a limit, so none changes meaning when
+--                                  a column arrives with a default.
+--
+-- ADD COLUMN with a non-volatile DEFAULT does not rewrite the table on PG 11+ — the default
+-- is stored in the catalog and materialised on read. Safe on a table with history.
+--
+-- Apply manually:
+--   psql "<DATABASE_URL>" -f 0094_ai_change_billable.sql
+-- Reverse (LOCAL / emergency ONLY):
+--   psql "<DATABASE_URL>" -f 0094_ai_change_billable.down.sql
+
+ALTER TABLE "post_edits" ADD COLUMN IF NOT EXISTS "billable" boolean NOT NULL DEFAULT true;
+
+-- The allowance read is (cycle_id, created_at) narrowed by passed AND billable — see
+-- post_edits_cycle_created_idx. Partial on the EXEMPT rows only: they are the minority and
+-- the majority path (billable = true) is already served by the existing index, so this costs
+-- almost nothing and makes "what did the system generate this month" answerable for cost work.
+CREATE INDEX IF NOT EXISTS "post_edits_exempt_idx"
+  ON "post_edits" ("cycle_id", "created_at")
+  WHERE "billable" = false;

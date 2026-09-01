@@ -9,7 +9,8 @@ import { describe, it, expect } from 'vitest';
 import {
   isCapReached, remainingChanges, isQuotaBanked, bankedAt,
   classifyGenerationFailure, capAnnouncement, bankedLine, resetDayLabel,
-  QUOTA_BANKED_KEY, QUOTA_BANKED_AT_KEY,
+  isSystemGenerated, billableForPost,
+  QUOTA_BANKED_KEY, QUOTA_BANKED_AT_KEY, SYSTEM_GENERATED_KEY,
 } from './ai-change-cap.js';
 
 const NOW = new Date('2026-07-31T10:00:00Z');
@@ -144,5 +145,40 @@ describe('what the client reads', () => {
     expect(resetDayLabel('2026-08-01T00:00:00Z')).toBe('1 August');
     expect(resetDayLabel('2026-12-01')).toBe('1 December');
     expect(resetDayLabel('whenever')).toBe('whenever');
+  });
+});
+
+describe('who is paying (0094)', () => {
+  it('the fan-out stamp is read from the flag, and only from the flag', () => {
+    expect(isSystemGenerated({ [SYSTEM_GENERATED_KEY]: true })).toBe(true);
+    expect(isSystemGenerated({ [SYSTEM_GENERATED_KEY]: false })).toBe(false);
+    // A truthy-but-not-true value is not the flag. The writer sets a boolean; anything else
+    // arrived by accident and must not silently exempt a client's change.
+    expect(isSystemGenerated({ [SYSTEM_GENERATED_KEY]: 'true' })).toBe(false);
+    expect(isSystemGenerated({ [SYSTEM_GENERATED_KEY]: 1 })).toBe(false);
+  });
+
+  it('an absent stamp, an empty blob and a missing blob all mean BILLABLE', () => {
+    // The safe direction: an unmarked post is charged. Only the approval fan-out writes the
+    // key, so anything it did not create is by construction something the client asked for.
+    expect(billableForPost({})).toBe(true);
+    expect(billableForPost(null)).toBe(true);
+    expect(billableForPost(undefined)).toBe(true);
+    expect(billableForPost('not an object')).toBe(true);
+    expect(billableForPost({ title: 'A small moment', pendingInstruction: 'warmer' })).toBe(true);
+  });
+
+  it('a stamped post is exempt', () => {
+    expect(billableForPost({ [SYSTEM_GENERATED_KEY]: true, title: 'The Audrey Edit' })).toBe(false);
+  });
+
+  it('billability is INDEPENDENT of banking — a banked fan-out post is still not hers to pay for', () => {
+    // The two flags live in the same blob and answer different questions. Nothing about
+    // waiting for an allowance changes who started the generation.
+    const banked = { [QUOTA_BANKED_KEY]: true, [QUOTA_BANKED_AT_KEY]: '2026-08-30T15:05:17.946Z' };
+    expect(billableForPost(banked)).toBe(true);
+    expect(billableForPost({ ...banked, [SYSTEM_GENERATED_KEY]: true })).toBe(false);
+    // and reading one must not disturb the other
+    expect(isQuotaBanked({ ...banked, [SYSTEM_GENERATED_KEY]: true })).toBe(true);
   });
 });

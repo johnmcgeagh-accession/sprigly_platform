@@ -81,6 +81,52 @@ export function bankedAt(sourceMeta: unknown): string | null {
   return typeof v === 'string' && v.trim() ? v : null;
 }
 
+// ─── WHO IS PAYING (0094) ─────────────────────────────────────────────────────
+
+/**
+ * The source_meta key marking a post whose generation the SYSTEM started — the monthly plan
+ * fan-out, not anything the client asked for.
+ *
+ * ── Why this lives on the POST and not only on the job ───────────────────────────────
+ *
+ * The enqueuer knows who asked; by the time a RE-enqueuer runs, the original payload is gone.
+ * The failed-generation sweep and the banked-run trigger both rebuild a job from the post row
+ * alone, and both must reach the same answer the first enqueue did — otherwise a fan-out
+ * caption that timed out comes back billable, or a client's rewrite comes back free.
+ *
+ * So the fact is written once, on the row, at the moment the month is approved
+ * (`draft-approval-core.ts`), where BOTH fan-out paths already share a single UPDATE. It sits
+ * beside `quotaBanked` and `sweepAttempts` — the other two facts about a post's generation
+ * that outlive the job that caused it.
+ */
+export const SYSTEM_GENERATED_KEY = 'systemGenerated';
+
+/**
+ * Did the system start this post's generation on its own?
+ *
+ * THE FLAG, NEVER THE STATUS. A post's status describes where its generation got to, not who
+ * asked for it, and the two come apart the moment anything retries.
+ *
+ * Absent ⇒ false ⇒ billable, which is the safe direction: an unmarked post is charged. The
+ * only writer of this key is the approval fan-out, so anything it did not create is, by
+ * construction, something the client asked for.
+ */
+export function isSystemGenerated(sourceMeta: unknown): boolean {
+  if (!sourceMeta || typeof sourceMeta !== 'object') return false;
+  return (sourceMeta as Record<string, unknown>)[SYSTEM_GENERATED_KEY] === true;
+}
+
+/**
+ * Does a re-enqueue of this post spend the client's allowance?
+ *
+ * The one derivation both re-enqueuers use (`generation-sweep.ts`, `banked-changes.ts`), so
+ * "what does the sweep think" and "what does the banked release think" cannot drift into two
+ * answers about the same post's money.
+ */
+export function billableForPost(sourceMeta: unknown): boolean {
+  return !isSystemGenerated(sourceMeta);
+}
+
 // ─── FAILURE CLASSIFICATION (X2e) ─────────────────────────────────────────────
 
 /**

@@ -489,6 +489,13 @@ export async function autoApproveAndGenerate(
         type: 'shape', scope: 'post', clientId, cycleId, targetPostId: post.id,
         instruction: `Write the caption for this post. It is the "${title}" slot in this month's plan${post.pillar ? `, under the ${post.pillar} pillar` : ''}. Keep it to that subject.`,
         source: 'web',
+        // THE CUTOFF FAN-OUT DOES NOT SPEND THE CLIENT'S ALLOWANCE (0094).
+        //
+        // This is the path that broke ivy-t's August: 30 counted rows written at 04:00 on a
+        // month she had not asked for, on top of the 20 she had spent herself, reaching the
+        // limit at 04:01:51 and continuing to 50/30. Six days later a time-sensitive promo
+        // was refused on quota. The month's own captions are the product, not a change to it.
+        billable: false,
       }, { jobId: `shape_${cycleId}_${post.id}`, ...GENERATION_JOB_OPTIONS });
       captionsQueued++;
       // Carousels get a standalone hook job. Reels do NOT — their hook is written by the

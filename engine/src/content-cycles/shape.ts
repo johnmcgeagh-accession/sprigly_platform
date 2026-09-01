@@ -45,6 +45,20 @@ export interface ShapeJob {
    * number this column exists to measure honestly.
    */
   actor?:       PlanActor;
+  /**
+   * Does this job's output spend the CLIENT'S monthly AI-change allowance (0094)?
+   *
+   * A SEPARATE field from `actor`, not a synonym for it. `actor` records whose hand moved the
+   * plan; this records whose money moves. They agree on almost every enqueue path and come
+   * apart on recovery: the sweep re-runs a client's rewrite and stamps it 'agent' on purpose,
+   * because a system retry is not client engagement — but it is still the client's change,
+   * and it is the only row that change will ever produce.
+   *
+   * ABSENT MEANS BILLABLE, and that is the opposite default to `actor`'s on purpose. A path
+   * that forgets to say charges the client one change they can see and dispute. The other
+   * direction makes the cap unenforceable and says nothing.
+   */
+  billable?:    boolean;
 }
 
 export interface ShapeResultData { changedPostIds: string[]; summary: string; }
@@ -180,6 +194,11 @@ export async function runShapeForCycle(
         postId: post.id, cycleId: job.cycleId, scope: job.scope,
         instruction: job.instruction, captionBefore: before, captionAfter: finalCaption, passed: true,
         actor: job.actor ?? 'agent',
+        // The two defaults point OPPOSITE ways and both are deliberate (0094). `actor` absent
+        // means 'agent' so an unattributed write under-counts engagement; `billable` absent
+        // means true so an unmarked write charges. Each errs where the error is survivable:
+        // a pessimistic metric, versus a cap that quietly stops being a cap.
+        billable: job.billable ?? true,
       });
     } catch (err) {
       logger.warn({ ...logCtx, err: String(err) }, 'shape: post_edits audit write failed — non-fatal');

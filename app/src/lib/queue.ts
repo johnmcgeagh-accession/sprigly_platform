@@ -22,6 +22,10 @@ export interface ShapePayload {
   // runs, the session that caused it is long gone — so the enqueuer states it. Absent means
   // nobody asked in the moment; the worker defaults to 'agent'.
   actor?:       PlanActor;
+  // WHOSE MONEY this job spends (0094). A different question from `actor` and answered
+  // differently on recovery paths — see engine/.../shape.ts for why the two cannot share a
+  // field. Absent means BILLABLE: an exemption has to be stated, never inferred.
+  billable?:    boolean;
 }
 
 function getQueue(): Queue | null {

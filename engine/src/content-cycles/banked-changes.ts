@@ -38,7 +38,7 @@ import { and, eq, isNull, gte, asc, sql as dsql } from 'drizzle-orm';
 import type { Queue } from 'bullmq';
 import type { Logger } from 'pino';
 import { contentCyclePosts, contentCycles, readAiChangeUsage } from '@sprigly/db';
-import { isCapReached, remainingChanges, QUOTA_BANKED_KEY, QUOTA_BANKED_AT_KEY } from '@sprigly/engine/ai-change-cap';
+import { isCapReached, remainingChanges, billableForPost, QUOTA_BANKED_KEY, QUOTA_BANKED_AT_KEY } from '@sprigly/engine/ai-change-cap';
 import type { PlanningDeps } from './planning.js';
 import { GENERATION_JOB_OPTIONS } from './job-options.js';
 import { getLondonToday } from './scheduler.js';
@@ -133,6 +133,14 @@ export async function releaseBankedChanges(
         // The client asked for this — weeks ago, and we are only now able to do it. The
         // attribution belongs to the ask, not to the tick that finally ran it (0090).
         actor: 'client',
+        /**
+         * And so does the money (0094). Banking only ever happens on the client-ask path
+         * (`startPostGeneration` → `markPostBanked`), so in practice this is always true —
+         * but it is DERIVED from the post rather than written as a literal, and deliberately
+         * through the same helper the sweep uses. Two re-enqueuers reading one post's
+         * billability must not be able to reach two answers about the same client's money.
+         */
+        billable: billableForPost(post.sourceMeta),
       }, { jobId, ...GENERATION_JOB_OPTIONS });
 
       // The flag goes and the message with it: the post is genuinely on its way now, and the

@@ -18,8 +18,9 @@
  * result and fans out through its queue helpers; the worker enqueues on the BullMQ handle
  * it already holds. Neither owns a rule.
  */
-import { and, eq, isNull, ne } from 'drizzle-orm';
+import { and, eq, isNull, ne, sql } from 'drizzle-orm';
 import { contentCycles, contentCyclePosts, POST_STATUS_DRAFT, PRE_PLANNING_STATUSES } from '@sprigly/db';
+import { SYSTEM_GENERATED_KEY } from './ai-change-cap.js';
 
 /** The status an approved beat takes.
  *
@@ -131,7 +132,31 @@ export async function approveDraftCore(db: ApprovalDb, params: ApproveDraftParam
 
   await db.transaction(async (tx) => {
     await tx.update(contentCyclePosts)
-      .set({ status: POST_STATUS_GENERATING })
+      .set({
+        status: POST_STATUS_GENERATING,
+        /**
+         * WHO IS PAYING FOR THIS MONTH (0094).
+         *
+         * The captions about to be written are the PRODUCT — the plan the client is already
+         * paying for. They must not spend the monthly AI-change allowance, which exists for
+         * shaping the month afterwards. Measured on ivy-t's August: the cutoff fan-out wrote
+         * 30 counted rows on top of the 20 she had spent herself, took her to 50 against a
+         * limit of 30, and her next request was refused on quota.
+         *
+         * Stamped HERE, on the row, rather than only on the job, because the job is not the
+         * last word: the failed-generation sweep and the banked-run trigger both rebuild a
+         * job from the post alone, long after the payload is gone. A fact they both have to
+         * agree on has to outlive the thing that caused it.
+         *
+         * And stamped in THIS update because it is the one write both fan-out paths share —
+         * the client pressing approve and the cutoff auto-approving. Doing it in either
+         * caller would be doing it twice, which is what this file exists to stop.
+         *
+         * Merged into source_meta rather than assigned: the beat's title, subject and
+         * competitor insight are already in there and the fan-out reads them a moment later.
+         */
+        sourceMeta: sql`coalesce(${contentCyclePosts.sourceMeta}, '{}'::jsonb) || ${JSON.stringify({ [SYSTEM_GENERATED_KEY]: true })}::jsonb`,
+      })
       .where(and(
         eq(contentCyclePosts.cycleId, cycleId),
         eq(contentCyclePosts.clientId, clientId),

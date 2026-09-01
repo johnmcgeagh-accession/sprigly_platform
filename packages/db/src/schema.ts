@@ -1217,6 +1217,22 @@ export const postEdits = pgTable(
     // WHO asked for this edit: 'client' | 'operator' | 'agent' (CHECK in 0090). Nullable —
     // every row written before 0090 is honestly unattributed rather than guessed at.
     actor:         text('actor'),
+    /**
+     * Does this row spend the CLIENT'S monthly AI-change allowance (0094)?
+     *
+     * Deliberately NOT derived from `actor`. That column answers "whose hand moved the plan"
+     * for the untouched-post rate, which is why the failed-generation sweep stamps its retries
+     * 'agent' on purpose — a system retry is not client engagement. But a client-instructed
+     * rewrite that fails transiently writes no row at all (rows land only on success), so the
+     * sweep's retry is the ONLY row that change ever produces. Reading `actor` there would
+     * make it free. The two questions agree everywhere except recovery, and recovery is where
+     * the disagreement is invisible.
+     *
+     * NOT NULL DEFAULT true, and the direction is the point: a writer that forgets the flag
+     * CHARGES. Being wrong that way costs one visible, refundable change; being wrong the
+     * other way makes the cap quietly unenforceable. Exemption must be stated, never assumed.
+     */
+    billable:      boolean('billable').notNull().default(true),
   },
   (t) => ({
     postIdx: index('post_edits_post_idx').on(t.postId),

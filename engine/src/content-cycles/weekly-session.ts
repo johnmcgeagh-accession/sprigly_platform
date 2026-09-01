@@ -170,9 +170,30 @@ export async function runWeeklySession(job: WeeklySessionJob, deps: PlanningDeps
         if (!post) continue;
         const feedback = `Address this reviewer finding: "${f.trigger}". Rewrite the caption to resolve it while keeping the post on-brand for this client (voice, register, sign-off, products). If the finding's rationale references the weather or season, weave that context in naturally so the post feels timely. Keep the post's core subject; make the smallest change that fully addresses the finding.`;
         const caption = await generateCaption(cycle, planPostFromRow(post), feedback, deps);
-        // Quota: count the pre-generated rewrite at generation time.
-        // The weekly session runs on a schedule with nobody in the room: actor 'agent'.
-        try { await db.insert(postEdits).values({ postId: post.id, cycleId, scope: 'post', instruction: f.trigger, captionBefore: post.caption ?? '', captionAfter: caption, passed: true, actor: 'agent' }); } catch { /* audit best-effort */ }
+        /**
+         * EXEMPT from the client's allowance — and the gap that leaves is stated here rather
+         * than left for the next reader to rediscover (0094).
+         *
+         * WHY EXEMPT. The weekly session runs on a Monday cron with nobody in the room. The
+         * client did not ask for this rewrite in the moment; the audit pass decided it. Under
+         * the rule that system-initiated generation does not spend the monthly AI-change
+         * allowance, it does not spend it. Hence actor 'agent' AND billable false — the two
+         * fields say different things and this row happens to answer both the same way.
+         *
+         * WHAT THAT MEANS END TO END, WHICH IS THE PART WORTH KNOWING. This is the ONLY
+         * post_edits row a weekly-session rewrite ever produces. When the client approves the
+         * proposal, the apply path (`app/src/lib/agent/proposals.ts`, kind 'apply_caption')
+         * writes the stored caption deterministically — no second generation, no post_edits
+         * row of its own. So from here these rewrites are free END TO END: generated free on
+         * the cron, applied free on approval, counted nowhere.
+         *
+         * That is intended for now and is NOT obviously right long-term: a client can reshape
+         * part of their month through this surface without spending an allowance. If it should
+         * cost something, it should cost it at APPLY time — the approval is the act being paid
+         * for, and charging on the cron would bill for captions the client may reject. That is
+         * new work, because the apply path writes no row to carry it.
+         */
+        try { await db.insert(postEdits).values({ postId: post.id, cycleId, scope: 'post', instruction: f.trigger, captionBefore: post.caption ?? '', captionAfter: caption, passed: true, actor: 'agent', billable: false }); } catch { /* audit best-effort */ }
         specs.push({
           intent: 'rewrite_post',
           payload: { kind: 'apply_caption', cycleId, postId: post.id, caption, noteId: f.type === 'note_integration' ? f.noteId ?? null : null },

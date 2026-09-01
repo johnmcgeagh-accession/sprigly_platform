@@ -51,7 +51,7 @@ import type { Queue } from 'bullmq';
 import type { Logger } from 'pino';
 import { contentCyclePosts } from '@sprigly/db';
 import { captionInstruction, beatSubject, sweepAttemptsOf, sweepExhausted, MAX_SWEEP_ATTEMPTS, SWEEP_ATTEMPTS_KEY } from '@sprigly/engine/generation-recovery';
-import { classifyGenerationFailure, QUOTA_BANKED_KEY, type GenerationFailureClass } from '@sprigly/engine/ai-change-cap';
+import { classifyGenerationFailure, billableForPost, QUOTA_BANKED_KEY, type GenerationFailureClass } from '@sprigly/engine/ai-change-cap';
 import type { PlanningDeps } from './planning.js';
 import { GENERATION_JOB_OPTIONS } from './job-options.js';
 import { getLondonToday } from './scheduler.js';
@@ -284,6 +284,20 @@ export async function sweepFailedGenerations(
         // The sweep is the system recovering its own work at 05:00 with nobody in the room.
         // Attributing it to the client would count our retry as their engagement (0090).
         actor: 'agent',
+        /**
+         * BILLING IS NOT ATTRIBUTION, AND THIS IS THE LINE WHERE THEY PART (0094).
+         *
+         * `actor: 'agent'` above is right and must stay: our retry is not her engagement.
+         * But the money follows the ASK, not the tick, and a failed generation writes no
+         * post_edits row at all — the row lands only on success. So when the sweep recovers
+         * a client's rewrite, THIS is the only row that change will ever produce. Reading
+         * `actor` here would make it free, and would do it for every client whose changes
+         * ever hit a timeout — which is most of them, eventually.
+         *
+         * Read from the post instead, where the approval fan-out stamped the fact and where
+         * it survives any number of retries.
+         */
+        billable: billableForPost(post.sourceMeta),
       }, { jobId, ...GENERATION_JOB_OPTIONS });
 
       // Stamped only after the job is genuinely on the queue. `generationError` is kept: it is

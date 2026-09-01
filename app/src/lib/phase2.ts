@@ -138,6 +138,10 @@ export async function startPhase2(clientId: string, cycleId: string): Promise<Ph
       // Approving a draft is one act about the MONTH. It is not the client writing ten
       // captions, so the fan-out's own writes are the agent's (0090).
       actor: 'agent',
+      // And nor is it ten of the client's AI changes (0094). The month's captions ARE the
+      // product; the allowance is for shaping them afterwards. Stated on the job as well as
+      // stamped on the post at approval, so the first enqueue does not depend on a read.
+      billable: false,
     });
     if ('error' in shape) {
       // An enqueue failure is a real failure for that post, and must be visible rather
