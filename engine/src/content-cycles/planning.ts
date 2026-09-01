@@ -1188,6 +1188,10 @@ export async function runPlanningForCycle(
 
       // Link-only "plan ready" notification, PINNED to the test inbox (no attachment,
       // no Drive URL), via the same destination sheet/both use. Best-effort.
+      // Tracks where the cycle actually comes to rest, so the completion log below reports
+      // the real state rather than assuming workbook_built the way it did before delivery
+      // was recorded at all.
+      let restingStatus: 'workbook_built' | 'delivered' = 'workbook_built';
       if (appUrl) {
         // At-most-once (migration 0089). Before this, a re-run of a completed cycle re-sent
         // the email every time (investigation §6.5). autoApproved is FALSE here by
@@ -1195,15 +1199,61 @@ export async function runPlanningForCycle(
         // planning (scheduler.ts:283-293), so a cycle that reaches this line was never
         // auto-approved. The settlement path owns the auto variant.
         if (await claimPlanReadySend(db, cycleId)) {
-          await sendAppReadyNotification(deps, clientId, clientName, monthLabelOf(targetMonth), appUrl, false);
+          // THE SEND IS THE DELIVERY. stubs.ts:101 describes a Drive-flow delivery worker —
+          // share a workbook, email a link — that was never built, and 'delivered' has
+          // therefore never been written by anything (six of fourteen CycleStatus members
+          // were unreachable behind it, and the weekly session's AUDITABLE_STATUSES
+          // ['active','delivered','finalised'] could never match a row). The app surface
+          // does the equivalent already: the plan is in content_cycle_posts and this email
+          // hands the client the link to it. All that was missing was the record.
+          //
+          // Recorded on the RETURN VALUE, never on plan_ready_sent_at — the stamp is taken
+          // before the send (claim-first) so it records an ATTEMPT, and reading delivery off
+          // it would re-tell the earl-of-east story where a send that failed for want of
+          // Gmail tokens was logged as one that arrived (:713-716).
+          const sent = await sendAppReadyNotification(deps, clientId, clientName, monthLabelOf(targetMonth), appUrl, false);
+          if (sent) {
+            await transitionCycle(db, cycleId, 'delivered', { deliveredAt: new Date() }, logger);
+            restingStatus = 'delivered';
+          } else {
+            // Best-effort by design (:692-693): deliverTemplatedEmail logs its own failure and
+            // never throws. The month IS generated and usable — it simply was not announced —
+            // so the cycle stays at workbook_built rather than failing.
+            logger.warn({ ...logCtx }, 'content-cycles: plan-ready send did not go — cycle stays at workbook_built (month generated, not announced)');
+          }
         } else {
-          logger.info({ ...logCtx }, 'content-cycles: plan-ready already sent for this cycle — not re-sending');
+          // Claim lost → this cycle was announced by an earlier completed run (the admin
+          // "Run planning now" button force-writes status back to 'intake_confirmed' with a
+          // raw update, so a re-plan arrives here having just been walked back through
+          // planning → workbook_built above). The claim is the record of "has this cycle been
+          // announced"; if it has, 'delivered' is the true state, so restore it rather than
+          // leaving the cycle parked outside AUDITABLE_STATUSES for good.
+          //
+          // Guarded on the CURRENT status rather than on transitionCycle throwing:
+          // delivered→delivered is not in ALLOWED (machine.ts:20-47), and a throw here would
+          // reach the outer catch and mark a delivered cycle 'failed'.
+          const [row] = await db
+            .select({ status: contentCycles.status, planReadySentAt: contentCycles.planReadySentAt, deliveredAt: contentCycles.deliveredAt })
+            .from(contentCycles)
+            .where(eq(contentCycles.id, cycleId))
+            .limit(1);
+          if (row && row.status !== 'delivered') {
+            // deliveredAt takes the time of the SEND, not of this re-run — the delivery
+            // happened once, and stamping 'now' would misdate it. Only filled if still null.
+            const restoreAt = row.deliveredAt ?? row.planReadySentAt ?? undefined;
+            await transitionCycle(db, cycleId, 'delivered', restoreAt ? { deliveredAt: restoreAt } : {}, logger);
+            restingStatus = 'delivered';
+            logger.info({ ...logCtx }, 'content-cycles: plan-ready already sent for this cycle — not re-sending; delivery re-recorded');
+          } else {
+            if (row) restingStatus = 'delivered';
+            logger.info({ ...logCtx }, 'content-cycles: plan-ready already sent for this cycle — not re-sending');
+          }
         }
       } else {
         logger.warn({ ...logCtx }, 'content-cycles: no app link available — skipping app-ready notification');
       }
 
-      logger.info({ ...logCtx, appLink: appUrl !== null }, 'content-cycles: app-surface planning complete (Drive-free) — cycle at workbook_built');
+      logger.info({ ...logCtx, appLink: appUrl !== null, restingStatus }, `content-cycles: app-surface planning complete (Drive-free) — cycle at ${restingStatus}`);
     } else {
       // ── Sheet / both surface: unchanged CSV → poller → workbook → pinned send ──
       // Filename targets the PLAN month (cycleMonth + 1), so build-workbook names

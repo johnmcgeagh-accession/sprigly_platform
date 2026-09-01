@@ -99,6 +99,10 @@ export async function intakeConfirmationEmailStub(
 // (runPlanningForCycle) and invoked directly by the consumer — no stub needed.
 
 // TODO: implement workbook delivery worker (workbook_built → delivered): share + email
+// STILL OUTSTANDING FOR THE DRIVE FLOW ONLY. The app surface now records its own
+// delivery: the plan-ready send IS the delivery there, and planning.ts transitions
+// workbook_built → delivered on that send's return value. A sheet/both cycle still
+// parks at workbook_built after the DrivePoller builds its xlsx (index.ts:122).
 export async function deliveryWorkerStub(
   _clientId:   string,
   _channel:    string,

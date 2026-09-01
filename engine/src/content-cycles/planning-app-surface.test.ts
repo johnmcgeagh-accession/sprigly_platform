@@ -63,12 +63,24 @@ describe('ensureAppLink — per-cycle idempotency', () => {
   });
 });
 
-describe('app-surface state edges (intake_confirmed → planning → workbook_built)', () => {
-  it('both edges the app path uses are allowed', () => {
+describe('app-surface state edges (intake_confirmed → planning → workbook_built → delivered)', () => {
+  it('every edge the app path uses is allowed', () => {
     expect(isAllowedTransition('intake_confirmed', 'planning', null)).toBe(true);
     expect(isAllowedTransition('planning', 'workbook_built', null)).toBe(true);
+    // The plan-ready send IS the app-surface delivery, so the app path now walks this
+    // edge too — it was legal in the machine from the start and written by nothing.
+    expect(isAllowedTransition('workbook_built', 'delivered', null)).toBe(true);
   });
   it('there is no direct intake_confirmed → workbook_built edge (must go via planning)', () => {
     expect(isAllowedTransition('intake_confirmed', 'workbook_built', null)).toBe(false);
+  });
+  it('delivered is not re-enterable — the lost-claim path must guard on status, not on a throw', () => {
+    // planning.ts reads the current status before re-recording delivery on a re-plan.
+    // If it relied on transitionCycle throwing instead, the throw would reach the outer
+    // catch and mark an already-delivered cycle 'failed'.
+    expect(isAllowedTransition('delivered', 'delivered', null)).toBe(false);
+    // And a re-plan can never walk the cycle back down this way: the admin button's raw
+    // status write is what returns it to intake_confirmed, not the machine.
+    expect(isAllowedTransition('delivered', 'workbook_built', null)).toBe(false);
   });
 });
