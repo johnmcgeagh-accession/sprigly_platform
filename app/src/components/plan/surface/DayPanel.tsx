@@ -34,9 +34,10 @@ import { FormatTile, PlusGlyph } from './icons';
 import { dayTitle } from './dates';
 import { scrollPad, type SurfaceFrame } from './frame';
 import {
-  isPostOnTheWay, isBanked, isUngrounded,
+  isPostOnTheWay, isBanked, isUngrounded, isExpired,
   ON_THE_WAY_LABEL, ON_THE_WAY_TEASER, ON_THE_WAY_ARIA,
   BANKED_LABEL, BANKED_TEASER, BANKED_ARIA,
+  EXPIRED_LABEL, EXPIRED_TEASER, EXPIRED_ARIA,
   ungroundedLabel, ungroundedTeaser, UNGROUNDED_ARIA,
 } from '@/lib/generation-state';
 import { cardText } from './card-text';
@@ -145,6 +146,7 @@ function PostCard({ post, time, changed = false, onOpen }: { post: PlanPost; tim
    * will happen and when.
    */
   const banked = isBanked(post);
+  const expired = isExpired(post);
   const onWay = isPostOnTheWay(post);
   const ungrounded = isUngrounded(post);
   const { heading, source, teaser } = cardText(post);
@@ -184,6 +186,24 @@ function PostCard({ post, time, changed = false, onOpen }: { post: PlanPost; tim
             <span aria-hidden="true" className="block h-[7px] w-[7px] flex-none rounded-full border-[1.5px] border-coral-600" />
             <span data-testid="ungrounded" aria-label={UNGROUNDED_ARIA} className="text-[12.5px] font-semibold text-coral-800">
               {ungroundedLabel(post.ungroundedSubject)}
+            </span>
+          </div>
+        </>
+      ) : expired ? (
+        /* THE RETIRED PROMISE. Ordered before `banked` only because the two are mutually
+           exclusive by construction — retirement clears the flag — and reading them in this
+           order says which one wins if a row ever carried both. Same still ring as banked:
+           no words here, nothing in flight. What differs is the tense. Nothing is coming, so
+           the instruction we were holding is NOT shown: quoting back what she asked for,
+           beside a sentence saying we did not do it, reads as a reproach. */
+        <>
+          <p data-testid="expired-message" className="text-[13.5px] leading-normal text-muted">
+            {post.generationError || EXPIRED_TEASER}
+          </p>
+          <div className="mt-2.5 flex items-center gap-2">
+            <span aria-hidden="true" className="block h-[7px] w-[7px] flex-none rounded-full border-[1.5px] border-muted/60" />
+            <span data-testid="expired" aria-label={EXPIRED_ARIA} className="text-[12.5px] font-semibold text-muted">
+              {EXPIRED_LABEL}
             </span>
           </div>
         </>

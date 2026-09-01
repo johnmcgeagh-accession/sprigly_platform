@@ -281,9 +281,14 @@ export function CommittedSurface({ data, frame = 'mobile' }: { data: PlanData; f
    *  a day holding a blank one. The difference between "coming", "waiting for your changes" and
    *  "waiting on your answer" is again a sentence, and the footer, the card and the sheet carry
    *  it; a 5px dot still cannot. */
+  /** A RETIRED post takes the ring for the reason stated two comments up rather than a new one:
+   *  the ring says *no words on this one yet*, which is true of it and permanent. Without this
+   *  it drew a FILLED dot — 'generation_expired' falls to the else branch exactly as 'new' did
+   *  — so the grid showed a finished post on a day holding a blank one. Applying the existing
+   *  rule to a new status, not revising the rule. */
   const marksFor = useCallback(
     (iso: string): DayMark[] => postsOn(iso).map((p) => (
-      p.status === 'generating' || p.status === 'generation_failed' || p.ungrounded === true ? 'onway' : 'committed'
+      p.status === 'generating' || p.status === 'generation_failed' || p.status === 'generation_expired' || p.ungrounded === true ? 'onway' : 'committed'
     )),
     [postsOn],
   );

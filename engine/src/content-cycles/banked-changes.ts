@@ -34,11 +34,11 @@
  * The oldest banked post goes first (by the instant it was banked, then by date), so the client
  * gets back what they asked for in the order they asked for it.
  */
-import { and, eq, isNull, gte, asc, sql as dsql } from 'drizzle-orm';
+import { and, eq, isNull, gte, lt, asc, sql as dsql } from 'drizzle-orm';
 import type { Queue } from 'bullmq';
 import type { Logger } from 'pino';
 import { contentCyclePosts, contentCycles, readAiChangeUsage } from '@sprigly/db';
-import { isCapReached, remainingChanges, billableForPost, QUOTA_BANKED_KEY, QUOTA_BANKED_AT_KEY } from '@sprigly/engine/ai-change-cap';
+import { isCapReached, remainingChanges, billableForPost, expiredLine, QUOTA_BANKED_KEY, QUOTA_BANKED_AT_KEY, QUOTA_EXPIRED_AT_KEY } from '@sprigly/engine/ai-change-cap';
 import type { PlanningDeps } from './planning.js';
 import { GENERATION_JOB_OPTIONS } from './job-options.js';
 import { getLondonToday } from './scheduler.js';
@@ -56,6 +56,122 @@ export interface BankedReleaseResult {
   stillHeld:  number;
   failed:     number;
   capped:     boolean;
+  /** Banked posts whose day passed before the allowance came back, retired this pass. Almost
+   *  always 0 — a post is retired once, ever. */
+  retired:    number;
+}
+
+/** One retirement pass's ceiling. Its own, NOT shared with RELEASE_LIMIT, and that separation
+ *  is the point: a client sitting on a backlog of dead posts must not be able to consume the
+ *  release budget and starve a post that could still be written today. */
+const RETIRE_LIMIT = 200;
+
+/**
+ * ── RETIRING THE PROMISE (the other half of the date guard) ──────────────────────────
+ *
+ * `releaseBankedChanges` declines to write a banked post whose day has passed, and that is
+ * right: paying for a caption about a day that is over buys nothing. What it did not do was
+ * SAY so. The row kept `quotaBanked`, kept its message, and kept its status, so nothing ever
+ * changed and the client went on reading "Waiting for your changes to refresh on 1 September"
+ * in September — a date in the past, for work that would never happen. Found live on ivy-t:
+ * banked 2026-08-30 for a 2026-08-31 promo, still promising on 2026-09-01.
+ *
+ * ── Why a SECOND query rather than widening the release one ──────────────────────────
+ *
+ * The release read filters these rows out in SQL, so it never sees them, and the obvious fix
+ * is to drop that clause and partition in JS. Two reasons not to:
+ *
+ *   STARVATION. `RELEASE_LIMIT` is applied by the SQL LIMIT, before any partitioning. A
+ *   client holding a backlog of expired posts would fill the pass cap with rows that cannot
+ *   be written and hide the ones that can. `generation-sweep.ts` already guards the same
+ *   table against exactly this, for exactly this reason.
+ *
+ *   SPEND. Retirement must never enqueue anything. The strongest way to guarantee that is
+ *   not a comment but a signature: this function takes no `Queue`. It cannot spend money
+ *   because it has nothing to spend it with.
+ *
+ * ── Idempotence ──────────────────────────────────────────────────────────────────────
+ *
+ * This runs on every tick, so "already retired" has to be a fact on the row and not an
+ * assumption about ordering. `quotaExpiredAt` is that fact, and the WHERE clause requires its
+ * absence. Without it the pass would rewrite the same dead rows forever — and because
+ * `content_cycle_posts` carries an updated_at trigger, every rewrite would move
+ * `max(updated_at)`, which is precisely what the client's surface polls on to decide
+ * something changed. A retired post would announce itself as fresh news, daily.
+ */
+export async function retireExpiredBanked(
+  deps: Pick<PlanningDeps, 'db'> & { logger: Logger },
+  now: Date = new Date(),
+): Promise<number> {
+  const { db, logger } = deps;
+  const t = getLondonToday(now);
+  const today = `${t.year}-${String(t.month).padStart(2, '0')}-${String(t.day).padStart(2, '0')}`;
+
+  const expired = await db
+    .select({
+      id: contentCyclePosts.id, clientId: contentCyclePosts.clientId, cycleId: contentCyclePosts.cycleId,
+      scheduledDate: contentCyclePosts.scheduledDate, sourceMeta: contentCyclePosts.sourceMeta,
+    })
+    .from(contentCyclePosts)
+    .where(and(
+      eq(contentCyclePosts.status, 'generation_failed'),
+      dsql`(${contentCyclePosts.sourceMeta} ->> ${QUOTA_BANKED_KEY}) = 'true'`,
+      isNull(contentCyclePosts.deletedAt),
+      // The MIRROR of the release guard at the same boundary, deliberately written as its
+      // complement: `lt` here, `gte` there, one `today`. Every banked post falls to exactly
+      // one of the two passes, and a change to the boundary cannot move one without the other.
+      lt(contentCyclePosts.scheduledDate, today),
+      // Not already retired. See the idempotence note above.
+      dsql`(${contentCyclePosts.sourceMeta} ->> ${QUOTA_EXPIRED_AT_KEY}) IS NULL`,
+    ))
+    .orderBy(asc(contentCyclePosts.scheduledDate))
+    .limit(RETIRE_LIMIT);
+
+  if (!expired.length) return 0;
+
+  let retired = 0;
+  for (const post of expired) {
+    try {
+      /**
+       * The flag GOES and the status MOVES, and neither alone is enough.
+       *
+       * Clearing the flag on its own would leave the row at 'generation_failed', which
+       * `isOnTheWay` collapses into "On its way" — replacing an expired promise with a live
+       * one, which is worse. Moving the status on its own would leave the stored September
+       * sentence in place, and the surface prefers the stored message over any constant.
+       * `pendingInstruction` is deliberately KEPT: it is the record of what she asked for,
+       * and an operator answering "what did we not write for her" needs it.
+       */
+      const meta = { ...((post.sourceMeta ?? {}) as Record<string, unknown>) };
+      delete meta[QUOTA_BANKED_KEY];
+      delete meta[QUOTA_BANKED_AT_KEY];
+      meta['generationError'] = expiredLine(post.scheduledDate);
+      meta[QUOTA_EXPIRED_AT_KEY] = now.toISOString();
+
+      await db.update(contentCyclePosts)
+        .set({ status: 'generation_expired', sourceMeta: meta })
+        .where(and(
+          eq(contentCyclePosts.id, post.id),
+          // Re-assert what we selected on, so a post released or resolved between the read and
+          // now is not dragged into a dead state behind a caption that just landed.
+          eq(contentCyclePosts.status, 'generation_failed'),
+        ));
+
+      retired++;
+      logger.info(
+        { clientId: post.clientId, cycleId: post.cycleId, postId: post.id, scheduledDate: post.scheduledDate },
+        'banked release: the day passed before the allowance came back — promise retired, nothing generated',
+      );
+    } catch (err) {
+      // One row must not end the pass. An un-retired post is exactly where it was, still
+      // showing a stale promise, and the next tick tries again.
+      logger.warn(
+        { clientId: post.clientId, cycleId: post.cycleId, postId: post.id, err: String(err) },
+        'banked release: could not retire an expired banked post (non-fatal)',
+      );
+    }
+  }
+  return retired;
 }
 
 export async function releaseBankedChanges(
@@ -66,6 +182,19 @@ export async function releaseBankedChanges(
   const { db, logger } = deps;
   const t = getLondonToday(now);
   const today = `${t.year}-${String(t.month).padStart(2, '0')}-${String(t.day).padStart(2, '0')}`;
+
+  /**
+   * Retire first, release second. The order is not arithmetic — the two sets are disjoint by
+   * their date clauses — but it is the honest reading order: settle what can no longer happen
+   * before spending the allowance on what still can. It also means a pass that throws while
+   * releasing has already told the truth about the dead ones.
+   *
+   * Best-effort, on the same terms the tick applies to this whole arm: a retirement that fails
+   * must not cost a client their release.
+   */
+  let retired = 0;
+  try { retired = await retireExpiredBanked(deps, now); }
+  catch (err) { logger.warn({ err: String(err) }, 'banked release: retirement pass failed (non-fatal)'); }
 
   const banked = await db
     .select({
@@ -91,7 +220,7 @@ export async function releaseBankedChanges(
   const batch  = capped ? banked.slice(0, RELEASE_LIMIT) : banked;
   if (capped) logger.warn({ limit: RELEASE_LIMIT }, 'banked release: more banked posts than the pass cap — the rest wait for the next tick');
 
-  const result: BankedReleaseResult = { considered: batch.length, released: 0, stillHeld: 0, failed: 0, capped };
+  const result: BankedReleaseResult = { considered: batch.length, released: 0, stillHeld: 0, failed: 0, capped, retired };
   if (!batch.length) return result;
 
   /** Allowance per (client, channel), read once and spent down in memory. See the header. */

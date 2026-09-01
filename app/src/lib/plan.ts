@@ -26,6 +26,7 @@ import type {
   CycleSummary, PlanPost, PlanBeat, PostChannel, PostFormat, PostStatus, ReviewState, PostStepView,
   DraftBeatView, BeatEvidence,
 } from './types.js';
+import { POST_STATUSES } from './types.js';
 export type { PlanBeat } from './types.js';
 
 /** The last ISO day ('YYYY-MM-DD') of a 'YYYY-MM' month. */
@@ -79,7 +80,12 @@ export function beatsInMonth(brief: unknown, month: string): PlanBeat[] {
 }
 
 const FORMATS  = new Set<PostFormat>(['reel', 'carousel', 'single', 'email']);
-const STATUSES = new Set<PostStatus>(['planned', 'edited', 'new', 'generating', 'generation_failed', 'draft']);
+/**
+ * The status allowlist. Its members — and the reason it is a Record rather than a list — live
+ * in types.ts beside the union, so it cannot fall behind it. `toPlanPost` below coerces
+ * anything absent to 'planned' silently, which is what makes that mattering more than usual.
+ */
+const STATUSES = new Set<PostStatus>(POST_STATUSES);
 const REVIEW_STATES = new Set<ReviewState>(['preserved_edit', 'preserved_edit_orphan', 'regenerated']);
 
 const MONTH_NAMES = [

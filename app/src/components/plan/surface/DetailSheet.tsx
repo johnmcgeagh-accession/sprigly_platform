@@ -34,8 +34,9 @@ import { FormatTile, InfoGlyph, CopyGlyph, PencilGlyph, CalGlyph, SparkleGlyph, 
 import { cardText, realCaption } from './card-text';
 import { dayTitle } from './dates';
 import {
-  isPostOnTheWay, isBanked, isUngrounded,
+  isPostOnTheWay, isBanked, isUngrounded, isExpired,
   ON_THE_WAY_LABEL, ON_THE_WAY_BODY, BANKED_LABEL, BANKED_TEASER,
+  EXPIRED_LABEL, EXPIRED_TEASER,
   ungroundedLabel, ungroundedBody, ungroundedCta,
 } from '@/lib/generation-state';
 import { Sheet } from './Sheet';
@@ -139,6 +140,7 @@ export function DetailSheet({
   const { heading } = cardText(post);
   // X2c: banked is its OWN state and outranks "on its way" — nothing is being written.
   const banked = isBanked(post);
+  const expired = isExpired(post);
   const onWay = isPostOnTheWay(post);
   const ungrounded = isUngrounded(post);
   const written = !!(realCaption(post) || post.hook || post.script);
@@ -338,6 +340,16 @@ export function DetailSheet({
               >
                 {ungroundedCta(post.ungroundedSubject)}
               </button>
+            </div>
+          ) : expired ? (
+            /* THE RETIRED PROMISE. The banked block below shows the instruction back to the
+               client because it is about to be acted on. This one deliberately does not: the
+               day has gone and nothing will be written, so quoting her own words beside a
+               sentence saying we did not do it reads as a reproach rather than a record. The
+               stored message names the day that passed; that is the whole account. */
+            <div data-testid="detail-expired" className="rounded-2xl border border-line/30 bg-line-soft px-4 py-5">
+              <p className="text-[15px] font-semibold text-chrome">{EXPIRED_LABEL}</p>
+              <p className="mt-1.5 text-[13.5px] leading-normal text-muted">{post.generationError || EXPIRED_TEASER}</p>
             </div>
           ) : banked ? (
             /* THE CAP'S OWN STATE (X2c). The stored message names the reset date, and the

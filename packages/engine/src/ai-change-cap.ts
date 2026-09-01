@@ -226,3 +226,57 @@ export function capAnnouncement(a: { needed: number; remaining: number; resetsOn
 export function bankedLine(resetsOn: string): string {
   return `Waiting for your changes to refresh on ${resetDayLabel(resetsOn)}.`;
 }
+
+// ─── THE BANKED PROMISE, RETIRED ──────────────────────────────────────────────
+
+/**
+ * The source_meta key stamped when a banked post's day passed before it could be written.
+ *
+ * Its job is IDEMPOTENCE as much as audit. The retirement pass runs on every tick, and
+ * without a mark saying "already done" it would rewrite the same rows' status and message
+ * forever — bumping updated_at, which the client surface polls on, so a dead post would keep
+ * announcing itself as something that had just changed.
+ */
+export const QUOTA_EXPIRED_AT_KEY = 'quotaExpiredAt';
+
+/** When the promise was retired, or null. */
+export function expiredAt(sourceMeta: unknown): string | null {
+  if (!sourceMeta || typeof sourceMeta !== 'object') return null;
+  const v = (sourceMeta as Record<string, unknown>)[QUOTA_EXPIRED_AT_KEY];
+  return typeof v === 'string' && v.trim() ? v : null;
+}
+
+/**
+ * WHAT A RETIRED POST SAYS.
+ *
+ * ── PROVISIONAL ──────────────────────────────────────────────────────────────────────
+ * This wording is new and has not been through the copy pass that will revisit
+ * `bankedLine` above and `BANKED_LABEL` in the app. Revisit all three together; they are
+ * one voice describing one sequence of events and should not drift apart.
+ *
+ * ── What it has to do, and what the banked line got wrong ────────────────────────────
+ *
+ * The sentence it replaces — "Waiting for your changes to refresh on 1 September" — named no
+ * limit, did not say what refreshed, and read as though the system were waiting on the
+ * client. A client who never knew an allowance existed learned nothing from it. Saying
+ * "before your changes refreshed" again would carry exactly that defect forward.
+ *
+ * So this says three things, in the order they happened:
+ *
+ *   1. there WAS a limit and she had reached it — the fact the old copy never revealed
+ *   2. the allowance did not come back in time
+ *   3. the day the post was for has gone, so it will not be written
+ *
+ * "hadn’t come back" rather than "hadn't refreshed yet", deliberately: a post reaches
+ * retirement either because the month never turned over in time OR because it did and the
+ * new allowance was spent again before the release pass reached this row. Only the first is
+ * "not yet refreshed". The phrasing has to be true of both.
+ *
+ * The DATE is the post's own scheduled day, not the reset day. That is the deadline that was
+ * actually missed, and it is the one the client can place — it is on her calendar.
+ */
+export function expiredLine(scheduledDate: string): string {
+  return `You’d used all your changes for the month when you asked for this, `
+    + `and they hadn’t come back by ${resetDayLabel(scheduledDate)} — the day this post was for — `
+    + `so we didn’t write it.`;
+}

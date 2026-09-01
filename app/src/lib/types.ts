@@ -15,7 +15,50 @@ export type PostFormat  = 'reel' | 'carousel' | 'single' | 'email';
 // excludeDraftPosts(), so it should never reach this union in practice — it is a
 // member precisely so that if one ever does, the row mapper labels it honestly
 // instead of coercing it to 'planned' (see STATUSES in plan.ts).
-export type PostStatus  = 'planned' | 'edited' | 'new' | 'generating' | 'generation_failed' | 'draft';
+/**
+ * 'generation_expired' vs 'generation_failed' — the distinction is the whole point of the
+ * former existing, and the names are close enough that it must be said rather than inferred:
+ *
+ *   generation_failed   we tried, or intended to and could not start. Something went wrong.
+ *                       Something may still retry it.
+ *   generation_expired  we deliberately did NOT write it, because the day it was for passed
+ *                       while the monthly change allowance was spent. Nothing went wrong and
+ *                       nothing is coming — the decision was to stop, not the attempt.
+ *
+ * It is a separate STATUS and not a flag on generation_failed because the failure mode being
+ * fixed is what that status DEFAULTS to meaning: `isOnTheWay` collapses it into "On its way",
+ * so a consumer is correct only while it remembers to check a side flag, and the one that
+ * forgets makes a promise on our behalf. Five consumers remembered and three did not, which
+ * is how a client came to be shown a September date in September for work already abandoned.
+ * A distinct member fails quiet instead: an unaware consumer renders nothing.
+ */
+export type PostStatus  = 'planned' | 'edited' | 'new' | 'generating' | 'generation_failed' | 'generation_expired' | 'draft';
+
+/**
+ * THE RUNTIME MIRROR OF PostStatus, and it lives here rather than at its point of use
+ * because it must not be able to fall behind the union above.
+ *
+ * `plan.ts` validates a database row's status against this and coerces anything absent to
+ * 'planned' — with no throw and no log. A member missing from here therefore does not surface
+ * as a bug; it surfaces as a post that looks like an ordinary untouched slot. A retired post
+ * would read as a blank day nobody had got to yet.
+ *
+ * Written as `Record<PostStatus, true>` rather than an array precisely so that cannot happen:
+ * omitting a member is a compile error naming the member, where omitting one from a list is
+ * valid TypeScript that ships. `status-allowlist.test.ts` is the second tripwire.
+ */
+const ALL_STATUSES: Record<PostStatus, true> = {
+  planned:            true,
+  edited:             true,
+  new:                true,
+  generating:         true,
+  generation_failed:  true,
+  generation_expired: true,
+  draft:              true,
+};
+
+/** Every PostStatus, as values. Derived — never written out a second time. */
+export const POST_STATUSES = Object.keys(ALL_STATUSES) as PostStatus[];
 
 // Regen-merge provenance (migration 0059), orthogonal to `status`. Carried on the
 // post so the future orphan accept/remove affordance and the switcher's per-month

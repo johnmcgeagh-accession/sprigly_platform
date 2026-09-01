@@ -69,7 +69,12 @@ export function isBanked(post: { status?: PostStatus | null; banked?: boolean | 
 }
 
 /** Is this post being written, as far as the client is concerned? Banked posts are excluded —
- *  they are the one empty post that nothing is currently doing anything about. */
+ *  they are the one empty post that nothing is currently doing anything about.
+ *
+ *  A RETIRED post needs no exclusion here and deliberately gets none: 'generation_expired' is
+ *  not in IN_FLIGHT, so `isOnTheWay` is already false for it. That is the property the new
+ *  status was added for — the exclusion is structural rather than another clause somebody has
+ *  to remember to write. */
 export function isPostOnTheWay(post: { status?: PostStatus | null; banked?: boolean | null }): boolean {
   return !isBanked(post) && isOnTheWay(post.status);
 }
@@ -163,3 +168,45 @@ export const BANKED_TEASER = 'This one is saved and will be written when your ch
 
 /** Screen-reader phrasing for the banked marker. */
 export const BANKED_ARIA = 'Waiting for your changes to refresh';
+
+/**
+ * ── THE RETIRED PROMISE ──────────────────────────────────────────────────────────────
+ *
+ * The fourth empty post, and the only one that is over.
+ *
+ *   ON ITS WAY   we are writing it. Nothing is asked of you.
+ *   BANKED       we will write it, on a date we can name. Nothing is asked of you.
+ *   UNGROUNDED   we have not written it, and we cannot until you tell us what this is.
+ *   EXPIRED      we did not write it, the day has gone, and nothing more will happen.
+ *
+ * A banked post promises a date. When that date arrives and the post's OWN day has already
+ * passed, the promise cannot be kept and paying to keep it would be paying for a post about
+ * a day that is over (`banked-changes.ts` declines to, deliberately). What was missing was
+ * anything that said so: the row kept its `quotaBanked` flag and its message, so the client
+ * went on reading "Waiting for your changes to refresh on 1 September" in September, about
+ * work already abandoned.
+ *
+ * KEYED ON THE STATUS, not on a flag, and that is the one difference from its three siblings
+ * above. They describe a live post that some process is still reasoning about, so a flag
+ * beside the status is the right shape. This describes a post nothing will touch again, and
+ * the whole reason it exists is that `generation_failed` DEFAULTS — through `isOnTheWay` — to
+ * a promise. Another flag would have inherited that default and needed every consumer to
+ * remember it. A distinct status is what makes an unaware consumer render nothing instead.
+ */
+export function isExpired(post: { status?: PostStatus | null }): boolean {
+  return post.status === 'generation_expired';
+}
+
+/** The card's status line. States an outcome; promises nothing and asks for nothing.
+ *
+ *  PROVISIONAL — see `expiredLine` in @sprigly/engine/ai-change-cap. These words and the
+ *  banked ones above are one voice describing one sequence of events, and the copy pass that
+ *  revisits BANKED_LABEL should revisit this in the same breath. */
+export const EXPIRED_LABEL = 'Not written';
+
+/** The teaser, when the row's own stored message is unavailable. The stored one is preferred
+ *  everywhere, because it names the actual day that passed. */
+export const EXPIRED_TEASER = 'This one’s day passed before your changes came back, so we didn’t write it.';
+
+/** Screen-reader phrasing for the retired marker. */
+export const EXPIRED_ARIA = 'Not written — the day passed';
