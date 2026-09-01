@@ -20,7 +20,7 @@ export const revalidate = 0;
  * the fix is a real one — the brief, the catalogue, the model — not another go.
  */
 import { db, contentCyclePosts, contentCycles, clients } from '@sprigly/db';
-import { and, eq, isNull, desc } from 'drizzle-orm';
+import { and, eq, inArray, isNull, desc } from 'drizzle-orm';
 import { MAX_SWEEP_ATTEMPTS } from '@sprigly/engine/generation-recovery';
 import { verdictFor, type Verdict } from '@/lib/failed-post-verdict';
 
@@ -53,6 +53,7 @@ async function getFailedPosts() {
       format:        contentCyclePosts.format,
       pillar:        contentCyclePosts.pillar,
       sourceMeta:    contentCyclePosts.sourceMeta,
+      status:        contentCyclePosts.status,
       cycleMonth:    contentCycles.cycleMonth,
       cycleId:       contentCycles.id,
       clientName:    clients.name,
@@ -61,7 +62,13 @@ async function getFailedPosts() {
     .innerJoin(contentCycles, eq(contentCyclePosts.cycleId, contentCycles.id))
     .innerJoin(clients, eq(contentCyclePosts.clientId, clients.id))
     .where(and(
-      eq(contentCyclePosts.status, 'generation_failed'),
+      /**
+       * 'generation_expired' is here so that retiring a banked post does not make it vanish
+       * from the only page showing an operator what a client did not get. It is not a failure
+       * and `verdictFor` says so — but "we never wrote this for her" is exactly the kind of
+       * fact this list exists to keep answerable.
+       */
+      inArray(contentCyclePosts.status, ['generation_failed', 'generation_expired']),
       isNull(contentCyclePosts.deletedAt),
     ))
     .orderBy(desc(contentCyclePosts.scheduledDate))
@@ -70,17 +77,19 @@ async function getFailedPosts() {
 
 export default async function FailedPostsPage() {
   const [rows, today] = await Promise.all([getFailedPosts(), Promise.resolve(londonToday())]);
-  const yours = rows.filter((r) => verdictFor(r.sourceMeta, r.scheduledDate, today).tone === 'yours').length;
+  const yours = rows.filter((r) => verdictFor(r.sourceMeta, r.scheduledDate, today, r.status).tone === 'yours').length;
 
   return (
     <div className="max-w-6xl">
       <h1 className="mb-1 text-xl font-semibold text-gray-900">Failed Posts</h1>
       <p className="mb-6 max-w-3xl text-sm text-gray-500">
-        Posts whose caption generation ran out of attempts. The client never sees this — their surface
-        says <em>“on its way”</em> and offers no retry, so this page is the only place a stuck post is
-        visible. Each post gets up to {MAX_SWEEP_ATTEMPTS} sweep passes on the 05:00 tick (three paid
-        attempts each) before it stops costing anything and becomes <strong>yours</strong>. Read-only:
-        the sweep owns re-enqueuing.
+        Posts with no caption that nothing is currently writing. Most ran out of attempts: each gets up
+        to {MAX_SWEEP_ATTEMPTS} sweep passes on the 05:00 tick (three paid attempts each) before it stops
+        costing anything and becomes <strong>yours</strong>. Some did not fail at all — a post the monthly
+        change allowance refused is <em>waiting on quota</em> and releases by itself, and one whose day
+        passed while it waited is <em>not written</em> and is finished. Neither of those cost anything and
+        neither needs you; <strong>need you</strong> counts only the ones that do. Read-only: the sweep
+        owns re-enqueuing.
       </p>
 
       <div className="mb-5 flex gap-6 text-sm">
@@ -107,7 +116,7 @@ export default async function FailedPostsPage() {
           </thead>
           <tbody className="text-gray-700">
             {rows.map((r) => {
-              const verdict = verdictFor(r.sourceMeta, r.scheduledDate, today);
+              const verdict = verdictFor(r.sourceMeta, r.scheduledDate, today, r.status);
               const title = metaStr(r.sourceMeta, 'title');
               const error = metaStr(r.sourceMeta, 'generationError');
               return (

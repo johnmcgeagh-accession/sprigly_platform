@@ -29,6 +29,7 @@
 import { and, eq, gte, sql } from 'drizzle-orm';
 import { db, auditLog, contentCycles, contentCyclePosts } from '@sprigly/db';
 import { isSubjectUngrounded } from '@sprigly/engine/generation-recovery';
+import { isQuotaBanked } from '@sprigly/engine/ai-change-cap';
 
 /** Actions on the phase-2 path, as written by the code that makes the calls. */
 export const PHASE2_ACTIONS = [
@@ -46,6 +47,9 @@ export interface Phase2Cost {
   /** Launch beats stood down at enqueue because their product is in no catalogue. Not failures
    *  and not generations — no model call was made for them. */
   postsDeclined:  number;
+  /** Posts the monthly change allowance refused — banked, or retired after their day passed.
+   *  Neither failed and neither spent anything; they are counted apart from both. */
+  postsRefused:   number;
   withHook:       number;
   withScript:     number;
   /** Model calls on the phase-2 path since approval, by action. */
@@ -77,6 +81,47 @@ export interface Phase2RunSummary {
 export async function recordPhase2Run(summary: Phase2RunSummary): Promise<void> {
   // eslint-disable-next-line no-console
   console.info(JSON.stringify({ evt: 'phase2:fanout', ...summary }));
+}
+
+/** The shape `countOutcomes` needs — a post row's status and its source_meta, nothing more. */
+export interface CostPost { status: string; sourceMeta: unknown }
+
+/**
+ * WHAT EACH POST WAS, for the cost report — four buckets, mutually exclusive.
+ *
+ * Pure and exported so the rule can be tested with data rather than inferred from a query.
+ * The buckets exist because "did generation work?" is the question this report answers, and
+ * three different things all leave a post without a caption while meaning opposite things
+ * about whether it worked:
+ *
+ *   generated  a caption exists. 'new' or 'edited'.
+ *   failed     we tried and it did not work. A real fault, and money was spent reaching it.
+ *   declined   a launch beat stood down before the spend because its product is in no
+ *              catalogue. Status 'new' with no caption, so a plain status filter reads it as
+ *              generated — it is not, and leaving it in the denominator makes callsPerPost
+ *              report a month as cheaper per post than it was.
+ *   refused    the client's monthly change allowance was spent. NOTHING WAS SPENT ON IT —
+ *              `startPostGeneration` refuses before the call, exactly as the decline does.
+ *
+ * REFUSED IS THE ONE THIS FIXES. It shares `generation_failed` with four genuine failure
+ * paths, so it was booked as a failed generation: the fan-out looked less reliable than it
+ * was, in the one report used to judge whether generation is working, on the strength of
+ * events that cost nothing and broke nothing. Both of its shapes are caught — a post still
+ * banked (the flag, whatever the status) and one retired after its day passed.
+ *
+ * Order matters. `refused` is tested before `failed` because a banked post satisfies both.
+ */
+export function countOutcomes(posts: readonly CostPost[]): {
+  postsGenerated: number; postsFailed: number; postsDeclined: number; postsRefused: number;
+} {
+  let postsGenerated = 0, postsFailed = 0, postsDeclined = 0, postsRefused = 0;
+  for (const p of posts) {
+    if (isSubjectUngrounded(p.sourceMeta))                        { postsDeclined++;  continue; }
+    if (isQuotaBanked(p.sourceMeta) || p.status === 'generation_expired') { postsRefused++; continue; }
+    if (p.status === 'generation_failed')                         { postsFailed++;    continue; }
+    if (p.status === 'new' || p.status === 'edited')              { postsGenerated++;             }
+  }
+  return { postsGenerated, postsFailed, postsDeclined, postsRefused };
 }
 
 /**
@@ -126,20 +171,7 @@ export async function measurePhase2Cost(clientId: string, cycleId: string): Prom
     outputTokens += row.outTok;
   }
 
-  /**
-   * A DECLINED launch beat is neither generated nor failed, and must be counted as neither.
-   *
-   * It carries status 'new' — deliberately, because nothing failed — so a plain status filter
-   * reads it as generated. It is not: no model call was ever made for it, and leaving it in the
-   * denominator makes `callsPerPost` report a month as cheaper per post than it was, by dividing
-   * the same spend across posts that never spent anything. It is reported on its own line
-   * instead, which is also the number worth watching: how often the decline actually fires.
-   */
-  const postsDeclined = posts.filter((p) => isSubjectUngrounded(p.sourceMeta)).length;
-  const postsGenerated = posts.filter(
-    (p) => (p.status === 'new' || p.status === 'edited') && !isSubjectUngrounded(p.sourceMeta),
-  ).length;
-  const postsFailed = posts.filter((p) => p.status === 'generation_failed').length;
+  const { postsGenerated, postsFailed, postsDeclined, postsRefused } = countOutcomes(posts);
 
   return {
     cycleId,
@@ -147,6 +179,7 @@ export async function measurePhase2Cost(clientId: string, cycleId: string): Prom
     postsGenerated,
     postsFailed,
     postsDeclined,
+    postsRefused,
     withHook:       posts.filter((p) => !!p.hook).length,
     withScript:     posts.filter((p) => !!p.script).length,
     callsByAction,
