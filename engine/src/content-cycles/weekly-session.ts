@@ -192,6 +192,38 @@ export async function runWeeklySession(job: WeeklySessionJob, deps: PlanningDeps
          * cost something, it should cost it at APPLY time — the approval is the act being paid
          * for, and charging on the cron would bill for captions the client may reject. That is
          * new work, because the apply path writes no row to carry it.
+         *
+         * ── WHAT THE EXEMPTION COSTS US, MEASURED (decided 2026-09-01) ───────────────
+         *
+         * The decision was taken on numbers rather than on principle, so the numbers are here
+         * and the next person can re-take it on better ones.
+         *
+         * This path generates through the FULL pipeline — `generateCaption` runs
+         * regeneratePost -> applyCodeGate -> applyCritic, exactly as a paid client change does.
+         * It is not a cheap call, and exempting it is not exempting something small.
+         *
+         * From prod audit_log, one client, August 2026:
+         *
+         *   planning-critic   £0.0244 per call
+         *   planning-repair   £0.0450 per call, at 0.74 repairs per critic
+         *   => roughly £0.06-0.10 per rewrite
+         *
+         * At WEEKLY_SESSION_MAX_REWRITE=3 and MAX_WEATHER=1 per week, a month is ~12 rewrites
+         * plus ~4 weather drafts:
+         *
+         *   ~ £1.20-2.00 per client per month, against £149 of revenue.
+         *
+         * Roughly 1% of the subscription. Cheap enough that metering it would cost more in
+         * client confusion — being given a number for work they did not ask for — than it
+         * saves. That is the whole argument for the exemption: it is an argument about a
+         * ratio, and the ratio is what to re-check.
+         *
+         * REVISIT IF the critic loop changes. It was 81% of total spend in that measurement,
+         * so its cost per call and its repair ratio are what move this number — a doubling of
+         * either roughly doubles the figure above. Also revisit if the weekly caps are raised
+         * (the load is linear in them), or if the subscription price falls. Re-measure from
+         * audit_log the same way rather than scaling these figures: the model and the prompt
+         * both change underneath them.
          */
         try { await db.insert(postEdits).values({ postId: post.id, cycleId, scope: 'post', instruction: f.trigger, captionBefore: post.caption ?? '', captionAfter: caption, passed: true, actor: 'agent', billable: false }); } catch { /* audit best-effort */ }
         specs.push({
