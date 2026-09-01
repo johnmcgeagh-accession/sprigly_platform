@@ -26,7 +26,7 @@ import type {
   CycleSummary, PlanPost, PlanBeat, PostChannel, PostFormat, PostStatus, ReviewState, PostStepView,
   DraftBeatView, BeatEvidence,
 } from './types.js';
-import { POST_STATUSES } from './types.js';
+import { POST_STATUSES } from './types';
 export type { PlanBeat } from './types.js';
 
 /** The last ISO day ('YYYY-MM-DD') of a 'YYYY-MM' month. */
