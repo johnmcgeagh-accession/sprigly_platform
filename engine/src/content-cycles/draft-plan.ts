@@ -451,6 +451,26 @@ export async function countDraftBeats(deps: PlanningDeps, cycleId: string): Prom
 }
 
 /**
+ * THE RUNAWAY CEILING on one cutoff fan-out.
+ *
+ * A month is ~30 posts. One or two a day is normal and four a day would already be strange,
+ * so 120 is four months of content in a single cycle: not a big month, a broken one. Nothing
+ * legitimate reaches it, which is what makes it a useful alarm rather than a limit anybody
+ * plans around.
+ *
+ * It exists because this fan-out has no natural bound. It queues one paid Bedrock job per
+ * approved post and reads nothing that would stop it — the cap that used to stop it was the
+ * client's own AI-change allowance, which was never a spend guard and no longer applies to
+ * this path at all (0094). A planner bug that duplicated beats would previously have been
+ * absorbed by the client's allowance running out; now it would run to completion.
+ *
+ * DELIBERATELY NOT THE ALLOWANCE. This is a guard on OUR spend and it must never read, spend
+ * or interact with the client's changes. A client is not billed for our runaway, and a client
+ * with an override is not exempt from it.
+ */
+export const FANOUT_CEILING = 120;
+
+/**
  * Approve a cycle's draft on the client's behalf and start phase 2. (D3.)
  *
  * The RULES are not here — they are in approveDraftCore (@sprigly/engine), shared with the
@@ -458,17 +478,26 @@ export async function countDraftBeats(deps: PlanningDeps, cycleId: string): Prom
  * worker cannot import from app/; the shared core is the fix. What remains here is the one
  * thing that genuinely differs: the worker enqueues on the BullMQ handle it already holds,
  * where the app goes through its own queue helpers.
+ *
+ * ── `capped` IS NOT `captionsQueued < approved` ──────────────────────────────────────
+ *
+ * Both mean "fewer jobs than posts", and they are completely different events. An enqueue
+ * that throws also leaves the count short, and that is an ordinary per-post failure the loop
+ * is designed to absorb — the post is marked and the month carries on. The ceiling being hit
+ * is not ordinary: it means the cycle held more work than any real month can, and no caller
+ * should have to infer that from arithmetic over two numbers that agree for the wrong reason.
+ * So it is returned as its own flag and logged at ERROR, and a normal month never sets it.
  */
 export async function autoApproveAndGenerate(
   deps: PlanningDeps, queue: Queue, clientId: string, cycleId: string,
-): Promise<{ approved: number; captionsQueued: number }> {
+): Promise<{ approved: number; captionsQueued: number; capped: boolean }> {
   const { db, logger } = deps;
 
   const approval = await approveDraftCore(db, { clientId, cycleId, auto: true });
   if (!approval.ok) {
     // 'already_approved' is the ordinary race, not an error: the client got there first.
     logger.info({ cycleId, reason: approval.error }, 'draft-plan: no auto-approval at cutoff');
-    return { approved: 0, captionsQueued: 0 };
+    return { approved: 0, captionsQueued: 0, capped: false };
   }
 
   // Re-read the approved rows for the fields the fan-out needs (format for hook eligibility,
@@ -480,8 +509,33 @@ export async function autoApproveAndGenerate(
     .where(and(eq(contentCyclePosts.cycleId, cycleId), eq(contentCyclePosts.clientId, clientId), isNull(contentCyclePosts.deletedAt)));
   const approvedIds = new Set(approval.postIds);
 
+  /**
+   * THE CEILING, APPLIED BEFORE THE FIRST JOB IS QUEUED.
+   *
+   * Measured against the posts this run would actually fan out over, not against `approved`,
+   * because those are different numbers: `approval.postIds` is what the transaction flipped,
+   * and this list is what survived the re-read. The one that matters is the one that turns
+   * into paid jobs.
+   *
+   * The excess is NOT queued and NOT marked failed. It is left exactly as approval left it,
+   * because a runaway is not a per-post failure and pretending otherwise would write hundreds
+   * of client-visible generation_failed rows describing a fault that is entirely ours.
+   */
+  const fanOut = posts.filter((p) => approvedIds.has(p.id));
+  const capped = fanOut.length > FANOUT_CEILING;
+  if (capped) {
+    // ERROR, not warn: nothing legitimate reaches this, so a line here always means a bug
+    // upstream produced a month that cannot be real. It names the cycle and the count it was
+    // about to queue, which together are enough to find what generated them.
+    logger.error(
+      { cycleId, clientId, intended: fanOut.length, ceiling: FANOUT_CEILING, queued: FANOUT_CEILING, notQueued: fanOut.length - FANOUT_CEILING },
+      `draft-plan: RUNAWAY FAN-OUT — cycle ${cycleId} would have queued ${fanOut.length} generation jobs, ceiling is ${FANOUT_CEILING}. Queuing ${FANOUT_CEILING} and stopping. The rest are approved but unqueued; a person needs to look at how this cycle got ${fanOut.length} posts.`,
+    );
+  }
+  const batch = capped ? fanOut.slice(0, FANOUT_CEILING) : fanOut;
+
   let captionsQueued = 0;
-  for (const post of posts.filter((p) => approvedIds.has(p.id))) {
+  for (const post of batch) {
     const meta = (post.sourceMeta ?? {}) as Record<string, unknown>;
     const title = typeof meta['title'] === 'string' ? meta['title'] : '';
     try {
@@ -515,6 +569,6 @@ export async function autoApproveAndGenerate(
     }
   }
 
-  logger.info({ cycleId, approved: approval.approved, captionsQueued }, 'draft-plan: auto-approved at cutoff and started phase 2');
-  return { approved: approval.approved, captionsQueued };
+  logger.info({ cycleId, approved: approval.approved, captionsQueued, capped }, 'draft-plan: auto-approved at cutoff and started phase 2');
+  return { approved: approval.approved, captionsQueued, capped };
 }

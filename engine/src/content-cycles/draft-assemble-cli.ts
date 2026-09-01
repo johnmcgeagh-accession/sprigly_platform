@@ -94,7 +94,7 @@ const result: AssembleAndPersistResult = await assembleAndPersistDraft({ clientI
     throw err;                                                       // unreachable; satisfies never
   });
 
-let approval: { approved: number; captionsQueued: number } | undefined;
+let approval: { approved: number; captionsQueued: number; capped: boolean } | undefined;
 if (autoApprove) {
   const queue = new Queue('content-cycles', { connection: { url: env.REDIS_URL } });
   try {

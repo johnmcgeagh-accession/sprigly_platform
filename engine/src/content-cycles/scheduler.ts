@@ -33,8 +33,15 @@ type Db = typeof _db;
 export interface AutoApproveFns {
   /** Live, unapproved draft beats on this cycle. 0 → the baseline path applies. */
   countDrafts: (cycleId: string) => Promise<number>;
-  /** Approve (auto) + fan out phase 2. */
-  approveAndGenerate: (clientId: string, cycleId: string) => Promise<{ approved: number; captionsQueued: number }>;
+  /**
+   * Approve (auto) + fan out phase 2.
+   *
+   * `capped` is the runaway ceiling having fired (draft-plan.ts, FANOUT_CEILING) — a cycle
+   * held more work than any real month. It is carried here so the tick's own log line says
+   * so; it is NOT inferable from `captionsQueued < approved`, which an ordinary per-post
+   * enqueue failure also produces.
+   */
+  approveAndGenerate: (clientId: string, cycleId: string) => Promise<{ approved: number; captionsQueued: number; capped: boolean }>;
 }
 
 export type SendTemplatedEmailFn = (input: { key: EmailTemplateKey; clientId: string; merge: MergeData }) => Promise<boolean>;
@@ -285,6 +292,12 @@ export async function evaluateAutoRunForClient(params: {
     const outcome = await autoApprove.approveAndGenerate(cycle.clientId, cycle.id);
     logger.info({ ...logCtx, cycleId: cycle.id, monthLabel, ...outcome },
       `[auto-run:auto-approved] approved ${outcome.approved} draft beats and started phase 2 for ${monthLabel} — baseline run skipped`);
+    // The fan-out already logged the detail at ERROR. This is the same fact on the TICK's
+    // own line, because that is the line an operator reads when asking what last night did.
+    if (outcome.capped) {
+      logger.error({ ...logCtx, cycleId: cycle.id, monthLabel, ...outcome },
+        `[auto-run:RUNAWAY] ${monthLabel} hit the fan-out ceiling — ${outcome.approved} beats approved, only ${outcome.captionsQueued} queued`);
+    }
     if (notify) {
       try { await notify({ clientId, channel, cycleId: cycle.id, dataMonth, monthLabel, intakePresent: hasIntakeInput }); }
       catch (err) { logger.warn({ ...logCtx, cycleId: cycle.id, err: String(err) }, 'content-cycle-scheduler: auto-run operator notify failed (non-fatal)'); }
