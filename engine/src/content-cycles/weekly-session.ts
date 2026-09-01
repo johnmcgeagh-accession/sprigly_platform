@@ -118,8 +118,38 @@ function planPostFromRow(row: typeof contentCyclePosts.$inferSelect): PlanPostRo
 
 interface ProposalSpec { intent: string; payload: Record<string, unknown>; summary: string }
 
-/** Run a weekly planning session for (client, cycle, weekStart). */
-export async function runWeeklySession(job: WeeklySessionJob, deps: PlanningDeps): Promise<WeeklySessionResult> {
+/**
+ * Everything PASS 1 reads and decides, and nothing it writes.
+ *
+ * Extracted from `runWeeklySession` unchanged so a second caller can run the audit WITHOUT
+ * running Pass 2. `runWeeklySession` calls it and behaves exactly as before — the reason for
+ * the split is that this function has no early exit and never had one: Pass 2 and every write
+ * follow unconditionally once the audit returns, so "just the audit" was not reachable at all.
+ *
+ * WHY THE CALLER MUST NOT REBUILD THIS. The three reads carry rules that are easy to
+ * reproduce slightly wrong: the draft fence, the seven-day window, the deleted filter, and a
+ * note-relevance overlap where a NULL bound means "always in window". A copy that drifts from
+ * any of them reports on a week the session would not actually audit — which is precisely the
+ * thing a tool built to preview this feature must not do.
+ *
+ * WRITES NOTHING. Three selects, one outbound weather request, one Haiku call. `runAudit`
+ * takes no `db` and no audit logger, and the model client writes no audit_log row of its own,
+ * so a caller can run this against live data and leave no trace.
+ */
+export interface WeeklyAuditPass {
+  cycle:    CycleRow;
+  posts:    (typeof contentCyclePosts.$inferSelect)[];
+  notes:    AuditNote[];
+  flags:    ReturnType<typeof buildWeatherFlags>;
+  forecast: Awaited<ReturnType<typeof fetchForecast>>;
+  findings: Finding[];
+  actioned: Finding[];
+  skipped:  Finding[];
+  weekEnd:  string;
+  caps:     { maxWeather: number; maxRewrite: number };
+}
+
+export async function runWeeklyAudit(job: WeeklySessionJob, deps: PlanningDeps): Promise<WeeklyAuditPass> {
   const { db, logger } = deps;
   const { clientId, cycleId, weekStart } = job;
   const weekEnd = addDays(weekStart, 6);
@@ -158,6 +188,19 @@ export async function runWeeklySession(job: WeeklySessionJob, deps: PlanningDeps
   }, deps.model);
   const { actioned, skipped } = applyCaps(findings, caps);
   logger.info({ clientId, cycleId, weekStart, findings: findings.length, actioned: actioned.length, skipped: skipped.length }, 'weekly-session: audit complete');
+
+  return { cycle, posts, notes, flags, forecast, findings, actioned, skipped, weekEnd, caps };
+}
+
+/** Run a weekly planning session for (client, cycle, weekStart). */
+export async function runWeeklySession(job: WeeklySessionJob, deps: PlanningDeps): Promise<WeeklySessionResult> {
+  const { db, logger } = deps;
+  const { clientId, cycleId, weekStart } = job;
+
+  // `findings` is the FULL, ORIGINAL-ORDER list and is persisted as-is on the session row
+  // below. It is taken from the audit rather than rebuilt from actioned+skipped, which would
+  // reorder it — applyCaps preserves order within each bucket but not across the two.
+  const { cycle, posts, forecast, findings, actioned, skipped, weekEnd } = await runWeeklyAudit(job, deps);
 
   // ── Pass 2: generate content for actioned findings ─────────────────────────
   const specs: ProposalSpec[] = [];
