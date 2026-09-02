@@ -67,6 +67,11 @@ export function useDraftMonth(data: PlanData) {
   // INDEPENDENT of the receipt: clearing the summary never un-marks what changed (spec §3).
   const [changedIds, setChangedIds] = useState<string[]>(receipts[0]?.changedIds ?? []);
   const [busy, setBusy] = useState(false);
+  /** WHICH idea is being promoted, not WHETHER one is — see `addToMonth`. */
+  const [rescuingId, setRescuingId] = useState<string | null>(null);
+  /** Ideas promoted in this session, so a resolved line stops offering itself without the
+   *  rollup it sits in being replaced. */
+  const [rescuedIds, setRescuedIds] = useState<string[]>([]);
   /** A reshape is running: the ONE thing on this surface the agent is doing rather than us. */
   const [shaping, setShaping] = useState(false);
   const [undo, setUndo] = useState<UndoState | null>(null);
@@ -139,7 +144,17 @@ export function useDraftMonth(data: PlanData) {
    * outright. `viewedCycleId` is the one the surface is rendering and the one the server must
    * be told about, so it goes on every body from a single place rather than per call site.
    */
-  const write = useCallback(async (url: string, body: unknown): Promise<DraftWrite> => {
+  /**
+   * `keepReceipt` — the write changed the month, and the receipt on screen must survive it.
+   *
+   * Every other write here REPLACES the receipt, which is right: a move, a drop, a reshape each
+   * produce the record of what they just did, and that record supersedes the last one. A rescue
+   * does not. It acts on ONE line of a rollup the client is still reading and still working
+   * through, and handing back a single-item month_scoped receipt threw away the other ten
+   * rescue links along with the list they sat in — after which those ideas were reachable from
+   * nowhere. Beats and changedIds still update, because the month really did change.
+   */
+  const write = useCallback(async (url: string, body: unknown, opts?: { keepReceipt?: boolean }): Promise<DraftWrite> => {
     setBusy(true);
     try {
       const r = await post(url, { ...(body as Record<string, unknown>), cycleId: data.viewedCycleId });
@@ -160,7 +175,7 @@ export function useDraftMonth(data: PlanData) {
       // and offers a review of it; an answer changed nothing, and its place is the thread where
       // it was asked. Promoting it would put "What changed" over a list of things that didn't.
       if (r.application && r.application.scope !== 'question') {
-        setReceipt(r.application);
+        if (!opts?.keepReceipt) setReceipt(r.application);
         setChangedIds(r.application.changedIds ?? []);
       }
       return r;
@@ -240,9 +255,32 @@ export function useDraftMonth(data: PlanData) {
     [write],
   );
 
-  /** Promote a filed idea into this month — the rescue tap on a rollup's idea line. */
+  /**
+   * Promote a filed idea into this month — the rescue tap on a rollup's idea line, and the same
+   * tap on a backlog row.
+   *
+   * `rescuingId` rather than a boolean, because `busy` is ONE flag for the whole surface and a
+   * rollup can offer eleven of these at once: clicking one turned all eleven to "Adding…", which
+   * told the client that eleven things were happening when one was. The id names which line is
+   * working, and every other line stays live while it does.
+   *
+   * `rescuedIds` is what replaces the vanished link. A promoted idea must stop offering itself —
+   * it is in the month now — without the list it belongs to being torn down around it.
+   */
   const addToMonth = useCallback(
-    async (planInputId: string, date: string) => write('/api/plan/draft/apply', { op: 'add_to_month', planInputId, date }),
+    async (planInputId: string, date: string) => {
+      setRescuingId(planInputId);
+      try {
+        const r = await write('/api/plan/draft/apply', { op: 'add_to_month', planInputId, date }, { keepReceipt: true });
+        // Marked only on a write that actually placed a beat. A refusal leaves the line
+        // offerable, because the idea is still not in the month and saying otherwise would
+        // strand it exactly as before.
+        if (r.ok && r.application && r.application.scope === 'month_scoped') {
+          setRescuedIds((prev) => (prev.includes(planInputId) ? prev : [...prev, planInputId]));
+        }
+        return r;
+      } finally { setRescuingId(null); }
+    },
     [write],
   );
 
@@ -257,7 +295,7 @@ export function useDraftMonth(data: PlanData) {
   );
 
   return {
-    beats, busy, shaping, receipt, changedIds, undo,
+    beats, busy, shaping, receipt, changedIds, undo, rescuingId, rescuedIds,
     setUndo, setReceipt, setChangedIds,
     move, changeFormat, drop, add, say, addToMonth, rescueDate,
   };

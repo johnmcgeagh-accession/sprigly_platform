@@ -34,12 +34,16 @@ import { namesAnOperation } from '@sprigly/engine/operations';
 import { scrollPad } from './frame';
 
 export function ReceiptPanel({
-  receipt, monthName, editable, rescuing, onRescue, onClear,
+  receipt, monthName, editable, rescuingId, rescuedIds, onRescue, onClear,
 }: {
   receipt: DraftReceipt;
   monthName: string;
   editable: boolean;
-  rescuing: boolean;
+  /** WHICH idea is being promoted — null when none is. Not a boolean: a rollup offers one of
+   *  these per idea line, and one flag for all of them said eleven things were happening. */
+  rescuingId: string | null;
+  /** Ideas already promoted. Their line reports that instead of offering the tap again. */
+  rescuedIds: readonly string[];
   onRescue: (planInputId: string) => void;
   onClear: () => void;
 }) {
@@ -54,9 +58,9 @@ export function ReceiptPanel({
     // here rather than threaded through two call sites on a surface this fix was not about.
     <div data-testid="receipt-panel" className={`flex-1 overflow-y-auto px-5 pt-4 [scrollbar-width:none] ${scrollPad('mobile')}`}>
       {receipt.items ? (
-        <Rollup receipt={receipt} items={receipt.items} editable={editable} rescuing={rescuing} onRescue={onRescue} />
+        <Rollup receipt={receipt} items={receipt.items} editable={editable} rescuingId={rescuingId} rescuedIds={rescuedIds} onRescue={onRescue} />
       ) : (
-        <Single receipt={receipt} monthName={monthName} editable={editable} rescuing={rescuing} onRescue={onRescue} />
+        <Single receipt={receipt} monthName={monthName} editable={editable} rescuingId={rescuingId} rescuedIds={rescuedIds} onRescue={onRescue} />
       )}
 
       {/* Clearing, as a quiet text action rather than a ✕ on the chip. */}
@@ -75,9 +79,10 @@ export function ReceiptPanel({
 
 /** One instruction, and the deltas it produced. */
 function Single({
-  receipt, monthName, editable, rescuing, onRescue,
+  receipt, monthName, editable, rescuingId, rescuedIds, onRescue,
 }: {
-  receipt: DraftReceipt; monthName: string; editable: boolean; rescuing: boolean; onRescue: (id: string) => void;
+  receipt: DraftReceipt; monthName: string; editable: boolean;
+  rescuingId: string | null; rescuedIds: readonly string[]; onRescue: (id: string) => void;
 }) {
   const evergreen = receipt.scope === 'evergreen';
   /**
@@ -136,7 +141,7 @@ function Single({
           move one of the posts to the next available empty day?" the one button we offer would
           create a post titled with the instruction and evict a real one. */}
       {evergreen && offersRescue(receipt) && receipt.planInputId && editable && (
-        <RescueBtn busy={rescuing} onClick={() => onRescue(receipt.planInputId!)} />
+        <Rescue id={receipt.planInputId} rescuingId={rescuingId} rescuedIds={rescuedIds} onRescue={onRescue} />
       )}
     </>
   );
@@ -144,9 +149,10 @@ function Single({
 
 /** A pasted brief: one line per segment. */
 function Rollup({
-  receipt, items, editable, rescuing, onRescue,
+  receipt, items, editable, rescuingId, rescuedIds, onRescue,
 }: {
-  receipt: DraftReceipt; items: BriefItem[]; editable: boolean; rescuing: boolean; onRescue: (id: string) => void;
+  receipt: DraftReceipt; items: BriefItem[]; editable: boolean;
+  rescuingId: string | null; rescuedIds: readonly string[]; onRescue: (id: string) => void;
 }) {
   const parts = countItems(items);
   return (
@@ -157,7 +163,9 @@ function Rollup({
       </p>
 
       <ul className="flex flex-col">
-        {items.map((item, i) => <Item key={i} item={item} editable={editable} rescuing={rescuing} onRescue={onRescue} />)}
+        {items.map((item, i) => (
+          <Item key={i} item={item} editable={editable} rescuingId={rescuingId} rescuedIds={rescuedIds} onRescue={onRescue} />
+        ))}
       </ul>
 
       {receipt.discardedCount ? (
@@ -170,9 +178,10 @@ function Rollup({
 }
 
 function Item({
-  item, editable, rescuing, onRescue,
+  item, editable, rescuingId, rescuedIds, onRescue,
 }: {
-  item: BriefItem; editable: boolean; rescuing: boolean; onRescue: (id: string) => void;
+  item: BriefItem; editable: boolean;
+  rescuingId: string | null; rescuedIds: readonly string[]; onRescue: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const applied = item.outcome === 'applied';
@@ -225,11 +234,36 @@ function Item({
 
       {(item.outcome === 'idea' || item.outcome === 'couldnt_apply' || item.outcome === 'nothing_to_do') && !namesAnOperation(item.span) && item.planInputId && editable && (
         <div className="ml-[25px]">
-          <RescueBtn busy={rescuing} onClick={() => onRescue(item.planInputId!)} />
+          <Rescue id={item.planInputId} rescuingId={rescuingId} rescuedIds={rescuedIds} onRescue={onRescue} />
         </div>
       )}
     </li>
   );
+}
+
+/**
+ * One idea line's rescue state, decided per line rather than per surface.
+ *
+ * Three states, and the third is the one that was missing. A line is OFFERED, or it is the one
+ * currently working, or it is DONE — and done has to be a thing the line can say, because the
+ * alternative that shipped was the whole rollup being replaced by the receipt of the promotion,
+ * which took the other ten links down with it.
+ */
+function Rescue({
+  id, rescuingId, rescuedIds, onRescue,
+}: {
+  id: string; rescuingId: string | null; rescuedIds: readonly string[]; onRescue: (id: string) => void;
+}) {
+  if (rescuedIds.includes(id)) {
+    return (
+      <p data-testid="added-to-this-month" className="mt-2 text-[12.5px] font-bold leading-normal text-coral-800">
+        Added to this month
+      </p>
+    );
+  }
+  // Only THIS line is disabled while it works. A second tap elsewhere is a legitimate thing to
+  // want and the server op is per-idea, so nothing here needs to serialise them.
+  return <RescueBtn busy={rescuingId === id} onClick={() => onRescue(id)} />;
 }
 
 /** Build C's one-tap rescue, finally on the surface that needed it. The server op shipped and

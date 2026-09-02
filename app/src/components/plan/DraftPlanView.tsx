@@ -203,15 +203,31 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
     return first ?? new Date().toISOString().slice(0, 10);
   }
 
-  const [rescuing, setRescuing] = useState(false);
+  /**
+   * WHICH idea is being promoted, and which already have been. See the rollup below.
+   *
+   * A boolean here disabled all eleven of a brief's rescue links at once and labelled every one
+   * of them "Adding…", and replacing the receipt with the promotion's own then removed the
+   * remaining ten entirely — after which those ideas were reachable from nowhere. The same two
+   * faults exist in the redesign's `useDraftMonth`, and are fixed the same way.
+   */
+  const [rescuingId, setRescuingId] = useState<string | null>(null);
+  const [rescuedIds, setRescuedIds] = useState<string[]>([]);
   async function rescue(planInputId: string) {
     if (!onAddToMonth) return;
-    setRescuing(true); setError(null);
+    setRescuingId(planInputId); setError(null);
     const res = await onAddToMonth(planInputId, rescueDate());
-    setRescuing(false);
+    setRescuingId(null);
     if (!res.ok) { setError(res.message ?? 'That didn’t work. Try again?'); return; }
     if (res.beats) setBeats(res.beats);
-    if (res.application) { setReceipt(res.application); setChangedIds(res.application.changedIds ?? []); }
+    // The month changed, so `changedIds` does. The RECEIPT does not: it is the rollup this tap
+    // came from and the client is still working through the rest of it.
+    if (res.application) {
+      setChangedIds(res.application.changedIds ?? []);
+      if (res.application.scope === 'month_scoped') {
+        setRescuedIds((prev) => (prev.includes(planInputId) ? prev : [...prev, planInputId]));
+      }
+    }
   }
 
   async function runUndo() {
@@ -369,16 +385,24 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
                         <p style={{ fontSize: 12.5, color: C.muted, margin: '5px 0 0 20px' }}>{item.note}</p>
                       )}
                       {(item.outcome === 'idea' || item.outcome === 'couldnt_apply' || item.outcome === 'nothing_to_do') && !namesAnOperation(item.span) && item.planInputId && onAddToMonth && editable && (
-                        <button
-                          type="button" disabled={rescuing}
-                          data-testid="add-to-this-month"
-                          onClick={() => rescue(item.planInputId!)}
-                          style={{ font: 'inherit', fontSize: 13.5, fontWeight: 700, margin: '8px 0 0 20px', minHeight: 40,
-                            padding: '8px 13px', borderRadius: 10, border: `1.5px solid ${C.coral}`,
-                            background: C.coralLt, color: C.coralDeep, cursor: rescuing ? 'default' : 'pointer' }}
-                        >
-                          {rescuing ? 'Adding…' : 'Add to this month'}
-                        </button>
+                        rescuedIds.includes(item.planInputId) ? (
+                          <p data-testid="added-to-this-month"
+                             style={{ fontSize: 12.5, fontWeight: 700, color: C.coralDeep, margin: '8px 0 0 20px' }}>
+                            Added to this month
+                          </p>
+                        ) : (
+                          <button
+                            type="button" disabled={rescuingId === item.planInputId}
+                            data-testid="add-to-this-month"
+                            onClick={() => rescue(item.planInputId!)}
+                            style={{ font: 'inherit', fontSize: 13.5, fontWeight: 700, margin: '8px 0 0 20px', minHeight: 40,
+                              padding: '8px 13px', borderRadius: 10, border: `1.5px solid ${C.coral}`,
+                              background: C.coralLt, color: C.coralDeep,
+                              cursor: rescuingId === item.planInputId ? 'default' : 'pointer' }}
+                          >
+                            {rescuingId === item.planInputId ? 'Adding…' : 'Add to this month'}
+                          </button>
+                        )
                       )}
                     </li>
                   ))}
@@ -407,16 +431,24 @@ export function DraftPlanView({ beats: initial, monthLabel, clientName, pillars,
             {/* Build C's one-tap rescue. The server op shipped without it, so every evergreen
                 receipt pointed at an ideas list this surface has no control for. */}
             {receipt.scope === 'evergreen' && receipt.planInputId && onAddToMonth && editable && (
-              <button
-                type="button" disabled={rescuing}
-                data-testid="add-to-this-month"
-                onClick={() => rescue(receipt.planInputId!)}
-                style={{ font: 'inherit', fontSize: 14, fontWeight: 700, marginTop: 11, minHeight: 44,
-                  padding: '10px 15px', borderRadius: 10, border: `1.5px solid ${C.coral}`,
-                  background: C.coralLt, color: C.coralDeep, cursor: rescuing ? 'default' : 'pointer' }}
-              >
-                {rescuing ? 'Adding…' : 'Add to this month'}
-              </button>
+              rescuedIds.includes(receipt.planInputId) ? (
+                <p data-testid="added-to-this-month"
+                   style={{ fontSize: 13, fontWeight: 700, color: C.coralDeep, marginTop: 11 }}>
+                  Added to this month
+                </p>
+              ) : (
+                <button
+                  type="button" disabled={rescuingId === receipt.planInputId}
+                  data-testid="add-to-this-month"
+                  onClick={() => rescue(receipt.planInputId!)}
+                  style={{ font: 'inherit', fontSize: 14, fontWeight: 700, marginTop: 11, minHeight: 44,
+                    padding: '10px 15px', borderRadius: 10, border: `1.5px solid ${C.coral}`,
+                    background: C.coralLt, color: C.coralDeep,
+                    cursor: rescuingId === receipt.planInputId ? 'default' : 'pointer' }}
+                >
+                  {rescuingId === receipt.planInputId ? 'Adding…' : 'Add to this month'}
+                </button>
+              )
             )}
             </>
             )}

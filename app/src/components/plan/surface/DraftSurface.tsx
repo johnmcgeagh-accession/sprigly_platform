@@ -504,7 +504,8 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
           <MonthWorking working={data.intakeBusy} label={workingLabel}>
             {showingReceipt && m.receipt ? (
               <ReceiptPanel
-                receipt={m.receipt} monthName={monthName} editable={editable} rescuing={m.busy}
+                receipt={m.receipt} monthName={monthName} editable={editable}
+                rescuingId={m.rescuingId} rescuedIds={m.rescuedIds}
                 onRescue={(id) => void m.addToMonth(id, m.rescueDate())}
                 onClear={() => { setReceiptOpen(false); m.setReceipt(null); }}
               />
@@ -733,7 +734,8 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
             live underneath, so leaving is the same gesture as changing view. */}
         {showingReceipt && m.receipt && (
           <ReceiptPanel
-            receipt={m.receipt} monthName={monthName} editable={editable} rescuing={m.busy}
+            receipt={m.receipt} monthName={monthName} editable={editable}
+            rescuingId={m.rescuingId} rescuedIds={m.rescuedIds}
             onRescue={(id) => void m.addToMonth(id, m.rescueDate())}
             onClear={() => {
               setReceiptOpen(false);
