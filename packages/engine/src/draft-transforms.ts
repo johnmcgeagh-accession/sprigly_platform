@@ -84,6 +84,24 @@ export interface TransformResult {
   /** Why nothing (or less than asked) happened. Surfaced to the client, never swallowed. */
   note?: string;
   /**
+   * BEATS PLACED WITH NOTHING TO DISPLACE — the month grew rather than the ask being refused.
+   *
+   * The transforms are net-zero by construction: every placing one takes a victim from the
+   * replacement pool, and when the pool ran out they stopped and returned POOL_EMPTY_NOTE.
+   * That is a hard refusal, and it refuses the wrong thing — a client who briefs four opening
+   * hooks into a month of thirty history-derived beats gets told to "drop something to make
+   * room" for content she is paying us to plan.
+   *
+   * So the ask wins and the month grows. This counts by how much, because growing the month
+   * silently is the other half of the same failure: the client publishes to a rhythm, and a
+   * month that quietly became thirty-four posts is not the month they agreed to. The caller
+   * compares it against their configured ceiling and says so.
+   *
+   * Absent when the transform displaced normally, which is still the preferred outcome and
+   * still what happens whenever the unprotected pool has anything left in it.
+   */
+  overshoot?: number;
+  /**
    * DID THE TRANSFORM UNDERSTAND WHAT WAS ASKED?
    *
    * A NEW SIGNAL, and the reason it had to be added rather than inferred: twenty-five returns in
@@ -516,6 +534,27 @@ export function launchArcSubject(title: string | null | undefined): string | nul
 }
 
 /**
+ * One arc part as an ADD with no beat displaced.
+ *
+ * The pillar comes from the month rather than from a victim, because there is no victim: an
+ * overshooting beat is an addition, not a substitution. `commonestFormat`'s sibling reasoning
+ * applies — leaning on what the month already is keeps a grown month looking like the client's
+ * month rather than like a default.
+ */
+function addOpFor(
+  part: { date: string; format: string; label: string }, intent: MonthScopedIntent, pillar: string,
+): BeatOp {
+  return {
+    op: 'add',
+    date:   part.date,
+    format: part.format,
+    pillar,
+    title:  `${deriveTitle(intent.subject)} — ${part.label}`,
+    beatMeta: clientInputMeta(intent.sourceText),
+  };
+}
+
+/**
  * Allocate a launch arc around the stated date, replacing the weakest beats to make room.
  *
  * Places all three parts it can. If only two slots are replaceable it places two and SAYS
@@ -531,16 +570,20 @@ export function applyLaunchArc(
   const anchor = intent.dateRange.start;
 
   const pool = replacementCandidates(beats, anchor);
-  if (pool.length === 0) return { ops: [], note: POOL_EMPTY_NOTE };
 
   const { parts, dropped } = arcDates(anchor, month, given);
 
   const ops: BeatOp[] = [];
   const used = new Set<string>();
   const victims: TransformBeat[] = [];
+  let overshoot = 0;
   for (const part of parts) {
     const victim = pool.find((b) => !used.has(b.id));
-    if (!victim) break;
+    // DISPLACE IF WE CAN, GROW IF WE CANNOT. The pool being empty used to end the arc here
+    // and return POOL_EMPTY_NOTE; a client who briefs a launch into a month of protected and
+    // already-earning beats was told to go and make room herself. Placing beyond the pool is
+    // the lesser cost, and it is not silent: `overshoot` is what the receipt counts.
+    if (!victim) { overshoot++; ops.push(addOpFor(part, intent, commonestPillar(beats))); continue; }
     used.add(victim.id);
     victims.push(victim);
     ops.push({ op: 'remove', id: victim.id });
@@ -562,7 +605,8 @@ export function applyLaunchArc(
   if (dropped) notes.push(dropped);
   const displaced = displacementNote(victims);
   if (displaced) notes.push(displaced);
-  return notes.length > 0 ? { ops, note: notes.join(' ') } : { ops };
+  const result: TransformResult = notes.length > 0 ? { ops, note: notes.join(' ') } : { ops };
+  return overshoot > 0 ? { ...result, overshoot } : result;
 }
 
 /**
@@ -729,10 +773,21 @@ export function applySeries(intent: MonthScopedIntent, beats: TransformBeat[], m
   const used = new Set<string>();
   const placed: DeferredInstance[] = [];
   const victims: TransformBeat[] = [];
+  let overshoot = 0;
 
   for (const inst of within) {
     const victim = pool.find((b) => !used.has(b.id));
-    if (!victim) break;
+    // Same rule as the launch arc: a series instance the client asked for is placed whether or
+    // not there is something to displace. Stopping here refused the rhythm rather than the slot.
+    if (!victim) {
+      overshoot++;
+      placed.push(inst);
+      ops.push({
+        op: 'add', date: inst.date, format: commonestFormat(beats) ?? 'single', pillar: commonestPillar(beats),
+        title: inst.subject, beatMeta: clientInputMeta(intent.sourceText),
+      });
+      continue;
+    }
     used.add(victim.id);
     victims.push(victim);
     placed.push(inst);
@@ -747,6 +802,8 @@ export function applySeries(intent: MonthScopedIntent, beats: TransformBeat[], m
     });
   }
 
+  // Reachable only when the client asked for NO in-month instances (every one fell beyond the
+  // plan month and was deferred). A shortage of slots no longer lands here — it overshoots.
   if (placed.length === 0) {
     return { ops: [], deferred: beyond, note: POOL_EMPTY_NOTE };
   }
@@ -762,7 +819,10 @@ export function applySeries(intent: MonthScopedIntent, beats: TransformBeat[], m
   const deferred = [...unplaced, ...beyond];
   const full = [note, displacementNote(victims)].filter(Boolean).join(' ');
 
-  return { ops, ...(full ? { note: full } : {}), ...(deferred.length > 0 ? { deferred } : {}) };
+  return {
+    ops, ...(full ? { note: full } : {}), ...(deferred.length > 0 ? { deferred } : {}),
+    ...(overshoot > 0 ? { overshoot } : {}),
+  };
 }
 
 // ── Beat spec (a typed calendar row) ────────────────────────────────────────────
@@ -776,6 +836,24 @@ const BEAT_SPEC_FORMATS = new Set(['reel', 'carousel', 'single']);
  * date and a title but no format. Ties break reel > carousel > single, a fixed order so the
  * same month always resolves the same way. Undefined only when the month is empty.
  */
+/**
+ * The pillar the month leans on most, for a beat placed with nothing to displace.
+ *
+ * A displacing add inherits its victim's pillar so the month's balance survives the swap. An
+ * overshooting add has no victim to inherit from, and '' would put an unpillared row on the
+ * calendar; the month's own commonest pillar is the closest thing to "carry on as before"
+ * available without inventing one. Ties break alphabetically so the same month always answers
+ * the same way.
+ */
+function commonestPillar(beats: TransformBeat[]): string {
+  const counts = new Map<string, number>();
+  for (const b of beats) {
+    const p = b.pillar?.trim();
+    if (p) counts.set(p, (counts.get(p) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? '';
+}
+
 function commonestFormat(beats: TransformBeat[]): string | undefined {
   const counts = new Map<string, number>();
   for (const b of beats) if (BEAT_SPEC_FORMATS.has(b.format)) counts.set(b.format, (counts.get(b.format) ?? 0) + 1);
@@ -934,7 +1012,17 @@ export function applyEvent(intent: MonthScopedIntent, beats: TransformBeat[], mo
   const date = clampToMonth(intent.dateRange.start, month);
 
   const victim = replacementCandidates(beats, date)[0];
-  if (!victim) return { ops: [], note: POOL_EMPTY_NOTE };
+  // Nothing displaceable is no longer a refusal — the dated beat the client named goes in and
+  // the month grows by one, counted so the receipt can say so.
+  if (!victim) {
+    return {
+      ops: [{
+        op: 'add', date, format: commonestFormat(beats) ?? 'single', pillar: commonestPillar(beats),
+        title: deriveTitle(intent.subject), beatMeta: clientInputMeta(intent.sourceText),
+      }],
+      overshoot: 1,
+    };
+  }
 
   const displaced = displacementNote([victim]);
   return {

@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   replacementTier, isReplaceable, replacementCandidates, applyLaunchArc, applyEvent, applyEmphasis,
-  POOL_EMPTY_NOTE, type TransformBeat,
+  type TransformBeat,
 } from './draft-transforms.js';
 import type { MonthScopedIntent } from './intake-classify.js';
 import type { BeatMeta } from '@sprigly/db';
@@ -93,32 +93,58 @@ describe('within tier 2: OLDEST application first', () => {
   });
 });
 
-describe('the pool-empty case: a receipt, never a partial silent application', () => {
+/**
+ * POLICY CHANGE — the pool running out is no longer a refusal.
+ *
+ * This block asserted the opposite, and it was right about the thing it was defending: a
+ * partial application that said nothing was the failure it existed to stop. What it got wrong
+ * is the remedy. Refusing tells a client who briefed a launch to go and make room herself, and
+ * the month it protects is one we assembled out of her posting history — it is not more hers
+ * than the thing she just asked for.
+ *
+ * So the ask is placed and the month grows, and the growth is COUNTED rather than narrated:
+ * `overshoot` on the result, which the write layer turns into a line naming the new total and
+ * the ceiling. `POOL_EMPTY_NOTE` survives for the one case that is still genuinely empty-handed
+ * — a series whose every instance falls outside the plan month.
+ *
+ * What has NOT changed is the protection. Nothing below evicts a touched or hand-added beat to
+ * avoid growing; that is the whole point of preferring growth.
+ */
+describe('the pool-empty case: the ask is placed, and the growth is counted', () => {
   const launch = (): MonthScopedIntent => ({
     kind: 'launch', subject: 'the navy edit', sourceText: 'the navy edit drops on the 28th',
     dateRange: { start: '2026-09-28', end: '2026-09-28' },
   });
 
-  it('applyLaunchArc: nothing applied, and the note names a remedy', () => {
+  it('applyLaunchArc: places the arc and grows the month rather than refusing', () => {
     const res = applyLaunchArc(launch(), [beat('c', '2026-09-09', touched()), beat('h', '2026-09-11', handAdded())], MONTH);
-    expect(res.ops).toEqual([]);
-    expect(res.note).toBe(POOL_EMPTY_NOTE);
-    expect(res.note).toContain('add a day or drop something to make room');
+    expect(res.ops.filter((o) => o.op === 'add')).toHaveLength(3);
+    expect(res.ops.filter((o) => o.op === 'remove')).toHaveLength(0);   // both beats protected
+    expect(res.overshoot).toBe(3);
   });
 
-  it('applyEvent: same words, so the client meets one refusal not three', () => {
+  it('applyEvent: the dated beat lands, and the month is one longer', () => {
     const res = applyEvent(
       { kind: 'event', subject: 'x', sourceText: 'x', dateRange: { start: '2026-09-10', end: '2026-09-10' } },
       [beat('c', '2026-09-09', touched())], MONTH,
     );
-    expect(res.ops).toEqual([]);
-    expect(res.note).toBe(POOL_EMPTY_NOTE);
+    expect(res.ops.filter((o) => o.op === 'add')).toHaveLength(1);
+    expect(res.ops.filter((o) => o.op === 'remove')).toHaveLength(0);
+    expect(res.overshoot).toBe(1);
   });
 
-  it('a PARTIAL placement is still reported as partial, not passed off as complete', () => {
+  it('DISPLACES what it can before growing — one victim, two grown', () => {
     const res = applyLaunchArc(launch(), [beat('t', '2026-09-02', template()), beat('c', '2026-09-09', touched())], MONTH);
-    expect(res.ops.filter((o) => o.op === 'add')).toHaveLength(1);
-    expect(res.note).toMatch(/Added 1 of 3/);
+    expect(res.ops.filter((o) => o.op === 'add')).toHaveLength(3);
+    expect(res.ops.filter((o) => o.op === 'remove')).toHaveLength(1);   // the template beat
+    expect(res.overshoot).toBe(2);
+  });
+
+  it('a fully displaceable month still grows by nothing', () => {
+    const roomy = [beat('a', '2026-09-02', template()), beat('b', '2026-09-09', template()), beat('c', '2026-09-16', template())];
+    const res = applyLaunchArc(launch(), roomy, MONTH);
+    expect(res.ops.filter((o) => o.op === 'remove')).toHaveLength(3);
+    expect(res.overshoot).toBeUndefined();
   });
 });
 

@@ -17,6 +17,7 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import {
   db, contentCycles, contentCyclePosts, planInputs, clearStructuredBriefIfPrePlanning,
+  clientPlanningConfig,
   POST_STATUS_DRAFT, retireDraftPosts, type BeatMeta, type NewContentCyclePostRow,
 } from '@sprigly/db';
 import {
@@ -182,7 +183,7 @@ async function loadTransformBeats(clientId: string, cycleId: string): Promise<Tr
  * client has to be told about, and a silent skip would leave a receipt describing a month that
  * is not the one they have.
  */
-function partitionRemovals(
+export function partitionRemovals(
   ops: BeatOp[], before: readonly TransformBeat[],
 ): { ops: BeatOp[]; blocked: Array<{ beat: TransformBeat; protection: RemovalProtection }> } {
   const byId = new Map(before.map((b) => [b.id, b]));
@@ -200,6 +201,64 @@ function partitionRemovals(
     return false;
   });
   return { ops: kept, blocked };
+}
+
+/**
+ * THE CLIENT'S STATED CEILING, AND WHAT THE MONTH ACTUALLY HOLDS.
+ *
+ * ── Which number is the ceiling ──────────────────────────────────────────────────────
+ *
+ * `client_planning_config.cadence.postsPerMonthMax`, not the assembler's `slotCount`. Two
+ * reasons, and they point the same way.
+ *
+ * `postsPerMonthMax` is the only one of the two that is a STATEMENT. Somebody set it in admin
+ * on the client's behalf and it says what this client publishes in a month; `slotCount` is a
+ * derivation from whatever their Instagram history happened to show, computed once inside
+ * `buildSkeleton` and persisted nowhere — there is no column to read it back from, and
+ * recomputing it here would mean re-reading their whole post history to answer a question
+ * about a sentence they just typed.
+ *
+ * And the sentence being written is "more posts than you normally publish". That claim is
+ * about their stated rhythm. Measuring it against what assembly built would make it circular:
+ * assembly built 17 from thin history for a client configured 28-31, and telling them 18 is
+ * more than they normally publish would be false in the direction that matters.
+ *
+ * The two disagreeing is therefore expected and is not an error. It is only ever consulted to
+ * decide whether to SAY something.
+ *
+ * ── No ceiling configured ────────────────────────────────────────────────────────────
+ *
+ * Returns null and nothing is said. A client with no cadence row, or a row predating the
+ * cadence fields, has stated no rhythm to exceed — inventing one from history so we could
+ * warn them about it would be asserting a number nobody gave us. The reshape applies exactly
+ * as it otherwise would.
+ */
+async function statedMonthlyCeiling(clientId: string, channel: string): Promise<number | null> {
+  const [row] = await db
+    .select({ cadence: clientPlanningConfig.cadence })
+    .from(clientPlanningConfig)
+    .where(and(eq(clientPlanningConfig.clientId, clientId), eq(clientPlanningConfig.channel, channel)))
+    .limit(1);
+  const max = (row?.cadence as { postsPerMonthMax?: unknown } | null)?.postsPerMonthMax;
+  return typeof max === 'number' && Number.isFinite(max) && max > 0 ? max : null;
+}
+
+/**
+ * The overshoot sentence, or nothing.
+ *
+ * BOTH NUMBERS, always. "This month now has more posts than usual" is the kind of line a
+ * client cannot act on: they cannot tell whether we mean one more or nine, and the second is a
+ * different conversation from the first. It is also the only place the growth is visible at
+ * all — the beats themselves look like every other beat on the calendar.
+ *
+ * Said only when the month is ACTUALLY over, counted after the write, rather than whenever a
+ * transform reported an overshoot. A transform that grew a month of twelve into a month of
+ * fifteen against a ceiling of thirty-one overshot its own pool and overshot nothing the
+ * client cares about, and telling them otherwise would be a warning about our arithmetic.
+ */
+export function overshootLine(count: number, ceiling: number | null): string | null {
+  if (ceiling === null || count <= ceiling) return null;
+  return `This month now has ${count} posts — more than the ${ceiling} you normally publish. Nothing was dropped to make room; tell us if you'd rather lose something.`;
 }
 
 /**
@@ -735,9 +794,17 @@ export async function applyIntakeToDraft(params: {
       await writeOps(clientId, cycleId, cycle.channel, guardedC.ops, nextPosition);
       const afterC = await loadTransformBeats(clientId, cycleId);
       const diffC = diffBeats(beforeC.map(toDiffBeat), afterC.map(toDiffBeat));
+      // A stated cadence floor is the one input that ASKS the month to grow, so it is the most
+      // likely to pass the ceiling — and the client saying "7 a week" is not the client saying
+      // "and never tell me what that adds up to".
+      const grewC = overshootLine(afterC.length, await statedMonthlyCeiling(clientId, cycle.channel));
       const application: DraftApplication = {
         ...base, scope: 'month_scoped',
-        lines: [...renderDiff(diffC), ...guardedC.blocked.map((b) => protectedRemovalNote(b.beat, b.protection))],
+        lines: [
+          ...renderDiff(diffC),
+          ...guardedC.blocked.map((b) => protectedRemovalNote(b.beat, b.protection)),
+          ...(grewC ? [grewC] : []),
+        ],
         deltas: diffC.deltas,
         changedIds: diffC.changedIds,
         ...(result.note ? { note: result.note } : {}),
@@ -858,10 +925,15 @@ export async function applyIntakeToDraft(params: {
   // as a whole. The client reads what we kept in the same list as what we moved.
   const keptLines = guarded.blocked.map((b) => protectedRemovalNote(b.beat, b.protection));
 
+  // Counted from the month we just wrote, not from what the transform intended — `after` is
+  // the authority on how many posts this client now has, and the protection filter above may
+  // have kept beats the transform expected to be gone.
+  const grew = overshootLine(after.length, await statedMonthlyCeiling(clientId, cycle.channel));
+
   const application: DraftApplication = {
     ...base,
     scope: 'month_scoped',
-    lines: [...renderDiff(diff), ...keptLines],
+    lines: [...renderDiff(diff), ...keptLines, ...(grew ? [grew] : [])],
     deltas: diff.deltas,
     changedIds: diff.changedIds,
     ...(result.note ? { note: result.note } : {}),
@@ -872,7 +944,7 @@ export async function applyIntakeToDraft(params: {
   // 'Nothing needed changing' would be false when the reason nothing changed is that we
   // refused to remove something — the month is unchanged BECAUSE we kept their work, and the
   // kept lines already say so.
-  if (isNoOp(diff) && !result.note && keptLines.length === 0) application.note = 'Nothing needed changing.';
+  if (isNoOp(diff) && !result.note && keptLines.length === 0 && !grew) application.note = 'Nothing needed changing.';
 
   if (!params.suppressReceipt) await persistReceipt(cycleId, application);
   return { ok: true, application, beats: await loadDraftBeats(clientId, cycleId) };

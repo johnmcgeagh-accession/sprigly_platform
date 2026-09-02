@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   applyLaunchArc, applyEvent, applyEmphasis, applyBeatEdit, applyIntent,
   replacementCandidates, isReplaceable, replacementTier, resolveBeatRef, resolveEmphasisTarget,
-  removalProtection, isSeriesBeat, POOL_EMPTY_NOTE,
+  removalProtection,
   resolveEmphasisIntent,
   type TransformBeat,
 } from './draft-transforms.js';
@@ -148,18 +148,37 @@ describe('applyLaunchArc', () => {
     }
   });
 
-  it('places a PARTIAL arc and says so, rather than evicting protected beats', () => {
+  /**
+   * POLICY CHANGE. These two used to assert a partial arc and a total refusal, which was the
+   * honest behaviour while displacement was the only way to place anything. It is the wrong
+   * answer to the wrong question: the client is paying us to plan the launch she briefed, and
+   * "add a day or drop something to make room" hands her our scheduling problem. The ask now
+   * wins and the month grows, counted rather than silent.
+   */
+  it('places the FULL arc, displacing what it can and growing the month for the rest', () => {
     const guarded = [beat('t1', '2026-09-02', template()), beat('c1', '2026-09-09', clientTouched())];
     const res = applyLaunchArc(launch(), guarded, MONTH);
-    expect(res.ops.filter((o) => o.op === 'add')).toHaveLength(1);
-    expect(res.note).toMatch(/Added 1 of 3/);
+    expect(res.ops.filter((o) => o.op === 'add')).toHaveLength(3);
+    // One displaceable beat, so exactly one removal and two beats of growth.
+    expect(res.ops.filter((o) => o.op === 'remove')).toHaveLength(1);
+    expect(res.overshoot).toBe(2);
   });
 
-  it('does nothing, loudly, when every beat is protected', () => {
+  it('never evicts a protected beat to avoid overshooting', () => {
     const res = applyLaunchArc(launch(), [beat('c1', '2026-09-09', clientTouched())], MONTH);
-    expect(res.ops).toEqual([]);
-    // The copy now names a remedy instead of only naming the refusal.
-    expect(res.note).toMatch(/add a day or drop something to make room/);
+    expect(res.ops.filter((o) => o.op === 'remove')).toHaveLength(0);
+    expect(res.ops.filter((o) => o.op === 'add')).toHaveLength(3);
+    expect(res.overshoot).toBe(3);
+  });
+
+  it('prefers DISPLACING to growing whenever the unprotected pool has anything left', () => {
+    const roomy = [
+      beat('p1', '2026-09-02', observed(5)), beat('p2', '2026-09-09', observed(6)),
+      beat('p3', '2026-09-16', observed(7)), beat('p4', '2026-09-20', observed(8)),
+    ];
+    const res = applyLaunchArc(launch(), roomy, MONTH);
+    expect(res.ops.filter((o) => o.op === 'remove')).toHaveLength(3);
+    expect(res.overshoot).toBeUndefined();      // net zero — the month did not grow
   });
 
   it('refuses without a date', () => {
@@ -269,11 +288,11 @@ describe('removalProtection — the one rule both layers read', () => {
     expect(removed).not.toContain('hannah-launch');
   });
 
-  it('an empty pool refuses with the shared sentence rather than eating a protected beat', () => {
+  it('a month of nothing but protected beats grows rather than losing one of them', () => {
     const month = [beat('wsg', '2026-09-05', seriesMeta()), beat('touched', '2026-09-08', clientTouched())];
     const res = applyLaunchArc(launch(), month, MONTH);
-    expect(res.ops).toHaveLength(0);
-    expect(res.note).toBe(POOL_EMPTY_NOTE);
+    expect(res.ops.filter((o) => o.op === 'remove')).toHaveLength(0);
+    expect(res.overshoot).toBe(3);
   });
 });
 
