@@ -315,39 +315,101 @@ export interface DecomposeParams {
  * whole-input path, which couldnt_applies exactly as today (never worse). Every call is put on
  * the cost-guard ledger when an auditor + clientId are supplied.
  */
+/**
+ * WHY AN ATTEMPT DID NOT PRODUCE A DECOMPOSITION.
+ *
+ * Three outcomes, because they want three different responses and used to get one. A retry is
+ * a second call at full price, and spending it is only defensible where the second call could
+ * plausibly differ from the first.
+ *
+ *   call_failed   the request itself did not come back — a timeout, a throttle, a 5xx. About
+ *                 the moment, not the input. RETRY.
+ *   unparseable   the response came back and could not be read even by the shape-aware scan.
+ *                 The prompt and the text are both unchanged, so the next call is the same
+ *                 question over the same characters. DO NOT RETRY. This is the case that
+ *                 billed twice for one answer: 1073 in / 851 out, discarded, then again.
+ *   uncovered     readable, but the parts did not tile the source. The likeliest cause is how
+ *                 the model chose to split rather than anything fixed about the input, and a
+ *                 re-split genuinely can land differently. RETRY.
+ */
+export type DecomposeFailure = 'call_failed' | 'unparseable' | 'uncovered';
+
+/** Retrying these can change the answer. Retrying anything else spends money to be told the
+ *  same thing twice. */
+const RETRYABLE: ReadonlySet<DecomposeFailure> = new Set<DecomposeFailure>(['call_failed', 'uncovered']);
+
+type AttemptResult = { ok: Decomposition } | { failure: DecomposeFailure };
+
 export async function decomposeInput(params: DecomposeParams): Promise<Decomposition | null> {
   const { text, model, modelName = 'sonnet', logger, audit, clientId } = params;
   const source = text;
 
-  const attempt = async (): Promise<Decomposition | null> => {
+  const attempt = async (n: number): Promise<AttemptResult> => {
+    let res;
     try {
-      const res = await model.complete({
+      res = await model.complete({
         model: modelName, system: DECOMPOSE_SYSTEM,
         messages: [{ role: 'user', content: `OWNER’S MESSAGE:\n${source}\n\nSplit it. JSON only.` }],
         maxTokens: 4000,
       });
-      if (audit && clientId) {
-        try {
-          await audit.logModelCall({
-            clientId, modelId: res.modelId, inputTokens: res.inputTokens, outputTokens: res.outputTokens,
-            action: 'content-cycle:brief-decompose', metadata: {},
-          });
-        } catch { /* auditing must never change the outcome */ }
-      }
-      let parsed: unknown;
-      try { parsed = parseDecomposition(res.content); }
-      catch (err) { logger?.warn({ err: String(err) }, 'brief-decompose: unparseable output'); return null; }
-      return validateDecomposition(parsed, source);
     } catch (err) {
-      logger?.warn({ err: String(err) }, 'brief-decompose: model call failed');
-      return null;
+      // Nothing came back, so there is nothing to bill and no outcome to record.
+      logger?.warn({ err: String(err), attempt: n }, 'brief-decompose: model call failed');
+      return { failure: 'call_failed' };
     }
+
+    // Decide the outcome BEFORE the ledger row, so the row can carry it.
+    let outcome: 'ok' | DecomposeFailure;
+    let result: AttemptResult;
+    try {
+      const parsed = parseDecomposition(res.content);
+      const validated = validateDecomposition(parsed, source);
+      outcome = validated ? 'ok' : 'uncovered';
+      result = validated ? { ok: validated } : { failure: 'uncovered' };
+    } catch (err) {
+      logger?.warn({ err: String(err), attempt: n }, 'brief-decompose: output could not be read, even by the shape-aware scan');
+      outcome = 'unparseable';
+      result = { failure: 'unparseable' };
+    }
+
+    /**
+     * BILLED AT THE POINT OF SPEND, WITH THE OUTCOME ATTACHED.
+     *
+     * Still logged whatever happened, because the tokens were spent whatever happened and a
+     * ledger that only records useful calls understates the bill. What changes is that it no
+     * longer records a rejected attempt identically to a delivered one: the two 1073/851 rows
+     * behind this investigation were indistinguishable in the ledger from a decomposition that
+     * worked, and answering "what did that brief cost, and what did we get" meant reading the
+     * receipt to find out that the answer was nothing.
+     *
+     * Moved AFTER the parse rather than before it — the pre-parse position elsewhere
+     * (intake-classify) is right for a path where every failure still yields a routing, and
+     * wrong here where a failure yields nothing at all.
+     */
+    if (audit && clientId) {
+      try {
+        await audit.logModelCall({
+          clientId, modelId: res.modelId, inputTokens: res.inputTokens, outputTokens: res.outputTokens,
+          action: 'content-cycle:brief-decompose',
+          metadata: { attempt: n, outcome, ...('ok' in result ? { segments: result.ok.segments.length } : {}) },
+        });
+      } catch { /* auditing must never change the outcome */ }
+    }
+    return result;
   };
 
-  const first = await attempt();
-  if (first) return first;
-  logger?.info({}, 'brief-decompose: first attempt did not satisfy the coverage contract — retrying once');
-  return attempt();
+  const first = await attempt(1);
+  if ('ok' in first) return first.ok;
+
+  if (!RETRYABLE.has(first.failure)) {
+    logger?.info({ failure: first.failure },
+      'brief-decompose: not retrying — the next call would be the same prompt over the same text, and would fail the same way');
+    return null;
+  }
+
+  logger?.info({ failure: first.failure }, 'brief-decompose: retrying once');
+  const second = await attempt(2);
+  return 'ok' in second ? second.ok : null;
 }
 
 // ── The application order ─────────────────────────────────────────────────────────
