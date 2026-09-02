@@ -15,13 +15,24 @@
  * carrying the state the data already knows and — where a beat recorded the link — the post it
  * turned into.
  *
- * ── Read-only, and that is the design ────────────────────────────────────────────────
+ * ── No CAPTURE here, and that is still the design ────────────────────────────────────
  *
- * There is no add button, no edit, no delete. The way to add an idea is to tell the agent, which
- * is the path that already exists, already understands "actually, not that one", and already
- * files what it hears. A second capture surface here would be a second way to say the same thing
- * with different rules, and the surface has been through that before (round 3's two navigation
- * systems). The one control on the panel is a tap-through to a post.
+ * There is no add, no edit, no delete. The way to add an idea is to tell the agent, which is the
+ * path that already exists, already understands "actually, not that one", and already files what
+ * it hears. A second capture surface here would be a second way to say the same thing with
+ * different rules, and the surface has been through that before (round 3's two navigation
+ * systems).
+ *
+ * PROMOTION IS NOT CAPTURE, and reading the rule as though it were left the backlog unusable.
+ * "Add to this month" says nothing new — it takes a sentence the client already gave us and puts
+ * it in the month, through `add_to_month`, the same server op the receipt's rescue has always
+ * called. The receipt was the only route to it and a receipt is transient: once cleared or
+ * reloaded, twenty-five ideas sat here permanently visible and permanently unusable, under a
+ * heading that said "not used yet, and not turned down" with no way to change either fact.
+ *
+ * OFFERED ONLY WHERE IT CAN WORK. `onPromote` is optional and the draft surface is the only
+ * caller: promoting reshapes a draft month, and a generated month takes changes through
+ * proposals instead. Absent callback, absent control — the panel stays exactly as it was.
  *
  * The states are DERIVED from `status` and `lifecycle` and never stored — `@/lib/ideas` is the
  * whole rule, and it is pure so this file can be rendered in a test without a database.
@@ -64,11 +75,19 @@ const GROUPS: [IdeaState, string, string][] = [
 ];
 
 export function IdeasPanel({
-  data, onOpen, frame = 'desktop',
+  data, onOpen, onPromote, promotingId = null, promotedIds = [], frame = 'desktop',
 }: {
   data: PlanData;
   /** Open the post an idea became. Only ever called with an id the plan already holds. */
   onOpen: (postId: string) => void;
+  /** Put a waiting idea into the month. Omitted where that cannot work — see the header. */
+  onPromote?: ((planInputId: string) => void) | undefined;
+  /** WHICH idea is being promoted. An id, not a flag: this list is long and one flag would
+   *  report every row as working. */
+  promotingId?: string | null;
+  /** Promoted in this session. Their row says so rather than offering the tap again, without
+   *  the list being reloaded underneath the client. */
+  promotedIds?: readonly string[];
   frame?: SurfaceFrame;
 }) {
   const desktop = frame === 'desktop';
@@ -137,7 +156,13 @@ export function IdeasPanel({
                 with no explanation is a filing system, and a client did not ask for one. */}
             <p className="pb-2 text-[12.5px] leading-normal text-muted">{blurb}</p>
             {items.map((idea) => (
-              <IdeaRow key={idea.id} idea={idea} onOpen={idea.postId && loaded.has(idea.postId) ? onOpen : undefined} />
+              <IdeaRow
+                key={idea.id} idea={idea}
+                onOpen={idea.postId && loaded.has(idea.postId) ? onOpen : undefined}
+                {...(onPromote ? { onPromote } : {})}
+                promoting={promotingId === idea.id}
+                promoted={promotedIds.includes(idea.id)}
+              />
             ))}
           </section>
         );
@@ -151,17 +176,46 @@ export function IdeasPanel({
  * and quieter, because the sentence is the content and the state is the annotation. The quotation
  * marks are real: this text was not written for a screen and is not being paraphrased into one.
  */
-function IdeaRow({ idea, onOpen }: { idea: IdeaView; onOpen?: ((postId: string) => void) | undefined }) {
+function IdeaRow({ idea, onOpen, onPromote, promoting = false, promoted = false }: {
+  idea: IdeaView;
+  onOpen?: ((postId: string) => void) | undefined;
+  onPromote?: ((planInputId: string) => void) | undefined;
+  promoting?: boolean;
+  promoted?: boolean;
+}) {
   // Only where it adds something the heading above has not already said — which is the month,
   // and only a used idea has one. Everywhere else the row is her sentence and nothing else.
   const label = idea.state === 'used' && idea.usedInMonth
     ? ideaStateLabel(idea.state, idea.usedInMonth)
     : null;
+  /**
+   * Only a WAITING idea. The other three states each already have their answer: a used one is in
+   * the month, a deferred one is where the client asked it to be, and a set-aside one was turned
+   * down — offering to promote any of them would be offering to undo a decision, which is a
+   * different act and belongs to a different control.
+   */
+  const canPromote = !!onPromote && idea.state === 'waiting';
+
   return (
     <div data-testid="idea-row" data-state={idea.state} className="border-b border-line/25 py-2.5 last:border-b-0">
       <p className="break-words text-[14px] leading-[1.45] text-chrome">“{idea.content}”</p>
 
-      <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${label || idea.postTitle ? 'mt-1.5' : ''}`}>
+      <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${label || idea.postTitle || canPromote || promoted ? 'mt-1.5' : ''}`}>
+        {/* The backlog's way into the month, and the only route that survives a reload — the
+            receipt's rescue is transient, and once it is gone this was a dead end. */}
+        {canPromote && !promoted && (
+          <button
+            type="button" data-testid="promote-idea" disabled={promoting}
+            onClick={() => onPromote!(idea.id)}
+            className="min-h-[32px] rounded-lg bg-coral-100 px-2.5 py-1 text-[12px] font-bold text-coral-800 disabled:opacity-50"
+          >
+            {promoting ? 'Adding…' : 'Add to this month'}
+          </button>
+        )}
+        {promoted && (
+          <span data-testid="idea-promoted" className="text-[12px] font-semibold text-coral-700">Added to this month</span>
+        )}
+
         {label && (
           <span data-testid="idea-state" className="text-[12px] font-semibold text-coral-700">{label}</span>
         )}

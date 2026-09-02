@@ -492,7 +492,13 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
           agent={null} agentWorking={false}
         />}
         {...(railView === 'ideas'
-          ? { region: <IdeasPanel data={data} onOpen={openFromRegion} frame="desktop" /> }
+          ? { region: (
+              <IdeasPanel
+                data={data} onOpen={openFromRegion} frame="desktop"
+                {...(editable ? { onPromote: (id: string) => void m.addToMonth(id, m.rescueDate()) } : {})}
+                promotingId={m.rescuingId} promotedIds={m.rescuedIds}
+              />
+            ) }
           : {})}
         {...(railView === 'tasks'
           ? { region: <TasksPanel data={data} onOpen={() => {}} frame="desktop" /> }
