@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   applyLaunchArc, applyEvent, applyEmphasis, applyBeatEdit, applyIntent,
   replacementCandidates, isReplaceable, replacementTier, resolveBeatRef, resolveEmphasisTarget,
+  removalProtection, isSeriesBeat, POOL_EMPTY_NOTE,
   resolveEmphasisIntent,
   type TransformBeat,
 } from './draft-transforms.js';
@@ -198,6 +199,125 @@ describe('applyEvent', () => {
  * beat_meta, so before this the marker was one re-pillar away from gone, and a beat that lost
  * it was indistinguishable from an ordinary one for the rest of its life.
  */
+/**
+ * WHAT A BRIEF MAY NOT DELETE.
+ *
+ * The live failure: briefing a SECOND product hard-deleted the FIRST product's arc, and the
+ * receipt called it "Replaced: Hannah in green — Tease" for beats the client never asked to
+ * lose. Two separate gaps let that through — a recurring series was never protected at all,
+ * and one of the four remove paths never consulted the pool.
+ */
+describe('removalProtection — the one rule both layers read', () => {
+  const seriesMeta = (): BeatMeta => ({
+    slotType: 'proven',
+    rationaleEvidence: {
+      basis: 'observed',
+      seriesDue: { name: 'WSG (Weekend Style Guide)', dayOfWeek: 'Saturday', lastPlanned: '2026-08-29', monthsObserved: 4 },
+    } as BeatMeta['rationaleEvidence'],
+  });
+
+  it('names why each protected beat is protected', () => {
+    expect(removalProtection(beat('a', '2026-09-05', clientTouched()))).toBe('client_touched');
+    expect(removalProtection(beat('a', '2026-09-05', seriesMeta()))).toBe('series');
+    expect(removalProtection(beat('a', '2026-09-05', clientExperiment()))).toBe('client_experiment');
+  });
+
+  it('a plain observed beat is not protected — the month must still be reshapeable', () => {
+    expect(removalProtection(beat('a', '2026-09-05', observed(5)))).toBeNull();
+    expect(removalProtection(beat('a', '2026-09-05', template()))).toBeNull();
+    expect(removalProtection(beat('a', '2026-09-05', null))).toBeNull();
+  });
+
+  it('a SERIES beat is never offered as a displacement candidate', () => {
+    const month = [beat('wsg', '2026-09-05', seriesMeta()), beat('plain', '2026-09-08', observed(5))];
+    expect(replacementCandidates(month).map((b) => b.id)).toEqual(['plain']);
+  });
+
+  /** The distinction the whole rule turns on. A series may be CHANGED and may not be DELETED,
+   *  so it keeps an ordinary replacement tier — which is what leaves an emphasis free to tilt
+   *  it — while being absent from the pool anything deletes from. */
+  it('a series is still modifiable: it keeps a tier, and only the removal pool excludes it', () => {
+    const wsg = beat('wsg', '2026-09-05', seriesMeta());
+    expect(replacementTier(wsg)).not.toBeNull();       // an emphasis may still re-pillar it
+    expect(removalProtection(wsg)).toBe('series');     // nothing may delete it
+  });
+
+  it('a launch arc displaces the plain beat and leaves the series alone', () => {
+    const month = [
+      beat('wsg', '2026-09-05', seriesMeta()),
+      beat('p1', '2026-09-08', observed(5)),
+      beat('p2', '2026-09-11', observed(6)),
+      beat('p3', '2026-09-14', observed(7)),
+    ];
+    const removed = applyLaunchArc(launch(), month, MONTH).ops
+      .filter((o) => o.op === 'remove').map((o) => (o as { id: string }).id);
+    expect(removed).not.toContain('wsg');
+    expect(removed.length).toBeGreaterThan(0);
+  });
+
+  /** The reported failure, as a test: the first product's arc is client_input (tier 2) but the
+   *  beats the client MOVED or ADDED inside it are hers, and a second brief may not take those. */
+  it('a second product’s arc cannot take beats the client touched in the first', () => {
+    const month = [
+      beat('hannah-tease',  '2026-09-05', clientTouched()),
+      beat('hannah-launch', '2026-09-10', { slotType: 'proven', rationaleEvidence: { basis: 'client_added' } } as BeatMeta),
+      beat('spare',         '2026-09-20', observed(5)),
+    ];
+    const removed = applyLaunchArc(launch(), month, MONTH).ops
+      .filter((o) => o.op === 'remove').map((o) => (o as { id: string }).id);
+    expect(removed).not.toContain('hannah-tease');
+    expect(removed).not.toContain('hannah-launch');
+  });
+
+  it('an empty pool refuses with the shared sentence rather than eating a protected beat', () => {
+    const month = [beat('wsg', '2026-09-05', seriesMeta()), beat('touched', '2026-09-08', clientTouched())];
+    const res = applyLaunchArc(launch(), month, MONTH);
+    expect(res.ops).toHaveLength(0);
+    expect(res.note).toBe(POOL_EMPTY_NOTE);
+  });
+});
+
+describe('applyBeatEdit drop — the remove that never consulted the pool', () => {
+  const seriesMeta = (): BeatMeta => ({
+    slotType: 'proven',
+    rationaleEvidence: {
+      basis: 'observed',
+      seriesDue: { name: 'WSG (Weekend Style Guide)', dayOfWeek: 'Saturday', lastPlanned: null, monthsObserved: 4 },
+    } as BeatMeta['rationaleEvidence'],
+  });
+  const dropIntent = (ref: string): MonthScopedIntent => ({
+    kind: 'beat_edit', subject: ref, sourceText: `drop ${ref}`, beatRef: ref, edit: 'drop',
+  } as MonthScopedIntent);
+
+  it('drops an ordinary beat, as it always did', () => {
+    const month = [beat('a', '2026-09-05', observed(5), { title: 'Autumn layering' })];
+    expect(applyBeatEdit(dropIntent('Autumn layering'), month, MONTH).ops)
+      .toEqual([{ op: 'remove', id: 'a' }]);
+  });
+
+  it('REFUSES to drop a series beat, and says which series it kept', () => {
+    const month = [beat('wsg', '2026-09-05', seriesMeta(), { title: 'Weekend Style Guide' })];
+    const res = applyBeatEdit(dropIntent('Weekend Style Guide'), month, MONTH);
+    expect(res.ops).toEqual([]);
+    expect(res.note).toContain('WSG (Weekend Style Guide)');
+    expect(res.note).toContain('Kept');
+  });
+
+  it('REFUSES to drop a beat the client edited, and says so', () => {
+    const month = [beat('t', '2026-09-05', clientTouched(), { title: 'Her own post' })];
+    const res = applyBeatEdit(dropIntent('Her own post'), month, MONTH);
+    expect(res.ops).toEqual([]);
+    expect(res.note).toContain('you’d already edited it');
+  });
+
+  it('a refusal is a STATED outcome, never an unresolved one', () => {
+    const month = [beat('wsg', '2026-09-05', seriesMeta(), { title: 'Weekend Style Guide' })];
+    // `unresolved` means "we could not understand you" and drives different copy. We understood
+    // perfectly and declined, which the client must be able to tell apart.
+    expect(applyBeatEdit(dropIntent('Weekend Style Guide'), month, MONTH).unresolved).toBe(false);
+  });
+});
+
 describe('emphasis and series identity', () => {
   const seriesEvidence = { name: 'WSG (Weekend Style Guide)', dayOfWeek: 'Saturday', lastPlanned: '2026-08-29', monthsObserved: 4 };
   const seriesBeat = (): BeatMeta => ({

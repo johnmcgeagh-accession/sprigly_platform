@@ -104,11 +104,13 @@ export type { Decomposition, DecomposeParams } from './brief.js';
 export {
   applyIntent, applyLaunchArc, applyEvent, applySeries, applyBeatSpec, applyCadence, expandSeries, applyEmphasis, applyBeatEdit,
   replacementCandidates, byWeakestEvidence, isReplaceable, replacementTier, isClientTouched, isClientOriginated,
+  // ONE removal rule, exported so the write layer enforces the same predicate the pool does.
+  isSeriesBeat, removalProtection, protectedRemovalNote,
   isClientAdded, isFromEarlierInput, POOL_EMPTY_NOTE, deriveTitle, resolveBeatRef,
   resolveEmphasisTarget, resolveEmphasisIntent, requestedCount, namesNoSubject, applyCorrection,
   rankForNarrowing,
 } from './draft-transforms.js';
-export type { TransformBeat, BeatOp, TransformResult, DeferredInstance, EmphasisTarget } from './draft-transforms.js';
+export type { TransformBeat, BeatOp, TransformResult, DeferredInstance, EmphasisTarget, RemovalProtection } from './draft-transforms.js';
 export { diffBeats, renderDiff, renderDelta, shortDate, isNoOp } from './draft-diff.js';
 export type { DiffBeat, BeatDelta, DraftDiff } from './draft-diff.js';
 

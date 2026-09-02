@@ -126,6 +126,55 @@ export function isClientTouched(beat: TransformBeat): boolean {
   return (beat.beatMeta as { clientTouched?: unknown } | null)?.clientTouched === true;
 }
 
+/**
+ * Is this beat an instance of one of the client's configured recurring series?
+ *
+ * `seriesDue` is the ONLY place that fact is written — there is no column, no status, no
+ * category guarantee. It is stamped at assembly on the slot a series claimed
+ * (draft-assembly.ts, both the template and observed paths) and, since the reweight fix,
+ * carried through an emphasis.
+ *
+ * Deliberately NOT a title or category match. `observeSeriesHistory` matches series by
+ * category-then-title to read a client's PAST, where a heuristic is the only option and a
+ * wrong answer costs a slightly wrong `lastPlanned`. Here a wrong answer decides whether a
+ * standing commitment gets deleted, so the only acceptable input is the marker the assembler
+ * actually wrote. A beat with no marker is not treated as a series, and that is the honest
+ * failure direction: it under-protects rather than protecting the wrong beat.
+ */
+export function isSeriesBeat(beat: TransformBeat): boolean {
+  return beat.beatMeta?.rationaleEvidence?.seriesDue != null;
+}
+
+/**
+ * Why this beat may not be REMOVED by a brief reshape, or null when it may.
+ *
+ * ONE rule, in one place, consulted twice on purpose: `replacementTier` reads it so a
+ * protected beat is never offered as a displacement candidate, and the write layer reads it
+ * again so a `remove` op naming one is refused whatever produced it. Two checks of one
+ * predicate is not duplication — the first decides what may be proposed, the second decides
+ * what may actually be deleted, and only the second is load-bearing when a transform is wrong.
+ *
+ * It returns a REASON rather than a boolean because the receipt has to tell the client which
+ * of their things was kept and why. "We didn't touch your Saturday guide" and "we didn't touch
+ * the post you moved" are different sentences about different promises.
+ *
+ * REMOVAL, NOT MODIFICATION. `replacementTier` stays the separate question of what may be
+ * CHANGED, and a series answers the two differently: an emphasis may re-pillar the Saturday
+ * post, and nothing may delete it. Collapsing them into one predicate reads as tidier and
+ * quietly withdraws the month from the client's own emphasis.
+ */
+export type RemovalProtection = 'client_touched' | 'client_added' | 'client_experiment' | 'series';
+
+export function removalProtection(beat: TransformBeat): RemovalProtection | null {
+  if (isClientTouched(beat)) return 'client_touched';
+  if (isClientAdded(beat))   return 'client_added';
+  const meta = beat.beatMeta;
+  if (meta && meta.slotType === 'experiment'
+      && meta.rationaleEvidence?.candidateRank?.origin === 'client') return 'client_experiment';
+  if (isSeriesBeat(beat))    return 'series';
+  return null;
+}
+
 /** An experiment the client asked for, or a beat a previous input of theirs created.
  *  NOT the replaceability test any more — see replacementTier, which distinguishes a beat
  *  the client placed from a beat the machine placed on an earlier sentence's behalf. Kept
@@ -167,6 +216,11 @@ export function isFromEarlierInput(beat: TransformBeat): boolean {
  * everything, and that is the distinction that matters.
  */
 export function replacementTier(beat: TransformBeat): 0 | 1 | 2 | null {
+  // DELIBERATELY NOT `removalProtection`. This ranks a beat for CHANGE — it is what an
+  // emphasis reads to decide whose pillar it may tilt — and a recurring series is a fine
+  // thing to re-pillar or reformat. It is only deletion a series is protected from, and
+  // folding the two together here would have stopped an emphasis touching the Saturday post
+  // at all, which is a protection nobody asked for and the wrong shape of one.
   if (isClientTouched(beat)) return null;                     // their hand — always
   if (isClientAdded(beat))   return null;                     // they placed it themselves
   const meta = beat.beatMeta;
@@ -220,7 +274,11 @@ export function byWeakestEvidence(a: TransformBeat, b: TransformBeat): number {
 export function replacementCandidates(beats: TransformBeat[], nearDate?: string): TransformBeat[] {
   const tierOf = (b: TransformBeat) => replacementTier(b) ?? 99;
   const pool = beats
-    .filter(isReplaceable)
+    // EVERY caller of this pool is about to DELETE what it returns, so the removal rule is the
+    // right filter here even though the ordering below is the modification rank. `isReplaceable`
+    // alone let a recurring series through: it scores tier 0 or 1, which is correct for "may an
+    // emphasis re-pillar this" and was never an answer to "may a launch arc delete it".
+    .filter((b) => isReplaceable(b) && removalProtection(b) === null)
     .sort((a, b) =>
       tierOf(a) - tierOf(b)
       || (tierOf(a) === 2 ? a.position - b.position || a.date.localeCompare(b.date) || a.id.localeCompare(b.id) : 0)
@@ -244,6 +302,26 @@ export function replacementCandidates(beats: TransformBeat[], nearDate?: string)
  * input ran out of room, and told what to DO about it — a refusal that names no remedy is
  * just a wall.
  */
+/**
+ * What we say about a beat a brief would have removed and we kept.
+ *
+ * Named per reason, because the promise being kept is different in each case and a client can
+ * tell. Built here so the pool path and the named-drop path use the same words for the same
+ * situation, and so the sentence is CONSTRUCTED from the beat rather than written by a model.
+ */
+export function protectedRemovalNote(beat: TransformBeat, protection: RemovalProtection): string {
+  const title = beat.title?.trim() ? `“${beat.title.trim()}”` : 'that post';
+  switch (protection) {
+    case 'series': {
+      const name = beat.beatMeta?.rationaleEvidence?.seriesDue?.name;
+      return `Kept ${title}${name ? ` — it’s your ${name}` : ' — it’s one of your recurring posts'}, so we left it where it was.`;
+    }
+    case 'client_touched':    return `Kept ${title} — you’d already edited it, so we left it alone.`;
+    case 'client_added':      return `Kept ${title} — you added it yourself, so we left it alone.`;
+    case 'client_experiment': return `Kept ${title} — it came from an idea you sent us, so we left it alone.`;
+  }
+}
+
 export const POOL_EMPTY_NOTE =
   'Every beat this month is either yours or already earning its place — add a day or drop something to make room.';
 
@@ -1169,8 +1247,25 @@ export function applyBeatEdit(intent: MonthScopedIntent, beats: TransformBeat[],
 
   const beat = matches[0]!;
   switch (intent.edit) {
-    case 'drop':
+    case 'drop': {
+      /**
+       * THE ONE REMOVE THAT NEVER CONSULTED THE POOL.
+       *
+       * The three placing transforms take their victims from `replacementCandidates`, so the
+       * protection rides along. This one resolves a beat by name and deletes it, which was
+       * correct while the only way to reach it was a client pointing at a post — and is not,
+       * now that a pasted brief is decomposed into segments and any segment can classify as a
+       * beat_edit. A document that happens to say "we can lose the Saturday one" should not be
+       * able to delete a standing series through a path with no guard on it.
+       *
+       * Refused with the reason rather than silently, and the client keeps the direct affordance:
+       * dropping a beat by hand on the draft surface is `dropBeat` (draft-mutations.ts), a
+       * different path this does not touch, where the act is unambiguous and reversible.
+       */
+      const protection = removalProtection(beat);
+      if (protection) return { ops: [], note: protectedRemovalNote(beat, protection), unresolved: false };
       return { ops: [{ op: 'remove', id: beat.id }] };
+    }
     case 'swap_format': {
       const fmt = (intent.editValue ?? '').toLowerCase();
       if (!['reel', 'carousel', 'single'].includes(fmt)) return { ops: [], note: 'That isn’t a format we can plan for.', unresolved: true };

@@ -22,8 +22,9 @@ import {
 import {
   classifyIntake, applyIntent, diffBeats, renderDiff, isNoOp,
   isDocumentShaped, decomposeInput, orderIndices, namesAnOperation, briefArcDatesFor,
+  removalProtection, protectedRemovalNote,
   type IntakeRouting, type MonthScopedIntent, type TransformBeat, type BeatOp, type DiffBeat,
-  type BeatDelta,
+  type BeatDelta, type RemovalProtection,
 } from '@sprigly/engine';
 import { createAuditLogger } from '@sprigly/audit';
 import { editScopeToday } from '@/lib/edit-scope';
@@ -161,6 +162,44 @@ async function loadTransformBeats(clientId: string, cycleId: string): Promise<Tr
       isNull(contentCyclePosts.deletedAt),
     ));
   return rows.map(toTransformBeat).sort((a, b) => a.date.localeCompare(b.date) || a.position - b.position);
+}
+
+/**
+ * THE LAST GATE BEFORE A BEAT IS DELETED.
+ *
+ * `replacementTier` keeps protected beats out of the candidate pool, which is where the
+ * decision belongs and where it is cheap. This is the second reading of the SAME predicate
+ * (`removalProtection`), at the point the row actually goes, and it exists because the first
+ * one is a decision and this one is a consequence.
+ *
+ * It is not belt-and-braces for its own sake. Four transforms emit `remove`, three take their
+ * victim from the pool and one resolves a beat by name, and the set of them is free to grow —
+ * every new transform inherits this whether or not its author thought about the pool. That is
+ * the difference between a rule and a convention, and the reshape has three separate histories
+ * of prompt-level rules being ignored.
+ *
+ * Blocked ids are RETURNED, never swallowed: a beat we declined to delete is something the
+ * client has to be told about, and a silent skip would leave a receipt describing a month that
+ * is not the one they have.
+ */
+function partitionRemovals(
+  ops: BeatOp[], before: readonly TransformBeat[],
+): { ops: BeatOp[]; blocked: Array<{ beat: TransformBeat; protection: RemovalProtection }> } {
+  const byId = new Map(before.map((b) => [b.id, b]));
+  const blocked: Array<{ beat: TransformBeat; protection: RemovalProtection }> = [];
+  const kept = ops.filter((op) => {
+    if (op.op !== 'remove') return true;
+    const beat = byId.get(op.id);
+    // A remove naming a beat we cannot see is left alone: the scoped UPDATE/DELETE below is
+    // what decides, and inventing a refusal here for a row this function never loaded would
+    // block on ignorance rather than on protection.
+    if (!beat) return true;
+    const protection = removalProtection(beat);
+    if (!protection) return true;
+    blocked.push({ beat, protection });
+    return false;
+  });
+  return { ops: kept, blocked };
 }
 
 /**
@@ -692,11 +731,14 @@ export async function applyIntakeToDraft(params: {
 
     if (result.ops.length > 0) {
       const nextPosition = Math.max(0, ...beforeC.map((b) => b.position)) + 1;
-      await writeOps(clientId, cycleId, cycle.channel, result.ops, nextPosition);
+      const guardedC = partitionRemovals(result.ops, beforeC);
+      await writeOps(clientId, cycleId, cycle.channel, guardedC.ops, nextPosition);
       const afterC = await loadTransformBeats(clientId, cycleId);
       const diffC = diffBeats(beforeC.map(toDiffBeat), afterC.map(toDiffBeat));
       const application: DraftApplication = {
-        ...base, scope: 'month_scoped', lines: renderDiff(diffC), deltas: diffC.deltas,
+        ...base, scope: 'month_scoped',
+        lines: [...renderDiff(diffC), ...guardedC.blocked.map((b) => protectedRemovalNote(b.beat, b.protection))],
+        deltas: diffC.deltas,
         changedIds: diffC.changedIds,
         ...(result.note ? { note: result.note } : {}),
       };
@@ -801,16 +843,25 @@ export async function applyIntakeToDraft(params: {
   }
 
   const nextPosition = Math.max(0, ...before.map((b) => b.position)) + 1;
-  await writeOps(clientId, cycleId, cycle.channel, result.ops, nextPosition);
+  // Protected beats are filtered from the ops BEFORE the transaction, so the write is still
+  // all-or-nothing over what actually runs and the refusal is a fact we hold rather than an
+  // exception thrown from inside it.
+  const guarded = partitionRemovals(result.ops, before);
+  await writeOps(clientId, cycleId, cycle.channel, guarded.ops, nextPosition);
   const deferred = await saveDeferredInstances(clientId, result.deferred ?? [], source);
 
   const after = await loadTransformBeats(clientId, cycleId);
   const diff = diffBeats(before.map(toDiffBeat), after.map(toDiffBeat));
 
+  // A beat we declined to delete is part of what happened to the month, so it goes in the
+  // LINES beside the changes rather than into `note`, which holds one sentence about the input
+  // as a whole. The client reads what we kept in the same list as what we moved.
+  const keptLines = guarded.blocked.map((b) => protectedRemovalNote(b.beat, b.protection));
+
   const application: DraftApplication = {
     ...base,
     scope: 'month_scoped',
-    lines: renderDiff(diff),
+    lines: [...renderDiff(diff), ...keptLines],
     deltas: diff.deltas,
     changedIds: diff.changedIds,
     ...(result.note ? { note: result.note } : {}),
@@ -818,7 +869,10 @@ export async function applyIntakeToDraft(params: {
   };
   // A month-scoped intent that produced ops but no visible delta is worth recording as
   // such rather than showing an empty panel that implies something happened.
-  if (isNoOp(diff) && !result.note) application.note = 'Nothing needed changing.';
+  // 'Nothing needed changing' would be false when the reason nothing changed is that we
+  // refused to remove something — the month is unchanged BECAUSE we kept their work, and the
+  // kept lines already say so.
+  if (isNoOp(diff) && !result.note && keptLines.length === 0) application.note = 'Nothing needed changing.';
 
   if (!params.suppressReceipt) await persistReceipt(cycleId, application);
   return { ok: true, application, beats: await loadDraftBeats(clientId, cycleId) };
