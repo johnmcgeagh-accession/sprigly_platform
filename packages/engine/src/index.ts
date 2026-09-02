@@ -97,7 +97,7 @@ export type { ApprovalError, ApprovalResult, ApproveDraftParams, ApprovalDb } fr
 export { classifyIntake, routeFromParsed, parseClassification, parseBeatSpec, parsePlanQuestion, namesAnOperation, monthScopedIntentSchema, CLASSIFY_SYSTEM, BRIEF_SEGMENT_FRAMING } from './intake-classify.js';
 export type { IntakeRouting, PlanQuestionKind, MonthScopedIntent, EvergreenReason, ClassifyParams } from './intake-classify.js';
 export {
-  isDocumentShaped, decomposeInput, validateDecomposition, parseDecomposition,
+  isDocumentShaped, decomposeInput, validateDecomposition, parseDecomposition, scanDecomposition,
   orderIndices, tierOf, DECOMPOSE_SYSTEM,
 } from './brief.js';
 export type { Decomposition, DecomposeParams } from './brief.js';
