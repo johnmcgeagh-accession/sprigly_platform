@@ -189,6 +189,57 @@ describe('applyEvent', () => {
   });
 });
 
+/**
+ * A SERIES BEAT KEEPS ITS IDENTITY THROUGH AN EMPHASIS.
+ *
+ * `seriesDue` is the ONLY thing on a placed beat that says "this is the client's standing
+ * Saturday commitment" — there is no column and no status for it. `reweighted` replaces the
+ * whole `rationaleEvidence` object and `draft-apply.ts` writes that object over the row's
+ * beat_meta, so before this the marker was one re-pillar away from gone, and a beat that lost
+ * it was indistinguishable from an ordinary one for the rest of its life.
+ */
+describe('emphasis and series identity', () => {
+  const seriesEvidence = { name: 'WSG (Weekend Style Guide)', dayOfWeek: 'Saturday', lastPlanned: '2026-08-29', monthsObserved: 4 };
+  const seriesBeat = (): BeatMeta => ({
+    slotType: 'proven',
+    rationaleEvidence: {
+      basis: 'observed',
+      seriesDue: seriesEvidence,
+      formatEngagement: { format: 'carousel', avgEngagement: 40, posts: 5 },
+      pillarShare: 0.2,
+    } as BeatMeta['rationaleEvidence'],
+  });
+  const VOCAB = ['Product & Fragrance', 'Everyday Ritual'];
+  const intent: MonthScopedIntent = {
+    kind: 'emphasis', subject: 'more product', sourceText: 'more product this month', emphasis: 'Product & Fragrance',
+  };
+  /** One eligible beat, so the third-of-the-month tilt lands on the series beat. */
+  const monthOf = (meta: BeatMeta) => [beat('s', '2026-09-12', meta)];
+
+  it('carries seriesDue through a re-pillar — the beat is still that series', () => {
+    const op = applyEmphasis(intent, monthOf(seriesBeat()), TODAY, VOCAB).ops[0] as { beatMeta: BeatMeta };
+    expect(op.beatMeta.rationaleEvidence.basis).toBe('emphasis_reweight');
+    expect(op.beatMeta.rationaleEvidence.seriesDue).toEqual(seriesEvidence);
+  });
+
+  it('still drops the pillar metrics, which is the whole point of the basis', () => {
+    const op = applyEmphasis(intent, monthOf(seriesBeat()), TODAY, VOCAB).ops[0] as { beatMeta: BeatMeta };
+    // A measurement of a pillar the beat no longer has must not survive; an identity must.
+    expect(op.beatMeta.rationaleEvidence.pillarShare).toBeUndefined();
+    expect(op.beatMeta.rationaleEvidence.formatEngagement).toBeUndefined();
+  });
+
+  it('adds no seriesDue to a beat that never had one', () => {
+    const op = applyEmphasis(intent, monthOf(observed(5)), TODAY, VOCAB).ops[0] as { beatMeta: BeatMeta };
+    expect(op.beatMeta.rationaleEvidence.seriesDue).toBeUndefined();
+  });
+
+  it('survives a FORMAT emphasis too, not only a pillar one', () => {
+    const op = applyEmphasis({ ...intent, emphasis: 'reel' }, monthOf(seriesBeat()), TODAY, VOCAB).ops[0] as { beatMeta: BeatMeta };
+    expect(op.beatMeta.rationaleEvidence.seriesDue).toEqual(seriesEvidence);
+  });
+});
+
 describe('applyEmphasis', () => {
   const month = [
     beat('past', '2026-08-20', observed(5)),                                    // before today

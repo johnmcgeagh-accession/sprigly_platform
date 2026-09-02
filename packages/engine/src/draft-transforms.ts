@@ -347,9 +347,32 @@ function clientInputMeta(sourceText: string, slotType: 'proven' | 'experiment' =
  */
 function reweighted(beat: TransformBeat, sourceText: string): BeatMeta {
   const base: BeatMeta = beat.beatMeta ?? { slotType: 'proven', rationaleEvidence: { basis: 'template' } };
+  /**
+   * `seriesDue` SURVIVES THE REWEIGHT. Everything else in the old evidence does not.
+   *
+   * Dropping the rest is the documented intent of this basis — "the old pillar's metrics were
+   * DROPPED rather than carried, since they no longer describe it" (schema.ts, basis
+   * 'emphasis_reweight') — and that reasoning is about MEASUREMENTS. `formatEngagement` and
+   * `pillarShare` describe a pillar the beat no longer has, so carrying them would make the row
+   * cite numbers for something it stopped being.
+   *
+   * A series is not a measurement. It is what the beat IS: re-pillaring the Saturday WSG post,
+   * or changing its format, does not stop it being that client's standing Saturday commitment.
+   * And because this whole object replaces the row's beat_meta (draft-apply.ts, the `update`
+   * branch), the wholesale rebuild was the one way a placed series beat could quietly become
+   * unidentifiable — after which nothing downstream can tell it from an ordinary beat.
+   *
+   * That matters more now than it did: the marker is what protection reads. A protection that
+   * a re-pillar can erase is not one.
+   */
+  const seriesDue = base.rationaleEvidence?.seriesDue;
   return {
     ...base,
-    rationaleEvidence: { basis: 'emphasis_reweight', reason: sourceText } as BeatMeta['rationaleEvidence'],
+    rationaleEvidence: {
+      basis: 'emphasis_reweight',
+      reason: sourceText,
+      ...(seriesDue ? { seriesDue } : {}),
+    } as BeatMeta['rationaleEvidence'],
   };
 }
 
