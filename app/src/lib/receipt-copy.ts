@@ -69,7 +69,7 @@ export interface EvergreenCopy {
  */
 export const RECEIPT_REASONS = [
   'classified_evergreen', 'ambiguous', 'validation_failed', 'couldnt_apply', 'model_error',
-  'not_applicable', 'unclear', 'read_as_idea',
+  'not_applicable', 'unclear', 'read_as_idea', 'not_decomposed',
 ] as const;
 export type ReceiptReason = (typeof RECEIPT_REASONS)[number];
 
@@ -96,6 +96,35 @@ export type ReceiptReason = (typeof RECEIPT_REASONS)[number];
  */
 export function evergreenCopy(reason: string | undefined, monthName: string): EvergreenCopy {
   switch (reason) {
+    /**
+     * THE THING THAT READS A BRIEF NEVER RAN.
+     *
+     * Its own reason because it is its own event, and because the sentence it replaces was
+     * false. A fifteen-item brief whose decomposition failed fell through to the
+     * single-instruction path, where the contract returns ONE scope and ONE intent
+     * (intake-classify.ts) — handed fifteen numbered items, `evergreen` is the only answer it
+     * can represent. The client was then told "This read as something for later", which claims
+     * a judgement about their content. Nothing judged their content; it was never read as
+     * fifteen things at all.
+     *
+     * The copy says what happened and stops. It deliberately does NOT offer the rephrasing
+     * advice the read_as_idea family offers: "tell me which post and which date" is the right
+     * remedy for a misread instruction and the wrong one for a brief we could not open, where
+     * the client has done nothing wrong and rewording is not the fix. What IS offered is the
+     * thing that actually works — one at a time — because the per-segment path is fine and it
+     * is only the splitting that failed.
+     *
+     * NO RESCUE, for the same reason as read_as_idea: promoting a whole brief into the month
+     * would title one post with fifteen instructions and evict a real one.
+     */
+    case 'not_decomposed':
+      return {
+        heading: `Saved — but ${monthName} is unchanged`,
+        body: `We couldn’t read this as separate instructions, so nothing in ${monthName} changed`
+          + ` and none of it was judged. Every word is saved. Sending the items one at a time will`
+          + ` get them into the month.`,
+        familyRescue: false,
+      };
     case 'read_as_idea':
       return {
         heading: `Saved as an idea — not a change to ${monthName}`,
@@ -155,6 +184,7 @@ export function evergreenCopy(reason: string | undefined, monthName: string): Ev
 export function evergreenChip(reason: string | undefined): string {
   switch (reason) {
     case 'read_as_idea':       return 'Saved as an idea — not a change';
+    case 'not_decomposed':     return 'Saved — we couldn’t read it as separate items';
     case 'not_applicable':     return 'Nothing needed changing';
     case 'model_error':        return 'We couldn’t read that';
     case 'couldnt_apply':

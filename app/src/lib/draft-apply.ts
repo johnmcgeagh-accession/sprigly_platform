@@ -1069,10 +1069,28 @@ export async function applyBriefToDraft(params: {
 
   const audit = createAuditLogger(db);
 
-  // Decompose. A coverage-contract failure (twice) falls back to the whole-input path.
+  /**
+   * Decomposition failed. The whole-input path still runs — it is a real recovery for a
+   * document that is genuinely ONE instruction, which `isDocumentShaped` routes here on length
+   * or line count alone — but its verdict is no longer allowed to speak for a brief nobody read.
+   *
+   * WHY THE VERDICT IS OVERWRITTEN RATHER THAN THE CALL SKIPPED. That path is the
+   * SINGLE-INSTRUCTION path. It does not set `context:'brief_segment'`, so the framing that
+   * says "this is one item lifted from a brief" is absent, and `classifyIntake` returns one
+   * scope and one intent — handed fifteen numbered items, `evergreen` is the only thing its
+   * contract can express. Its evergreen verdict on a multi-item paste is therefore not a
+   * judgement about the content; it is the shape of the question.
+   *
+   * A month_scoped result is left exactly as it is: the transform ran, the month moved, and
+   * that is a real application whatever produced it.
+   */
   const decomposition = await decomposeInput({ text: brief, model, audit, clientId });
   if (!decomposition) {
-    return applyIntakeToDraft({ clientId, cycleId, text: brief, model, now, today, brief: params.brief });
+    const fallback = await applyIntakeToDraft({ clientId, cycleId, text: brief, model, now, today, brief: params.brief });
+    if (fallback.ok && fallback.application.scope === 'evergreen') {
+      return { ...fallback, application: { ...fallback.application, reason: 'not_decomposed' } };
+    }
+    return fallback;
   }
   const { segments, discarded } = decomposition;
 

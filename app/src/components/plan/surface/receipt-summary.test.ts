@@ -223,7 +223,10 @@ describe('evergreenCopy', () => {
     // not_applicable, unclear and read_as_idea are minted there, not in the engine.
     expect([...RECEIPT_REASONS].sort()).toEqual([
       'ambiguous', 'classified_evergreen', 'couldnt_apply', 'model_error',
-      'not_applicable', 'read_as_idea', 'unclear', 'validation_failed',
+      // `not_decomposed` is the fourth minted in draft-apply: decomposition failed, so the
+      // whole-input path answered a question about fifteen items with a contract that returns
+      // one. Its own family because the copy it replaced claimed a judgement nobody made.
+      'not_applicable', 'not_decomposed', 'read_as_idea', 'unclear', 'validation_failed',
     ]);
 
     const GENERIC = evergreenCopy('classified_evergreen', M).heading;
