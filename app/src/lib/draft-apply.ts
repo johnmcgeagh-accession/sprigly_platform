@@ -1162,9 +1162,31 @@ export async function addBacklogItemToMonth(params: {
     routing: { scope: 'month_scoped', intent, sourceText: row.content },
   });
 
+  /**
+   * TWO COLUMNS, BECAUSE TWO READERS ASK DIFFERENT QUESTIONS OF THIS ROW.
+   *
+   * `lifecycle` is MATURITY and `status` is AVAILABILITY (schema.ts), and setting only the
+   * first left them disagreeing about the same idea. The Ideas view reads lifecycle and
+   * correctly showed "Used"; the assembler reads status and still saw a live candidate —
+   * `loadDurableInputs` filters `status='active'` with no lifecycle filter, `draft-plan`
+   * filters on type alone, and `rankCandidates` excludes only {declined, stale}, so 'used'
+   * sorted last and was never removed.
+   *
+   * The consequence is a duplicate nobody asked for: the client places an idea by hand, and
+   * the next assembly places it again because as far as the pool is concerned it was never
+   * taken. Four such rows exist on the UAT sandbox.
+   *
+   * 'integrated' is the existing value for exactly this — "something consumed it" — already
+   * written when a proposal consumes a note (agent/notes.ts) and already read as used by
+   * `ideaState`. The column is plain text with no constraint, so nothing else has to change.
+   *
+   * ONLY ON A PLACEMENT. A refused promotion leaves both columns alone, because the idea is
+   * still not in the month and marking it consumed would strand it — offerable nowhere,
+   * candidate nowhere.
+   */
   if (applied.ok && applied.application.scope === 'month_scoped') {
     await db.update(planInputs)
-      .set({ lifecycle: 'used', usedInCycleId: cycleId })
+      .set({ lifecycle: 'used', status: 'integrated', usedInCycleId: cycleId })
       .where(and(eq(planInputs.id, planInputId), eq(planInputs.clientId, clientId)));
   }
   return applied;

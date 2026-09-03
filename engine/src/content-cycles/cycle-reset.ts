@@ -230,7 +230,13 @@ export async function resetCycle(
     await tx`DELETE FROM plan_inputs WHERE cycle_id = ${cycleId}`;
     // plan_inputs the run CONSUMED pre-dated it — return them to the backlog unconsumed
     // rather than destroying durable client ideas the run never owned.
-    await tx`UPDATE plan_inputs SET used_in_cycle_id = NULL, lifecycle = 'candidate' WHERE used_in_cycle_id = ${cycleId}`;
+    //
+    // BOTH COLUMNS, because a promotion now sets both. `lifecycle` is maturity and `status` is
+    // availability, and the candidate pool keys on the second: resetting only the first would
+    // leave a returned idea reading 'candidate' to the Ideas view and 'integrated' to
+    // `loadDurableInputs`, so the reset would report it restored while the assembler could
+    // never see it again. Un-consuming has to undo everything consuming did.
+    await tx`UPDATE plan_inputs SET used_in_cycle_id = NULL, lifecycle = 'candidate', status = 'active' WHERE used_in_cycle_id = ${cycleId}`;
 
     await resetCycleRow(tx, cycleId);
   });
