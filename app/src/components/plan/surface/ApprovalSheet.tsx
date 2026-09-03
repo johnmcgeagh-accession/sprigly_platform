@@ -162,11 +162,31 @@ export function ApprovalPill({ onClick, busy }: { onClick: () => void; busy: boo
 export function useApproval(cycleId: string | undefined) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** The enqueue window: submitted, not yet visible to `readGenerationStatus`. See `approve`. */
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const approve = async () => {
     if (busy) return;
+    /**
+     * CLOSE ON SUBMIT, NOT ON COMPLETION — the same correction the intake wizard took (4f51edd).
+     *
+     * The sheet used to sit on "Starting…" until the fan-out had been enqueued and the redirect
+     * fired. That is a modal with a dead button on it for as long as the server takes, over the
+     * one action in the product that spends money and cannot be undone — the shape a client
+     * reads as stuck, and the worst possible moment to be unsure whether their tap landed.
+     *
+     * The dialog goes now and the work shows on the month, where the work is. `starting` is what
+     * carries the wait across the gap: the request is in flight, no post is 'generating' yet, so
+     * the server has nothing to report and the month would otherwise look idle for a second or
+     * two after the client committed. It is deliberately the ONLY client-held part of this —
+     * everything after the reload comes from `readGenerationStatus`.
+     *
+     * `busy` still guards re-entry. What it no longer does is hold a dialog open.
+     */
+    setOpen(false);
     setBusy(true);
+    setStarting(true);
     setError(null);
     try {
       /**
@@ -186,7 +206,12 @@ export function useApproval(cycleId: string | undefined) {
       });
       const json = (await res.json()) as { ok?: boolean; message?: string };
       if (!res.ok || !json.ok) {
+        // Nothing started, so the wait is over and the client has to see why. The sheet comes
+        // BACK carrying its error rather than the failure landing somewhere they are not
+        // looking — closing on submit must not become losing the refusal.
+        setStarting(false);
         setError(json.message ?? 'We couldn’t start that. Try again?');
+        setOpen(true);
         return;
       }
       /**
@@ -200,11 +225,13 @@ export function useApproval(cycleId: string | undefined) {
        */
       window.location.assign(cycleId ? `/?cycle=${encodeURIComponent(cycleId)}` : '/');
     } catch {
+      setStarting(false);
       setError('We couldn’t reach the server. Check your connection and try again.');
+      setOpen(true);
     } finally {
       setBusy(false);
     }
   };
 
-  return { open, setOpen, busy, error, approve };
+  return { open, setOpen, busy, starting, error, approve };
 }

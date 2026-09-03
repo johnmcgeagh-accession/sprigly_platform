@@ -48,11 +48,38 @@
 import React, { useEffect, useRef } from 'react';
 import { AgentDots } from './AgentVoice';
 
-export function MonthWorking({ working, label, children }: {
+/**
+ * ── TWO INTENSITIES, ONE TREATMENT (generation) ──────────────────────────────────────
+ *
+ * A brief lands in about twenty-five seconds and REPLACES the month, so dimming it and taking
+ * it out of reach is the honest thing to do: a day tapped mid-apply selects against rows that
+ * are about to be gone.
+ *
+ * Generation is a different wait wearing the same clothes. It runs for minutes, and it does not
+ * replace the month — it fills captions into beats that are already there and already correct.
+ * A client reading their October while it writes is doing something reasonable, and the grid is
+ * already telling them which posts are on their way (CommittedSurface maps 'generating' →
+ * 'onway'). Dimming that for five minutes and refusing taps would take a usable month away to
+ * report progress on it.
+ *
+ * So `blocking` is the intensity, not a second component. The pill, the dots and the register
+ * are identical; what changes is whether the region behind them is dimmed and inert. Defaulting
+ * to `true` keeps every existing mount byte-identical.
+ */
+export function MonthWorking({ working, label, detail, blocking = true, children }: {
   /** A wizard brief is in flight against this month — `data.intakeBusy`. */
   working: boolean;
   /** The screen-reader name for the wait. The dots are decorative and cannot supply one. */
   label: string;
+  /**
+   * A visible line under the dots — "18 of 31 written".
+   *
+   * Only worth showing on a wait long enough for a client to wonder whether it is stuck, which
+   * is why the wizard passes none. Absent renders exactly the pill that shipped.
+   */
+  detail?: string | undefined;
+  /** Dim and disable the region beneath. See the note above. */
+  blocking?: boolean;
   children: React.ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -61,15 +88,15 @@ export function MonthWorking({ working, label, children }: {
   // it (primitives.tsx) and the one that does not depend on React's attribute allow-list.
   useEffect(() => {
     const el = ref.current as (HTMLElement & { inert: boolean }) | null;
-    if (el) el.inert = working;
-  }, [working]);
+    if (el) el.inert = working && blocking;
+  }, [working, blocking]);
 
   return (
     <div data-testid="month-working" className="relative flex min-h-0 flex-1 flex-col">
       <div
         ref={ref}
         {...(working ? { 'data-working': 'true' } : {})}
-        className={`flex min-h-0 flex-1 flex-col transition-opacity duration-200 motion-reduce:transition-none ${working ? 'opacity-60' : ''}`}
+        className={`flex min-h-0 flex-1 flex-col transition-opacity duration-200 motion-reduce:transition-none ${working && blocking ? 'opacity-60' : ''}`}
       >
         {children}
       </div>
@@ -81,13 +108,22 @@ export function MonthWorking({ working, label, children }: {
          */
         <div
           data-testid="month-working-veil"
-          className="absolute inset-0 z-[10] flex items-center justify-center"
+          {...(blocking ? {} : { 'data-blocking': 'false' })}
+          /* Non-blocking sits at the FOOT of the region and lets pointers through
+             (`pointer-events-none` on the frame, restored on the pill itself is unnecessary —
+             nothing on it is clickable). Centred over a month nobody may touch is right for the
+             blocking case and wrong for a five-minute one, where it would sit on top of the
+             week a client is trying to read. */
+          className={`absolute inset-0 z-[10] flex justify-center ${
+            blocking ? 'items-center' : 'pointer-events-none items-end pb-4'
+          }`}
         >
           <span
             role="status" aria-live="polite"
-            className="flex items-center rounded-full border border-line/30 bg-surface px-4 py-3 shadow-card"
+            className="flex items-center gap-2.5 rounded-full border border-line/30 bg-surface px-4 py-3 shadow-card"
           >
             <AgentDots />
+            {detail && <span data-testid="month-working-detail" className="text-[13px] font-semibold text-chrome">{detail}</span>}
             <span className="sr-only">{label}</span>
           </span>
         </div>

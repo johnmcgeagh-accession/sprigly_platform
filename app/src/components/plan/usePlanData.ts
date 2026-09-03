@@ -162,6 +162,20 @@ export function usePlanData(init: PlanDataInit) {
   // Intake capture (Build 3): the guided-form surface open state + in-flight guard.
   const [intakeOpen, setIntakeOpen] = useState(init.initialIntakeOpen ?? false);
   const [intakeBusy, setIntakeBusy] = useState(false);
+  /**
+   * THE RUN, AS THE SERVER SEES IT — reconstructed on mount, never remembered.
+   *
+   * Generation takes minutes, so the client closes the tab and comes back, and an indicator
+   * held in React state would be gone when they did. The poll below already asks the server
+   * this question every 1.6s from mount; it simply kept the answer to itself and used it only
+   * to decide when to refetch. Surfacing it costs no request and makes the working state a
+   * property of the DATABASE — a reload re-derives it, and so would a second device.
+   *
+   * `generating` is live posts still being written; `writtenOf` is the whole month, so a caller
+   * can say "18 of 31" without a second read.
+   */
+  const [generating, setGenerating] = useState(0);
+  const [writtenOf, setWrittenOf] = useState(0);
   const [shapingIds, setShapingIds] = useState<Set<string>>(new Set());
   const [proposalBusy, setProposalBusy] = useState<string | null>(null);
   const [agentBusy, setAgentBusy] = useState(false);
@@ -370,6 +384,11 @@ export function usePlanData(init: PlanDataInit) {
       // the full MAX_MS to no purpose. Stop: something that cannot answer the question is not
       // worth asking again.
       if (typeof s?.generating !== 'number') return;
+      // Published on EVERY tick, including the one that stops the loop — otherwise a run that
+      // finishes while the client is away would leave the indicator up until the next poll
+      // that never comes.
+      setGenerating(s.generating);
+      setWrittenOf(s.total);
 
       // Nothing in flight and nothing has moved: the run is over (or never started).
       if (s.generating === 0 && lastSeen !== null && s.lastWritten === lastSeen) {
@@ -1151,6 +1170,7 @@ export function usePlanData(init: PlanDataInit) {
     // data
     posts, crossMonthPosts, calendarPosts, beats, beatsOn, cycles, proposals, notes, ideas, ideasError, today: init.today, clientName: init.clientName, pendingMoves,
     questions: init.questions, intake, savedExtraction, durable, intakeOpen, intakeBusy, viewedCyclePrePlanning, openIntake, closeIntake, submitIntake,
+    generating, writtenOf,
     homeCycleId: init.homeCycleId, viewedCycleId, readOnly, canEdit, todayCycleId,
     surfaceKind, draft, setDraft,
     // status

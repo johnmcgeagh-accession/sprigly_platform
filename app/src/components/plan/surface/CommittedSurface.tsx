@@ -38,6 +38,7 @@ import { PlanShell } from './PlanShell';
 import type { PlanView } from './NavPill';
 import { WeekStrip, type DayMark } from './WeekStrip';
 import { MonthGrid } from './MonthGrid';
+import { MonthWorking } from './MonthWorking';
 import { DayPanel } from './DayPanel';
 import { TasksPanel } from './TasksPanel';
 import { IdeasPanel } from './IdeasPanel';
@@ -394,6 +395,26 @@ export function CommittedSurface({ data, frame = 'mobile' }: { data: PlanData; f
     waiting: waitingPosts.length,
   });
   const firstWaiting = waitingPosts[0];
+  /**
+   * THE RUN, RECONSTRUCTED FROM THE SERVER ON EVERY MOUNT.
+   *
+   * `data.generating` is `readGenerationStatus` as of the last poll, which starts on mount — so
+   * a client who closed the tab during a five-minute run and came back sees this immediately,
+   * without the page having remembered anything. When the run finished while they were away it
+   * is simply zero and nothing renders: they return to a finished month, which is the honest
+   * report of what happened.
+   *
+   * NON-BLOCKING, unlike every other MonthWorking mount. Generation does not replace the month,
+   * it fills captions into beats that are already right, and the grid is already marking those
+   * posts 'onway'. Dimming a readable month for five minutes to say so would take more away
+   * than it gives.
+   */
+  const writing = data.generating > 0;
+  const writingLabel = `Writing ${monthTitle(month)}`;
+  const writingDetail = data.writtenOf > 0
+    ? `${data.writtenOf - data.generating} of ${data.writtenOf} written`
+    : undefined;
+
   const monthFooter = !foot.ask || !firstWaiting ? foot.before : (
     <>
       {foot.before}
@@ -567,11 +588,13 @@ export function CommittedSurface({ data, frame = 'mobile' }: { data: PlanData; f
           ? { region: <TasksPanel data={data} onOpen={openFromRegion} frame="desktop" /> }
           : {})}
         month={railView !== 'plan' ? null : (
-          <MonthGrid
-            month={month} selected={selected} today={data.today} frame="desktop"
-            marksFor={marksFor} changedFor={dayChanged} ringedFor={ringed}
-            onPick={pickFromGrid} footer={monthFooter} lockToMonth
-          />
+          <MonthWorking working={writing} label={writingLabel} detail={writingDetail} blocking={false}>
+            <MonthGrid
+              month={month} selected={selected} today={data.today} frame="desktop"
+              marksFor={marksFor} changedFor={dayChanged} ringedFor={ringed}
+              onPick={pickFromGrid} footer={monthFooter} lockToMonth
+            />
+          </MonthWorking>
         )}
         day={addNode('panel')
             ?? (openPost
@@ -671,13 +694,15 @@ export function CommittedSurface({ data, frame = 'mobile' }: { data: PlanData; f
         />
       )}
       {view === 'month' && (
-        <MonthGrid
-          month={month} selected={selected} today={data.today}
-          // lockToMonth: the grid's padding cells are another month's days, and picking one is
-          // the jump (round 4). Leaving the month is the ‹ › arrows' job — they refetch.
-          marksFor={marksFor} changedFor={dayChanged} onPick={pickFromGrid} footer={monthFooter} lockToMonth
-          summary={<MonthDaySummary date={selected} items={rowsFromPosts(postsOn(selected), timeOf)} onOpen={setOpenId} />}
-        />
+        <MonthWorking working={writing} label={writingLabel} detail={writingDetail} blocking={false}>
+          <MonthGrid
+            month={month} selected={selected} today={data.today}
+            // lockToMonth: the grid's padding cells are another month's days, and picking one is
+            // the jump (round 4). Leaving the month is the ‹ › arrows' job — they refetch.
+            marksFor={marksFor} changedFor={dayChanged} onPick={pickFromGrid} footer={monthFooter} lockToMonth
+            summary={<MonthDaySummary date={selected} items={rowsFromPosts(postsOn(selected), timeOf)} onOpen={setOpenId} />}
+          />
+        </MonthWorking>
       )}
       {view === 'tasks' && <TasksPanel data={data} onOpen={setOpenId} />}
     </PlanShell>

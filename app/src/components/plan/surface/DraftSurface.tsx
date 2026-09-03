@@ -421,6 +421,15 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
    */
   const workingLabel = `Working your brief into ${monthName}`;
 
+  /**
+   * The gap between "Yes, write them" and the reload that lands on the generating month.
+   *
+   * Blocking, unlike the generation indicator on the other side of it: this month is about to
+   * be navigated away from and every beat on it is about to change status, so a tap here would
+   * act on rows that are already gone.
+   */
+  const startingLabel = `Starting the writing for ${monthName}`;
+
   const summaryNode = (
     <DraftMonthSummary
       summary={summary} expanded={summaryOpen} onToggle={() => setSummaryOpen((v) => !v)}
@@ -507,7 +516,7 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
            and the dock are outside it and stay live — a brief rewrites the month, and the month
            is exactly what stops answering while it does. */
         month={railView !== 'plan' ? null : (
-          <MonthWorking working={data.intakeBusy} label={workingLabel}>
+          <MonthWorking working={data.intakeBusy || approval.starting} label={approval.starting ? startingLabel : workingLabel}>
             {showingReceipt && m.receipt ? (
               <ReceiptPanel
                 receipt={m.receipt} monthName={monthName} editable={editable}
@@ -734,7 +743,7 @@ export function DraftSurface({ data, frame = 'mobile' }: { data: PlanData; frame
           went with the view would be a second flex child appearing in the column, which is the
           reflow this treatment exists to avoid. The strip, the header and the nav pill are
           above it in the shell and are untouched. */}
-      <MonthWorking working={data.intakeBusy} label={workingLabel}>
+      <MonthWorking working={data.intakeBusy || approval.starting} label={approval.starting ? startingLabel : workingLabel}>
         {/* THE PANEL REPLACES THE VIEW rather than stacking over it. Not a sheet: a sheet implies
             a task to finish and a way out to find, and this is a thing to read. The nav pill stays
             live underneath, so leaving is the same gesture as changing view. */}
